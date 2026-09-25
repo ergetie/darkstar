@@ -2851,7 +2851,9 @@ class ExecutorEngine:
         decision = phase_ctrl.decide(
             now=now,
             target_power_kw=target_power_kw,
-            three_phase_min_kw_value=three_phase_min_kw(charger_cfg.min_current_a),
+            three_phase_min_kw_value=three_phase_min_kw(
+                charger_cfg.min_current_a, self.config.ev_nominal_voltage_v
+            ),
             hysteresis_kw=charger_cfg.phase_switch_hysteresis_kw,
             min_dwell_s=charger_cfg.phase_switch_min_dwell_s,
             enabled=True,
@@ -2934,7 +2936,10 @@ class ExecutorEngine:
             )
             if manual_target_a is not None:
                 target_power_kw = (
-                    manual_target_a * 230.0 * len(charger_cfg.phases or [1, 2, 3]) / 1000.0
+                    manual_target_a
+                    * self.config.ev_nominal_voltage_v
+                    * len(charger_cfg.phases or [1, 2, 3])
+                    / 1000.0
                 )
             elif surplus_eligible:
                 target_power_kw = surplus_kw
@@ -2943,7 +2948,9 @@ class ExecutorEngine:
                 # representable "on" state (1-phase minimum current) for
                 # phase-mode selection (D3) rather than 0, which would read
                 # as "should be off".
-                target_power_kw = one_phase_min_kw(charger_cfg.min_current_a)
+                target_power_kw = one_phase_min_kw(
+                    charger_cfg.min_current_a, self.config.ev_nominal_voltage_v
+                )
             else:
                 target_power_kw = charger_plan_kw
 
@@ -2992,6 +2999,7 @@ class ExecutorEngine:
                 resume_delay_s=self.config.load_balancing.resume_delay_s,
                 resume_margin_percent=self.config.load_balancing.resume_margin_percent,
                 phase_switch_can_lower_floor=phase_switch_can_lower_floor,
+                voltage_v=self.config.ev_nominal_voltage_v,
             )
             self._ev_surplus_targets[charger_id] = result.target_a
             self._ev_surplus_status[charger_id] = {"state": result.state, "reason": result.reason}
@@ -3065,7 +3073,11 @@ class ExecutorEngine:
                 should_charge = self._charger_should_be_on(slot, charger_id)
                 if charger_plan_kw > 0.1:
                     planner_target_a = planned_kw_to_amps(
-                        charger_plan_kw, len(phases), charger_cfg.min_current_a, max_current_a
+                        charger_plan_kw,
+                        len(phases),
+                        charger_cfg.min_current_a,
+                        max_current_a,
+                        self.config.ev_nominal_voltage_v,
                     )
                 elif should_charge:
                     # Keep-on-only: no planned energy, hold the relay closed at
@@ -3725,7 +3737,7 @@ class ExecutorEngine:
 
         Source order: the charger's per-phase sensors (max across phases) →
         the charger's total power reading from the load disaggregator,
-        divided by 230 V x active phase count → None. The per-phase read also
+        divided by system.grid.nominal_voltage_v x active phase count → None. The per-phase read also
         refreshes dev_state.active_phases, so it happens once per tick.
         """
         phase_amps = await self._update_ev_active_phases(charger_cfg, dev_state)
@@ -3742,7 +3754,9 @@ class ExecutorEngine:
         if load is None or not load.is_healthy:
             return
         phase_count = self._resolve_active_phase_count(charger_cfg, dev_state, phase_ctrl)
-        dev_state.measured_draw_a = abs(load.current_power_kw) * 1000 / (230 * phase_count)
+        dev_state.measured_draw_a = (
+            abs(load.current_power_kw) * 1000 / (self.config.ev_nominal_voltage_v * phase_count)
+        )
 
     @staticmethod
     def _effective_baseline_a(
@@ -3773,7 +3787,7 @@ class ExecutorEngine:
         known session; callers fall back to charger_cfg.phases until the first
         successful measurement (dev_state.active_phases is None).
 
-        Returns the readable phases' values in amps (W/kW converted at 230 V);
+        Returns the readable phases' values in amps (W/kW converted at the nominal grid voltage);
         empty when no per-phase sensor is configured or readable.
         """
         if not self.ha_client:
@@ -3788,6 +3802,7 @@ class ExecutorEngine:
         if not configured:
             return []
 
+        voltage_v = self.config.ev_nominal_voltage_v
         active: list[int] = []
         amps: list[float] = []
         for phase, entity in configured.items():
@@ -3804,10 +3819,10 @@ class ExecutorEngine:
             unit = str(raw_state.get("attributes", {}).get("unit_of_measurement", "")).upper()
             if unit == "W":
                 is_active = value > _EV_PHASE_ACTIVE_THRESHOLD_W
-                amps.append(value / 230)
+                amps.append(value / voltage_v)
             elif unit == "KW":
                 is_active = value * 1000 > _EV_PHASE_ACTIVE_THRESHOLD_W
-                amps.append(value * 1000 / 230)
+                amps.append(value * 1000 / voltage_v)
             else:
                 is_active = value > _EV_PHASE_ACTIVE_THRESHOLD_A
                 amps.append(value)
@@ -3866,6 +3881,7 @@ class ExecutorEngine:
                         active_phase_count,
                         charger_cfg.min_current_a,
                         max_current_a,
+                        self.config.ev_nominal_voltage_v,
                     )
                 else:
                     # Keep-on-only (no balancer active): hold the relay closed

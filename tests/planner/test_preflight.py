@@ -155,7 +155,7 @@ def test_soc_staleness_missing_timestamp_no_error():
 def test_ev_chargers_missing_power():
     config = _valid_config()
     config["ev_chargers"] = [
-        {"id": "ev1", "enabled": True, "max_power_kw": 0.0, "battery_capacity_kwh": 60.0}
+        {"id": "ev1", "enabled": True, "rated_power_kw": 0.0, "battery_capacity_kwh": 60.0}
     ]
     with pytest.raises(PlannerError) as exc:
         check_ev_chargers(config)
@@ -166,7 +166,7 @@ def test_ev_chargers_missing_power():
 def test_ev_chargers_invalid_capacity():
     config = _valid_config()
     config["ev_chargers"] = [
-        {"id": "ev1", "enabled": True, "max_power_kw": 11.0, "battery_capacity_kwh": 0.0}
+        {"id": "ev1", "enabled": True, "rated_power_kw": 11.0, "battery_capacity_kwh": 0.0}
     ]
     with pytest.raises(PlannerError) as exc:
         check_ev_chargers(config)
@@ -176,7 +176,7 @@ def test_ev_chargers_invalid_capacity():
 def test_ev_chargers_valid():
     config = _valid_config()
     config["ev_chargers"] = [
-        {"id": "ev1", "enabled": True, "max_power_kw": 11.0, "battery_capacity_kwh": 60.0}
+        {"id": "ev1", "enabled": True, "rated_power_kw": 11.0, "battery_capacity_kwh": 60.0}
     ]
     check_ev_chargers(config)
 
@@ -184,7 +184,7 @@ def test_ev_chargers_valid():
 def test_ev_chargers_disabled_skipped():
     config = _valid_config()
     config["ev_chargers"] = [
-        {"id": "ev1", "enabled": False, "max_power_kw": 0.0, "battery_capacity_kwh": 0.0}
+        {"id": "ev1", "enabled": False, "rated_power_kw": 0.0, "battery_capacity_kwh": 0.0}
     ]
     check_ev_chargers(config)  # Disabled charger — no error
 
@@ -195,7 +195,7 @@ def test_ev_deadlines_past_logs_warning(caplog):
     config = _valid_config()
     past_deadline = (_now() - timedelta(hours=1)).isoformat()
     config["ev_chargers"] = [
-        {"id": "ev1", "enabled": True, "max_power_kw": 11.0, "battery_capacity_kwh": 60.0, "deadline": past_deadline}
+        {"id": "ev1", "enabled": True, "rated_power_kw": 11.0, "battery_capacity_kwh": 60.0, "deadline": past_deadline}
     ]
     with caplog.at_level(logging.WARNING, logger="darkstar.planner.preflight"):
         check_ev_deadlines(config, _now())
@@ -206,7 +206,7 @@ def test_ev_deadlines_future_no_warning(caplog):
     config = _valid_config()
     future_deadline = (_now() + timedelta(hours=5)).isoformat()
     config["ev_chargers"] = [
-        {"id": "ev1", "enabled": True, "max_power_kw": 11.0, "battery_capacity_kwh": 60.0, "deadline": future_deadline}
+        {"id": "ev1", "enabled": True, "rated_power_kw": 11.0, "battery_capacity_kwh": 60.0, "deadline": future_deadline}
     ]
     with caplog.at_level(logging.WARNING, logger="darkstar.planner.preflight"):
         check_ev_deadlines(config, _now())

@@ -85,8 +85,14 @@ class TestPlannedKwToAmps:
         # 6A * 230V * 3 phases = 4.14kW -> exactly 6A
         assert planned_kw_to_amps(4.14, 3, min_current_a=6, max_current_a=16) == 6
 
+    def test_configured_voltage_is_honoured(self):
+        # ev-current-control: 7.2 kW on 3 phases at 240 V -> exactly 10 A
+        assert planned_kw_to_amps(7.2, 3, min_current_a=6, max_current_a=16, voltage_v=240.0) == 10
+        # Same plan at the 230 V default rounds up to 11 A
+        assert planned_kw_to_amps(7.2, 3, min_current_a=6, max_current_a=16) == 11
 
-BASE = datetime(2026, 1, 1, 12, 0, 0)
+
+BASE =datetime(2026, 1, 1, 12, 0, 0)
 
 
 def make_lb(**overrides) -> LoadBalancer:

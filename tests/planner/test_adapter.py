@@ -179,8 +179,8 @@ class TestBuildEvChargerInputs:
     def test_disabled_chargers_excluded(self):
         """Disabled chargers are filtered out."""
         chargers = [
-            {"id": "tesla", "enabled": True, "max_power_kw": 11.0, "battery_capacity_kwh": 82.0},
-            {"id": "fiat", "enabled": False, "max_power_kw": 7.4, "battery_capacity_kwh": 42.0},
+            {"id": "tesla", "enabled": True, "rated_power_kw": 11.0, "battery_capacity_kwh": 82.0},
+            {"id": "fiat", "enabled": False, "rated_power_kw": 7.4, "battery_capacity_kwh": 42.0},
         ]
         result = build_ev_charger_inputs(chargers)
         assert len(result) == 1
@@ -192,7 +192,7 @@ class TestBuildEvChargerInputs:
             {
                 "id": "tesla",
                 "enabled": True,
-                "max_power_kw": 11.0,
+                "rated_power_kw": 11.0,
                 "battery_capacity_kwh": 82.0,
                 "target_soc_percent": 80,
                 "ready_by": "07:00",
@@ -210,7 +210,7 @@ class TestBuildEvChargerInputs:
     def test_unplugged_charger_included_in_config(self):
         """Unplugged chargers are included but flagged as not plugged in."""
         chargers = [
-            {"id": "main", "enabled": True, "max_power_kw": 7.4, "battery_capacity_kwh": 40.0}
+            {"id": "main", "enabled": True, "rated_power_kw": 7.4, "battery_capacity_kwh": 40.0}
         ]
         # No HA state provided → defaults: not plugged in
         result = build_ev_charger_inputs(chargers, ev_charger_states=None)
@@ -223,10 +223,10 @@ class TestBuildEvChargerInputs:
             {
                 "id": "charger_a",
                 "enabled": True,
-                "max_power_kw": 11.0,
+                "rated_power_kw": 11.0,
                 "battery_capacity_kwh": 82.0,
             },
-            {"id": "charger_b", "enabled": True, "max_power_kw": 7.4, "battery_capacity_kwh": 40.0},
+            {"id": "charger_b", "enabled": True, "rated_power_kw": 7.4, "battery_capacity_kwh": 40.0},
         ]
         states = [
             {"id": "charger_a", "soc_percent": 75.0, "plugged_in": True},
@@ -243,8 +243,8 @@ class TestBuildEvChargerInputs:
     def test_charger_without_id_is_skipped(self):
         """Chargers without id field are skipped."""
         chargers = [
-            {"enabled": True, "max_power_kw": 7.4},  # No id
-            {"id": "charger_b", "enabled": True, "max_power_kw": 7.4},
+            {"enabled": True, "rated_power_kw": 7.4},  # No id
+            {"id": "charger_b", "enabled": True, "rated_power_kw": 7.4},
         ]
         result = build_ev_charger_inputs(chargers)
         assert len(result) == 1
@@ -257,7 +257,7 @@ class TestBuildEvChargerInputs:
                 "id": "tesla",
                 "enabled": True,
                 "type": "current",
-                "max_power_kw": 11.0,
+                "max_current_a": 16,
                 "min_current_a": 6,
                 "phases": [1, 2, 3],
             }
@@ -274,7 +274,7 @@ class TestBuildEvChargerInputs:
                 "id": "fiat",
                 "enabled": True,
                 "type": "current",
-                "max_power_kw": 7.4,
+                "max_current_a": 32,
                 "min_current_a": 6,
                 "phases": [2],
             }
@@ -291,7 +291,7 @@ class TestBuildEvChargerInputs:
                 "id": "wallbox",
                 "enabled": True,
                 "type": "binary",
-                "max_power_kw": 11.0,
+                "rated_power_kw": 11.0,
             }
         ]
         result = build_ev_charger_inputs(chargers)
@@ -304,7 +304,7 @@ class TestBuildEvChargerInputs:
                 "id": "tesla",
                 "enabled": True,
                 "type": "current",
-                "max_power_kw": 11.0,
+                "max_current_a": 16,
                 "phases": [1, 2, 3],
             }
         ]
@@ -328,7 +328,7 @@ class TestKeplerConfigWithARC15:
                 "comfort_level": 3,
             },
             "ev_charger": {
-                "max_power_kw": 11.0,
+                "rated_power_kw": 11.0,
                 "battery_capacity_kwh": 82.0,
             },
         }
@@ -368,7 +368,7 @@ class TestKeplerConfigWithARC15:
                 {
                     "id": "tesla",
                     "enabled": True,
-                    "max_power_kw": 11.0,
+                    "rated_power_kw": 11.0,
                     "battery_capacity_kwh": 82.0,
                 },
             ],
@@ -419,7 +419,7 @@ class TestKeplerConfigWithARC15:
                 {
                     "id": "tesla",
                     "enabled": False,
-                    "max_power_kw": 11.0,
+                    "rated_power_kw": 11.0,
                     "battery_capacity_kwh": 82.0,
                 },
             ],
@@ -444,7 +444,7 @@ class TestKeplerConfigWithARC15:
                 "min_spacing_hours": 5.0,
             },
             "ev_charger": {
-                "max_power_kw": 11.0,
+                "rated_power_kw": 11.0,
                 "battery_capacity_kwh": 82.0,
             },
         }

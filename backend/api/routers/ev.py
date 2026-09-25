@@ -29,6 +29,7 @@ from backend.core.ev_plug import (
     is_unreachable_state,
     resolve_plug_state,
 )
+from backend.core.ev_power import charger_disabled_reason, charger_max_kw, nominal_voltage_v
 from backend.core.ev_state import read_ev_state, update_ev_state
 from backend.core.ha_client import (
     get_ha_entity_state,
@@ -265,7 +266,7 @@ def _compute_status(
     plugged_in: bool,
     deadline: datetime | None,
     required_kwh: float | None,
-    max_power_kw: float,
+    max_kw: float,
     now: datetime,
 ) -> str:
     """Classify a charger: on_track | behind | complete | idle."""
@@ -276,8 +277,32 @@ def _compute_status(
     seconds_left = (deadline - now).total_seconds()
     if seconds_left <= 0.0:
         return "behind"
-    deliverable = max_power_kw * (seconds_left / 3600.0)
+    deliverable = max_kw * (seconds_left / 3600.0)
     return "on_track" if deliverable + 1e-6 >= required_kwh else "behind"
+
+
+def _planned_by_day_view(raw: Any) -> list[dict[str, Any]]:
+    """Validated ``planned_by_day`` entries from the state file (malformed ones dropped)."""
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in cast("list[Any]", raw):
+        if not isinstance(item, dict):
+            continue
+        entry = cast("dict[str, Any]", item)
+        day = entry.get("date")
+        kwh = entry.get("kwh")
+        basis = entry.get("basis")
+        if not isinstance(day, str) or not isinstance(kwh, int | float):
+            continue
+        out.append(
+            {
+                "date": day,
+                "kwh": float(kwh),
+                "basis": basis if basis in ("known", "estimated") else "estimated",
+            }
+        )
+    return out
 
 
 def _load_schedule_meta() -> dict[str, Any]:
@@ -342,6 +367,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
     """Return all configured EV chargers with live sensors, goal, progress, status."""
     config = load_yaml("config.yaml")
     ev_chargers_cfg: list[dict[str, Any]] = config.get("ev_chargers", []) or []
+    ev_voltage = nominal_voltage_v(config)
     state_by_id = _load_ev_state()
     schedule_meta = _load_schedule_meta()
     goal_diagnostics = cast(
@@ -416,7 +442,11 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
         )
         persisted = {k: v for k, v in entry.items() if k != "manual_charge"}
 
-        max_power_kw = float(ev.get("max_power_kw") or 7.4)
+        max_kw = charger_max_kw(ev, ev_voltage)
+        # A charger whose power cannot be derived is disabled for planning;
+        # surface why (never silently drop it from the card).
+        problem = charger_disabled_reason(ev, ev_voltage)
+        disabled_reason = problem[1] if problem is not None else None
 
         # Same default as the executor (EVChargerDeviceConfig.type).
         charger_type = str(ev.get("type") or "binary").lower()
@@ -455,8 +485,8 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 "required_kwh": None,
                 "delivered_kwh": None,
                 "remaining_kwh": None,
-                "daily_quota_kwh": None,
-                "quota_schedule": None,
+                "planned_by_day": [],
+                "deferral_price_source": None,
                 "keep_on_after_target": bool(ev.get("keep_on_after_target", False)),
                 "ha_ready_by_entity": ev.get("ha_ready_by_entity"),
                 "ha_target_soc_entity": ev.get("ha_target_soc_entity"),
@@ -472,6 +502,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 "last_updated": None,
                 "last_planned_at": None,
                 "manual_charge": manual_charge,
+                "disabled_reason": disabled_reason,
             }
 
         deadline = _parse_iso_deadline(persisted.get("deadline"))
@@ -496,7 +527,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 plugged_in if plugged_in is not None else False,
                 deadline,
                 required_kwh if required_kwh is not None else None,
-                max_power_kw,
+                max_kw,
                 now,
             )
 
@@ -523,8 +554,8 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             "required_kwh": persisted.get("required_kwh"),
             "delivered_kwh": persisted.get("delivered_kwh"),
             "remaining_kwh": persisted.get("remaining_kwh"),
-            "daily_quota_kwh": persisted.get("daily_quota_kwh"),
-            "quota_schedule": persisted.get("quota_schedule"),
+            "planned_by_day": _planned_by_day_view(persisted.get("planned_by_day")),
+            "deferral_price_source": persisted.get("deferral_price_source"),
             "keep_on_after_target": bool(persisted.get("keep_on_after_target", False)),
             "ha_ready_by_entity": ev.get("ha_ready_by_entity"),
             "ha_target_soc_entity": ev.get("ha_target_soc_entity"),
@@ -543,6 +574,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             "last_updated": persisted.get("last_updated"),
             "last_planned_at": persisted.get("last_planned_at"),
             "manual_charge": manual_charge,
+            "disabled_reason": disabled_reason,
         }
 
     results = await asyncio.gather(*(_build_charger(ev) for ev in ev_chargers_cfg))

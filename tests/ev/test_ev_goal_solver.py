@@ -18,8 +18,7 @@ def _slots(
 ) -> list[KeplerInputSlot]:
     if start is None:
         tz = pytz_timezone("Europe/Stockholm")
-        # Default to the real current date so that daily_quota logic (which uses
-        # date.today()) aligns with the synthetic slots.
+        # Default to the real current date (midnight) for readable slot days.
         start = tz.localize(datetime.combine(date.today(), datetime.min.time()))
     if import_prices is None:
         import_prices = [1.0] * n
@@ -42,7 +41,7 @@ def _slots(
 def _ev(
     required_kwh: float,
     deadline: datetime | None = None,
-    quota_by_day: dict[date, float] | None = None,
+    deferral_tiers: list[tuple[float, float]] | None = None,
     max_power_kw: float = 7.4,
     battery_capacity_kwh: float = 100.0,
     soc_percent: float = 0.0,
@@ -55,7 +54,7 @@ def _ev(
         plugged_in=True,
         deadline=deadline,
         required_kwh=required_kwh,
-        quota_by_day=quota_by_day,
+        deferral_tiers=deferral_tiers or [],
     )
 
 
@@ -104,22 +103,16 @@ def test_shortfall_when_deadline_is_tight():
     assert shortfall > 5.0
 
 
-def test_daily_quota_caps_todays_energy():
-    """quota_by_day limits how much energy is delivered on the current calendar day."""
-    tz = pytz_timezone("Europe/Stockholm")
-    # Use today's date so the solver's date.today() matches the slot calendar day.
-    base = tz.localize(datetime.combine(date.today(), datetime.min.time())) + timedelta(hours=22)
-    # 4 slots: two today (22-00), two tomorrow (00-02)
-    slots = _slots(n=4, import_prices=[0.1, 0.1, 0.1, 0.1], start=base)
-    tomorrow = base.date() + timedelta(days=1)
+def test_deferral_tier_cheaper_than_horizon_takes_the_energy():
+    """A deferral tier priced below every in-horizon slot absorbs the requirement."""
+    slots = _slots(n=4, import_prices=[2.0, 2.0, 2.0, 2.0])
     inp = KeplerInput(slots=slots, initial_soc_kwh=0.0)
     cfg = _config(
         [
             _ev(
-                required_kwh=20.0,
-                deadline=slots[-1].end_time,
-                quota_by_day={base.date(): 3.0, tomorrow: 17.0},
-                max_power_kw=7.4,
+                required_kwh=10.0,
+                deadline=slots[-1].end_time + timedelta(days=1),
+                deferral_tiers=[(1.0, 20.0)],
             )
         ]
     )
@@ -127,16 +120,8 @@ def test_daily_quota_caps_todays_energy():
     result = KeplerSolver().solve(inp, cfg)
     assert result.is_optimal
 
-    today_energy = sum(
-        s.ev_charge_kw * 1.0 for s in result.slots if s.start_time.date() == base.date()
-    )
-    assert today_energy <= 3.0 + 0.01
-    # The remaining energy is deferred to tomorrow
-    tomorrow_energy = sum(
-        s.ev_charge_kw * 1.0 for s in result.slots if s.start_time.date() != base.date()
-    )
-    assert tomorrow_energy > 0.0
-
+    assert sum(s.ev_charge_kw for s in result.slots) == pytest.approx(0.0, abs=0.01)
+    assert result.ev_deferred_kwh["test_ev"] == [pytest.approx(10.0, abs=0.01)]
 
 def test_deferral_to_cheaper_slots():
     """Solver avoids expensive slots when the goal can be met in cheaper slots."""

@@ -87,6 +87,7 @@ export const EVTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) =>
                                 </div>
                                 <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
                                     {section.fields.map((field) => {
+                                        if (field.isAdvanced && !advancedMode) return null
                                         if (!shouldRenderField(field, form)) return null
                                         return (
                                             <SettingsField
@@ -97,6 +98,7 @@ export const EVTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) =>
                                                 error={fieldErrors[field.key]}
                                                 haEntities={haEntities}
                                                 haLoading={haLoading}
+                                                config={config as unknown as Record<string, unknown>}
                                             />
                                         )
                                     })}

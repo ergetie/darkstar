@@ -429,3 +429,31 @@ class TestPhaseMinHelpers:
 
     def test_three_phase_min_kw(self):
         assert three_phase_min_kw(6) == 6 * 3 * 230.0 / 1000.0
+
+
+class TestConfiguredNominalVoltage:
+    """ev-planning-model: surplus amps and phase floors use the configured grid voltage."""
+
+    def test_min_kw_helpers_scale_with_voltage(self):
+        assert one_phase_min_kw(6) == 6 * 230 / 1000
+        assert one_phase_min_kw(6, 240.0) == 6 * 240 / 1000
+        assert three_phase_min_kw(6, 120.0) == 6 * 3 * 120 / 1000
+
+    def test_surplus_delta_uses_voltage(self):
+        ctrl = EVSurplusController()
+        result = ctrl.tick(
+            now=NOW,
+            surplus_kw=-3.0,
+            deadband_kw=0.2,
+            current_setpoint_a=16,
+            min_current_a=6,
+            max_current_a=16,
+            active_phase_count=3,
+            increase_step_a=1,
+            resume_delay_s=120,
+            resume_margin_percent=90.0,
+            phase_switch_can_lower_floor=False,
+            voltage_v=120.0,
+        )
+        # delta = floor(-3000/(120*3)) = floor(-8.33) = -9 -> 16-9=7
+        assert result.target_a == 7

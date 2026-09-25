@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from backend.core.ev_power import charger_disabled_reason, charger_max_kw, nominal_voltage_v
 from backend.core.ha_client import get_ha_sensor_kw_normalized
 
 from .base import DeferrableLoad, LoadType
@@ -105,18 +106,19 @@ class LoadDisaggregator:
             name = ev.get("name", load_id)
             entity_id = ev.get("sensor")
             l_type_str = ev.get("type", "binary")
-            nominal_power = ev.get("nominal_power_kw", ev.get("max_power_kw", 0.0))
+            voltage = nominal_voltage_v(self.config)
+            nominal_power = charger_max_kw(ev, voltage)
 
             if not entity_id:
                 logger.warning(f"No sensor configured for EV charger '{load_id}', skipping.")
                 continue
 
             disabled_reason = None
-            if not nominal_power or float(nominal_power) <= 0:
-                disabled_reason = "missing_power_kw"
+            problem = charger_disabled_reason(ev, voltage)
+            if problem is not None:
+                disabled_reason, message = problem
                 logger.warning(
-                    f"EV charger '{load_id}' has missing or zero max_power_kw "
-                    f"({nominal_power}). Registering as disabled."
+                    f"EV charger '{load_id}' registered as disabled ({disabled_reason}): {message}"
                 )
 
             # Map type string to enum
@@ -133,7 +135,7 @@ class LoadDisaggregator:
                 name=name,
                 sensor_key=entity_id,
                 load_type=l_type,
-                nominal_power_kw=float(nominal_power) if nominal_power else 0.0,
+                nominal_power_kw=nominal_power,
                 disabled_reason=disabled_reason,
             )
             self.register_load(load)

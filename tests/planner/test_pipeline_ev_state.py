@@ -31,6 +31,9 @@ def test_persist_ev_multi_day_state_preserves_goals(tmp_path, monkeypatch):
             "keep_on_after_target": True,
             "source": "api",
             "last_updated": "2026-06-10T14:30:00+02:00",
+            # Legacy progress keys from a previous version are dropped.
+            "daily_quota_kwh": 3.0,
+            "quota_schedule": {"2026-06-10": 3.0},
         }
     }
     state_file.write_text(json.dumps(existing))
@@ -43,15 +46,19 @@ def test_persist_ev_multi_day_state_preserves_goals(tmp_path, monkeypatch):
             "required_kwh": 15.0,
             "soc_percent": 50.0,
             "plugged_in": True,
-            "daily_quota_kwh": 10.0,
-            "quota_schedule": {"2026-06-11": 10.0},
+            "planned_by_day": [
+                {"date": "2026-06-10", "kwh": 5.0, "basis": "known"},
+                {"date": "2026-06-11", "kwh": 10.0, "basis": "estimated"},
+            ],
+            "deferral_price_source": "forecast",
+            "effective_margin_percent": 31.0,
         }
     ]
     # Config carries only hardware facts now — no goal fields.
     ev_chargers_cfg = [
         {
             "id": "ev1",
-            "max_power_kw": 7.4,
+            "rated_power_kw": 7.4,
             "battery_capacity_kwh": 100.0,
         }
     ]
@@ -78,8 +85,14 @@ def test_persist_ev_multi_day_state_preserves_goals(tmp_path, monkeypatch):
 
     # Updated/computed progress fields
     assert charger["required_kwh"] == 15.0
-    assert charger["daily_quota_kwh"] == 10.0
-    assert charger["quota_schedule"] == {"2026-06-11": 10.0}
+    assert charger["planned_by_day"] == [
+        {"date": "2026-06-10", "kwh": 5.0, "basis": "known"},
+        {"date": "2026-06-11", "kwh": 10.0, "basis": "estimated"},
+    ]
+    assert charger["deferral_price_source"] == "forecast"
+    assert charger["effective_margin_percent"] == 31.0
+    assert "daily_quota_kwh" not in charger
+    assert "quota_schedule" not in charger
     assert charger["current_soc_percent"] == 50.0
     assert charger["last_planned_at"] == now.isoformat()
 
@@ -95,7 +108,7 @@ def test_persist_keeps_executor_manual_charge(tmp_path, monkeypatch):
 
     _persist_ev_multi_day_state(
         [{"id": "ev1", "deadline": None, "required_kwh": None, "soc_percent": 50.0}],
-        [{"id": "ev1", "max_power_kw": 7.4}],
+        [{"id": "ev1", "rated_power_kw": 7.4}],
         sqlite_path="",
         tz=pytz.timezone("Europe/Stockholm"),
         now=datetime(2026, 6, 10, 15, 0, tzinfo=UTC),
@@ -126,7 +139,7 @@ def test_persist_skips_chargers_with_no_goal(tmp_path, monkeypatch):
     ev_chargers_cfg = [
         {
             "id": "ev1",
-            "max_power_kw": 7.4,
+            "rated_power_kw": 7.4,
             "battery_capacity_kwh": 100.0,
         }
     ]
@@ -173,7 +186,7 @@ def test_persist_preserves_disabled_charger_entry(tmp_path, monkeypatch):
             "plugged_in": False,
         }
     ]
-    ev_chargers_cfg = [{"id": "ev1", "max_power_kw": 7.4, "battery_capacity_kwh": 100.0}]
+    ev_chargers_cfg = [{"id": "ev1", "rated_power_kw": 7.4, "battery_capacity_kwh": 100.0}]
 
     tz = pytz.timezone("Europe/Stockholm")
     now = datetime(2026, 6, 10, 15, 0, tzinfo=UTC)
@@ -202,7 +215,7 @@ def test_merge_ev_goals_from_state_takes_precedence_over_config():
     ev_chargers_cfg_raw = [
         {
             "id": "ev1",
-            "max_power_kw": 7.4,
+            "rated_power_kw": 7.4,
             "battery_capacity_kwh": 100.0,
         }
     ]
@@ -214,12 +227,12 @@ def test_merge_ev_goals_from_state_takes_precedence_over_config():
     assert merged[0]["repeat"] == "none"
     assert merged[0]["ready_by_date"] == "2026-06-12"
     assert merged[0]["keep_on_after_target"] is True
-    assert merged[0]["max_power_kw"] == 7.4
+    assert merged[0]["rated_power_kw"] == 7.4
 
 
 def test_merge_ev_goals_from_state_no_goal_is_inert():
     """A charger absent from the state file gets no goal — never a default."""
-    ev_chargers_cfg_raw = [{"id": "ev1", "max_power_kw": 7.4, "battery_capacity_kwh": 100.0}]
+    ev_chargers_cfg_raw = [{"id": "ev1", "rated_power_kw": 7.4, "battery_capacity_kwh": 100.0}]
 
     merged = merge_ev_goals_from_state(ev_chargers_cfg_raw, {})
 

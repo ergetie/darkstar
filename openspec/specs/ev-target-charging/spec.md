@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines how EV charging is governed by a per-charger goal — a target state-of-charge to be reached by a ready-by time — replacing the prior willingness-to-pay / penalty-bucket model. Charging is driven by energy need, not SEK/kWh incentive.
-
 ## Requirements
-
 ### Requirement: EV charging is driven by a target SoC and a ready-by time
 EV charging SHALL be governed by a per-charger goal — a `target_soc_percent` to be reached by a `ready_by` time — not by a willingness-to-pay. The system SHALL derive the required energy from the goal and SHALL NOT require the user to set any SEK/kWh value. Goals SHALL be set via the dashboard, API, or mapped HA entities and stored in `data/ev_multi_day_state.json`; `config.yaml` SHALL NOT carry goal fields.
 
@@ -35,30 +33,39 @@ The pipeline SHALL compute `required_kwh = max(0, (target_soc_percent − curren
 - **THEN** `required_kwh` SHALL be 0 and no charging SHALL be scheduled (subject to keep-on behaviour)
 
 ### Requirement: Kepler enforces the target as a soft requirement
-The Kepler solver SHALL add, per plugged charger with a goal, a soft constraint that delivered EV energy by the deadline meets the charger's requirement, with a shortfall penalty large enough that the target is treated as near-mandatory. The constraint SHALL be soft so that a physically unreachable target never makes the solve infeasible. When a multi-day quota schedule exists, the solver SHALL (a) cap each in-horizon day's EV energy at that day's quota, and (b) limit the soft requirement to the sum of quotas for in-horizon, pre-deadline days — so the shortfall term never forces energy planned for out-of-horizon days into the visible horizon. The shortfall penalty SHALL default to 50.0 SEK/kWh and SHALL be configurable via the advanced `kepler.ev_shortfall_penalty_sek_per_kwh` setting.
+For each plugged charger with a goal, the Kepler solver SHALL add a soft constraint that the charger's requirement is covered by:
+- EV energy delivered in-horizon by the deadline, where scheduled and planned surplus energy both count;
+- plus deferred energy priced by the tiered deferral value (see `ev-deferral-value`);
+- plus shortfall.
+
+The shortfall penalty SHALL be large enough that the target is treated as near-mandatory. The constraint SHALL be soft so that a physically unreachable target never makes the solve infeasible.
+
+The solver SHALL NOT apply per-day EV energy quota caps, and SHALL NOT reduce the requirement to a sum of quotas.
+
+The shortfall penalty SHALL default to 50.0 SEK/kWh. It SHALL be configurable via `kepler.ev_shortfall_penalty_sek_per_kwh`, and that setting SHALL be editable in the EV settings tab as an advanced field.
 
 #### Scenario: Target reachable
-- **WHEN** the charger can deliver the required energy before the deadline
+- **WHEN** the charger can deliver the required energy before the deadline and the deadline is inside the known horizon
 - **THEN** the schedule SHALL deliver at least the required energy by the deadline, using the cheapest available slots
 - **AND** SHALL prefer free surplus PV over grid import
 
 #### Scenario: Target not reachable in time
-- **WHEN** the window/power cannot deliver the required energy before the deadline
+- **WHEN** the window and power cannot deliver the required energy before the deadline
 - **THEN** the solve SHALL remain feasible
 - **AND** the charger SHALL charge as much as possible and report a shortfall ("behind")
 
-#### Scenario: Multi-day goal with tomorrow in horizon
-- **WHEN** a 5-day goal needs 60 kWh, today's quota is 12 kWh, tomorrow's quota is 12 kWh, and the plan horizon covers today and tomorrow
-- **THEN** the plan SHALL deliver at most 12 kWh today and at most 12 kWh tomorrow
-- **AND** the shortfall constraint SHALL require at most 24 kWh within the horizon (not 60)
+#### Scenario: Two-day goal with all prices known
+- **WHEN** a goal needs 22.2 kWh by tomorrow 23:00, all prices to the deadline are published, and tomorrow is cheaper than today
+- **THEN** the plan SHALL NOT be constrained to deliver any fixed amount today
+- **AND** the energy SHALL be placed in the cheapest slots across both days
 
 #### Scenario: No incentive buckets remain
 - **WHEN** the solver builds the EV objective
 - **THEN** there SHALL be no `ev_bucket_charged` variable or `value_sek` reward term
-- **AND** no user-set per-kWh incentive value SHALL influence EV charging (the shortfall penalty is an internal near-mandatory constraint, not a willingness-to-pay)
+- **AND** no user-set per-kWh incentive value SHALL influence EV charging (the shortfall penalty is an internal near-mandatory constraint, and the deferral value is derived from prices, not a willingness-to-pay)
 
 #### Scenario: Shortfall penalty is configurable
-- **WHEN** `kepler.ev_shortfall_penalty_sek_per_kwh` is set in config
+- **WHEN** `kepler.ev_shortfall_penalty_sek_per_kwh` is set in config or in the EV settings tab
 - **THEN** the solver SHALL use that value as the shortfall penalty in the objective
 - **AND** when unset, the solver SHALL default to 50.0 SEK/kWh
 
@@ -114,7 +121,14 @@ A `GET /api/ev/chargers` endpoint SHALL return, per charger, live HA sensor data
 
 #### Scenario: Charger with an active goal
 - **WHEN** a plugged charger has a goal and the pipeline has run
-- **THEN** the response SHALL include live `plugged_in`/`soc_percent`/`power_kw`, the goal (`target_soc_percent`, `ready_by`, `repeat`, `n_days`, resolved `deadline`), `required_kwh`/`delivered_kwh`/`remaining_kwh`, today's `daily_quota_kwh` (null when not spreading), an optional `quota_schedule`, `last_planned_at`, and `status ∈ {on_track, behind, complete, idle}`
+- **THEN** the response SHALL include:
+  - live `plugged_in` / `soc_percent` / `power_kw`;
+  - the goal: `target_soc_percent`, `ready_by`, `repeat`, `n_days`, and the resolved `deadline`;
+  - `required_kwh` / `delivered_kwh` / `remaining_kwh`;
+  - `planned_by_day` (a list of `{date, kwh, basis}`) and `deferral_price_source`;
+  - `last_planned_at`;
+  - `status ∈ {on_track, behind, complete, idle}`.
+- **AND** the response SHALL NOT include `daily_quota_kwh` or `quota_schedule`
 
 #### Scenario: Planner has not run recently
 - **WHEN** a goal exists but the pipeline has not run for hours
@@ -127,12 +141,17 @@ A `GET /api/ev/chargers` endpoint SHALL return, per charger, live HA sensor data
 - **AND** live HA sensor data SHALL still be populated
 
 ### Requirement: Core charging does not depend on price forecasting
-The goal-based charging behaviour SHALL function using only the day-ahead Nordpool prices already available to the planner. It SHALL NOT be gated behind `price_forecast.enabled`. Only multi-day spreading across days beyond the day-ahead horizon SHALL use the 7-day forecast.
+The goal-based charging behaviour SHALL function using only the day-ahead Nordpool prices already available to the planner. It SHALL NOT be gated behind `price_forecast.enabled`. Forecasts SHALL only be used to price deferral into post-horizon slots. When no forecast is available, deferral SHALL be priced by the conservative fallback in `ev-deferral-value`.
 
 #### Scenario: No price-forecast module enabled
-- **WHEN** `price_forecast.enabled` is false and a charger has a goal with a near ready-by time
+- **WHEN** `price_forecast.enabled` is false and a charger has a goal with a ready-by time inside the known horizon
 - **THEN** the EV SHALL still charge toward its target using the cheapest day-ahead slots and surplus PV
-- **AND** no daily quota SHALL be applied
+- **AND** no deferral tiers SHALL be created
+
+#### Scenario: No forecast module, deadline beyond the horizon
+- **WHEN** `price_forecast.enabled` is false and the deadline is D+3
+- **THEN** deferral SHALL be priced by the trailing-average or horizon-max fallback
+- **AND** `deferral_price_source` SHALL reflect the fallback used
 
 ### Requirement: In-progress slot uses remaining time for EV energy
 When planning starts inside a slot, the solver SHALL bound that slot's EV energy by the remaining duration (`slot_end − now`), not the full slot duration, and the planned EV kW for that slot SHALL be reported as energy divided by the remaining duration. Other energy flows in the slot SHALL be unchanged.

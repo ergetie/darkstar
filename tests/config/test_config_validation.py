@@ -257,11 +257,10 @@ class TestEVChargerValidation:
                     "id": "tesla",
                     "name": "Tesla Model 3",
                     "enabled": True,
-                    "max_power_kw": 11.0,
+                    "rated_power_kw": 11.0,
                     "battery_capacity_kwh": 82.0,
                     "sensor": "sensor.tesla_power",
                     "type": "variable",
-                    "nominal_power_kw": 11.0,
                 }
             ],
         }
@@ -280,7 +279,7 @@ class TestEVChargerValidation:
                 {
                     "id": "tesla",
                     "name": "Tesla",
-                    "max_power_kw": 11.0,
+                    "rated_power_kw": 11.0,
                     "battery_capacity_kwh": 82.0,
                     "departure_time": 1200,
                     "penalty_levels": [{"max_soc": 80, "penalty": 1.0}],
@@ -305,7 +304,7 @@ class TestEVChargerCurrentTypeValidation:
         ev = {
             "id": "goe",
             "name": "go-e Gemini",
-            "max_power_kw": 11.0,
+            "rated_power_kw": 11.0,
             "battery_capacity_kwh": 82.0,
         }
         ev.update(ev_overrides)
@@ -1054,3 +1053,134 @@ class TestEVChargerPhaseSwitchingValidation:
             for issue in issues
             if issue["severity"] == "error"
         )
+
+
+class TestEVChargerPowerModelValidation:
+    """ev-planning-model: current chargers need amps + phases; binary need rated_power_kw."""
+
+    def _config(self, ev):
+        base = {"id": "ev", "name": "EV", "battery_capacity_kwh": 60.0}
+        base.update(ev)
+        return {
+            "config_version": 2,
+            "system": {"has_ev_charger": True, "has_battery": False, "has_water_heater": False},
+            "ev_chargers": [base],
+        }
+
+    def _power_errors(self, config):
+        return [
+            i
+            for i in _validate_config_for_save(config)
+            if i["severity"] == "error"
+            and any(k in i["message"] for k in ("max_current_a", "phases", "rated_power_kw", "max_power_kw"))
+        ]
+
+    def test_current_charger_without_kw_field_is_valid(self):
+        config = self._config(
+            {"type": "current", "min_current_a": 6, "max_current_a": 10, "phases": [1, 2, 3]}
+        )
+        assert self._power_errors(config) == []
+
+    def test_current_charger_missing_amps_rejected(self):
+        errors = self._power_errors(self._config({"type": "current", "phases": [1, 2, 3]}))
+        assert any("max_current_a" in e["message"] for e in errors)
+
+    def test_current_charger_missing_phases_rejected(self):
+        errors = self._power_errors(self._config({"type": "current", "max_current_a": 16}))
+        assert any("phases" in e["message"] for e in errors)
+
+    def test_binary_charger_requires_positive_rated_power(self):
+        errors = self._power_errors(self._config({"type": "binary", "rated_power_kw": 0}))
+        assert any("rated_power_kw" in e["message"] for e in errors)
+        assert self._power_errors(self._config({"type": "binary", "rated_power_kw": 3.7})) == []
+
+
+class TestEVPlanningValidation:
+    """ev-planning-model: ev_planning.* deferral risk margin ranges."""
+
+    def _errors(self, ev_planning, kepler=None):
+        config = {
+            "config_version": 2,
+            "system": {
+                "has_ev_charger": False,
+                "has_battery": False,
+                "has_water_heater": False,
+                "has_solar": False,
+            },
+            "ev_planning": ev_planning,
+        }
+        if kepler is not None:
+            config["kepler"] = kepler
+        return [i for i in _validate_config_for_save(config) if i["severity"] == "error"]
+
+    def test_defaults_are_valid(self):
+        assert (
+            self._errors(
+                {
+                    "deferral_risk_margin_percent": 12,
+                    "deferral_risk_margin_max_percent": 50,
+                    "deferral_risk_ramp_hours": 48,
+                }
+            )
+            == []
+        )
+
+    def test_base_out_of_range_rejected_naming_key(self):
+        errors = self._errors({"deferral_risk_margin_percent": 150})
+        assert any("ev_planning.deferral_risk_margin_percent" in e["message"] for e in errors)
+
+    def test_max_below_base_rejected(self):
+        errors = self._errors(
+            {"deferral_risk_margin_percent": 30, "deferral_risk_margin_max_percent": 20}
+        )
+        assert any("ev_planning.deferral_risk_margin_max_percent" in e["message"] for e in errors)
+
+    def test_max_above_200_rejected(self):
+        errors = self._errors({"deferral_risk_margin_max_percent": 250})
+        assert any("deferral_risk_margin_max_percent" in e["message"] for e in errors)
+
+    def test_ramp_hours_range(self):
+        assert any(
+            "deferral_risk_ramp_hours" in e["message"]
+            for e in self._errors({"deferral_risk_ramp_hours": 0})
+        )
+        assert any(
+            "deferral_risk_ramp_hours" in e["message"]
+            for e in self._errors({"deferral_risk_ramp_hours": 200})
+        )
+
+    def test_shortfall_penalty_must_be_positive(self):
+        errors = self._errors({}, kepler={"ev_shortfall_penalty_sek_per_kwh": -1})
+        assert any("ev_shortfall_penalty_sek_per_kwh" in e["message"] for e in errors)
+        assert self._errors({}, kepler={"ev_shortfall_penalty_sek_per_kwh": 50.0}) == []
+
+
+def _errors(config):
+    return [i["message"] for i in _validate_config_for_save(config) if i["severity"] == "error"]
+
+
+def test_nominal_grid_voltage_range():
+    base = {"system": {"has_battery": False}}
+    assert not any("nominal_voltage_v" in m for m in _errors(base))
+    ok = {"system": {"has_battery": False, "grid": {"nominal_voltage_v": 230}}}
+    assert not any("nominal_voltage_v" in m for m in _errors(ok))
+    for bad in (50, 400, "230", True):
+        cfg = {"system": {"has_battery": False, "grid": {"nominal_voltage_v": bad}}}
+        assert any("system.grid.nominal_voltage_v" in m for m in _errors(cfg)), bad
+
+
+def test_current_charger_missing_phases_message_uses_name():
+    cfg = {
+        "config_version": 2,
+        "system": {"has_battery": False, "has_ev_charger": True},
+        "ev_chargers": [
+            {
+                "id": "c1",
+                "name": "Garage",
+                "type": "current",
+                "max_current_a": 12,
+                "battery_capacity_kwh": 60,
+            }
+        ],
+    }
+    assert "Configure phases for Garage to enable planning" in _errors(cfg)

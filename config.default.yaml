@@ -24,6 +24,7 @@ system:
   grid:
     max_power_kw: 8                    # HARD limit: total grid import (kW) — the planner's import budget. Independent of main_fuse_a below: a balanced total can still overload a single phase.
     # main_fuse_a: 20                  # Per-phase main fuse rating (A), physical hardware limit. Required (and must be user-set) for load_balancing to be enabled. Not a substitute for max_power_kw, and vice versa — they protect different things.
+    nominal_voltage_v: 230             # Nominal grid voltage per phase (V), EU standard 230. Single value for all kW<->A conversion: EV charger power (max_current_a x phases x V), executor charge current, and the load balancer's power-mode phases without a grid_voltage_l* sensor.
   inverter:
     max_ac_power_kw: 10.0              # Maximum inverter AC power output (PV + battery discharge)
     topology: dc_coupled               # Inverter topology: dc_coupled | ac_coupled
@@ -111,13 +112,12 @@ ev_chargers:
   - id: ev_charger_1                 # Unique identifier (slug format)
     name: "EV-01"                    # Display name in UI
     enabled: false                   # Master toggle for this EV (set true to enable)
-    max_power_kw: 11.0               # Maximum charging power (kW)
+    rated_power_kw: 11.0             # Charging power when on (kW). Used when type=binary; type=current derives power from max_current_a x phases x system.grid.nominal_voltage_v
     battery_capacity_kwh: 82.0       # Battery capacity for SoC calculations (kWh)
     sensor: ""                       # Home Assistant entity for power reading
     soc_sensor: ""                   # EV battery state of charge (%) - Required for smart charging and "EV Charge" (charge now)
     plug_sensor: ""                  # EV plug status sensor - Required for smart charging; ends "EV Charge" on unplug
     type: binary                     # Control type: binary (ON/OFF switch) or current (variable ampere setpoint)
-    nominal_power_kw: 11.0           # Nominal power for load calculations
     # Charging goals (target SoC, ready-by, repeat, n_days, keep-on-after-target) are
     # set in the dashboard, not here — they live in data/ev_multi_day_state.json and
     # are the sole source of truth for the planner. A charger with no goal set in the
@@ -152,11 +152,13 @@ ev_chargers:
   # - id: ev_charger_2
   #   name: "Fiat 500e"
   #   enabled: false
-  #   max_power_kw: 7.4
   #   battery_capacity_kwh: 42.0
   #   sensor: sensor.fiat_power
-  #   type: variable
-  #   nominal_power_kw: 7.4
+  #   type: current
+  #   current_entity: number.fiat_charge_current
+  #   min_current_a: 6
+  #   max_current_a: 16               # Power derived: 16 A x 2 phases x 230 V = 7.4 kW
+  #   phases: [1, 2]
   #   switch_entity: ""
   #   # Example for a go-e-style select-based charger:
   #   # switch_entity: "select.goe_force_state"
@@ -167,6 +169,17 @@ ev_chargers:
   #   # phase_3_value: "Force_3"
   #   replan_on_plugin: true
   #   replan_on_unplug: false
+
+# EV goal planning (deadline-aware deferral)
+# When a charging goal's deadline lies beyond the published Nordpool prices, the
+# planner prices energy left for later by the forecast import price plus a risk
+# margin. A higher margin charges earlier and relies less on price forecasts.
+# The margin rises linearly from the base to the maximum over the ramp window
+# before the deadline.
+ev_planning:
+  deferral_risk_margin_percent: 12       # Base risk margin (%), 0-100
+  deferral_risk_margin_max_percent: 50   # Margin reached at the deadline (%), base-200; equal to base disables the ramp
+  deferral_risk_ramp_hours: 48           # Hours before the deadline the ramp starts, 1-168
 
 # S-Index Configuration (Risk & Safety Strategy)
 s_index:
@@ -281,7 +294,7 @@ grid:
 # plus at least one entry in loads[] or one ev_chargers[] entry with type: current.
 # Each grid_current_l* sensor may report current (A) or power (W/kW) — auto-detected
 # from the entity's unit, no toggle needed; power-mode phases are converted to current
-# via the matching grid_voltage_l* entity if configured, else nominal_voltage_v below.
+# via the matching grid_voltage_l* entity if configured, else system.grid.nominal_voltage_v.
 # Give-way ordering is one flat list (give_way_order below) mixing dynamically-throttled
 # chargers and on/off shed loads — the top entry gives way first. EV chargers with
 # ev_chargers[].type=current appear in that list automatically (no loads[] entry needed,
@@ -302,7 +315,6 @@ load_balancing:
   resume_margin_percent: 90            # Only resume/increase when phase current is below this % of main_fuse_a
   increase_step_a: 1                   # Max ampere increase per tick when ramping EV charging back up
   sensor_stale_after_s: 30             # Treat phase current sensors as stale after this many seconds without an update
-  nominal_voltage_v: 220                # Fallback voltage (V) used to convert a power-mode phase to current when that phase has no configured grid_voltage_l* entity. Deliberately biased low vs. 230V nominal so a fixed value never under-reports current during a sag.
   notify_interventions: false          # Send a notification (HA notify, Discord fallback) when a load is shed, a charger is paused, or the stale-sensor fail-safe engages. Routine throttle adjustments never notify.
   replan_after_throttled_s: 600        # Trigger one early replan after a charger has been held below its planner target (or paused) this long, continuously; at most one balancer-triggered replan per planner interval
   loads: []                            # On/off shed load definitions (ordering lives in give_way_order), e.g.:
@@ -351,7 +363,7 @@ input_sensors:
   grid_current_l1: ""       # Per-phase grid current OR power, phase L1 (A or W/kW, auto-detected) — required for load_balancing
   grid_current_l2: ""       # Per-phase grid current OR power, phase L2 (A or W/kW, auto-detected) — required for load_balancing
   grid_current_l3: ""       # Per-phase grid current OR power, phase L3 (A or W/kW, auto-detected) — required for load_balancing
-  # grid_voltage_l1: ""     # Optional per-phase grid voltage, phase L1 (V) — only used when the L1 sensor above resolves to power-mode; falls back to load_balancing.nominal_voltage_v if unset
+  # grid_voltage_l1: ""     # Optional per-phase grid voltage, phase L1 (V) — only used when the L1 sensor above resolves to power-mode; falls back to system.grid.nominal_voltage_v if unset
   # grid_voltage_l2: ""     # Optional per-phase grid voltage, phase L2 (V) — see grid_voltage_l1
   # grid_voltage_l3: ""     # Optional per-phase grid voltage, phase L3 (V) — see grid_voltage_l1
 

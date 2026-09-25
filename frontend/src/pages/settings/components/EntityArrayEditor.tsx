@@ -9,6 +9,7 @@ import { NumberInput } from '../../../components/ui/NumberInput'
 import { HaEntity } from '../types'
 import { evChargerMissingControlEntity } from '../utils'
 import Tooltip from '../../../components/Tooltip'
+import { DEFAULT_NOMINAL_VOLTAGE_V, evChargerDisabledReason, evChargerPowerLimits } from '../evPower'
 
 // Water Heater Entity Type
 export interface WaterHeaterEntity {
@@ -30,13 +31,13 @@ export interface EVChargerEntity {
     id: string
     name: string
     enabled: boolean
-    max_power_kw: number
+    /** Charging power when on (kW). Binary chargers only; current chargers derive power. */
+    rated_power_kw?: number
     battery_capacity_kwh: number
     sensor: string
     soc_sensor: string
     plug_sensor: string
     type: 'binary' | 'current'
-    nominal_power_kw: number
     switch_entity?: string
     charge_enabled_value?: string
     charge_disabled_value?: string
@@ -75,6 +76,8 @@ interface EntityArrayEditorProps {
     disabled?: boolean
     haEntities?: HaEntity[]
     haLoading?: boolean
+    /** Nominal grid voltage (system.grid.nominal_voltage_v) for derived EV power */
+    nominalVoltageV?: number
 }
 
 const createDefaultWaterHeater = (index: number): WaterHeaterEntity => ({
@@ -95,13 +98,12 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     id: `ev_charger_${index + 1}`,
     name: `EV Charger ${index + 1}`,
     enabled: true,
-    max_power_kw: 11.0,
+    rated_power_kw: 11.0,
     battery_capacity_kwh: 82.0,
     sensor: '',
     soc_sensor: '',
     plug_sensor: '',
     type: 'binary',
-    nominal_power_kw: 11.0,
     switch_entity: '',
     charge_enabled_value: 'on',
     charge_disabled_value: 'off',
@@ -263,6 +265,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
     disabled = false,
     haEntities = [],
     haLoading = false,
+    nominalVoltageV = DEFAULT_NOMINAL_VOLTAGE_V,
 }) => {
     const [expandedIndex, setExpandedIndex] = useState<number | null>(entities.length > 0 ? 0 : null)
 
@@ -307,7 +310,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                 e.enabled
                     ? isWaterHeater
                         ? (e as WaterHeaterEntity).power_kw
-                        : (e as EVChargerEntity).max_power_kw
+                        : (evChargerPowerLimits(e as EVChargerEntity, nominalVoltageV)?.maxKw ?? 0)
                     : 0,
             ) || 0),
         0,
@@ -385,7 +388,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                     <div className="text-[10px] text-muted uppercase tracking-tight">
                                         {isWaterHeater
                                             ? `${(entity as WaterHeaterEntity).power_kw} kW · ${(entity as WaterHeaterEntity).min_kwh_per_day} kWh/day · ${(entity as WaterHeaterEntity).sensor || 'No sensor'}`
-                                            : `${(entity as EVChargerEntity).max_power_kw} kW max · ${(entity as EVChargerEntity).battery_capacity_kwh} kWh battery · ${entity.sensor || 'No sensor'}${(entity as EVChargerEntity).soc_sensor || (entity as EVChargerEntity).plug_sensor ? ` · SoC: ${(entity as EVChargerEntity).soc_sensor || '-'}${(entity as EVChargerEntity).plug_sensor ? ` · Plug: ${(entity as EVChargerEntity).plug_sensor}` : ''}` : ''}`}
+                                            : `${evChargerPowerLimits(entity as EVChargerEntity, nominalVoltageV)?.maxKw.toFixed(1) ?? '?'} kW max · ${(entity as EVChargerEntity).battery_capacity_kwh} kWh battery · ${entity.sensor || 'No sensor'}${(entity as EVChargerEntity).soc_sensor || (entity as EVChargerEntity).plug_sensor ? ` · SoC: ${(entity as EVChargerEntity).soc_sensor || '-'}${(entity as EVChargerEntity).plug_sensor ? ` · Plug: ${(entity as EVChargerEntity).plug_sensor}` : ''}` : ''}`}
                                     </div>
                                 </div>
                             </div>
@@ -464,32 +467,63 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                         </div>
 
                                         {/* Power Rating */}
-                                        <div>
-                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                {isWaterHeater ? 'Power Rating' : 'Max Charging Power'} (kW) *
-                                                {!isWaterHeater && (
-                                                    <span className="normal-case font-normal text-muted/70 ml-1">
-                                                        Required (e.g. 7.4, 11, 22 kW). Missing or zero disables the
-                                                        charger.
-                                                    </span>
-                                                )}
-                                            </label>
-                                            <NumberInput
-                                                value={
-                                                    isWaterHeater
-                                                        ? (entity as WaterHeaterEntity).power_kw
-                                                        : (entity as EVChargerEntity).max_power_kw
-                                                }
-                                                onChange={(val) =>
-                                                    updateEntity(index, {
-                                                        [isWaterHeater ? 'power_kw' : 'max_power_kw']: Number(val),
-                                                    } as Partial<WaterHeaterEntity | EVChargerEntity>)
-                                                }
-                                                disabled={disabled}
-                                                step={0.1}
-                                                min={0}
-                                            />
-                                        </div>
+                                        {isWaterHeater || (entity as EVChargerEntity).type !== 'current' ? (
+                                            <div>
+                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                    {isWaterHeater ? 'Power Rating' : 'Rated Charging Power'} (kW) *
+                                                    {!isWaterHeater && (
+                                                        <span className="normal-case font-normal text-muted/70 ml-1">
+                                                            Power when on (e.g. 3.7, 7.4, 11 kW). Missing or zero
+                                                            disables the charger.
+                                                        </span>
+                                                    )}
+                                                </label>
+                                                <NumberInput
+                                                    value={
+                                                        isWaterHeater
+                                                            ? (entity as WaterHeaterEntity).power_kw
+                                                            : ((entity as EVChargerEntity).rated_power_kw ?? 0)
+                                                    }
+                                                    onChange={(val) =>
+                                                        updateEntity(index, {
+                                                            [isWaterHeater ? 'power_kw' : 'rated_power_kw']:
+                                                                Number(val),
+                                                        } as Partial<WaterHeaterEntity | EVChargerEntity>)
+                                                    }
+                                                    disabled={disabled}
+                                                    step={0.1}
+                                                    min={0}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <div className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                    Charging Power (derived)
+                                                </div>
+                                                {(() => {
+                                                    const limits = evChargerPowerLimits(
+                                                        entity as EVChargerEntity,
+                                                        nominalVoltageV,
+                                                    )
+                                                    return (
+                                                        <div
+                                                            data-testid="ev-derived-power"
+                                                            className="rounded-lg border border-line/30 bg-surface2/50 px-3 py-2 text-sm text-text"
+                                                        >
+                                                            {limits
+                                                                ? `${limits.minKw.toFixed(1)}–${limits.maxKw.toFixed(1)} kW`
+                                                                : evChargerDisabledReason(
+                                                                      entity as EVChargerEntity,
+                                                                      nominalVoltageV,
+                                                                  )}
+                                                            <span className="block text-[10px] text-muted">
+                                                                From min/max current × phases × {nominalVoltageV} V
+                                                            </span>
+                                                        </div>
+                                                    )
+                                                })()}
+                                            </div>
+                                        )}
 
                                         {/* Daily Energy / Battery Capacity */}
                                         <div>
@@ -1034,12 +1068,12 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
 
                                                         <div className="sm:col-span-2">
                                                             <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                                Phases
+                                                                Phases *
                                                             </label>
                                                             <div className="flex gap-2">
                                                                 {[1, 2, 3].map((phase) => {
-                                                                    const phases = (entity as EVChargerEntity)
-                                                                        .phases ?? [1, 2, 3]
+                                                                    const phases =
+                                                                        (entity as EVChargerEntity).phases ?? []
                                                                     const checked = phases.includes(phase)
                                                                     return (
                                                                         <button
@@ -1071,9 +1105,20 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                     )
                                                                 })}
                                                             </div>
-                                                            <p className="text-[10px] text-muted mt-1.5">
-                                                                Phases this charger draws current on.
-                                                            </p>
+                                                            {((entity as EVChargerEntity).phases ?? []).length === 0 ? (
+                                                                <p
+                                                                    className="text-[10px] text-warn mt-1.5"
+                                                                    data-testid="ev-phases-required"
+                                                                    role="alert"
+                                                                >
+                                                                    Required. Configure phases for{' '}
+                                                                    {entity.name || entity.id} to enable planning.
+                                                                </p>
+                                                            ) : (
+                                                                <p className="text-[10px] text-muted mt-1.5">
+                                                                    Phases this charger draws current on.
+                                                                </p>
+                                                            )}
                                                         </div>
 
                                                         {/* Commanded 1<->3 Phase Switching (excess-pv-priority-dispatch) */}

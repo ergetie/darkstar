@@ -34,7 +34,7 @@ class TestPerDeviceStateMatching:
         return {
             "id": ev_id,
             "enabled": enabled,
-            "max_power_kw": max_power_kw,
+            "rated_power_kw": max_power_kw,
             "battery_capacity_kwh": capacity,
             "name": ev_id,
         }
@@ -132,8 +132,8 @@ class TestPlugOverridePerDevice:
     def test_plug_override_only_affects_target_charger(self):
         """When ev_plugged_in_override is set for ev1, ev2 state is unchanged."""
         cfgs = [
-            {"id": "ev1", "enabled": True, "max_power_kw": 7.4, "battery_capacity_kwh": 100.0},
-            {"id": "ev2", "enabled": True, "max_power_kw": 7.4, "battery_capacity_kwh": 100.0},
+            {"id": "ev1", "enabled": True, "rated_power_kw": 7.4, "battery_capacity_kwh": 100.0},
+            {"id": "ev2", "enabled": True, "rated_power_kw": 7.4, "battery_capacity_kwh": 100.0},
         ]
 
         # Simulates what the pipeline does when override is provided for ev1

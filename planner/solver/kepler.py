@@ -7,7 +7,7 @@ Migrated from backend/kepler/solver.py during Rev K13 modularization.
 
 import logging
 from collections import defaultdict
-from datetime import date, timedelta  # Rev WH2
+from datetime import timedelta  # Rev WH2
 from typing import Any, cast
 
 import pulp  # type: ignore[import,no-redef]
@@ -35,30 +35,6 @@ def is_time_limit_hit(solve_duration_s: float, time_limit_s: float) -> bool:
 
 
 EV_SHORTFALL_PENALTY_DEFAULT = 50.0  # SEK/kWh — soft target-by-time penalty
-
-
-def _ev_day_energy_terms(
-    day: date,
-    charger_id: str,
-    ev_energy: dict[str, dict[int, Any]],
-    surplus_kw: dict[int, Any] | None,
-    slots: list[Any],
-    slot_hours: list[float],
-    T: int,
-) -> list[Any]:
-    """Energy terms (scheduled + surplus) for one charger on one calendar day.
-
-    Surplus charging counts against the day's quota too (task 4.4) — it isn't
-    a free bonus on top of the scheduled allocation.
-    """
-    terms: list[Any] = [
-        ev_energy[charger_id][t] for t in range(T) if slots[t].start_time.date() == day
-    ]
-    if surplus_kw is not None:
-        terms.extend(
-            surplus_kw[t] * slot_hours[t] for t in range(T) if slots[t].start_time.date() == day
-        )
-    return terms
 
 
 class KeplerSolver:
@@ -664,12 +640,16 @@ class KeplerSolver:
             # If no target, we don't care where we end up (within min_soc limits)
             pass
 
-        # EV goal constraints: soft target-by-time requirement and optional
-        # per-in-horizon-day quota (multi-day spreading).
-        in_horizon_days: set[date] = {slots[t].start_time.date() for t in range(T)}
+        # EV goal constraints: soft target-by-time requirement. Energy the
+        # solver leaves undelivered in-horizon is either deferred into
+        # post-horizon slots (priced per tier from forecast/fallback import
+        # prices) or becomes shortfall at the near-mandatory penalty. There are
+        # no per-day quota caps: inside the known horizon the optimiser alone
+        # decides when to charge.
         ev_shortfall_penalty = getattr(
             config, "ev_shortfall_penalty_sek_per_kwh", EV_SHORTFALL_PENALTY_DEFAULT
         )
+        ev_deferred: dict[str, list[Any]] = {}
         for charger in plugged_chargers:
             d = charger.id
             effective_deadline = charger.deadline or (slots[-1].end_time if slots else None)
@@ -679,41 +659,30 @@ class KeplerSolver:
                 continue
 
             surplus_kw_for_charger = ev_surplus_kw.get(d)
+            eligible_t = [t for t in range(T) if slots[t].end_time <= effective_deadline]
 
-            if charger.quota_by_day:
-                # One cap per in-horizon day (replaces the old today-only cap).
-                for day, quota in charger.quota_by_day.items():
-                    if day not in in_horizon_days:
-                        continue
-                    day_terms = _ev_day_energy_terms(
-                        day, d, ev_energy, surplus_kw_for_charger, slots, slot_hours, T
-                    )
-                    prob += pulp.lpSum(day_terms) <= quota
-
-                # Cap the soft requirement at what's actually allocatable
-                # in-horizon, so the shortfall term can't force tomorrow's
-                # slots to deliver the whole multi-day requirement.
-                effective_required = min(
-                    charger.required_kwh,
-                    sum(
-                        quota
-                        for day, quota in charger.quota_by_day.items()
-                        if day in in_horizon_days
-                    ),
+            # Delivered in-horizon by the deadline: scheduled + planned surplus.
+            delivered_terms: list[Any] = [ev_energy[d][t] for t in eligible_t]
+            if surplus_kw_for_charger is not None:
+                delivered_terms.extend(
+                    surplus_kw_for_charger[t] * slot_hours[t] for t in eligible_t
                 )
-            else:
-                effective_required = charger.required_kwh
 
-            # Slots that end on or before the deadline (scheduled energy only —
-            # surplus charging is a bonus on top, not counted against the
-            # shortfall requirement; it IS counted against the per-day quota
-            # above so a spread-out plan can't be blown by a surplus windfall).
-            eligible_energy = pulp.lpSum(
-                ev_energy[d][t] for t in range(T) if slots[t].end_time <= effective_deadline
+            safe_d = d.replace("-", "_").replace(".", "_")
+            deferred_vars: list[Any] = []
+            for k, (tier_price, tier_cap) in enumerate(charger.deferral_tiers):
+                var = pulp.LpVariable(
+                    f"ev_deferred_{safe_d}_{k}", lowBound=0.0, upBound=max(0.0, tier_cap)
+                )
+                deferred_vars.append(var)
+                total_cost.append(tier_price * var)
+            ev_deferred[d] = deferred_vars
+
+            # Soft requirement: delivered + deferred + shortfall >= required
+            prob += (
+                pulp.lpSum(delivered_terms) + pulp.lpSum(deferred_vars) + ev_shortfall[d]
+                >= charger.required_kwh
             )
-
-            # Soft requirement: delivered + shortfall >= required
-            prob += eligible_energy + ev_shortfall[d] >= effective_required
             total_cost.append(ev_shortfall_penalty * ev_shortfall[d])
 
         # Water Heating Constraints — per-device (tasks 2.4-2.6)
@@ -909,6 +878,7 @@ class KeplerSolver:
 
         result_slots: list[KeplerResultSlot] = []
         final_total_cost: float = 0.0
+        ev_deferred_by_charger: dict[str, list[float]] = {}
 
         if is_optimal:
             # Per-charger shortfall vs required_kwh (reported on every slot)
@@ -918,6 +888,13 @@ class KeplerSolver:
                 if charger.required_kwh is not None and d in ev_shortfall:
                     shortfall_val: float | None = pulp.value(ev_shortfall[d])  # type: ignore[assignment]
                     ev_shortfall_by_charger[d] = shortfall_val if shortfall_val is not None else 0.0
+
+            for d, deferred_vars in ev_deferred.items():
+                if deferred_vars:
+                    ev_deferred_by_charger[d] = [
+                        float(pulp.value(v) or 0.0)  # type: ignore[arg-type]
+                        for v in deferred_vars
+                    ]
 
             for t in range(T):
                 s: Any = slots[t]
@@ -1037,4 +1014,5 @@ class KeplerSolver:
             is_optimal=is_optimal,
             status_msg=status,
             time_limit_hit=time_limit_hit,
+            ev_deferred_kwh=ev_deferred_by_charger,
         )

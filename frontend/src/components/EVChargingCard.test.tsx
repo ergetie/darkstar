@@ -33,8 +33,7 @@ function baseCharger(overrides: Partial<EVChargerState> = {}): EVChargerState {
         required_kwh: 10,
         delivered_kwh: 2,
         remaining_kwh: 8,
-        daily_quota_kwh: null,
-        quota_schedule: null,
+        planned_by_day: [],
         keep_on_after_target: false,
         ha_ready_by_entity: null,
         ha_target_soc_entity: null,
@@ -227,5 +226,67 @@ describe('EVChargingCard manual charge line', () => {
     it('shows no manual charge line when inactive', () => {
         renderCard(baseCharger({ manual_charge: null }))
         expect(screen.queryByTestId('ev-manual-charge')).not.toBeInTheDocument()
+    })
+})
+
+describe('EVChargingCard planned per day', () => {
+    function isoOffset(days: number): string {
+        const d = new Date()
+        d.setDate(d.getDate() + days)
+        const pad = (n: number) => String(n).padStart(2, '0')
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    }
+
+    it('renders known days solid and estimated days de-emphasised with "est."', () => {
+        const today = isoOffset(0)
+        const d1 = isoOffset(1)
+        const d2 = isoOffset(2)
+        renderCard(
+            baseCharger({
+                planned_by_day: [
+                    { date: today, kwh: 0, basis: 'known' },
+                    { date: d1, kwh: 8, basis: 'known' },
+                    { date: d2, kwh: 14, basis: 'estimated' },
+                ],
+            }),
+        )
+        expect(screen.getByText('Planned per day')).toBeInTheDocument()
+        expect(screen.queryByText('Upcoming Daily Quotas')).not.toBeInTheDocument()
+
+        const todayChip = screen.getByTestId(`planned-day-${today}`)
+        const d1Chip = screen.getByTestId(`planned-day-${d1}`)
+        const d2Chip = screen.getByTestId(`planned-day-${d2}`)
+        expect(todayChip.className).toContain('text-accent')
+        expect(todayChip.className).not.toContain('opacity-60')
+        expect(d1Chip.className).not.toContain('opacity-60')
+        expect(d1Chip.textContent).not.toContain('est.')
+        expect(d2Chip.className).toContain('opacity-60')
+        expect(d2Chip.textContent).toContain('est.')
+        expect(d2Chip.getAttribute('title')).toMatch(/forecast prices/i)
+        expect(screen.getAllByText('est.')).toHaveLength(1)
+    })
+
+    it('hides the section when planned_by_day is empty', () => {
+        renderCard(baseCharger({ planned_by_day: [] }))
+        expect(screen.queryByText('Planned per day')).not.toBeInTheDocument()
+    })
+
+    it('hides the section when planned_by_day is absent', () => {
+        renderCard(baseCharger({ planned_by_day: undefined }))
+        expect(screen.queryByText('Planned per day')).not.toBeInTheDocument()
+    })
+})
+
+describe('EVChargingCard disabled charger', () => {
+    it('shows the disabled reason instead of hiding the charger', () => {
+        renderCard(baseCharger({ disabled_reason: 'Configure phases for Garage EV to enable planning' }))
+        expect(screen.getByTestId('ev-disabled-reason')).toHaveTextContent(
+            'Planning disabled: Configure phases for Garage EV to enable planning',
+        )
+    })
+
+    it('shows no disabled notice for an enabled charger', () => {
+        renderCard(baseCharger({ disabled_reason: null }))
+        expect(screen.queryByTestId('ev-disabled-reason')).not.toBeInTheDocument()
     })
 })

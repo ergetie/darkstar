@@ -5,7 +5,7 @@ Covers the spec scenarios in ``specs/ev-target-charging/spec.md``:
   surplus PV instead of exporting.
 - Reaches ``target_soc`` by deadline when feasible (cheapest slots).
 - Reports shortfall (stays feasible) when not reachable in time.
-- ``daily_quota_kwh`` caps today's energy.
+- No per-day quota caps: with all prices known the cheapest slots win.
 - No incentive-bucket code path remains (structural assertion).
 - Shortfall penalty defaults to 50.0 and is overridden by
   ``kepler.ev_shortfall_penalty_sek_per_kwh`` when set.
@@ -70,7 +70,7 @@ def _ev(
     id: str = "ev1",
     required_kwh: float,
     deadline: datetime | None = None,
-    quota_by_day: dict[date, float] | None = None,
+    deferral_tiers: list[tuple[float, float]] | None = None,
     max_power_kw: float = 7.4,
     battery_capacity_kwh: float = 100.0,
     soc_percent: float = 0.0,
@@ -84,7 +84,7 @@ def _ev(
         plugged_in=True,
         deadline=deadline,
         required_kwh=required_kwh,
-        quota_by_day=quota_by_day,
+        deferral_tiers=deferral_tiers or [],
         control_type=control_type,
     )
 
@@ -186,20 +186,14 @@ def test_reports_shortfall_when_target_unreachable():
 
 
 # ---------------------------------------------------------------------------
-# Scenario: quota_by_day caps today's energy; remainder deferred to other
-# (later) days within the deadline horizon (per-day quota, not just today).
+# Scenario: no per-day quota — with every price to the deadline known, the
+# energy lands in the cheapest slots, even when those are all tomorrow.
 # ---------------------------------------------------------------------------
-def test_daily_quota_caps_todays_energy():
-    # 4 slots starting late tonight: two today (22-00), two tomorrow (00-02).
+def test_no_per_day_cap_cheaper_tomorrow_takes_everything():
+    # 4 slots starting late tonight: two today (22-00, pricey), two tomorrow (cheap).
     base = TZ.localize(datetime.combine(date.today(), datetime.min.time())) + timedelta(hours=22)
-    slots = _slots(n=4, import_prices=[0.1] * 4, start=base)
-    tomorrow = base.date() + timedelta(days=1)
-    ev = _ev(
-        required_kwh=20.0,
-        deadline=slots[-1].end_time,
-        quota_by_day={base.date(): 3.0, tomorrow: 17.0},
-        max_power_kw=7.4,
-    )
+    slots = _slots(n=4, import_prices=[2.4, 2.4, 1.0, 1.0], start=base)
+    ev = _ev(required_kwh=10.0, deadline=slots[-1].end_time, max_power_kw=7.4)
     cfg = KeplerConfig(**_base_config(capacity_kwh=0.0), ev_chargers=[ev])
 
     result = KeplerSolver().solve(KeplerInput(slots=slots, initial_soc_kwh=0.0), cfg)
@@ -208,11 +202,11 @@ def test_daily_quota_caps_todays_energy():
     today_energy = sum(
         s.ev_charge_kw * 1.0 for s in result.slots if s.start_time.date() == base.date()
     )
-    assert today_energy <= 3.0 + 0.01
+    assert today_energy == pytest.approx(0.0, abs=0.01)
     tomorrow_energy = sum(
         s.ev_charge_kw * 1.0 for s in result.slots if s.start_time.date() != base.date()
     )
-    assert tomorrow_energy > 0.0
+    assert tomorrow_energy == pytest.approx(10.0, abs=0.05)
 
 
 # ---------------------------------------------------------------------------

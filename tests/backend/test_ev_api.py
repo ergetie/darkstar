@@ -2,7 +2,8 @@
 
 Covers the spec scenarios in ``specs/ev-target-charging/spec.md``:
 - Charger with an active goal returns live sensors + goal + progress + status.
-- Spreading charger includes ``quota_schedule``; non-spreading has null quota.
+- ``planned_by_day`` / ``deferral_price_source`` are returned; legacy
+  ``daily_quota_kwh`` / ``quota_schedule`` state keys are ignored.
 - Missing/stale state file → ``idle`` status + null goal-progress fields, with
   live HA sensors still populated.
 """
@@ -47,7 +48,7 @@ def _charger_cfg(
         "sensor": sensor,
         "soc_sensor": soc_sensor,
         "plug_sensor": plug_sensor,
-        "max_power_kw": max_power_kw,
+        "rated_power_kw": max_power_kw,
     }
     base.update(extra)
     return base
@@ -82,8 +83,6 @@ async def test_charger_with_active_goal_returns_status_and_progress(tmp_path, mo
             "current_soc_percent": 50.0,
             "target_soc_percent_cfg": 80,
             "battery_capacity_kwh": 82.0,
-            "daily_quota_kwh": None,
-            "quota_schedule": None,
             "keep_on_after_target": False,
             "status": "on_track",
             "last_updated": now.isoformat(),
@@ -113,8 +112,10 @@ async def test_charger_with_active_goal_returns_status_and_progress(tmp_path, mo
     assert entry["required_kwh"] == 20.0
     assert entry["delivered_kwh"] == 5.0
     assert entry["remaining_kwh"] == 15.0
-    assert entry["daily_quota_kwh"] is None
-    assert entry["quota_schedule"] is None
+    assert entry["planned_by_day"] == []
+    assert entry["deferral_price_source"] is None
+    assert "daily_quota_kwh" not in entry
+    assert "quota_schedule" not in entry
     assert entry["status"] == "on_track"
     assert entry["last_updated"] == now.isoformat()
     # No charge_priority field is returned.
@@ -122,28 +123,27 @@ async def test_charger_with_active_goal_returns_status_and_progress(tmp_path, mo
 
 
 @pytest.mark.asyncio
-async def test_spreading_charger_includes_quota_schedule(monkeypatch):
+async def test_multi_day_charger_returns_planned_by_day(monkeypatch):
     now = datetime.now(UTC)
     deadline = now + timedelta(days=3)
-    quota_schedule = {
-        (now).date().isoformat(): 12.0,
-        (now + timedelta(days=1)).date().isoformat(): 20.0,
-        (now + timedelta(days=2)).date().isoformat(): 18.0,
-    }
+    planned = [
+        {"date": now.date().isoformat(), "kwh": 0.0, "basis": "known"},
+        {"date": (now + timedelta(days=1)).date().isoformat(), "kwh": 8.0, "basis": "known"},
+        {"date": (now + timedelta(days=2)).date().isoformat(), "kwh": 14.0, "basis": "estimated"},
+    ]
     state = {
         "ev1": {
             "target_soc_percent": 80,
             "ready_by": "07:00",
             "repeat": "daily",
             "deadline": deadline.isoformat(),
-            "required_kwh": 50.0,
+            "required_kwh": 22.0,
             "delivered_kwh": 0.0,
-            "remaining_kwh": 50.0,
+            "remaining_kwh": 22.0,
             "current_soc_percent": 30.0,
-            "target_soc_percent_cfg": 80,
             "battery_capacity_kwh": 82.0,
-            "daily_quota_kwh": 12.0,
-            "quota_schedule": quota_schedule,
+            "planned_by_day": planned,
+            "deferral_price_source": "forecast",
             "keep_on_after_target": False,
             "status": "on_track",
             "last_updated": now.isoformat(),
@@ -157,13 +157,12 @@ async def test_spreading_charger_includes_quota_schedule(monkeypatch):
         result = await ev_router.get_ev_chargers()
 
     entry = result[0]
-    assert entry["daily_quota_kwh"] == 12.0
-    assert entry["quota_schedule"] == quota_schedule
-    assert entry["status"] in {"on_track", "behind"}
+    assert entry["planned_by_day"] == planned
+    assert entry["deferral_price_source"] == "forecast"
 
 
 @pytest.mark.asyncio
-async def test_non_spreading_charger_has_null_quota_fields(monkeypatch):
+async def test_old_quota_keys_in_state_file_are_ignored(monkeypatch):
     now = datetime.now(UTC)
     state = {
         "ev1": {
@@ -175,10 +174,9 @@ async def test_non_spreading_charger_has_null_quota_fields(monkeypatch):
             "delivered_kwh": 0.0,
             "remaining_kwh": 10.0,
             "current_soc_percent": 60.0,
-            "target_soc_percent_cfg": 80,
             "battery_capacity_kwh": 82.0,
-            "daily_quota_kwh": None,
-            "quota_schedule": None,
+            "daily_quota_kwh": 12.0,
+            "quota_schedule": {now.date().isoformat(): 12.0},
             "keep_on_after_target": False,
             "status": "on_track",
             "last_updated": now.isoformat(),
@@ -192,8 +190,9 @@ async def test_non_spreading_charger_has_null_quota_fields(monkeypatch):
         result = await ev_router.get_ev_chargers()
 
     entry = result[0]
-    assert entry["daily_quota_kwh"] is None
-    assert entry["quota_schedule"] is None
+    assert "daily_quota_kwh" not in entry
+    assert "quota_schedule" not in entry
+    assert entry["planned_by_day"] == []
 
 
 @pytest.mark.asyncio
@@ -210,7 +209,7 @@ async def test_missing_state_file_returns_idle_with_live_sensors(monkeypatch):
     assert entry["target_soc_percent"] is None
     assert entry["required_kwh"] is None
     assert entry["deadline"] is None
-    assert entry["daily_quota_kwh"] is None
+    assert entry["planned_by_day"] == []
     # Live sensors still populated.
     assert entry["plugged_in"] is True
     assert entry["soc_percent"] == 45.0
@@ -236,8 +235,6 @@ async def test_old_last_updated_still_reports_goal_truthfully(monkeypatch):
             "remaining_kwh": 10.0,
             "current_soc_percent": 60.0,
             "battery_capacity_kwh": 82.0,
-            "daily_quota_kwh": None,
-            "quota_schedule": None,
             "keep_on_after_target": False,
             "status": "on_track",
             "last_updated": last_planned,
@@ -273,8 +270,6 @@ async def test_target_already_met_reports_complete(monkeypatch):
             "current_soc_percent": 80.0,
             "target_soc_percent_cfg": 80,
             "battery_capacity_kwh": 82.0,
-            "daily_quota_kwh": None,
-            "quota_schedule": None,
             "keep_on_after_target": False,
             "status": "on_track",
             "last_updated": now.isoformat(),
@@ -427,6 +422,24 @@ async def test_disabled_chargers_not_returned(monkeypatch):
 
     assert len(result) == 1
     assert result[0]["id"] == "ev1"
+
+
+@pytest.mark.asyncio
+async def test_charger_without_phases_is_listed_with_disabled_reason(monkeypatch):
+    """A current charger missing phases stays visible with a named reason."""
+    monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {})
+    cfg = _charger_cfg(id="ev1", name="Garage", type="current", max_current_a=12)
+    cfg.pop("rated_power_kw")
+    monkeypatch.setattr(
+        ev_router, "load_yaml", lambda _p: _config([cfg, _charger_cfg(id="ev2")])
+    )
+    p_power, p_soc, p_plug = _patch_ha(power_kw=0.0, soc=40.0, plugged=True)
+    with p_power, p_soc, p_plug:
+        result = await ev_router.get_ev_chargers()
+
+    by_id = {c["id"]: c for c in result}
+    assert by_id["ev1"]["disabled_reason"] == "Configure phases for Garage to enable planning"
+    assert by_id["ev2"]["disabled_reason"] is None
 
 
 @pytest.mark.asyncio

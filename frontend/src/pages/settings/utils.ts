@@ -344,6 +344,16 @@ interface EVChargerControlFields {
     enabled?: boolean
     type?: string
     switch_entity?: string
+    phases?: number[]
+}
+
+/** True when an enabled current-type charger has no phases (power cannot be derived). */
+export function evChargerMissingPhases(charger: EVChargerControlFields): boolean {
+    return (
+        charger.enabled !== false &&
+        charger.type === 'current' &&
+        !(Array.isArray(charger.phases) && charger.phases.length > 0)
+    )
 }
 
 /** True when an enabled current-type charger lacks its charging-control entity. */
@@ -365,7 +375,13 @@ export function evChargerArrayError(value: string): string | null {
     }
     if (!Array.isArray(chargers)) return null
     const missing = chargers.filter(evChargerMissingControlEntity)
-    if (missing.length === 0) return null
-    const names = missing.map((c) => `'${c.name || c.id || 'unnamed'}'`).join(', ')
-    return `Charging Control Entity is required for current-type charger ${names}`
+    if (missing.length > 0) {
+        const names = missing.map((c) => `'${c.name || c.id || 'unnamed'}'`).join(', ')
+        return `Charging Control Entity is required for current-type charger ${names}`
+    }
+    const noPhases = chargers.find(evChargerMissingPhases)
+    if (noPhases) {
+        return `Configure phases for ${noPhases.name || noPhases.id || 'this charger'} to enable planning`
+    }
+    return null
 }

@@ -407,6 +407,99 @@ async def _phase_sensor_units_for_config(config: dict[str, Any]) -> dict[str, di
     return await _fetch_phase_sensor_units(entity_ids)
 
 
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _is_positive_number(value: Any) -> bool:
+    return _is_number(value) and float(value) > 0
+
+
+def _validate_ev_charger_power(ev: dict[str, Any], label: str) -> list[dict[str, str]]:
+    """Validate one charger's power model (see backend.core.ev_power)."""
+    issues: list[dict[str, str]] = []
+    display_name = str(ev.get("name") or label)
+    control_type = str(ev.get("type", "binary") or "binary").lower()
+    if control_type == "current":
+        max_a = ev.get("max_current_a")
+        if not _is_positive_number(max_a):
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"EV charger '{label}' has invalid max_current_a: {max_a}",
+                    "guidance": "Current-controlled chargers derive their power from max_current_a "
+                    "and phases. Set max_current_a to a positive number of amps (e.g., 16).",
+                }
+            )
+        phases = ev.get("phases")
+        if not isinstance(phases, list) or not phases:
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"Configure phases for {display_name} to enable planning",
+                    "guidance": "Current-controlled chargers derive their power from max_current_a "
+                    "x phases x nominal voltage. Select the phases the charger is wired to "
+                    "(e.g., L1, L2, L3).",
+                }
+            )
+    else:
+        rated = ev.get("rated_power_kw")
+        if not _is_positive_number(rated):
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"EV charger '{label}' has invalid rated_power_kw: {rated}",
+                    "guidance": "Binary (on/off) chargers need rated_power_kw set to the "
+                    "charger's power when on (e.g., 3.7).",
+                }
+            )
+    return issues
+
+
+def _validate_ev_planning(config: dict[str, Any]) -> list[dict[str, str]]:
+    """Validate ``ev_planning.*`` deferral risk-margin settings."""
+    issues: list[dict[str, str]] = []
+    section: Any = config.get("ev_planning")
+    if not isinstance(section, dict):
+        return issues
+    section = cast("dict[str, Any]", section)
+
+    base: Any = section.get("deferral_risk_margin_percent")
+    base_value = 12.0
+    if base is not None:
+        if not _is_number(base) or not 0 <= base <= 100:
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"ev_planning.deferral_risk_margin_percent must be between 0 and 100 (got {base})",
+                    "guidance": "Set the base deferral risk margin to a percentage from 0 to 100 (default 12).",
+                }
+            )
+        else:
+            base_value = float(base)
+
+    max_pct: Any = section.get("deferral_risk_margin_max_percent")
+    if max_pct is not None and (not _is_number(max_pct) or not base_value <= max_pct <= 200):
+        issues.append(
+            {
+                "severity": "error",
+                "message": f"ev_planning.deferral_risk_margin_max_percent must be between the base margin ({base_value:g}) and 200 (got {max_pct})",
+                "guidance": "Set the maximum deferral risk margin at or above the base margin and at most 200 (default 50).",
+            }
+        )
+
+    ramp: Any = section.get("deferral_risk_ramp_hours")
+    if ramp is not None and (not _is_number(ramp) or not 1 <= ramp <= 168):
+        issues.append(
+            {
+                "severity": "error",
+                "message": f"ev_planning.deferral_risk_ramp_hours must be between 1 and 168 (got {ramp})",
+                "guidance": "Set the ramp window to 1-168 hours before the deadline (default 48).",
+            }
+        )
+    return issues
+
+
 def _validate_config_for_save(
     config: dict[str, Any],
     phase_sensor_units: dict[str, dict[str, str]] | None = None,
@@ -456,6 +549,37 @@ def _validate_config_for_save(
                     "guidance": "Set the solver time limit to a value from 10 to 600 seconds (default 60).",
                 }
             )
+
+    # EV shortfall penalty: ERROR when not a positive number
+    raw_penalty: Any = kepler_cfg.get("ev_shortfall_penalty_sek_per_kwh")
+    if raw_penalty is not None and (
+        isinstance(raw_penalty, bool)
+        or not isinstance(raw_penalty, int | float)
+        or raw_penalty <= 0
+    ):
+        issues.append(
+            {
+                "severity": "error",
+                "message": f"kepler.ev_shortfall_penalty_sek_per_kwh must be a positive number (got {raw_penalty})",
+                "guidance": "Set the EV shortfall penalty to a positive SEK/kWh value (default 50).",
+            }
+        )
+
+    issues.extend(_validate_ev_planning(config))
+
+    # Nominal grid voltage: ERROR outside 100-260 V (single value for all kW<->A conversion)
+    raw_voltage: Any = None
+    grid_section: Any = cast("dict[str, Any]", config.get("system") or {}).get("grid")
+    if isinstance(grid_section, dict):
+        raw_voltage = cast("dict[str, Any]", grid_section).get("nominal_voltage_v")
+    if raw_voltage is not None and (not _is_number(raw_voltage) or not 100 <= raw_voltage <= 260):
+        issues.append(
+            {
+                "severity": "error",
+                "message": f"system.grid.nominal_voltage_v must be between 100 and 260 V (got {raw_voltage})",
+                "guidance": "Set the nominal grid voltage per phase (EU standard 230 V).",
+            }
+        )
 
     # Inverter: WARNING if AC power not configured
     inverter_cfg = system_cfg.get("inverter", {})
@@ -666,16 +790,9 @@ def _validate_config_for_save(
                         }
                     )
 
-                # Validate power values are positive
-                max_power_kw = ev.get("max_power_kw", 0)
-                if not isinstance(max_power_kw, int | float) or max_power_kw <= 0:
-                    issues.append(
-                        {
-                            "severity": "error",
-                            "message": f"EV charger '{ev.get('id', i + 1)}' has invalid max_power_kw: {max_power_kw}",
-                            "guidance": "max_power_kw must be a positive number (e.g., 11.0).",
-                        }
-                    )
+                # Validate the power model (ev-charging-power): current chargers
+                # derive power from amps x phases; binary chargers need rated_power_kw.
+                issues.extend(_validate_ev_charger_power(ev, str(ev.get("id", i + 1))))
 
                 # Validate battery capacity
                 capacity = ev.get("battery_capacity_kwh", 0)

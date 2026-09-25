@@ -26,7 +26,6 @@ def _ev_config(**charger_overrides):
         "id": "ev_charger_1",
         "name": "Zoe",
         "enabled": True,
-        "max_power_kw": 11,
         "battery_capacity_kwh": 22,
         "sensor": "sensor.ev_power",
         "type": "current",
@@ -34,6 +33,7 @@ def _ev_config(**charger_overrides):
         "switch_entity": "switch.ev_allow",
         "max_current_a": 16,
         "min_current_a": 6,
+        "phases": [1, 2, 3],
     }
     charger.update(charger_overrides)
     return {

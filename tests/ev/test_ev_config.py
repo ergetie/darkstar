@@ -193,7 +193,7 @@ def test_hardware_fields_unaffected_by_deprecated_fields() -> None:
             {
                 "id": "ev1",
                 "enabled": True,
-                "max_power_kw": 11.0,
+                "rated_power_kw": 11.0,
                 "battery_capacity_kwh": 82.0,
                 "target_soc_percent": 80,
             }
@@ -201,7 +201,6 @@ def test_hardware_fields_unaffected_by_deprecated_fields() -> None:
     }
     cfg = _load(data)
     ev = cfg.ev_chargers[0]
-    assert ev.max_power_kw == 11.0
     assert ev.battery_capacity_kwh == 82.0
     assert isinstance(ev, EVChargerDeviceConfig)
 
@@ -244,3 +243,14 @@ def test_ev_mapping_values_are_trimmed_and_preserve_case() -> None:
     assert ev.plugged_in_states == "WaitCar, Charging"
     assert ev.phase_1_value == "Force_1"
     assert ev.phase_3_value == "Force_3"
+
+
+def test_nominal_voltage_follows_system_grid_config() -> None:
+    """The executor's EV and load-balancer kW<->A voltage is system.grid.nominal_voltage_v."""
+    default = _load({**MINIMAL_CONFIG, "ev_chargers": []})
+    assert default.ev_nominal_voltage_v == 230.0
+    assert default.load_balancing.nominal_voltage_v == 230.0
+    system = {**MINIMAL_CONFIG["system"], "grid": {"nominal_voltage_v": 240}}
+    cfg = _load({**MINIMAL_CONFIG, "system": system, "ev_chargers": []})
+    assert cfg.ev_nominal_voltage_v == 240.0
+    assert cfg.load_balancing.nominal_voltage_v == 240.0

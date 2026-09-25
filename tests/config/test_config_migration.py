@@ -1354,3 +1354,256 @@ class TestMigrateExcessPvSinkToPriority:
         excess_pv = result["executor"]["excess_pv"]
         assert "sink" not in excess_pv
         assert excess_pv["priority"] == [{"type": "ev", "charger_id": "main_ev"}]
+
+
+class TestMigrateEvChargerPower:
+    """ev-planning-model (ev-charging-power): legacy max_power_kw migration."""
+
+    def test_prod_current_charger_drops_kw_keys_and_logs_derived(self, caplog):
+        from backend.config_migration import _migrate_ev_charger_power
+
+        config = {
+            "ev_chargers": [
+                {
+                    "id": "goe",
+                    "type": "current",
+                    "max_power_kw": 11,
+                    "nominal_power_kw": 11,
+                    "max_current_a": 12,
+                    "phases": [1, 2, 3],
+                }
+            ]
+        }
+        with caplog.at_level(logging.INFO):
+            result, changed = _migrate_ev_charger_power(config)
+
+        assert changed is True
+        ev = result["ev_chargers"][0]
+        assert "max_power_kw" not in ev
+        assert "nominal_power_kw" not in ev
+        assert "rated_power_kw" not in ev
+        assert any("8.28 kW" in r.getMessage() for r in caplog.records)
+
+    def test_binary_charger_renamed_to_rated_power(self):
+        from backend.config_migration import _migrate_ev_charger_power
+
+        config = {"ev_chargers": [{"id": "wb", "type": "binary", "max_power_kw": 3.7}]}
+        result, changed = _migrate_ev_charger_power(config)
+
+        assert changed is True
+        assert result["ev_chargers"][0] == {"id": "wb", "type": "binary", "rated_power_kw": 3.7}
+
+    def test_binary_nominal_power_used_when_max_absent(self):
+        from backend.config_migration import _migrate_ev_charger_power
+
+        config = {"ev_chargers": [{"id": "wb", "nominal_power_kw": 7.4}]}
+        result, changed = _migrate_ev_charger_power(config)
+
+        assert changed is True
+        assert result["ev_chargers"][0] == {"id": "wb", "rated_power_kw": 7.4}
+
+    def test_existing_rated_power_is_not_overwritten(self):
+        from backend.config_migration import _migrate_ev_charger_power
+
+        config = {"ev_chargers": [{"id": "wb", "rated_power_kw": 3.7, "max_power_kw": 11.0}]}
+        result, changed = _migrate_ev_charger_power(config)
+
+        assert changed is True
+        assert result["ev_chargers"][0] == {"id": "wb", "rated_power_kw": 3.7}
+
+    def test_rerun_is_idempotent(self):
+        import copy
+
+        from backend.config_migration import _migrate_ev_charger_power
+
+        config = {
+            "ev_chargers": [
+                {"id": "goe", "type": "current", "max_power_kw": 11, "max_current_a": 12, "phases": [1, 2, 3]},
+                {"id": "wb", "type": "binary", "max_power_kw": 3.7},
+            ]
+        }
+        once, _ = _migrate_ev_charger_power(config)
+        snapshot = copy.deepcopy(once)
+        twice, changed = _migrate_ev_charger_power(once)
+
+        assert changed is False
+        assert twice == snapshot
+
+    @pytest.mark.asyncio
+    async def test_migrate_config_rewrites_legacy_charger(self, tmp_path, monkeypatch):
+        """The startup migration picks up legacy EV power keys and writes (with backup)."""
+        from ruamel.yaml import YAML
+
+        import backend.config_migration as cm
+
+        yaml_loader = YAML()
+        config_file = tmp_path / "config.yaml"
+        default_file = tmp_path / "config.default.yaml"
+
+        base = {
+            "config_version": 2,
+            "system": {"system_id": "test", "inverter_profile": "test", "has_solar": False},
+            "battery": {"min_soc_percent": 20},
+            "executor": {},
+            "input_sensors": {},
+        }
+        user = {**base, "ev_chargers": [{"id": "wb", "type": "binary", "max_power_kw": 3.7}]}
+        with config_file.open("w") as f:
+            yaml_loader.dump(user, f)
+        with default_file.open("w") as f:
+            yaml_loader.dump(base, f)
+
+        monkeypatch.setattr(
+            cm,
+            "Path",
+            lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else Path(p),
+        )
+        written: list = []
+        monkeypatch.setattr(cm, "_write_config", lambda _p, cfg, *a, **k: written.append(cfg))
+
+        await cm.migrate_config(strict_validation=False)
+
+        assert written, "legacy EV power keys must trigger a config write"
+        ev = written[-1]["ev_chargers"][0]
+        assert ev["rated_power_kw"] == 3.7
+        assert "max_power_kw" not in ev
+
+
+class TestMigrateNominalVoltage:
+    """ev-planning-model: load_balancing.nominal_voltage_v -> system.grid.nominal_voltage_v."""
+
+    def test_legacy_value_moves_next_to_main_fuse(self):
+        from ruamel.yaml.comments import CommentedMap
+
+        from backend.config_migration import _migrate_nominal_voltage
+
+        grid = CommentedMap([("max_power_kw", 11), ("main_fuse_a", 20), ("other", 1)])
+        config = {
+            "system": {"grid": grid},
+            "load_balancing": {"enabled": True, "nominal_voltage_v": 225},
+        }
+        result, changed = _migrate_nominal_voltage(config)
+
+        assert changed is True
+        assert "nominal_voltage_v" not in result["load_balancing"]
+        assert result["load_balancing"]["enabled"] is True
+        assert list(result["system"]["grid"].keys()) == [
+            "max_power_kw",
+            "main_fuse_a",
+            "nominal_voltage_v",
+            "other",
+        ]
+        assert result["system"]["grid"]["nominal_voltage_v"] == 225
+
+    def test_creates_system_grid_when_absent(self):
+        from backend.config_migration import _migrate_nominal_voltage
+
+        result, changed = _migrate_nominal_voltage({"load_balancing": {"nominal_voltage_v": 230}})
+        assert changed is True
+        assert result == {"load_balancing": {}, "system": {"grid": {"nominal_voltage_v": 230}}}
+
+    def test_existing_new_key_wins(self):
+        from backend.config_migration import _migrate_nominal_voltage
+
+        config = {
+            "system": {"grid": {"nominal_voltage_v": 240}},
+            "load_balancing": {"nominal_voltage_v": 220},
+        }
+        result, changed = _migrate_nominal_voltage(config)
+        assert changed is True
+        assert result["system"]["grid"]["nominal_voltage_v"] == 240
+        assert "nominal_voltage_v" not in result["load_balancing"]
+
+    def test_idempotent(self):
+        import copy
+
+        from backend.config_migration import _migrate_nominal_voltage
+
+        config = {"load_balancing": {"nominal_voltage_v": 220}, "system": {"grid": {}}}
+        once, _ = _migrate_nominal_voltage(config)
+        snapshot = copy.deepcopy(once)
+        twice, changed = _migrate_nominal_voltage(once)
+        assert changed is False
+        assert twice == snapshot
+
+    def test_no_legacy_key_is_noop(self):
+        from backend.config_migration import _migrate_nominal_voltage
+
+        config = {"system": {"grid": {"nominal_voltage_v": 230}}, "load_balancing": {}}
+        _, changed = _migrate_nominal_voltage(config)
+        assert changed is False
+
+    @pytest.mark.asyncio
+    async def test_full_migration_moves_value_and_backs_up(self, tmp_path, monkeypatch):
+        from ruamel.yaml import YAML
+
+        import backend.config_migration as cm
+
+        yaml_loader = YAML()
+        config_file = tmp_path / "config.yaml"
+        default_file = tmp_path / "config.default.yaml"
+        user = {
+            "config_version": 2,
+            "system": {
+                "system_id": "t",
+                "inverter_profile": "t",
+                "has_battery": True,
+                "grid": {"main_fuse_a": 20},
+            },
+            "battery": {"min_soc_percent": 20},
+            "executor": {},
+            "input_sensors": {},
+            "load_balancing": {"enabled": False, "nominal_voltage_v": 225},
+        }
+        default = {
+            "config_version": 2,
+            "system": {
+                "system_id": "t",
+                "inverter_profile": "t",
+                "has_battery": True,
+                "grid": {"nominal_voltage_v": 230},
+            },
+            "battery": {"min_soc_percent": 20},
+            "executor": {},
+            "input_sensors": {},
+            "load_balancing": {"enabled": False},
+        }
+        with config_file.open("w") as f:
+            yaml_loader.dump(user, f)
+        with default_file.open("w") as f:
+            yaml_loader.dump(default, f)
+
+        backup_dir = tmp_path / "backups"
+        monkeypatch.setenv(cm.BACKUP_DIR_ENV, str(backup_dir))
+        monkeypatch.setattr(
+            cm,
+            "Path",
+            lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else Path(p),
+        )
+
+        await cm.migrate_config(strict_validation=False)
+
+        with config_file.open() as f:
+            migrated = yaml_loader.load(f)
+        assert migrated["system"]["grid"]["nominal_voltage_v"] == 225
+        assert "nominal_voltage_v" not in migrated["load_balancing"]
+        assert list(backup_dir.glob("config.yaml_*.bak")), "backup must be written before migrating"
+
+
+class TestWarnEvChargersMissingPhases:
+    def test_warns_with_charger_name(self, caplog):
+        from backend.config_migration import _warn_ev_chargers_missing_phases
+
+        config = {
+            "ev_chargers": [
+                {"id": "c1", "name": "Garage", "type": "current", "max_current_a": 12},
+                {"id": "c2", "name": "Ok", "type": "current", "phases": [1, 2, 3]},
+                {"id": "b1", "name": "Binary", "type": "binary", "rated_power_kw": 3.7},
+            ]
+        }
+        with caplog.at_level(logging.WARNING):
+            _warn_ev_chargers_missing_phases(config)
+
+        messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(messages) == 1
+        assert "Configure phases for Garage to enable planning" in messages[0]

@@ -77,7 +77,7 @@ export type ConfigResponse = {
         battery?: { capacity_kwh?: number }
         solar_array?: { kwp?: number }
         solar_arrays?: { kwp?: number; name?: string }[]
-        grid?: { max_power_kw?: number }
+        grid?: { max_power_kw?: number; main_fuse_a?: number; nominal_voltage_v?: number }
         inverter?: { max_power_kw?: number }
         has_solar?: boolean
         has_battery?: boolean
@@ -140,13 +140,15 @@ export type ConfigResponse = {
         id: string
         name: string
         enabled: boolean
-        max_power_kw: number
+        rated_power_kw?: number
         battery_capacity_kwh: number
         min_soc_percent: number
         target_soc_percent: number
         sensor: string
-        type: 'variable' | 'constant'
-        nominal_power_kw: number
+        type: 'binary' | 'current'
+        min_current_a?: number
+        max_current_a?: number
+        phases?: number[]
     }[]
     executor?: {
         excess_pv?: {
@@ -682,6 +684,14 @@ export type TrainingHistoryResponse = {
     count: number
 }
 
+export type EVPlannedDay = {
+    /** Local calendar date (YYYY-MM-DD) */
+    date: string
+    kwh: number
+    /** known: every slot that day has a published price; estimated: rests on forecasts */
+    basis: 'known' | 'estimated'
+}
+
 export type EVChargerState = {
     id: string
     name: string
@@ -698,8 +708,10 @@ export type EVChargerState = {
     required_kwh: number | null
     delivered_kwh: number | null
     remaining_kwh: number | null
-    daily_quota_kwh: number | null
-    quota_schedule: Record<string, number> | null
+    /** Planned per-day estimate from today through the deadline day */
+    planned_by_day?: EVPlannedDay[]
+    /** Least-reliable price source used to price post-horizon deferral */
+    deferral_price_source?: 'forecast' | 'trailing_average' | 'horizon_max' | null
     keep_on_after_target: boolean
     ha_ready_by_entity: string | null
     ha_target_soc_entity: string | null
@@ -720,6 +732,8 @@ export type EVChargerState = {
     last_planned_at: string | null
     /** Active manual "charge now" override, null when none */
     manual_charge?: EVManualCharge | null
+    /** Why the charger is disabled for planning (e.g. missing phases), null when enabled */
+    disabled_reason?: string | null
 }
 
 export type EVManualCharge = {

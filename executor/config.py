@@ -12,6 +12,8 @@ from typing import Any, cast
 
 from ruamel.yaml import YAML
 
+from backend.core.ev_power import DEFAULT_NOMINAL_VOLTAGE_V, nominal_voltage_v
+
 logger = logging.getLogger(__name__)
 
 # Charging-goal fields live in data/ev_multi_day_state.json (dashboard/API), never
@@ -140,7 +142,6 @@ class EVChargerDeviceConfig:
     plug_sensor: str | None = None
     phase_1_value: str = "1"
     phase_3_value: str = "3"
-    max_power_kw: float = 7.4
     battery_capacity_kwh: float | None = None
     replan_on_plugin: bool = True
     replan_on_unplug: bool = False
@@ -224,10 +225,11 @@ class LoadBalancingConfig:
     resume_margin_percent: float = 90.0
     increase_step_a: int = 1
     sensor_stale_after_s: int = 30
-    # Fallback voltage (V) for converting a power-mode phase to current when
-    # that phase has no configured grid_voltage_l* entity. Unrelated to
+    # Sourced from system.grid.nominal_voltage_v (the single nominal grid
+    # voltage). Used to convert a power-mode phase to current when that phase
+    # has no configured grid_voltage_l* entity. Unrelated to
     # ControllerConfig.nominal_voltage_v (DC battery voltage).
-    nominal_voltage_v: float = 220.0
+    nominal_voltage_v: float = DEFAULT_NOMINAL_VOLTAGE_V
     loads: list[BalancedLoadConfig] = field(default_factory=lambda: [])
     # Unified give-way order across chargers and shed loads; the top entry
     # gives way first. Self-healed on load (see heal_give_way_order).
@@ -296,6 +298,9 @@ class ExecutorConfig:
     controller: ControllerConfig = field(default_factory=ControllerConfig)
     excess_pv: ExcessPVConfig = field(default_factory=ExcessPVConfig)
     load_balancing: LoadBalancingConfig = field(default_factory=LoadBalancingConfig)
+    # Nominal grid voltage for EV kW<->A conversion; same source as the
+    # planner's charger-power model (backend.core.ev_power).
+    ev_nominal_voltage_v: float = DEFAULT_NOMINAL_VOLTAGE_V
 
     history_retention_days: int = 30
     schedule_path: str = "data/schedule.json"
@@ -327,7 +332,7 @@ def load_yaml(path: str) -> dict[str, Any]:
 def _parse_load_balancing_config(
     data: dict[str, Any], system_data: dict[str, Any]
 ) -> LoadBalancingConfig:
-    """Parse system.grid.main_fuse_a and the top-level load_balancing: section."""
+    """Parse system.grid.main_fuse_a/nominal_voltage_v and the top-level load_balancing: section."""
     grid_data: dict[str, Any] = (
         system_data.get("grid", {}) if isinstance(system_data.get("grid"), dict) else {}
     )
@@ -402,9 +407,7 @@ def _parse_load_balancing_config(
         sensor_stale_after_s=int(
             lb_data.get("sensor_stale_after_s", LoadBalancingConfig.sensor_stale_after_s)
         ),
-        nominal_voltage_v=float(
-            lb_data.get("nominal_voltage_v", LoadBalancingConfig.nominal_voltage_v)
-        ),
+        nominal_voltage_v=nominal_voltage_v(data),
         loads=loads,
         give_way_order=give_way_order,
         notify_interventions=bool(lb_data.get("notify_interventions", False)),
@@ -711,9 +714,6 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                     if "phase_3_value" in charger and charger["phase_3_value"] is not None
                     else EVChargerDeviceConfig.phase_3_value
                 ),
-                max_power_kw=float(
-                    charger.get("max_power_kw") or EVChargerDeviceConfig.max_power_kw
-                ),
                 battery_capacity_kwh=charger.get("battery_capacity_kwh"),
                 replan_on_plugin=bool(
                     charger.get("replan_on_plugin", EVChargerDeviceConfig.replan_on_plugin)
@@ -914,6 +914,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         controller=controller,
         excess_pv=excess_pv,
         load_balancing=load_balancing,
+        ev_nominal_voltage_v=nominal_voltage_v(data),
         history_retention_days=int(executor_data.get("history_retention_days", 30)),
         schedule_path=str(executor_data.get("schedule_path", "data/schedule.json")),
         timezone=timezone,

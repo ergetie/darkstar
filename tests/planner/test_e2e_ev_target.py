@@ -1,7 +1,7 @@
 """End-to-end EV target-SoC scenarios (price-forecasting-module-4 §6).
 
 Exercises the pipeline's EV section helpers (``resolve_next_ready_by``,
-``_calculate_required_kwh``, ``_compute_daily_ev_quota``,
+``_calculate_required_kwh``, ``build_deferral_plan``,
 ``build_ev_charger_inputs``) together with the Kepler solver — the same
 sequence the production pipeline runs — without spinning up the full async
 generate_schedule (which would require mocking HA/DB/price sources).
@@ -10,9 +10,9 @@ Covers:
 - 6.1: 30% SoC, target 80% by tomorrow 07:00, midday surplus PV → schedule
   charges the EV from surplus (not export) and reaches 80% by the deadline
   using the cheapest slots.
-- 6.2: ``ready_by`` 3 days out + forecast with a cheap middle day → more
-  energy allocated to the cheap day, today's quota respected, target met by
-  the deadline.
+- 6.2: ``ready_by`` 3 days out + a forecast cheaper than today's known
+  prices → the solver defers the goal into the post-horizon tiers instead of
+  grid-charging today (ev-planning-model).
 - 6.3: A config still carrying legacy goal fields (``penalty_levels``,
   ``target_soc_percent``) loads cleanly with a single deprecation warning and
   the fields are ignored (goals live only in the dashboard/state file now);
@@ -34,10 +34,11 @@ from pytz import timezone as pytz_timezone
 
 from backend.core.ev_goal import resolve_next_ready_by
 from executor.config import load_executor_config
-from planner.pipeline import _calculate_required_kwh, _compute_daily_ev_quota
+from planner.pipeline import _calculate_required_kwh
 from planner.solver.adapter import build_ev_charger_inputs
 from planner.solver.kepler import EV_SHORTFALL_PENALTY_DEFAULT, KeplerSolver
 from planner.solver.types import ExcessPVSinkEntry, KeplerConfig, KeplerInput, KeplerInputSlot
+from planner.strategy.ev_deferral import DeferralSettings, build_deferral_plan
 
 TZ = pytz_timezone("Europe/Stockholm")
 
@@ -150,7 +151,8 @@ def test_e2e_surplus_pv_charges_ev_and_meets_target(monkeypatch):
     charger_cfg = {
         "id": "ev1",
         "enabled": True,
-        "max_power_kw": 7.4,
+        "max_current_a": 32,
+        "phases": [1],  # 32 A x 1 x 230 V = 7.36 kW
         "battery_capacity_kwh": 82.0,
         "soc_sensor": "sensor.ev1_soc",
         "plug_sensor": "binary_sensor.ev1_plug",
@@ -174,13 +176,6 @@ def test_e2e_surplus_pv_charges_ev_and_meets_target(monkeypatch):
     # (80 - 30)/100 * 82 = 41.0 kWh required.
     assert required_kwh == pytest.approx(41.0, abs=0.01)
 
-    # Deadline is < 1 day out → no spreading.
-    today_quota, quota_schedule = _compute_daily_ev_quota(
-        charger_cfg, deadline, required_kwh, {}, now, TZ
-    )
-    assert today_quota is None
-    assert quota_schedule is None
-
     ev_input = build_ev_charger_inputs(
         [charger_cfg],
         [
@@ -191,8 +186,6 @@ def test_e2e_surplus_pv_charges_ev_and_meets_target(monkeypatch):
                 "deadline": deadline,
                 "required_kwh": required_kwh,
                 "keep_on_after_target": False,
-                "daily_quota_kwh": None,
-                "quota_schedule": None,
             }
         ],
     )
@@ -220,7 +213,8 @@ def test_e2e_surplus_pv_charges_ev_and_meets_target(monkeypatch):
 
     # Target met by the deadline (shortfall ≈ 0).
     shortfall = result.slots[-1].ev_shortfall_kwh.get("ev1", 0.0)
-    total_ev = sum(s.ev_charge_kw for s in result.slots)
+    # Planned surplus counts toward the goal (ev-planning-model).
+    total_ev = sum(s.ev_charge_kw + s.ev_surplus_kw.get("ev1", 0.0) for s in result.slots)
     assert total_ev >= required_kwh - 0.05, f"EV should reach target; got {total_ev}/{required_kwh}"
     assert shortfall == pytest.approx(0.0, abs=0.1)
 
@@ -235,24 +229,28 @@ def test_e2e_surplus_pv_charges_ev_and_meets_target(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 6.2 — multi-day deferral with a cheap middle day in the forecast.
+# 6.2 — multi-day goal: forecast cheaper than today's known prices → deferral.
 # ---------------------------------------------------------------------------
-def test_e2e_multi_day_deferral_prefers_cheap_middle_day(monkeypatch):
-    """``ready_by`` 3 days out + forecast with a cheap middle day → more energy
-    allocated to the cheap day, today's quota respected, target met by deadline.
+def test_e2e_multi_day_goal_defers_to_cheaper_forecast(monkeypatch):
+    """``ready_by`` 3 days out, only today's prices known, forecast cheaper.
+
+    Expected: the deferral tiers price post-horizon energy below today's
+    import price, so the solver schedules no grid charging today and covers
+    the requirement with deferred energy (no shortfall).
     """
-    now = TZ.localize(datetime(2026, 7, 8, 22, 0))
-    deadline = now + timedelta(days=3)
+    now = TZ.localize(datetime(2026, 7, 8, 0, 0))
+    deadline = now + timedelta(days=3, hours=7)
 
     charger_cfg = {
         "id": "ev1",
         "enabled": True,
-        "max_power_kw": 7.4,
+        "type": "binary",
+        "rated_power_kw": 7.4,
         "battery_capacity_kwh": 82.0,
         "target_soc_percent": 80,
-        "ready_by": (now + timedelta(days=3)).strftime("%H:%M"),
+        "ready_by": deadline.strftime("%H:%M"),
         "repeat": "none",
-        "ready_by_date": (now + timedelta(days=3)).date().isoformat(),
+        "ready_by_date": deadline.date().isoformat(),
     }
     ha_state = {"id": "ev1", "soc_percent": 30.0, "plugged_in": True}
     monkeypatch.setattr("planner.pipeline._ev_delivered_today_kwh", lambda *_a, **_kw: 0.0)
@@ -260,43 +258,30 @@ def test_e2e_multi_day_deferral_prefers_cheap_middle_day(monkeypatch):
     required_kwh = _calculate_required_kwh(charger_cfg, ha_state, None, TZ)
     assert required_kwh == pytest.approx(41.0, abs=0.01)
 
-    # 7-day forecast with day 2 cheap (offset 1 = D+1 is very cheap).
-    upcoming_spots = {1: 1.5, 2: 0.2, 3: 1.0}
+    horizon_slots = _slots(24, start=now, import_prices=[2.5] * 24, load_kwh=0.5)
+    horizon_end = horizon_slots[-1].end_time
+    forecast = {}
+    t = horizon_end
+    while t < deadline:
+        forecast[t] = 0.30  # spot SEK/kWh -> import ≈ 1.23 SEK/kWh with default tariff
+        t += timedelta(minutes=15)
 
-    today_quota, quota_schedule = _compute_daily_ev_quota(
-        charger_cfg, deadline, required_kwh, upcoming_spots, now, TZ
+    plan = build_deferral_plan(
+        horizon_end=horizon_end,
+        deadline=deadline,
+        now=now,
+        max_kw=7.4,
+        config={},
+        settings=DeferralSettings(),
+        known_spot={},
+        forecast_spot=forecast,
+        trailing_import=None,
+        horizon_max_import=2.5,
     )
-    assert quota_schedule is not None, "spreading should activate (deadline >1 day out)"
-    assert today_quota is not None
+    assert plan.source == "forecast"
+    assert plan.tiers
+    assert max(t.price for t in plan.tiers) < 2.5
 
-    # Sum of all daily quotas equals required_kwh (energy preserved).
-    total_quota = sum(quota_schedule.values())
-    assert total_quota == pytest.approx(required_kwh, abs=0.5)
-
-    # The cheap middle day (offset 2 → the day after tomorrow) gets the largest share.
-    cheap_day_date = (now + timedelta(days=2)).date()
-    other_dates = [d for d in quota_schedule if d != cheap_day_date]
-    if other_dates:
-        cheap_share = quota_schedule[cheap_day_date]
-        other_shares = [quota_schedule[d] for d in other_dates if d != now.date()]
-        if other_shares:
-            assert cheap_share >= max(other_shares), (
-                f"cheap middle day ({cheap_day_date}={cheap_share}) should get the most "
-                f"energy, others={dict((d, quota_schedule[d]) for d in other_dates)}"
-            )
-
-    # Today's quota is respected as an upper bound in the solver.
-    horizon_slots = [
-        KeplerInputSlot(
-            start_time=now + timedelta(hours=i),
-            end_time=now + timedelta(hours=i + 1),
-            load_kwh=1.0,
-            pv_kwh=0.0,
-            import_price_sek_kwh=1.0,
-            export_price_sek_kwh=0.0,
-        )
-        for i in range(24)  # only today in Kepler's horizon
-    ]
     ev_input = build_ev_charger_inputs(
         [charger_cfg],
         [
@@ -307,8 +292,7 @@ def test_e2e_multi_day_deferral_prefers_cheap_middle_day(monkeypatch):
                 "deadline": deadline,
                 "required_kwh": required_kwh,
                 "keep_on_after_target": False,
-                "daily_quota_kwh": today_quota,
-                "quota_schedule": quota_schedule,
+                "deferral_tiers": [(t.price, t.cap_kwh) for t in plan.tiers],
             }
         ],
     )
@@ -316,12 +300,10 @@ def test_e2e_multi_day_deferral_prefers_cheap_middle_day(monkeypatch):
     result = KeplerSolver().solve(KeplerInput(slots=horizon_slots, initial_soc_kwh=0.0), cfg)
     assert result.is_optimal
 
-    today_energy = sum(
-        s.ev_charge_kw * 1.0 for s in result.slots if s.start_time.date() == now.date()
-    )
-    assert today_energy <= today_quota + 0.05, (
-        f"today's scheduled EV energy ({today_energy}) must respect today's quota ({today_quota})"
-    )
+    today_energy = sum(s.ev_charge_kw * 1.0 for s in result.slots)
+    assert today_energy == pytest.approx(0.0, abs=0.01)
+    assert sum(result.ev_deferred_kwh["ev1"]) == pytest.approx(required_kwh, abs=0.05)
+    assert result.slots[0].ev_shortfall_kwh["ev1"] == pytest.approx(0.0, abs=0.01)
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +321,7 @@ def test_e2e_legacy_config_fields_ignored_state_file_goal_charges_correctly(
             {
                 "id": "legacy_ev",
                 "enabled": True,
-                "max_power_kw": 7.4,
+                "rated_power_kw": 7.4,
                 "battery_capacity_kwh": 60.0,
                 "sensor": "sensor.legacy_power",
                 "soc_sensor": "sensor.legacy_soc",
@@ -381,7 +363,7 @@ def test_e2e_legacy_config_fields_ignored_state_file_goal_charges_correctly(
     cfg_dict = {
         "id": ev.id,
         "enabled": True,
-        "max_power_kw": ev.max_power_kw,
+        "rated_power_kw": 7.4,
         "battery_capacity_kwh": ev.battery_capacity_kwh,
         "target_soc_percent": 100,  # goal from data/ev_multi_day_state.json
         "ready_by": "20:00",
@@ -404,8 +386,6 @@ def test_e2e_legacy_config_fields_ignored_state_file_goal_charges_correctly(
                 "deadline": deadline,
                 "required_kwh": required_kwh,
                 "keep_on_after_target": False,
-                "daily_quota_kwh": None,
-                "quota_schedule": None,
             }
         ],
     )

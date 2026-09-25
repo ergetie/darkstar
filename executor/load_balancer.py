@@ -11,6 +11,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from backend.core.ev_power import DEFAULT_NOMINAL_VOLTAGE_V
+
 from .config import LoadBalancingConfig
 
 _CURRENT_UNITS = {"a", "amp", "amps", "ampere", "amperes"}
@@ -60,20 +62,21 @@ def planned_kw_to_amps(
     active_phase_count: int,
     min_current_a: int,
     max_current_a: int,
+    voltage_v: float = DEFAULT_NOMINAL_VOLTAGE_V,
 ) -> int | None:
     """Translate a planned charging power (kW) into an ampere setpoint.
 
-    amps = ceil(planned_kw * 1000 / (230 * active_phase_count)), clamped to
+    amps = ceil(planned_kw * 1000 / (voltage_v * active_phase_count)), clamped to
     max_current_a, so the commanded power is never below the planned power. A
     small epsilon keeps exact multiples (e.g. 4.14 kW on 3 phases = 6 A) from
     rounding up. Returns None when the result would be below min_current_a —
     the caller should pause charging rather than command a setpoint below the
     charger's minimum.
     """
-    if active_phase_count <= 0 or planned_kw <= 0:
+    if active_phase_count <= 0 or planned_kw <= 0 or voltage_v <= 0:
         return None
 
-    amps = math.ceil(planned_kw * 1000 / (230 * active_phase_count) - _AMPS_EPSILON)
+    amps = math.ceil(planned_kw * 1000 / (voltage_v * active_phase_count) - _AMPS_EPSILON)
     amps = min(amps, max_current_a)
 
     if amps < min_current_a:

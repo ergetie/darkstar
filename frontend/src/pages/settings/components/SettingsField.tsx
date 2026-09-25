@@ -16,6 +16,7 @@ import { EntityArrayEditor } from './EntityArrayEditor'
 import { GiveWayListEditor, type GiveWayEntry, type ShedLoad } from './GiveWayListEditor'
 import { ExcessPvPriorityEditor, type ExcessPvPriorityEntry } from './ExcessPvPriorityEditor'
 import { NumberInput } from '../../../components/ui/NumberInput'
+import { DEFAULT_NOMINAL_VOLTAGE_V } from '../evPower'
 
 interface SettingsFieldProps {
     field: BaseField
@@ -27,6 +28,13 @@ interface SettingsFieldProps {
     fullForm?: Record<string, string | boolean | number | undefined>
     config?: Record<string, unknown>
     advancedMode?: boolean
+}
+
+/** system.grid.nominal_voltage_v from the saved config (backend default 230 V). */
+function nominalVoltageFromConfig(config: Record<string, unknown> | undefined): number {
+    const system = config?.system as { grid?: { nominal_voltage_v?: unknown } } | undefined
+    const v = Number(system?.grid?.nominal_voltage_v)
+    return v > 0 ? v : DEFAULT_NOMINAL_VOLTAGE_V
 }
 
 export const SettingsField: React.FC<SettingsFieldProps> = ({
@@ -200,6 +208,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         disabled={isDisabled}
                         haEntities={haEntities}
                         haLoading={haLoading}
+                        nominalVoltageV={nominalVoltageFromConfig(config)}
                     />
                 )
             }

@@ -22,7 +22,7 @@ async def test_ev_schedule_e2e_flow(tmp_path, monkeypatch):
     POST /schedule (target 80, ready_by 07:00, repeat daily)
     -> state file has the goal
     -> run pipeline (mocked prices/sensors)
-    -> state file gains required_kwh/daily_quota_kwh/status
+    -> state file gains required_kwh/planned_by_day/status
     -> GET /api/ev/chargers returns the full state.
     """
     state_file = tmp_path / "ev_multi_day_state.json"
@@ -37,7 +37,7 @@ async def test_ev_schedule_e2e_flow(tmp_path, monkeypatch):
                 "name": "Tesla",
                 "enabled": True,
                 "type": "binary",
-                "max_power_kw": 7.4,
+                "rated_power_kw": 7.4,
                 "battery_capacity_kwh": 80.0,
                 "sensor": "sensor.ev1_power",
                 "soc_sensor": "sensor.ev1_soc",
@@ -91,8 +91,11 @@ async def test_ev_schedule_e2e_flow(tmp_path, monkeypatch):
             "required_kwh": 32.0,  # (80% - 40%) * 80kWh = 32kWh
             "soc_percent": 40.0,
             "plugged_in": True,
-            "daily_quota_kwh": 10.0,
-            "quota_schedule": {str((now + timedelta(days=1)).date()): 10.0},
+            "planned_by_day": [
+                {"date": str(now.date()), "kwh": 22.0, "basis": "known"},
+                {"date": str((now + timedelta(days=1)).date()), "kwh": 10.0, "basis": "estimated"},
+            ],
+            "deferral_price_source": "forecast",
         }
     ]
     # Execute persist step
@@ -101,7 +104,7 @@ async def test_ev_schedule_e2e_flow(tmp_path, monkeypatch):
     # State file should now have computed properties
     state_data = json.loads(state_file.read_text())
     assert state_data["ev1"]["required_kwh"] == 32.0
-    assert state_data["ev1"]["daily_quota_kwh"] == 10.0
+    assert state_data["ev1"]["planned_by_day"][1]["kwh"] == 10.0
     # Goal fields must still be preserved
     assert state_data["ev1"]["target_soc_percent"] == 80
     assert state_data["ev1"]["ready_by"] == "07:00"
@@ -117,7 +120,12 @@ async def test_ev_schedule_e2e_flow(tmp_path, monkeypatch):
     assert charger["target_soc_percent"] == 80
     assert charger["ready_by"] == "07:00"
     assert charger["required_kwh"] == 32.0
-    assert charger["daily_quota_kwh"] == 10.0
+    assert charger["planned_by_day"][1] == {
+        "date": str((now + timedelta(days=1)).date()),
+        "kwh": 10.0,
+        "basis": "estimated",
+    }
+    assert charger["deferral_price_source"] == "forecast"
     assert charger["status"] == "on_track"
     assert charger["source"] == "api"
     assert charger["externally_controlled"] is False
@@ -141,7 +149,7 @@ async def test_ev_schedule_e2e_ha_sync(tmp_path, monkeypatch):
                 "name": "Tesla",
                 "enabled": True,
                 "type": "binary",
-                "max_power_kw": 7.4,
+                "rated_power_kw": 7.4,
                 "sensor": "sensor.ev1_power",
                 "soc_sensor": "sensor.ev1_soc",
                 "plug_sensor": "binary_sensor.ev1_plug",
@@ -206,7 +214,7 @@ async def test_ev_schedule_e2e_escape_hatch(tmp_path, monkeypatch):
                 "id": "ev_uncontrolled_binary",
                 "name": "Legacy Binary Charger",
                 "enabled": True,
-                "max_power_kw": 7.4,
+                "rated_power_kw": 7.4,
                 "type": "binary",
                 "sensor": "sensor.ev1_power",
                 "soc_sensor": "sensor.ev1_soc",
@@ -217,7 +225,7 @@ async def test_ev_schedule_e2e_escape_hatch(tmp_path, monkeypatch):
                 "id": "ev_controlled_binary",
                 "name": "Controlled Binary Charger",
                 "enabled": True,
-                "max_power_kw": 7.4,
+                "rated_power_kw": 7.4,
                 "type": "binary",
                 "sensor": "sensor.ev2_power",
                 "soc_sensor": "sensor.ev2_soc",
@@ -260,7 +268,6 @@ async def test_ev_schedule_e2e_escape_hatch(tmp_path, monkeypatch):
                 id="ev_controlled_binary",
                 type="binary",
                 switch_entity="switch.ev2_switch",  # Set
-                max_power_kw=7.4,
             )
         ]
     )

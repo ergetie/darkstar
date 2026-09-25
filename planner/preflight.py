@@ -12,6 +12,8 @@ import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from backend.core.ev_power import charger_max_kw, nominal_voltage_v
+
 from .errors import PlannerError, PlannerErrorCode, user_message
 
 logger = logging.getLogger("darkstar.planner.preflight")
@@ -105,16 +107,21 @@ def check_soc_staleness(input_data: dict[str, Any]) -> None:
 
 def check_ev_chargers(config: dict[str, Any]) -> None:
     ev_chargers = config.get("ev_chargers", [])
+    voltage = nominal_voltage_v(config)
     for ev in ev_chargers:
         if not ev.get("enabled", True):
             continue
         charger_id = ev.get("id", "<unknown>")
-        max_power = ev.get("max_power_kw", ev.get("nominal_power_kw", 0.0)) or 0.0
-        if max_power <= 0:
-            raise PlannerError(
-                code=PlannerErrorCode.EV_MISSING_POWER,
-                details={"charger_id": charger_id, "max_power_kw": max_power},
-            )
+        max_kw = charger_max_kw(ev, voltage)
+        if max_kw <= 0:
+            control_type = str(ev.get("type", "binary") or "binary").lower()
+            details: dict[str, Any] = {"charger_id": charger_id, "type": control_type}
+            if control_type == "current":
+                details["max_current_a"] = ev.get("max_current_a")
+                details["phases"] = ev.get("phases")
+            else:
+                details["rated_power_kw"] = ev.get("rated_power_kw")
+            raise PlannerError(code=PlannerErrorCode.EV_MISSING_POWER, details=details)
         capacity = ev.get("battery_capacity_kwh", 0.0) or 0.0
         if capacity <= 0:
             raise PlannerError(

@@ -11,6 +11,12 @@ from typing import Any, cast
 
 import pandas as pd
 
+from backend.core.ev_power import (
+    DEFAULT_NOMINAL_VOLTAGE_V,
+    charger_power_limits,
+    nominal_voltage_v,
+)
+
 from .types import (
     EVChargerInput,
     ExcessPVSinkEntry,
@@ -100,28 +106,10 @@ def build_water_heater_inputs(
     return result
 
 
-def derive_min_power_kw(ev: dict[str, Any], control_type: str, max_power_kw: float) -> float:
-    """Derive the minimum plannable charging power for a charger.
-
-    `type: binary` chargers have no fractional range, so their minimum equals
-    their maximum (the equality energy link in kepler.py handles them either
-    way). `type: current` chargers derive it from `min_current_a` x phase
-    count x 230V, with a 1% margin so the executor's floor-based kW->amps
-    conversion never rounds a planned minimum below `min_current_a`.
-    """
-    if control_type != "current":
-        return max_power_kw
-
-    min_current_a = float(ev.get("min_current_a") or 6)
-    phases = ev.get("phases") or [1, 2, 3]
-    phase_count = len(phases) if phases else 3
-
-    return min_current_a * 230 * phase_count / 1000 * 1.01
-
-
 def build_ev_charger_inputs(
     ev_chargers_config: list[dict[str, Any]],
     ev_charger_states: list[dict[str, Any]] | None = None,
+    voltage: float = DEFAULT_NOMINAL_VOLTAGE_V,
 ) -> list[EVChargerInput]:
     """
     Build per-device EVChargerInput list from ev_chargers[] config + HA state.
@@ -129,16 +117,20 @@ def build_ev_charger_inputs(
     Args:
         ev_chargers_config: List of ev_charger config dicts from config.yaml
         ev_charger_states: Optional list of per-device HA state dicts.
-            Each dict should have: id, soc_percent, plugged_in, deadline (optional)
+            Each dict should have: id, soc_percent, plugged_in, deadline (optional),
+            and optionally required_kwh and deferral_tiers
+            (list of (price_sek_per_kwh, cap_kwh)).
             If None or empty, HA state defaults are used (0% SoC, not plugged in).
+        voltage: Nominal grid voltage for deriving current-charger power
+            (see backend.core.ev_power).
 
     Returns:
-        List of EVChargerInput objects for enabled chargers.
+        List of EVChargerInput objects for enabled chargers with derivable power.
         Chargers not plugged in are still included (solver skips them internally).
     """
     enabled_ev: list[dict[str, Any]] = [ev for ev in ev_chargers_config if ev.get("enabled", True)]
 
-    # Filter out chargers registered as disabled (missing/zero max_power_kw)
+    # Filter out chargers registered as disabled (power cannot be derived)
     enabled_ev = [ev for ev in enabled_ev if not ev.get("disabled_reason")]
 
     # Build state lookup by charger ID
@@ -155,32 +147,38 @@ def build_ev_charger_inputs(
         if not charger_id:
             continue
 
+        min_kw, max_kw = charger_power_limits(ev, voltage)
+        if max_kw <= 0:
+            logger.warning(
+                "EV charger %s excluded from planning: power limits cannot be derived", charger_id
+            )
+            continue
+
         state = state_by_id.get(charger_id, {})
 
         soc_percent = float(state.get("soc_percent") or 0.0)
         plugged_in = bool(state.get("plugged_in", False))
         deadline = state.get("deadline")  # datetime | None
         required_kwh = state.get("required_kwh")
-        quota_schedule = state.get("quota_schedule")
-        quota_by_day = {d: float(v) for d, v in quota_schedule.items()} if quota_schedule else None
+        tiers_raw: Any = state.get("deferral_tiers") or []
+        deferral_tiers = [(float(p), float(c)) for p, c in tiers_raw]
         keep_on_after_target = bool(state.get("keep_on_after_target", False))
 
         control_type = str(ev.get("type", "binary")).lower()
-        max_power_kw = float(ev.get("max_power_kw") or 0.0)
 
         result.append(
             EVChargerInput(
                 id=charger_id,
-                max_power_kw=max_power_kw,
+                max_power_kw=max_kw,
                 battery_capacity_kwh=float(ev.get("battery_capacity_kwh", 0.0)),
                 current_soc_percent=soc_percent,
                 plugged_in=plugged_in,
                 deadline=deadline,
                 required_kwh=float(required_kwh) if required_kwh is not None else None,
-                quota_by_day=quota_by_day,
+                deferral_tiers=deferral_tiers,
                 keep_on_after_target=keep_on_after_target,
                 control_type=control_type,
-                min_power_kw=derive_min_power_kw(ev, control_type, max_power_kw),
+                min_power_kw=min_kw,
             )
         )
 
@@ -484,7 +482,9 @@ def config_to_kepler_config(
 
     # ARC15: Load EV charging settings (per-device)
     if config_version >= 2 and ev_chargers:
-        ev_inputs = build_ev_charger_inputs(ev_chargers, ev_charger_states)
+        ev_inputs = build_ev_charger_inputs(
+            ev_chargers, ev_charger_states, nominal_voltage_v(planner_config)
+        )
     else:
         ev_inputs = []
 

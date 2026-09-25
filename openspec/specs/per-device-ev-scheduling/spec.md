@@ -5,7 +5,12 @@
 TBD - Defines how the system handles multiple EV chargers with independent per-device scheduling, MILP decision variables, deadline constraints, SoC tracking, and executor control.
 ## Requirements
 ### Requirement: Per-device EV config structure
-Each entry in `ev_chargers[]` SHALL support the following per-device fields: `switch_entity` (string, HA charging-control entity ID), `charge_enabled_value` (string, default `"on"`), `charge_disabled_value` (string, default `"off"`), `plugged_in_states` (comma-separated string, default `"on,true,1,connected"`), `phase_1_value` (string, default `"1"`), `phase_3_value` (string, default `"3"`), `replan_on_plugin` (boolean, default true), `replan_on_unplug` (boolean, default false), plus hardware facts (`sensor`, `soc_sensor`, `plug_sensor`, `battery_capacity_kwh`, `max_power_kw`, `type`, current/phase entities) and the optional HA goal entities (`ha_ready_by_entity`, `ha_target_soc_entity`). The new mapping fields SHALL be optional and their absence SHALL preserve existing switch-based and numeric phase-option behavior.
+Each entry in `ev_chargers[]` SHALL support the following per-device fields: `switch_entity` (string, HA charging-control entity ID), `charge_enabled_value` (string, default `"on"`), `charge_disabled_value` (string, default `"off"`), `plugged_in_states` (comma-separated string, default `"on,true,1,connected"`), `phase_1_value` (string, default `"1"`), `phase_3_value` (string, default `"3"`), `replan_on_plugin` (boolean, default true), `replan_on_unplug` (boolean, default false), plus hardware facts (`sensor`, `soc_sensor`, `plug_sensor`, `battery_capacity_kwh`, `type`, current/phase entities) and the optional HA goal entities (`ha_ready_by_entity`, `ha_target_soc_entity`). The new mapping fields SHALL be optional and their absence SHALL preserve existing switch-based and numeric phase-option behavior.
+
+**Charger power fields:**
+- `type: current` chargers SHALL specify power only through `min_current_a`, `max_current_a` and `phases`. Their power limits are derived (see `ev-charging-power`).
+- `type: binary` chargers SHALL specify `rated_power_kw` (> 0).
+- `max_power_kw` and `nominal_power_kw` SHALL NOT be read for EV chargers. Config migration converts them (see `ev-charging-power`).
 
 `switch_entity` SHALL accept Home Assistant `switch`, `input_boolean`, `select`, and `input_select` domains. For a select-like entity, `charge_enabled_value` and `charge_disabled_value` SHALL both be non-empty and SHALL differ from each other. When a custom `plugged_in_states` value is present, it SHALL contain at least one non-empty comma-separated token. When phase switching is enabled, `phase_1_value` and `phase_3_value` SHALL both be non-empty and SHALL differ from each other.
 
@@ -59,6 +64,10 @@ Config validation SHALL NOT require Home Assistant to be reachable, and SHALL NO
 - **WHEN** Home Assistant is unreachable and the user saves an EV charger with select mappings
 - **THEN** validation SHALL evaluate the stored values without contacting Home Assistant
 - **AND** the save SHALL succeed
+
+#### Scenario: Current charger without kW field is valid
+- **WHEN** a current charger has `min_current_a: 6`, `max_current_a: 10`, `phases: [1,2,3]`, and no `max_power_kw`
+- **THEN** config validation SHALL accept the charger and its limits SHALL be derived
 
 ### Requirement: Per-device MILP decision variables
 The Kepler solver SHALL create separate decision variables for each plugged-in, enabled EV charger: a binary `ev_charge[d][t]` (charging on/off) and continuous `ev_energy[d][t]` (energy in kWh) indexed by device `d` and time slot `t`.
@@ -257,28 +266,29 @@ The executor SHALL read power from each enabled charger's sensor independently v
 - **AND** source isolation SHALL be active
 
 ### Requirement: EV charger with invalid power is registered as disabled
-The load registration service SHALL register EV chargers configured with `max_power_kw <= 0` (or missing `max_power_kw` entirely) as visible-but-disabled. The charger SHALL appear in the load registry with a `disabled_reason` of `"missing_power_kw"` so it remains visible in the UI and health surfaces. The planner's adapter SHALL exclude such chargers when building `KeplerConfig.ev_chargers`, and the solver SHALL NOT create decision variables for them.
+The load registration service SHALL register as visible-but-disabled any EV charger whose derived maximum power (see `ev-charging-power`) is ≤ 0 or cannot be derived. This covers:
+- a `type: current` charger missing `max_current_a` or `phases`, or with `max_current_a` ≤ 0;
+- a `type: binary` charger with missing or ≤ 0 `rated_power_kw`.
 
-A `HealthIssue` with `category="ev"`, `severity="critical"`, and `code="EV_MISSING_POWER"` SHALL be emitted for each such charger. The issue's `entity_id` SHALL be the charger ID, and `details` SHALL include the charger ID and the observed `max_power_kw` value.
+The charger SHALL appear in the load registry with a `disabled_reason` of `"missing_power_kw"` so it remains visible in the UI and health surfaces. The planner's adapter SHALL exclude such chargers when building `KeplerConfig.ev_chargers`, and the solver SHALL NOT create decision variables for them.
 
-This requirement SHALL apply equally when `max_power_kw` is entirely absent from the config (previously defaulted silently to `0.0` by `backend/loads/service.py`).
+A `HealthIssue` with `category="ev"`, `severity="critical"`, and `code="EV_MISSING_POWER"` SHALL be emitted for each such charger. The issue's `entity_id` SHALL be the charger ID. `details` SHALL include the charger ID, the charger type, and the offending field values. The guidance SHALL name the fields to set: amps and phases for current chargers, `rated_power_kw` for binary chargers.
 
-#### Scenario: Missing max_power_kw registers as disabled
-- **GIVEN** an EV charger config entry with `enabled: true` and no `max_power_kw` field
+#### Scenario: Current charger missing max_current_a registers as disabled
+- **GIVEN** an enabled current charger with no `max_current_a`
 - **WHEN** the load service loads configuration
 - **THEN** the charger is registered with `disabled_reason="missing_power_kw"`
-- **AND** the charger appears in the load registry
 - **AND** a `HealthIssue` is emitted with category `ev`, severity `critical`, code `EV_MISSING_POWER`, and `entity_id` set to the charger ID
 
-#### Scenario: Zero max_power_kw registers as disabled
-- **GIVEN** an EV charger config entry with `enabled: true` and `max_power_kw: 0`
+#### Scenario: Binary charger with zero rated power registers as disabled
+- **GIVEN** an enabled binary charger with `rated_power_kw: 0`
 - **WHEN** the load service loads configuration
 - **THEN** the charger is registered with `disabled_reason="missing_power_kw"`
 - **AND** the planner's adapter excludes the charger from `KeplerConfig.ev_chargers`
 - **AND** the solver does not create decision variables for the charger
 
-#### Scenario: Valid max_power_kw registers normally
-- **GIVEN** an EV charger config entry with `max_power_kw: 11.0`
+#### Scenario: Valid derived power registers normally
+- **GIVEN** a current charger with `max_current_a: 10` and 3 phases
 - **WHEN** the load service loads configuration
 - **THEN** the charger is registered without a `disabled_reason`
 - **AND** no `EV_MISSING_POWER` HealthIssue is emitted for that charger
@@ -290,7 +300,7 @@ This requirement SHALL apply equally when `max_power_kw` is entirely absent from
 
 #### Scenario: Fixing config re-enables charger without restart
 - **GIVEN** a charger was registered with `disabled_reason="missing_power_kw"`
-- **WHEN** the user updates `max_power_kw` to a positive value and the config is reloaded
+- **WHEN** the user sets valid amps and phases (or `rated_power_kw`) and the config is reloaded
 - **THEN** the charger is re-registered without a `disabled_reason`
 - **AND** the corresponding `EV_MISSING_POWER` HealthIssue is cleared
 - **AND** the next planner run includes the charger in `KeplerConfig.ev_chargers`

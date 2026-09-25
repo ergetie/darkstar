@@ -182,6 +182,15 @@ export const systemSections: SettingsSection[] = [
                 type: 'number',
             },
             {
+                key: 'system.grid.nominal_voltage_v',
+                label: 'Nominal grid voltage (V)',
+                helper: 'Nominal voltage per phase (EU standard 230 V). Used for every kW↔A conversion: EV charger power (max current × phases × voltage), charge current commands, and the load balancer’s power sensors without a voltage sensor.',
+                path: ['system', 'grid', 'nominal_voltage_v'],
+                type: 'number',
+                min: 100,
+                max: 260,
+            },
+            {
                 key: 'system.inverter.max_ac_power_kw',
                 label: 'Inverter Max AC Power (kW)',
                 helper: 'Maximum AC power your inverter can produce.',
@@ -1073,6 +1082,49 @@ export const evSections: SettingsSection[] = [
             },
         ],
     },
+    {
+        title: 'Goal Planning',
+        description:
+            'How the planner weighs charging now against cheaper forecast prices after the published Nordpool prices end.',
+        fields: [
+            {
+                key: 'ev_planning.deferral_risk_margin_percent',
+                label: 'Deferral risk margin (%)',
+                helper: 'Markup on forecast prices when deciding whether to wait for cheaper hours past the published prices. A higher margin charges earlier and relies less on price forecasts. Default 12%.',
+                path: ['ev_planning', 'deferral_risk_margin_percent'],
+                type: 'number',
+                min: 0,
+                max: 100,
+            },
+            {
+                key: 'ev_planning.deferral_risk_margin_max_percent',
+                label: 'Deferral risk margin at deadline (%)',
+                helper: 'The margin rises from the base to this value over the ramp window before the deadline, so the planner relies less on forecasts as the deadline nears. Must be at least the base margin (max 200). Set equal to the base to disable the ramp. Default 50%.',
+                path: ['ev_planning', 'deferral_risk_margin_max_percent'],
+                type: 'number',
+                min: 0,
+                max: 200,
+            },
+            {
+                key: 'ev_planning.deferral_risk_ramp_hours',
+                label: 'Margin ramp window (h)',
+                helper: 'How many hours before the deadline the margin starts rising from the base to the maximum (1-168). Default 48 h.',
+                path: ['ev_planning', 'deferral_risk_ramp_hours'],
+                type: 'number',
+                min: 1,
+                max: 168,
+            },
+            {
+                key: 'kepler.ev_shortfall_penalty_sek_per_kwh',
+                label: 'EV shortfall penalty (SEK/kWh)',
+                helper: 'How strongly the planner treats reaching the target SoC by the ready-by time as mandatory. The default 50 SEK/kWh makes the goal near-mandatory while an unreachable goal still plans as much as possible.',
+                path: ['kepler', 'ev_shortfall_penalty_sek_per_kwh'],
+                type: 'number',
+                isAdvanced: true,
+                min: 0,
+            },
+        ],
+    },
 ]
 
 export const waterSections: SettingsSection[] = [
@@ -1210,7 +1262,7 @@ export const loadBalancingSections: SettingsSection[] = [
                 path: ['input_sensors', 'grid_voltage_l1'],
                 type: 'entity',
                 showIf: { configKey: '_computed.any_phase_power_mode', value: true },
-                helper: 'Optional. Used to convert L1 to current when it’s a power sensor. Falls back to the nominal voltage below if left blank.',
+                helper: 'Optional. Used to convert L1 to current when it’s a power sensor. Falls back to the nominal grid voltage (System settings) if left blank.',
             },
             {
                 key: 'input_sensors.grid_current_l2',
@@ -1225,7 +1277,7 @@ export const loadBalancingSections: SettingsSection[] = [
                 path: ['input_sensors', 'grid_voltage_l2'],
                 type: 'entity',
                 showIf: { configKey: '_computed.any_phase_power_mode', value: true },
-                helper: 'Optional. Used to convert L2 to current when it’s a power sensor. Falls back to the nominal voltage below if left blank.',
+                helper: 'Optional. Used to convert L2 to current when it’s a power sensor. Falls back to the nominal grid voltage (System settings) if left blank.',
             },
             {
                 key: 'input_sensors.grid_current_l3',
@@ -1240,16 +1292,7 @@ export const loadBalancingSections: SettingsSection[] = [
                 path: ['input_sensors', 'grid_voltage_l3'],
                 type: 'entity',
                 showIf: { configKey: '_computed.any_phase_power_mode', value: true },
-                helper: 'Optional. Used to convert L3 to current when it’s a power sensor. Falls back to the nominal voltage below if left blank.',
-            },
-            {
-                key: 'load_balancing.nominal_voltage_v',
-                label: 'Nominal voltage (V)',
-                path: ['load_balancing', 'nominal_voltage_v'],
-                type: 'number',
-                className: 'col-span-2',
-                showIf: { configKey: '_computed.any_phase_power_mode', value: true },
-                helper: 'Fallback voltage for converting a power sensor to current when that phase has no voltage sensor set above. Deliberately biased below 230V so a fixed value never under-reports current during a sag.',
+                helper: 'Optional. Used to convert L3 to current when it’s a power sensor. Falls back to the nominal grid voltage (System settings) if left blank.',
             },
         ],
     },

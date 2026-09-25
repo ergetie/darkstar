@@ -62,7 +62,7 @@ async def _get(monkeypatch, persisted: dict, diagnostics: dict | None) -> dict:
                     "sensor": "sensor.p",
                     "soc_sensor": "sensor.soc",
                     "plug_sensor": "binary_sensor.plug",
-                    "max_power_kw": 11.0,
+                    "rated_power_kw": 11.0,
                 }
             ]
         },

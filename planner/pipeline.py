@@ -21,6 +21,11 @@ if TYPE_CHECKING:
 
 
 from backend.core.ev_goal import resolve_next_ready_by, resolve_previous_ready_by
+from backend.core.ev_power import (
+    DEFAULT_NOMINAL_VOLTAGE_V,
+    charger_power_limits,
+    nominal_voltage_v,
+)
 from backend.core.version import get_version
 from backend.learning.store import LearningStore
 from planner.errors import PlannerError, PlannerErrorCode
@@ -32,13 +37,19 @@ from planner.output.soc_target import apply_soc_target_percent
 from planner.preflight import run_preflight
 from planner.solver.adapter import (
     config_to_kepler_config,
-    derive_min_power_kw,
     kepler_result_to_dataframe,
     planner_to_kepler_input,
 )
 from planner.solver.kepler import KeplerSolver
+from planner.strategy.ev_deferral import (
+    DeferralPlan,
+    build_deferral_plan,
+    fetch_forecast_spot_sync,
+    fetch_trailing_import_avg_sync,
+    planned_by_day,
+    read_deferral_settings,
+)
 from planner.strategy.manual_plan import apply_manual_plan
-from planner.strategy.multi_day_planner import MultiDayPlanner
 from planner.strategy.s_index import (
     calculate_dynamic_s_index,
     calculate_probabilistic_s_index,
@@ -268,104 +279,11 @@ def _calculate_required_kwh(
     return max(0.0, required - delivered)
 
 
-def _max_daily_kwh_for_deadline(
-    max_power_kw: float,
-    now: datetime,
-    deadline: datetime,
-    tz: pytz.BaseTzInfo,
-) -> list[float]:
-    """Return per-day max energy (kWh) from today until ``deadline``."""
-    from datetime import datetime as _datetime, time
-
-    today = now.date()
-    deadline_date = deadline.date()
-    from datetime import timedelta
-
-    days: list[date] = []
-    d = today
-    while d <= deadline_date:
-        days.append(d)
-        d += timedelta(days=1)
-
-    max_daily: list[float] = []
-    for i, day in enumerate(days):
-        if i == 0 and day == today:
-            start = now
-            end_of_day = tz.localize(_datetime.combine(day, time(23, 59, 59)))
-            end = min(deadline, end_of_day)
-        elif day == deadline_date:
-            start = tz.localize(_datetime.combine(day, time.min))
-            end = deadline
-        else:
-            start = tz.localize(_datetime.combine(day, time.min))
-            end = tz.localize(_datetime.combine(day, time(23, 59, 59)))
-        hours = max(0.0, (end - start).total_seconds() / 3600.0)
-        max_daily.append(max_power_kw * hours)
-
-    return max_daily
-
-
-def _compute_daily_ev_quota(
-    charger_cfg: dict[str, Any],
-    deadline: datetime,
-    required_kwh: float,
-    upcoming_spots: dict[int, float],
-    now: datetime,
-    tz: pytz.BaseTzInfo,
-) -> tuple[float | None, dict[date, float] | None]:
-    """Compute today's quota and full schedule when spreading is active.
-
-    Spreading only applies when the deadline is more than one calendar day
-    away and a price forecast exists. Otherwise returns ``(None, None)`` so
-    Kepler optimises within the known day-ahead horizon without a quota.
-    """
-    from datetime import timedelta
-
-    if required_kwh <= 0 or not upcoming_spots:
-        return None, None
-
-    # More than one day out means the deadline is at least tomorrow and there
-    # is at least one full day between now and the deadline.
-    time_to_deadline = deadline - now
-    if time_to_deadline <= timedelta(days=1):
-        return None, None
-
-    max_power_kw = float(charger_cfg.get("max_power_kw") or 7.4)
-    max_daily = _max_daily_kwh_for_deadline(max_power_kw, now, deadline, tz)
-
-    # Smallest energy the solver can schedule in one 15-min slot: derived min
-    # power for `type: current` chargers, max power for `type: binary`
-    # (`derive_min_power_kw` already returns max_power_kw for binary).
-    control_type = str(charger_cfg.get("type", "binary")).lower()
-    min_power_kw = derive_min_power_kw(charger_cfg, control_type, max_power_kw)
-    min_chunk_kwh = min_power_kw * 0.25
-
-    quota_schedule = MultiDayPlanner.compute_quota(
-        remaining_kwh=required_kwh,
-        deadline=deadline,
-        daily_prices=upcoming_spots,
-        max_daily_kwh=max_daily,
-        min_daily_fraction=0.1,
-        now=now,
-        min_chunk_kwh=min_chunk_kwh,
-    )
-
-    if not quota_schedule:
-        return None, None
-
-    today = now.date()
-    today_quota = quota_schedule.get(today)
-    if today_quota is None:
-        return None, None
-
-    return float(today_quota), quota_schedule
-
-
 def _ev_charger_status(
     plugged_in: bool,
     deadline: datetime | None,
     required_kwh: float | None,
-    max_power_kw: float,
+    max_kw: float,
     now: datetime,
 ) -> str:
     """Classify a charger per ``status ∈ {on_track, behind, complete, idle}``.
@@ -383,7 +301,7 @@ def _ev_charger_status(
     seconds_left = (deadline - now).total_seconds()
     if seconds_left <= 0.0:
         return "behind"
-    deliverable = max_power_kw * (seconds_left / 3600.0)
+    deliverable = max_kw * (seconds_left / 3600.0)
     return "on_track" if deliverable + 1e-6 >= required_kwh else "behind"
 
 
@@ -392,6 +310,7 @@ def _apply_keep_on_after_target(
     ev_states: list[dict[str, Any]],
     ev_chargers_cfg: list[dict[str, Any]],
     now: datetime,
+    voltage: float = DEFAULT_NOMINAL_VOLTAGE_V,
 ) -> None:
     """Post-solve keep-on-standby flag for ``keep_on_after_target``.
 
@@ -422,8 +341,7 @@ def _apply_keep_on_after_target(
         deadline = state.get("deadline")
         if deadline is None or deadline <= now:
             continue
-        max_power_kw = float(cfg.get("max_power_kw") or 0.0)
-        if max_power_kw <= 0:
+        if charger_power_limits(cfg, voltage)[1] <= 0:
             continue
         keep_on_map[charger_id] = deadline
 
@@ -453,6 +371,8 @@ def compute_ev_goal_diagnostics(
     max_import_kw: float | None,
     now: datetime,
     first_slot_remaining_h: float | None = None,
+    voltage: float = DEFAULT_NOMINAL_VOLTAGE_V,
+    deferred_kwh_by_charger: dict[str, list[float]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Per-charger goal diagnostics: required / scheduled / shortfall / reason.
 
@@ -468,6 +388,10 @@ def compute_ev_goal_diagnostics(
     - ``cost_tradeoff``: anything else.
 
     The reason is display-only; combined causes fall back to ``cost_tradeoff``.
+
+    Energy the solver deferred to post-horizon slots (priced cheaper than the
+    in-horizon options) is reported as ``deferred_kwh`` and is never a
+    shortfall: a goal fully deferred by price is on plan, not at risk.
     """
     cfg_by_id = {str(c.get("id", "")): c for c in ev_chargers_cfg}
     load_by_start = {s.start_time: float(s.load_kwh) for s in input_slots}
@@ -489,6 +413,7 @@ def compute_ev_goal_diagnostics(
             if i == 0 and first_slot_remaining_h is not None:
                 slot_h = min(slot_h, first_slot_remaining_h)
             scheduled_kwh += s.ev_charger_results.get(charger_id, 0.0) * slot_h
+        deferred_kwh = sum((deferred_kwh_by_charger or {}).get(charger_id, []))
         solver_shortfall = next(
             (
                 s.ev_shortfall_kwh[charger_id]
@@ -501,15 +426,13 @@ def compute_ev_goal_diagnostics(
             0.0,
             float(solver_shortfall)
             if solver_shortfall is not None
-            else float(required_kwh) - scheduled_kwh,
+            else float(required_kwh) - scheduled_kwh - deferred_kwh,
         )
 
         reason: str | None = None
         if shortfall_kwh > EV_SHORTFALL_EPS_KWH:
             cfg = cfg_by_id.get(charger_id, {})
-            control_type = str(cfg.get("type", "binary")).lower()
-            max_power_kw = float(cfg.get("max_power_kw") or 0.0)
-            min_power_kw = derive_min_power_kw(cfg, control_type, max_power_kw)
+            min_power_kw = charger_power_limits(cfg, voltage)[0]
             eligible = [s for s in result.slots if s.start_time >= now and s.end_time <= deadline]
             if not eligible:
                 reason = "deadline_too_close"
@@ -525,6 +448,7 @@ def compute_ev_goal_diagnostics(
         diagnostics[charger_id] = {
             "required_kwh": round(float(required_kwh), 3),
             "scheduled_kwh": round(scheduled_kwh, 3),
+            "deferred_kwh": round(deferred_kwh, 3),
             "shortfall_kwh": round(shortfall_kwh, 3) if reason else 0.0,
             "reason": reason,
             "deadline": deadline.isoformat(),
@@ -549,16 +473,19 @@ def _warn_on_zero_scheduled_active_goals(
     ev_states: list[dict[str, Any]],
     ev_chargers_cfg: list[dict[str, Any]],
     diagnostics: dict[str, dict[str, Any]] | None = None,
+    voltage: float = DEFAULT_NOMINAL_VOLTAGE_V,
 ) -> None:
-    """Loudly report an active EV goal that produced zero scheduled energy.
+    """Loudly report an active EV goal that produced zero planned energy.
 
     A charger with ``required_kwh > 0`` and a resolved deadline should never
     silently convert entirely to shortfall — log a WARNING naming the
-    charger, the required kWh, the per-day quota split, and the minimum
-    schedulable chunk so quota/feasibility interactions (design D1-D4) are
-    never invisible.
+    charger, the required kWh, the diagnostics reason and the minimum
+    schedulable chunk. Planned surplus counts as planned energy. A goal the
+    solver deliberately deferred to cheaper post-horizon slots is on plan and
+    only logged at INFO.
     """
     cfg_by_id = {str(c.get("id", "")): c for c in ev_chargers_cfg}
+    deferred_by_charger: dict[str, list[float]] = getattr(result, "ev_deferred_kwh", {}) or {}
 
     for state in ev_states:
         required_kwh = state.get("required_kwh")
@@ -567,31 +494,37 @@ def _warn_on_zero_scheduled_active_goals(
             continue
 
         charger_id = str(state.get("id", ""))
-        total_scheduled_kwh = sum(
-            s.ev_charger_results.get(charger_id, 0.0)
+        total_planned_kwh = sum(
+            (s.ev_charger_results.get(charger_id, 0.0) + s.ev_surplus_kw.get(charger_id, 0.0))
             * ((s.end_time - s.start_time).total_seconds() / 3600.0)
             for s in result.slots
         )
-        if total_scheduled_kwh > 1e-6:
+        if total_planned_kwh > 1e-6:
+            continue
+
+        deferred_kwh = sum(deferred_by_charger.get(charger_id, []))
+        if deferred_kwh > 1e-6:
+            logger.info(
+                "EV %s: no in-horizon charging planned; %.2f of %.2f kWh deferred to "
+                "cheaper post-horizon slots before %s (price source=%s)",
+                charger_id,
+                deferred_kwh,
+                required_kwh,
+                deadline,
+                state.get("deferral_price_source"),
+            )
             continue
 
         cfg = cfg_by_id.get(charger_id, {})
-        control_type = str(cfg.get("type", "binary")).lower()
-        max_power_kw = float(cfg.get("max_power_kw") or 0.0)
-        min_power_kw = derive_min_power_kw(cfg, control_type, max_power_kw)
-        min_chunk_kwh = min_power_kw * 0.25
-
-        quota_schedule = cast("dict[Any, float] | None", state.get("quota_schedule"))
-        quota_by_day = {str(k): round(v, 2) for k, v in (quota_schedule or {}).items()}
+        min_chunk_kwh = charger_power_limits(cfg, voltage)[0] * 0.25
         reason = ((diagnostics or {}).get(charger_id) or {}).get("reason") or "unknown"
         logger.warning(
             "EV %s: active goal (required=%.2f kWh, deadline=%s) produced ZERO "
-            "scheduled charging — reason=%s, quota_by_day=%s, min_chunk_kwh=%.3f",
+            "scheduled charging — reason=%s, min_chunk_kwh=%.3f",
             charger_id,
             required_kwh,
             deadline,
             reason,
-            quota_by_day,
             min_chunk_kwh,
         )
 
@@ -660,6 +593,7 @@ def _persist_ev_multi_day_state(
     sqlite_path: str,
     tz: pytz.BaseTzInfo,
     now: datetime,
+    voltage: float = DEFAULT_NOMINAL_VOLTAGE_V,
 ) -> None:
     """Merge per-charger progress into ``data/ev_multi_day_state.json``.
 
@@ -669,8 +603,10 @@ def _persist_ev_multi_day_state(
     verbatim — the planner never invents or derives a goal from config, and
     never touches ``last_updated`` (it anchors ``every_n_days``). Progress
     fields (``deadline``, ``required_kwh``, ``delivered_kwh``,
-    ``remaining_kwh``, ``daily_quota_kwh``, ``quota_schedule``, ``status``,
-    ``last_planned_at``) are refreshed for chargers processed this run.
+    ``remaining_kwh``, ``planned_by_day``, ``deferral_price_source``,
+    ``effective_margin_percent``, ``status``, ``last_planned_at``) are
+    refreshed for chargers processed this run. Legacy ``daily_quota_kwh`` /
+    ``quota_schedule`` keys are dropped (the entry is rebuilt).
     Chargers with no goal, or not processed this run (disabled/skipped), keep
     their existing entry untouched — this is a merge, not a replace.
     """
@@ -691,7 +627,7 @@ def _persist_ev_multi_day_state(
             cfg = cfg_by_id.get(charger_id, {})
             deadline = state.get("deadline")
             required_kwh = state.get("required_kwh")
-            max_power_kw = float(cfg.get("max_power_kw") or 7.4)
+            max_kw = charger_power_limits(cfg, voltage)[1]
             capacity = float(cfg.get("battery_capacity_kwh") or 0.0)
             current_soc = float(state.get("soc_percent") or 0.0)
 
@@ -700,12 +636,7 @@ def _persist_ev_multi_day_state(
                 delivered_kwh = _ev_delivered_today_kwh(sqlite_path, charger_id, tz)
             remaining_kwh = None if required_kwh is None else max(0.0, required_kwh)
 
-            quota_schedule = state.get("quota_schedule")
-            schedule_json: dict[str, float] | None = None
-            if quota_schedule:
-                schedule_json = {str(d): round(float(v), 3) for d, v in quota_schedule.items()}
-
-            dq = state.get("daily_quota_kwh")
+            margin = state.get("effective_margin_percent")
 
             new_entry: dict[str, Any] = {
                 # Goal fields: preserved verbatim, never derived from config.
@@ -726,13 +657,14 @@ def _persist_ev_multi_day_state(
                 else None,
                 "current_soc_percent": round(current_soc, 2),
                 "battery_capacity_kwh": capacity,
-                "daily_quota_kwh": round(float(dq), 3) if dq is not None else None,
-                "quota_schedule": schedule_json,
+                "planned_by_day": state.get("planned_by_day") or [],
+                "deferral_price_source": state.get("deferral_price_source"),
+                "effective_margin_percent": round(float(margin), 2) if margin is not None else None,
                 "status": _ev_charger_status(
                     bool(state.get("plugged_in", False)),
                     deadline,
                     required_kwh,
-                    max_power_kw,
+                    max_kw,
                     now,
                 ),
                 "missed_goal_grace": bool(state.get("missed_goal_grace", False)),
@@ -949,6 +881,152 @@ def _calculate_excess_pv_flags(
         flags.append(excess > 0)
 
     return flags
+
+
+async def _build_ev_deferral_plans(
+    ev_states: list[dict[str, Any]],
+    ev_chargers_cfg: list[dict[str, Any]],
+    input_slots: list[Any],
+    config: dict[str, Any],
+    sqlite_path: str,
+    tz: pytz.BaseTzInfo,
+    now: datetime,
+    voltage: float,
+) -> dict[str, DeferralPlan]:
+    """Compute deferral tiers for every plugged charger with an active goal.
+
+    Mutates each state dict with ``deferral_tiers`` (for the adapter),
+    ``deferral_price_source`` and ``effective_margin_percent`` (persisted).
+    Goals whose deadline is inside the Kepler horizon get no tiers.
+    Price data (published spot, forecast, trailing average) is fetched only
+    when at least one goal extends past the horizon.
+    """
+    plans: dict[str, DeferralPlan] = {}
+    if not input_slots:
+        return plans
+
+    horizon_end = pd.Timestamp(input_slots[-1].end_time).to_pydatetime()
+    horizon_max_import = max(float(s.import_price_sek_kwh) for s in input_slots)
+    settings = read_deferral_settings(config)
+    cfg_by_id = {str(c.get("id", "")): c for c in ev_chargers_cfg}
+
+    goals: list[tuple[dict[str, Any], datetime, float]] = []
+    for state in ev_states:
+        deadline = cast("datetime | None", state.get("deadline"))
+        required_kwh = cast("float | None", state.get("required_kwh"))
+        if not state.get("plugged_in") or deadline is None or required_kwh is None:
+            continue
+        if required_kwh <= 0:
+            continue
+        max_kw = charger_power_limits(cfg_by_id.get(str(state.get("id", "")), {}), voltage)[1]
+        if max_kw <= 0:
+            continue
+        goals.append((state, deadline, max_kw))
+
+    if not goals:
+        return plans
+
+    latest_deadline = max(d for _, d, _ in goals)
+    known_spot: dict[datetime, float] = {}
+    forecast_spot: dict[datetime, float] = {}
+    trailing_import: float | None = None
+    if latest_deadline > horizon_end:
+        from backend.core.prices import get_known_spot_by_slot
+
+        known_spot = {k.astimezone(tz): v for k, v in (await get_known_spot_by_slot()).items()}
+        try:
+            forecast_spot = await asyncio.to_thread(
+                fetch_forecast_spot_sync, sqlite_path, horizon_end, latest_deadline, tz
+            )
+        except Exception as exc:
+            logger.warning(
+                "EV deferral: price forecast unavailable (%s); using conservative fallback",
+                exc,
+            )
+            forecast_spot = {}
+        trailing_import = await asyncio.to_thread(
+            fetch_trailing_import_avg_sync, sqlite_path, tz, now
+        )
+
+    for state, deadline, max_kw in goals:
+        charger_id = str(state.get("id", ""))
+        plan = build_deferral_plan(
+            horizon_end=horizon_end,
+            deadline=deadline,
+            now=now,
+            max_kw=max_kw,
+            config=config,
+            settings=settings,
+            known_spot=known_spot,
+            forecast_spot=forecast_spot,
+            trailing_import=trailing_import,
+            horizon_max_import=horizon_max_import,
+        )
+        plans[charger_id] = plan
+        state["deferral_tiers"] = [(t.price, t.cap_kwh) for t in plan.tiers]
+        state["deferral_price_source"] = plan.source
+        state["effective_margin_percent"] = plan.effective_margin * 100.0
+        if plan.tiers:
+            if plan.source != "forecast":
+                logger.warning(
+                    "EV %s: no price forecast for part of the post-horizon window; "
+                    "deferral priced by %s",
+                    charger_id,
+                    plan.source,
+                )
+            logger.info(
+                "EV %s: deadline %s beyond horizon %s - %d deferral tier(s), "
+                "capacity=%.2f kWh, price %.3f-%.3f SEK/kWh, source=%s, margin=%.2f%%",
+                charger_id,
+                deadline.strftime("%Y-%m-%d %H:%M"),
+                horizon_end.strftime("%Y-%m-%d %H:%M"),
+                len(plan.tiers),
+                sum(t.cap_kwh for t in plan.tiers),
+                plan.tiers[0].price,
+                plan.tiers[-1].price,
+                plan.source,
+                plan.effective_margin * 100.0,
+            )
+        else:
+            logger.info(
+                "EV %s: deadline %s inside known-price horizon - optimising directly",
+                charger_id,
+                deadline.strftime("%Y-%m-%d %H:%M"),
+            )
+    return plans
+
+
+def _attach_ev_planned_by_day(
+    result: Any,
+    ev_states: list[dict[str, Any]],
+    plans: dict[str, DeferralPlan],
+    tz: pytz.BaseTzInfo,
+    now: datetime,
+    first_slot_remaining_h: float | None,
+) -> None:
+    """Attach the planned per-day estimate to each goal's state dict (design D7)."""
+    deferred: dict[str, list[float]] = getattr(result, "ev_deferred_kwh", {}) or {}
+    for state in ev_states:
+        charger_id = str(state.get("id", ""))
+        deadline = cast("datetime | None", state.get("deadline"))
+        required_kwh = cast("float | None", state.get("required_kwh"))
+        if deadline is None or required_kwh is None or required_kwh <= 0:
+            state["planned_by_day"] = []
+            continue
+        try:
+            state["planned_by_day"] = planned_by_day(
+                result_slots=list(result.slots),
+                charger_id=charger_id,
+                plan=plans.get(charger_id),
+                deferred_kwh=deferred.get(charger_id),
+                deadline=deadline,
+                now=now,
+                tz=tz,
+                first_slot_remaining_h=first_slot_remaining_h,
+            )
+        except Exception as exc:
+            logger.warning("EV %s: planned-by-day estimate failed: %s", charger_id, exc)
+            state["planned_by_day"] = []
 
 
 class PlannerPipeline:
@@ -1378,6 +1456,9 @@ class PlannerPipeline:
         has_ev_charger = system_cfg.get("has_ev_charger", False)
         ev_charger_states_with_goal: list[dict[str, Any]] = []
         ev_chargers_cfg: list[dict[str, Any]] = []
+        ev_voltage = nominal_voltage_v(active_config)
+        ev_deferral_plans: dict[str, DeferralPlan] = {}
+        sqlite_path_ev = ""
         if has_ev_charger:
             ev_charger_states_raw: list[dict[str, Any]] = initial_state.get("ev_charger_states", [])
             ev_chargers_cfg_raw: list[dict[str, Any]] = active_config.get("ev_chargers", [])
@@ -1394,9 +1475,6 @@ class PlannerPipeline:
             enabled_charger_count = sum(1 for c in ev_chargers_cfg if c.get("enabled", True))
 
             # Calculate per-device goals and attach to state dicts
-            upcoming_spots: dict[int, float] | None = None
-            needs_price_forecast = False
-
             for ev_cfg_item in ev_chargers_cfg:
                 if not ev_cfg_item.get("enabled", True):
                     continue
@@ -1435,10 +1513,6 @@ class PlannerPipeline:
                             tz,
                             single_enabled_charger=(enabled_charger_count == 1),
                         )
-                        # Multi-day spreading only when deadline is far and a
-                        # forecast may be available.
-                        if (deadline - now_dt).total_seconds() > 86400:
-                            needs_price_forecast = True
                         logger.info(
                             "EV %s: SoC=%.1f%%, Plugged=%s, Target=%d%%, "
                             "Required=%.2f kWh, ReadyBy=%s, Deadline=%s",
@@ -1468,77 +1542,31 @@ class PlannerPipeline:
                         "required_kwh": required_kwh,
                         "keep_on_after_target": keep_on_after_target,
                         "missed_goal_grace": in_grace,
-                        "daily_quota_kwh": None,
-                        "quota_schedule": None,
+                        "deferral_tiers": [],
+                        "deferral_price_source": None,
+                        "effective_margin_percent": None,
+                        "planned_by_day": [],
                     }
                 )
 
-            # Fetch 7-day forecast once if any plugged charger has a far deadline.
-            if needs_price_forecast:
-                from datetime import timedelta
-
-                try:
-                    upcoming_spots, _, spot_sources = await fetch_price_floor_inputs(
-                        sqlite_path, timezone_name
-                    )
-                except Exception as exc:
-                    logger.warning("Could not fetch price-floor inputs for EV spreading: %s", exc)
-                    upcoming_spots = {}
-                    spot_sources = {}
-
-                for state in ev_charger_states_with_goal:
-                    deadline = cast("datetime | None", state.get("deadline"))
-                    required_kwh = cast("float | None", state.get("required_kwh"))
-                    if deadline is None or required_kwh is None:
-                        continue
-                    if (deadline - now_dt).total_seconds() <= 86400:
-                        continue
-                    ev_cfg_item: dict[str, Any] = next(
-                        (c for c in ev_chargers_cfg if c.get("id") == state["id"]),
-                        cast("dict[str, Any]", {}),
-                    )
-                    today_quota, quota_schedule = _compute_daily_ev_quota(
-                        ev_cfg_item,
-                        deadline,
-                        required_kwh,
-                        upcoming_spots or {},
-                        now_dt,
-                        tz,
-                    )
-                    state["daily_quota_kwh"] = today_quota
-                    state["quota_schedule"] = quota_schedule
-                    if today_quota is not None:
-                        logger.info(
-                            "EV %s: multi-day quota today=%.2f kWh, schedule=%s, "
-                            "prices known/forecast slots=%s",
-                            state["id"],
-                            today_quota,
-                            {str(k): round(v, 2) for k, v in (quota_schedule or {}).items()},
-                            {
-                                str(now_dt.date() + timedelta(days=offset)): f"{k}/{f}"
-                                for offset, (k, f) in sorted(spot_sources.items())
-                            },
-                        )
+            sqlite_path_ev = sqlite_path
+            ev_deferral_plans = await _build_ev_deferral_plans(
+                ev_charger_states_with_goal,
+                ev_chargers_cfg,
+                kepler_input.slots,
+                active_config,
+                sqlite_path,
+                tz,
+                now_dt,
+                ev_voltage,
+            )
 
             # Rebuild kepler_config with per-device EV charger inputs
             from planner.solver.adapter import build_ev_charger_inputs
 
             kepler_config.ev_chargers = build_ev_charger_inputs(
-                ev_chargers_cfg, ev_charger_states_with_goal
+                ev_chargers_cfg, ev_charger_states_with_goal, ev_voltage
             )
-
-            # Persist transient EV goal/progress state for the read-only API
-            # (price-forecasting-module-4 §5.2). Best-effort; never fatal.
-            try:
-                _persist_ev_multi_day_state(
-                    ev_charger_states_with_goal,
-                    ev_chargers_cfg,
-                    sqlite_path,
-                    tz,
-                    now_dt,
-                )
-            except Exception as exc:
-                logger.warning("EV multi-day state persistence failed: %s", exc)
 
             # Rev K19: Vacation Mode Anti-Legionella
         vacation_cfg = water_cfg.get("vacation_mode", {})
@@ -1646,7 +1674,7 @@ class PlannerPipeline:
         if has_ev_charger and result.slots:
             try:
                 _apply_keep_on_after_target(
-                    result, ev_charger_states_with_goal, ev_chargers_cfg, now_dt
+                    result, ev_charger_states_with_goal, ev_chargers_cfg, now_dt, ev_voltage
                 )
             except Exception as exc:
                 logger.warning("keep_on_after_target injection failed: %s", exc)
@@ -1660,13 +1688,42 @@ class PlannerPipeline:
                     kepler_config.max_import_power_kw,
                     now_dt,
                     kepler_input.first_slot_remaining_h,
+                    ev_voltage,
+                    result.ev_deferred_kwh,
                 )
             except Exception as exc:
                 logger.warning("EV goal diagnostics failed: %s", exc)
 
             _warn_on_zero_scheduled_active_goals(
-                result, ev_charger_states_with_goal, ev_chargers_cfg, ev_goal_diagnostics
+                result,
+                ev_charger_states_with_goal,
+                ev_chargers_cfg,
+                ev_goal_diagnostics,
+                ev_voltage,
             )
+
+        if has_ev_charger:
+            _attach_ev_planned_by_day(
+                result,
+                ev_charger_states_with_goal,
+                ev_deferral_plans,
+                tz,
+                now_dt,
+                kepler_input.first_slot_remaining_h,
+            )
+            # Persist EV goal/progress state for the read-only API. Best-effort;
+            # never fatal.
+            try:
+                _persist_ev_multi_day_state(
+                    ev_charger_states_with_goal,
+                    ev_chargers_cfg,
+                    sqlite_path_ev,
+                    tz,
+                    now_dt,
+                    ev_voltage,
+                )
+            except Exception as exc:
+                logger.warning("EV multi-day state persistence failed: %s", exc)
 
         if result.slots:
             logger.info(

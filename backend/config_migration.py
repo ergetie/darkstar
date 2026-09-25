@@ -550,6 +550,139 @@ def _remove_ev_goal_fields(config: dict[str, Any]) -> tuple[dict[str, Any], bool
     return config, changed
 
 
+def _migrate_nominal_voltage(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Move ``load_balancing.nominal_voltage_v`` to ``system.grid.nominal_voltage_v``.
+
+    The nominal grid voltage is a property of the grid connection, shared by EV
+    power derivation, executor kW<->A conversion and the load balancer, so it
+    lives next to ``system.grid.main_fuse_a``.
+
+    - Legacy key present, new key absent: the value is moved as-is.
+    - Both present: the new key wins; the legacy key is dropped.
+    - Only the new key (or neither): unchanged (idempotent).
+
+    Returns:
+        Tuple of (modified_config, changed_flag)
+    """
+    lb_raw: Any = config.get("load_balancing")
+    if not isinstance(lb_raw, dict) or "nominal_voltage_v" not in lb_raw:
+        return config, False
+    lb = cast("dict[str, Any]", lb_raw)
+    legacy = lb.pop("nominal_voltage_v")
+
+    system_raw: Any = config.get("system")
+    if not isinstance(system_raw, dict):
+        config["system"] = {}
+        system_raw = config["system"]
+    system = cast("dict[str, Any]", system_raw)
+    grid_raw: Any = system.get("grid")
+    if not isinstance(grid_raw, dict):
+        system["grid"] = {}
+        grid_raw = system["grid"]
+    grid = cast("dict[str, Any]", grid_raw)
+
+    if "nominal_voltage_v" in grid:
+        logger.info(
+            f"🔄 Removed load_balancing.nominal_voltage_v ({legacy}); "
+            f"system.grid.nominal_voltage_v ({grid['nominal_voltage_v']}) already set"
+        )
+        return config, True
+
+    keys = list(grid.keys())
+    insert_fn: Any = getattr(grid, "insert", None)
+    if callable(insert_fn) and "main_fuse_a" in keys:
+        insert_fn(keys.index("main_fuse_a") + 1, "nominal_voltage_v", legacy)
+    else:
+        grid["nominal_voltage_v"] = legacy
+    logger.info(
+        f"🔄 Migrated load_balancing.nominal_voltage_v -> system.grid.nominal_voltage_v: {legacy}"
+    )
+    return config, True
+
+
+def _warn_ev_chargers_missing_phases(config: dict[str, Any]) -> None:
+    """Log a warning for every current-type EV charger without ``phases``.
+
+    Such a charger cannot have its power derived and stays disabled for
+    planning until the user configures its phases.
+    """
+    ev_chargers_raw: Any = config.get("ev_chargers", [])
+    if not isinstance(ev_chargers_raw, list):
+        return
+    for item in cast("list[Any]", ev_chargers_raw):
+        if not isinstance(item, dict):
+            continue
+        ev = cast("dict[str, Any]", item)
+        if str(ev.get("type", "binary") or "binary").lower() != "current":
+            continue
+        phases: Any = ev.get("phases")
+        if isinstance(phases, list) and phases:
+            continue
+        name = ev.get("name") or ev.get("id") or "EV charger"
+        logger.warning(
+            f"⚠️ ev_chargers[{ev.get('id', '?')}] is a current-controlled charger without "
+            f"phases; it stays disabled. Configure phases for {name} to enable planning."
+        )
+
+
+def _migrate_ev_charger_power(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Migrate ev_chargers[] power keys to the derived power model (ev-charging-power).
+
+    - ``type: current``: drop ``max_power_kw`` and ``nominal_power_kw``; power is
+      derived from ``max_current_a`` x phases x nominal voltage. The derived
+      maximum is logged so the change is visible.
+    - ``type: binary``: rename ``max_power_kw`` (or ``nominal_power_kw`` when
+      ``max_power_kw`` is absent) to ``rated_power_kw``. An existing
+      ``rated_power_kw`` is never overwritten; the legacy keys are dropped.
+
+    Idempotent: an already-migrated config is left unchanged.
+
+    Returns:
+        Tuple of (modified_config, changed_flag)
+    """
+    from backend.core.ev_power import charger_power_limits, nominal_voltage_v
+
+    changed = False
+    ev_chargers_raw: Any = config.get("ev_chargers", [])
+    if not isinstance(ev_chargers_raw, list):
+        return config, changed
+    voltage = nominal_voltage_v(config)
+
+    for item in cast("list[Any]", ev_chargers_raw):
+        if not isinstance(item, dict):
+            continue
+        ev = cast("dict[str, Any]", item)
+        has_legacy = "max_power_kw" in ev or "nominal_power_kw" in ev
+        if not has_legacy:
+            continue
+        charger_id = ev.get("id", "?")
+        control_type = str(ev.get("type", "binary") or "binary").lower()
+
+        if control_type == "current":
+            old_kw = ev.get("max_power_kw", ev.get("nominal_power_kw"))
+            ev.pop("max_power_kw", None)
+            ev.pop("nominal_power_kw", None)
+            _, derived_max = charger_power_limits(ev, voltage)
+            logger.info(
+                f"🔄 Migrated ev_chargers[{charger_id}]: removed max_power_kw/nominal_power_kw "
+                f"(was {old_kw} kW); power is now derived from max_current_a x phases x "
+                f"{voltage:g} V = {derived_max:.2f} kW"
+            )
+        else:
+            legacy = ev.get("max_power_kw")
+            if legacy is None:
+                legacy = ev.get("nominal_power_kw")
+            if "rated_power_kw" not in ev and legacy is not None:
+                ev["rated_power_kw"] = legacy
+                logger.info(
+                    f"🔄 Migrated ev_chargers[{charger_id}].max_power_kw -> rated_power_kw: {legacy}"
+                )
+            ev.pop("max_power_kw", None)
+            ev.pop("nominal_power_kw", None)
+        changed = True
+    return config, changed
+
+
 def _migrate_export_floor(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     """Migrate executor.override.low_soc_export_floor to export.export_floor_soc_percent.
 
@@ -1010,6 +1143,18 @@ async def migrate_config(
     user_config, ev_goal_field_changes = _remove_ev_goal_fields(user_config)
     if ev_goal_field_changes:
         pre_merge_changes = True
+
+    # 2.1a1 Move the nominal grid voltage to system.grid (before the EV power
+    # migration, which logs derived kW using it)
+    user_config, voltage_changes = _migrate_nominal_voltage(user_config)
+    if voltage_changes:
+        pre_merge_changes = True
+
+    # 2.1a2 Migrate EV charger power keys to the derived power model
+    user_config, ev_power_changes = _migrate_ev_charger_power(user_config)
+    if ev_power_changes:
+        pre_merge_changes = True
+    _warn_ev_chargers_missing_phases(user_config)
 
     # 2.1b Migrate inverter config keys (must run before remove_deprecated_keys)
     user_config, inverter_migration_changes = _migrate_inverter_keys(user_config)

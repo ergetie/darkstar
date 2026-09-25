@@ -51,7 +51,7 @@ _FIX_HINTS: dict[PlannerErrorCode, list[str]] = {
         "The battery SoC sensor has not updated in over 30 minutes. Check the sensor connection in Home Assistant.",
     ],
     PlannerErrorCode.EV_MISSING_POWER: [
-        "Open Settings and set max_power_kw for the EV charger (e.g. 7.4, 11, or 22 kW). The charger is excluded from planning until this is fixed.",
+        "Open Settings and set the EV charger's power: max_current_a and phases for a current-controlled charger, or rated_power_kw for a binary (on/off) charger. The charger is excluded from planning until this is fixed.",
     ],
     PlannerErrorCode.EV_INVALID_CAPACITY: [
         "Open Settings and set battery_capacity_kwh for the EV charger to a positive value matching the vehicle's battery size.",

@@ -59,4 +59,8 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 💡 Future Ideas / Deferred
 
-<!-- Empty -->
+#### [EV] 1-Phase Fallback Under-Delivery
+
+**Goal:** Evaluate whether the planner should account for runtime 1-phase degradation when planning EV goal charging.
+
+**Notes:** The planner plans at the configured phase count. When the load balancer drops a charger to 1-phase to relieve a phase overload (`load-balancer-graceful-degradation`), actual delivery falls below plan until the next re-plan. Accepted as a known limitation on 2026-09-25. Revisit trigger: production data shows goals missed or at risk because of frequent 1-phase relief.

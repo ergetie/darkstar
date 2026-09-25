@@ -31,7 +31,7 @@ def _charger_cfg(
         "sensor": sensor,
         "soc_sensor": soc_sensor,
         "plug_sensor": plug_sensor,
-        "max_power_kw": max_power_kw,
+        "rated_power_kw": max_power_kw,
         "ha_ready_by_entity": ha_ready_by_entity,
         "ha_target_soc_entity": ha_target_soc_entity,
     }
@@ -288,7 +288,7 @@ async def test_goal_survives_planner_persist_cycle_byte_identical(tmp_path, monk
         }
     ]
     _persist_ev_multi_day_state(
-        ev_states, [{"id": "ev1", "max_power_kw": 7.4}], sqlite_path="", tz=tz, now=now
+        ev_states, [{"id": "ev1", "rated_power_kw": 7.4}], sqlite_path="", tz=tz, now=now
     )
 
     goal_after_persist = json.loads(state_file.read_text())["ev1"]

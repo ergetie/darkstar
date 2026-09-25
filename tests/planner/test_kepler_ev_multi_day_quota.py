@@ -1,5 +1,5 @@
-"""Solver tests for multi-day EV quota enforcement and the net-excess cap
-(price-forecasting-module-5 fixes, tasks 4.2/4.4/4.7/4.8).
+"""Solver tests for EV surplus accounting and the net-excess cap
+(price-forecasting-module-5 fixes; per-day quotas removed by ev-planning-model).
 """
 
 from __future__ import annotations
@@ -57,48 +57,6 @@ def _slots(n, *, start, import_prices, export_prices=None, pv_kwh=0.0, load_kwh=
     return out
 
 
-def test_two_day_horizon_quota_enforced_per_day():
-    """Each in-horizon day is capped at its own quota, and the horizon total
-    never exceeds the sum of in-horizon quotas."""
-    start = TZ.localize(datetime(2026, 7, 8, 0, 0))
-    n = 48  # today + tomorrow, hourly
-    # Today is cheap (so the solver wants to use up today's quota), tomorrow
-    # is expensive (so it only spills over what today's quota can't hold).
-    import_prices = [0.1] * 24 + [1.0] * 24
-    slots = _slots(n, start=start, import_prices=import_prices)
-    today = start.date()
-    tomorrow = today + timedelta(days=1)
-
-    # EV charging is all-or-nothing per hourly slot (binary "on" at
-    # max_power_kw), so quotas must be exact multiples of max_power_kw to be
-    # physically achievable: 1 slot today (5.0 kWh), 3 slots tomorrow (15.0 kWh).
-    quota_by_day = {today: 5.0, tomorrow: 15.0}
-    ev = EVChargerInput(
-        id="ev1",
-        max_power_kw=5.0,
-        battery_capacity_kwh=82.0,
-        current_soc_percent=30.0,
-        plugged_in=True,
-        deadline=slots[-1].end_time,
-        required_kwh=20.0,
-        quota_by_day=quota_by_day,
-        control_type="current",
-    )
-    cfg = KeplerConfig(**_base_config(capacity_kwh=0.0), ev_chargers=[ev])
-    result = KeplerSolver().solve(KeplerInput(slots=slots, initial_soc_kwh=0.0), cfg)
-    assert result.is_optimal
-
-    today_energy = sum(s.ev_charge_kw for s in result.slots if s.start_time.date() == today)
-    tomorrow_energy = sum(s.ev_charge_kw for s in result.slots if s.start_time.date() == tomorrow)
-
-    assert today_energy <= 5.0 + 0.01
-    assert tomorrow_energy <= 15.0 + 0.01
-    assert today_energy + tomorrow_energy <= sum(quota_by_day.values()) + 0.01
-    # Spreading actually spreads: some energy lands on each day.
-    assert today_energy > 0.0
-    assert tomorrow_energy > 0.0
-
-
 def test_net_excess_magnitude_sinks_get_zero_when_battery_covers_excess():
     """PV=10, load=2 -> net excess=8 in slot 0. A pricey slot 1 (load=8, no
     PV) gives the battery a genuine reason to charge fully from the "free"
@@ -150,9 +108,10 @@ def test_net_excess_magnitude_sinks_get_zero_when_battery_covers_excess():
     )
 
 
-def test_surplus_counts_toward_day_quota():
-    """EV surplus charging is counted against the day's quota, not a free
-    bonus on top of it — scheduled + surplus energy stays within the cap."""
+def test_surplus_counts_toward_requirement():
+    """Planned surplus counts toward the goal (ev-planning-model): with ample
+    free PV and expensive grid, the requirement is met from surplus and no grid
+    charging is scheduled."""
     start = TZ.localize(datetime(2026, 7, 8, 10, 0))
     n = 4
     slots = _slots(
@@ -163,8 +122,6 @@ def test_surplus_counts_toward_day_quota():
         load_kwh=1.0,
         export_prices=[0.05] * n,
     )
-    today = start.date()
-    quota_by_day = {today: 5.0}
 
     ev = EVChargerInput(
         id="ev1",
@@ -173,8 +130,7 @@ def test_surplus_counts_toward_day_quota():
         current_soc_percent=30.0,
         plugged_in=True,
         deadline=slots[-1].end_time,
-        required_kwh=20.0,
-        quota_by_day=quota_by_day,
+        required_kwh=5.0,
         control_type="current",
     )
     cfg = KeplerConfig(
@@ -190,10 +146,8 @@ def test_surplus_counts_toward_day_quota():
     result = KeplerSolver().solve(KeplerInput(slots=slots, initial_soc_kwh=initial_soc), cfg)
     assert result.is_optimal
 
-    scheduled_today = sum(s.ev_charge_kw for s in result.slots if s.start_time.date() == today)
-    surplus_today = sum(
-        s.ev_surplus_kw.get("ev1", 0.0) for s in result.slots if s.start_time.date() == today
-    )
-    assert scheduled_today + surplus_today <= 5.0 + 0.05, (
-        f"scheduled ({scheduled_today}) + surplus ({surplus_today}) must respect today's quota"
-    )
+    scheduled = sum(s.ev_charge_kw for s in result.slots)
+    surplus = sum(s.ev_surplus_kw.get("ev1", 0.0) for s in result.slots)
+    assert scheduled == pytest.approx(0.0, abs=0.05)
+    assert surplus >= 5.0 - 0.05
+    assert result.slots[0].ev_shortfall_kwh["ev1"] == pytest.approx(0.0, abs=0.05)

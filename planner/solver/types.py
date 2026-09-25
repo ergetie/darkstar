@@ -6,7 +6,7 @@ Migrated from backend/kepler/types.py for the new planner package.
 """
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import datetime
 
 
 @dataclass
@@ -39,9 +39,11 @@ class EVChargerInput:
     # set it explicitly (kepler treats "binary" via the equality energy link
     # regardless of this value).
     min_power_kw: float = 0.0
-    # Per-in-horizon-day energy cap (calendar date -> kWh) from multi-day
-    # spreading. None when spreading isn't active (single-day goal).
-    quota_by_day: dict[date, float] | None = None
+    # Deferral tiers for a goal whose deadline lies beyond the known-price
+    # horizon: (price_sek_per_kwh, cap_kwh) blocks sorted ascending by price.
+    # Each block prices energy the solver leaves for post-horizon slots.
+    # Empty when the deadline is inside the horizon.
+    deferral_tiers: list[tuple[float, float]] = field(default_factory=lambda: [])
     keep_on_after_target: bool = False
     # "binary" (ON/OFF switch) or "current" (variable ampere setpoint). Only
     # "current" chargers are eligible for excess-PV surplus charging — surplus
@@ -219,3 +221,6 @@ class KeplerResult:
     # True when the solve ran into solver_time_limit_s (CBC may still report "Optimal"
     # for its incumbent in that case)
     time_limit_hit: bool = False
+    # Per-charger solved deferred energy per tier (same order as
+    # EVChargerInput.deferral_tiers). Empty for chargers without tiers.
+    ev_deferred_kwh: dict[str, list[float]] = field(default_factory=lambda: {})

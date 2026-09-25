@@ -170,11 +170,13 @@ ev_chargers:
   - id: tesla_model_3
     name: "Tesla Model 3"
     enabled: true
-    max_power_kw: 11.0
     battery_capacity_kwh: 82.0
     sensor: sensor.tesla_power
-    type: variable
-    nominal_power_kw: 11.0
+    type: current                # or "binary" with rated_power_kw: 11.0
+    current_entity: number.tesla_charge_current
+    min_current_a: 6
+    max_current_a: 16
+    phases: [1, 2, 3]            # power = max_current_a x phases x system.grid.nominal_voltage_v
     # Charging goals (target SoC, ready-by, repeat) are set in the dashboard,
     # not here — they're stored in data/ev_multi_day_state.json.
 ```

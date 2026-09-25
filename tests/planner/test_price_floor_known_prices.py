@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytest
 import pytz
 
-from planner.pipeline import _compute_daily_ev_quota, _fetch_price_floor_inputs_sync
+from planner.pipeline import _fetch_price_floor_inputs_sync
 from planner.strategy.s_index import calculate_price_floor_addon
 
 TZ_NAME = "Europe/Stockholm"
@@ -57,8 +57,8 @@ def _day(y: int, m: int, d: int) -> tuple[datetime, datetime]:
     return start, TZ.localize(datetime(y, m, d) + timedelta(days=1))
 
 
-def test_regression_2026_09_24_stale_cheap_today_is_not_largest_quota(db_path):
-    """Thu 23:00: stale 0.2 SEK forecast vs published ≈2.0 SEK must not win the split."""
+def test_regression_2026_09_24_published_prices_win_over_stale_forecast(db_path):
+    """Thu 23:00: published ≈2.0 SEK spot wins over a stale 0.2 SEK forecast per slot."""
     now = _local(2026, 9, 24, 23, 0)
     thu_slots = _quarters(now, _day(2026, 9, 24)[1])
     stale = [0.24, 0.24, 0.18, 0.18]
@@ -67,20 +67,13 @@ def test_regression_2026_09_24_stale_cheap_today_is_not_largest_quota(db_path):
     rows = list(zip(thu_slots, stale, strict=True))
     for (y, m, d), spot in [((2026, 9, 25), 1.2), ((2026, 9, 26), 0.6), ((2026, 9, 27), 0.8)]:
         rows += [(dt, spot) for dt in _quarters(*_day(y, m, d))]
-    rows += [(dt, 1.0) for dt in _quarters(*_day(2026, 9, 28))]
     _insert_forecasts(db_path, rows, "2026-09-23T06:00:00+02:00")
 
-    # Friday is also published by Thursday evening (after the auction).
     known = dict(zip(thu_slots, published, strict=True))
     known |= dict.fromkeys(_quarters(*_day(2026, 9, 25)), 1.5)
 
-    charger = {"max_power_kw": 7.4, "type": "binary"}
-    deadline = _local(2026, 9, 28, 7, 0)
-
     old_spots, _, _ = _fetch_price_floor_inputs_sync(db_path, TZ_NAME, None, now=now)
-    old_today, old_sched = _compute_daily_ev_quota(charger, deadline, 21.6, old_spots, now, TZ)
-    assert old_sched is not None
-    assert old_today == max(old_sched.values())  # the bug reproduces without known prices
+    assert old_spots[0] == pytest.approx(sum(stale) / 4)
 
     spots, _, sources = _fetch_price_floor_inputs_sync(db_path, TZ_NAME, known, now=now)
     assert spots[0] == pytest.approx(sum(published) / 4)
@@ -88,11 +81,6 @@ def test_regression_2026_09_24_stale_cheap_today_is_not_largest_quota(db_path):
     assert sources[0] == (4, 0)
     assert sources[1] == (96, 0)
     assert sources[2] == (0, 96)
-
-    today_quota, sched = _compute_daily_ev_quota(charger, deadline, 21.6, spots, now, TZ)
-    assert sched is not None
-    assert today_quota < max(sched.values())
-    assert max(sched, key=sched.get) == now.date() + timedelta(days=2)  # Saturday
 
 
 def test_published_d1_used_after_auction(db_path):

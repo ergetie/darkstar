@@ -150,7 +150,7 @@ class TestARC15EntityArrays:
                     "id": "tesla",
                     "name": "Tesla",
                     "enabled": True,
-                    "max_power_kw": 11.0,
+                    "rated_power_kw": 11.0,
                     "sensor": "sensor.tesla",
                     "type": "variable",
                 }
@@ -184,7 +184,8 @@ class TestARC15EntityArrays:
                     "id": "ev_charger_1",
                     "name": "Charger",
                     "enabled": True,
-                    "max_power_kw": 11.0,
+                    "max_current_a": 16,
+                    "phases": [1, 2, 3],
                     "sensor": "sensor.ev",
                     "type": "current",
                 }

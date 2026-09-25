@@ -1,9 +1,7 @@
 ## Purpose
 
 The system SHALL be able to direct scarce excess PV surplus into EV charging as one of the ranked sinks in the excess-PV priority list, using closed-loop feedback on measured grid exchange rather than an open-loop planner target, while respecting the load balancer's fuse cap and preserving battery source isolation.
-
 ## Requirements
-
 ### Requirement: Solver plans EV surplus charging as a continuous variable
 
 For each plugged-in EV charger of `type: current` that has an `ev` entry in `excess_pv.priority[]`, the Kepler solver SHALL create a continuous variable `ev_surplus_kw[d][t]` in `[0, charger max power]` per slot. The variable SHALL be constrained to 0 unless the pre-calculated excess-PV flag is true AND projected battery SoC >= `soc_threshold_percent` (same gating as existing sinks). Its consumption SHALL be added to the energy-balance demand side, and it SHALL earn the sink's rank-scaled reward in the objective.
@@ -116,13 +114,6 @@ In slots flagged as excess-PV, the solver's cap on total sink consumption (EV su
 #### Scenario: Partial battery charge leaves partial surplus
 - **WHEN** a flagged slot has PV 10 kW, load 2 kW, and 3 kW battery charging
 - **THEN** sinks SHALL be capped at 5 kW
-
-### Requirement: Surplus EV energy counts toward the daily quota
-Energy delivered to a charger via `ev_surplus_kw` SHALL count toward that charger's per-day quota cap, so a surplus-rich day does not overshoot the multi-day plan; scheduled plus surplus energy for a day SHALL together respect the day's quota.
-
-#### Scenario: Surplus day respects the quota
-- **WHEN** a charger has a 12 kWh quota today and the solver plans 10 kWh scheduled charging
-- **THEN** planned surplus charging for today SHALL NOT exceed 2 kWh for that charger
 
 ### Requirement: The net-excess constraint has direct regression tests
 The net-excess sink cap SHALL be covered by solver-level tests that assert energy magnitudes (sink energy ≤ pv − load − battery charge in flagged slots), not only rank ordering of sinks.

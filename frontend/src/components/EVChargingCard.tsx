@@ -307,6 +307,16 @@ export default function EVChargingCard({
                 </div>
             )}
 
+            {charger.disabled_reason && (
+                <p
+                    className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
+                    data-testid="ev-disabled-reason"
+                    role="status"
+                >
+                    Planning disabled: {charger.disabled_reason}
+                </p>
+            )}
+
             {!isEditing && shortfallText && (
                 <p
                     className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
@@ -499,28 +509,37 @@ export default function EVChargingCard({
                         )}
                     </div>
 
-                    {/* Day-by-day quota (from multi-day spreading) */}
-                    {charger.quota_schedule && Object.keys(charger.quota_schedule).length > 0 && (
+                    {/* Planned per-day estimate (known vs forecast-based) */}
+                    {charger.planned_by_day && charger.planned_by_day.length > 0 && (
                         <div className="pt-1 border-t border-line/10">
-                            <div className="text-[9px] text-muted font-medium mb-1">Upcoming Daily Quotas</div>
+                            <div className="text-[9px] text-muted font-medium mb-1">Planned per day</div>
                             <div className="flex gap-2 overflow-x-auto pb-0.5 custom-scrollbar">
-                                {Object.entries(charger.quota_schedule).map(([dateStr, kwh]) => {
-                                    const d = parseLocalISODate(dateStr)
+                                {charger.planned_by_day.map((day) => {
+                                    const d = parseLocalISODate(day.date)
                                     const dayName = d.toLocaleDateString([], { weekday: 'short' })
-                                    const isToday = dateStr === toLocalISODate(new Date())
+                                    const isToday = day.date === toLocalISODate(new Date())
+                                    const estimated = day.basis === 'estimated'
                                     return (
                                         <div
-                                            key={dateStr}
+                                            key={day.date}
+                                            data-testid={`planned-day-${day.date}`}
+                                            data-basis={day.basis}
+                                            title={
+                                                estimated
+                                                    ? 'Estimate based on forecast prices — updates as prices are published'
+                                                    : 'Planned on published prices'
+                                            }
                                             className={`p-1.5 rounded-lg border text-center min-w-[45px] ${
                                                 isToday
                                                     ? 'bg-accent/10 border-accent/30 text-accent'
                                                     : 'bg-surface-elevated border-line/20 text-muted'
-                                            }`}
+                                            } ${estimated ? 'opacity-60 border-dashed' : ''}`}
                                         >
                                             <span className="text-[8px] uppercase block font-semibold">{dayName}</span>
                                             <span className="text-[10px] font-mono font-bold block">
-                                                {kwh.toFixed(1)}
+                                                {day.kwh.toFixed(1)}
                                             </span>
+                                            {estimated && <span className="text-[8px] block italic">est.</span>}
                                         </div>
                                     )
                                 })}

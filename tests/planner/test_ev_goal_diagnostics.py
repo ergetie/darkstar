@@ -18,7 +18,7 @@ SLOT = timedelta(minutes=15)
 GOE_CFG = {
     "id": "goe",
     "type": "current",
-    "max_power_kw": 11.0,
+    "max_current_a": 16,
     "min_current_a": 6,
     "phases": [1, 2, 3],
 }

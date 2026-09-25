@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { EntityArrayEditor, type EVChargerEntity } from './EntityArrayEditor'
+import { evChargerDisabledReason, evChargerPowerLimits } from '../evPower'
 import { evChargerArrayError } from '../utils'
 
 function makeCharger(overrides: Partial<EVChargerEntity> = {}): EVChargerEntity {
@@ -10,13 +11,12 @@ function makeCharger(overrides: Partial<EVChargerEntity> = {}): EVChargerEntity 
         id: 'goe',
         name: 'Garage EV',
         enabled: true,
-        max_power_kw: 11,
         battery_capacity_kwh: 82,
         sensor: '',
         soc_sensor: 'sensor.ev_soc',
         plug_sensor: '',
         type: 'current',
-        nominal_power_kw: 11,
+        phases: [1, 2, 3],
         current_entity: 'number.goe_current',
         min_current_a: 6,
         max_current_a: 16,
@@ -167,5 +167,96 @@ describe('EV charger load type (EntityArrayEditor)', () => {
 
         expect(screen.getByLabelText('Charging Enabled Value')).toHaveValue('VendorOn')
         expect(screen.getByLabelText('Charging Enabled Value').tagName).toBe('INPUT')
+    })
+})
+
+describe('EV charger derived power (ev-charging-power)', () => {
+    it('shows derived min/max kW read-only for current chargers and updates with amps', () => {
+        const { rerender } = render(
+            <MemoryRouter>
+                <EntityArrayEditor
+                    entities={[makeCharger({ max_current_a: 12 })]}
+                    entityType="ev_charger"
+                    onChange={vi.fn()}
+                />
+            </MemoryRouter>,
+        )
+        expect(screen.getByTestId('ev-derived-power')).toHaveTextContent('8.3 kW')
+        expect(screen.queryByText(/Rated Charging Power/)).not.toBeInTheDocument()
+
+        rerender(
+            <MemoryRouter>
+                <EntityArrayEditor
+                    entities={[makeCharger({ max_current_a: 10 })]}
+                    entityType="ev_charger"
+                    onChange={vi.fn()}
+                />
+            </MemoryRouter>,
+        )
+        expect(screen.getByTestId('ev-derived-power')).toHaveTextContent('4.2–6.9 kW')
+    })
+
+    it('uses the configured nominal voltage', () => {
+        render(
+            <MemoryRouter>
+                <EntityArrayEditor
+                    entities={[makeCharger({ max_current_a: 10 })]}
+                    entityType="ev_charger"
+                    onChange={vi.fn()}
+                    nominalVoltageV={240}
+                />
+            </MemoryRouter>,
+        )
+        expect(screen.getByTestId('ev-derived-power')).toHaveTextContent('7.2 kW')
+    })
+
+    it('offers rated_power_kw for binary chargers', () => {
+        renderEditor(makeCharger({ type: 'binary', rated_power_kw: 3.7 }))
+        expect(screen.getByText(/Rated Charging Power/)).toBeInTheDocument()
+        expect(screen.queryByTestId('ev-derived-power')).not.toBeInTheDocument()
+    })
+
+    it('derives limits like the backend helper', () => {
+        expect(
+            evChargerPowerLimits({ type: 'current', max_current_a: 10, min_current_a: 6, phases: [1, 2, 3] }),
+        ).toEqual({
+            minKw: expect.closeTo(4.1814, 3),
+            maxKw: expect.closeTo(6.9, 5),
+        })
+        expect(evChargerPowerLimits({ type: 'current', max_current_a: 10 })).toBeNull()
+        expect(evChargerPowerLimits({ type: 'binary', rated_power_kw: 3.7 })).toEqual({ minKw: 3.7, maxKw: 3.7 })
+        expect(evChargerPowerLimits({ type: 'binary' })).toBeNull()
+    })
+})
+
+describe('EV charger phases requirement (ev-planning-model 7.x)', () => {
+    it('shows a required-phases warning naming the charger when phases are missing', () => {
+        renderEditor(makeCharger({ phases: undefined, switch_entity: 'select.goe_frc' }))
+        expect(screen.getByTestId('ev-phases-required')).toHaveTextContent(
+            'Configure phases for Garage EV to enable planning',
+        )
+        expect(screen.getByTestId('ev-derived-power')).toHaveTextContent(
+            'Configure phases for Garage EV to enable planning',
+        )
+    })
+
+    it('shows no warning once phases are set', () => {
+        renderEditor(makeCharger({ switch_entity: 'select.goe_frc' }))
+        expect(screen.queryByTestId('ev-phases-required')).not.toBeInTheDocument()
+    })
+
+    it('blocks saving a current charger without phases, naming it', () => {
+        const value = JSON.stringify([makeCharger({ phases: [], switch_entity: 'select.goe_frc' })])
+        expect(evChargerArrayError(value)).toBe('Configure phases for Garage EV to enable planning')
+        expect(
+            evChargerArrayError(JSON.stringify([makeCharger({ phases: [], switch_entity: 'x', enabled: false })])),
+        ).toBeNull()
+    })
+
+    it('never requires phases or voltage for binary chargers', () => {
+        const binary = makeCharger({ type: 'binary', phases: undefined, rated_power_kw: 3.7 })
+        expect(evChargerDisabledReason(binary, 120)).toBeNull()
+        expect(evChargerPowerLimits(binary, 120)).toEqual({ minKw: 3.7, maxKw: 3.7 })
+        expect(evChargerArrayError(JSON.stringify([binary]))).toBeNull()
     })
 })

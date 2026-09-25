@@ -10,15 +10,17 @@ import math
 from dataclasses import dataclass
 from datetime import datetime
 
-
-def one_phase_min_kw(min_current_a: int) -> float:
-    """Minimum charging power in 1-phase mode (~1.38 kW at 6A)."""
-    return min_current_a * 230.0 / 1000.0
+from backend.core.ev_power import DEFAULT_NOMINAL_VOLTAGE_V
 
 
-def three_phase_min_kw(min_current_a: int) -> float:
-    """Minimum charging power in 3-phase mode (~4.14 kW at 6A)."""
-    return min_current_a * 3 * 230.0 / 1000.0
+def one_phase_min_kw(min_current_a: int, voltage_v: float = DEFAULT_NOMINAL_VOLTAGE_V) -> float:
+    """Minimum charging power in 1-phase mode (~1.38 kW at 6A, 230 V)."""
+    return min_current_a * voltage_v / 1000.0
+
+
+def three_phase_min_kw(min_current_a: int, voltage_v: float = DEFAULT_NOMINAL_VOLTAGE_V) -> float:
+    """Minimum charging power in 3-phase mode (~4.14 kW at 6A, 230 V)."""
+    return min_current_a * 3 * voltage_v / 1000.0
 
 
 @dataclass
@@ -147,6 +149,7 @@ class EVSurplusController:
         resume_delay_s: int,
         resume_margin_percent: float,
         phase_switch_can_lower_floor: bool,
+        voltage_v: float = DEFAULT_NOMINAL_VOLTAGE_V,
         baseline_a: int | None = None,
     ) -> SurplusFeedbackResult:
         """baseline_a: what adjustments are computed from while charging —
@@ -161,7 +164,7 @@ class EVSurplusController:
             # suffices; one that *is* paused must still clear the resume
             # delay + margin gate below — sufficiency alone must not bypass it.
             if surplus_kw > deadband_kw:
-                raw_a = math.floor(surplus_kw * 1000 / (230 * max(1, active_phase_count)))
+                raw_a = math.floor(surplus_kw * 1000 / (voltage_v * max(1, active_phase_count)))
             else:
                 raw_a = 0
             raw_a = max(0, min(raw_a, max_current_a))
@@ -182,7 +185,7 @@ class EVSurplusController:
                     )
 
             return self._pause_or_wait_for_resume(
-                now, surplus_kw, min_current_a, resume_delay_s, resume_margin_percent
+                now, surplus_kw, min_current_a, resume_delay_s, resume_margin_percent, voltage_v
             )
 
         # Currently charging: deadband + asymmetric ramp (increases ramped,
@@ -192,7 +195,7 @@ class EVSurplusController:
         if baseline_a is None:
             baseline_a = current_setpoint_a
         if surplus_kw > deadband_kw or surplus_kw < -deadband_kw:
-            delta_a = math.floor(surplus_kw * 1000 / (230 * max(1, active_phase_count)))
+            delta_a = math.floor(surplus_kw * 1000 / (voltage_v * max(1, active_phase_count)))
             desired_a = baseline_a + delta_a
         else:
             # Within deadband: hold the commanded setpoint (not the baseline,
@@ -228,7 +231,7 @@ class EVSurplusController:
             )
 
         return self._pause_or_wait_for_resume(
-            now, surplus_kw, min_current_a, resume_delay_s, resume_margin_percent
+            now, surplus_kw, min_current_a, resume_delay_s, resume_margin_percent, voltage_v
         )
 
     def _pause_or_wait_for_resume(
@@ -238,8 +241,9 @@ class EVSurplusController:
         min_current_a: int,
         resume_delay_s: int,
         resume_margin_percent: float,
+        voltage_v: float = DEFAULT_NOMINAL_VOLTAGE_V,
     ) -> SurplusFeedbackResult:
-        one_phase_floor_kw = one_phase_min_kw(min_current_a)
+        one_phase_floor_kw = one_phase_min_kw(min_current_a, voltage_v)
         resume_threshold_kw = one_phase_floor_kw * (1 + resume_margin_percent / 100.0)
 
         if self.paused_at is None:

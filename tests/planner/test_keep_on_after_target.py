@@ -49,7 +49,7 @@ def test_keep_on_sets_flag_until_deadline_no_fake_power():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "max_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
+        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
@@ -85,7 +85,7 @@ def test_keep_on_off_no_flag():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "max_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
+        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
@@ -116,7 +116,7 @@ def test_keep_on_target_below_100_no_flag():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "max_power_kw": 11.0, "target_soc_percent": 80, "battery_capacity_kwh": 82.0}
+        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 80, "battery_capacity_kwh": 82.0}
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
@@ -147,7 +147,7 @@ def test_keep_on_soc_below_100_no_flag():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "max_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
+        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
@@ -178,7 +178,7 @@ def test_keep_on_after_deadline_no_flag():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "max_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
+        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
@@ -210,7 +210,7 @@ def test_keep_on_does_not_touch_solver_scheduled_energy():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "max_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
+        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
