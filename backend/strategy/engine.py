@@ -5,11 +5,6 @@ from backend.strategy.history import append_strategy_event
 
 logger = logging.getLogger("darkstar.strategy")
 
-# Weather volatility bumps - kept small to avoid overriding user's risk_appetite
-# These add marginal safety buffer during uncertain weather, not dominate the target SOC
-MAX_PV_DEFICIT_WEIGHT_BUMP = 0.1  # Was 0.4 - too aggressive, caused 37% target always
-MAX_TEMP_WEIGHT_BUMP = 0.05  # Was 0.2 - keep small to respect risk_appetite
-
 # Risk-based baseline shifts for dynamic export threshold (in SEK/kWh)
 RISK_BASELINE_SHIFTS = {
     1: 0.15,  # Conservative: always maintain higher margin
@@ -58,34 +53,6 @@ class StrategyEngine:
                 "STRATEGY_CHANGE",
                 "Vacation Mode active. Water heating disabled.",
                 {"vacation_mode": True},
-            )
-
-        weather_volatility: dict[str, Any] = context.get("weather_volatility", {}) or {}
-        cloud_vol = float(weather_volatility.get("cloud", 0.0) or 0.0)
-        temp_vol = float(weather_volatility.get("temp", 0.0) or 0.0)
-
-        cloud_vol = max(0.0, min(1.0, cloud_vol))
-        temp_vol = max(0.0, min(1.0, temp_vol))
-
-        # OPTION B: Pass weather volatility through to s_index config
-        # The actual adjustments are applied in calculate_target_soc_risk_factor
-        # BEFORE the risk_appetite buffer_multiplier, so both factors work together
-        if cloud_vol > 0.0 or temp_vol > 0.0:
-            overrides.setdefault("s_index", {})
-            overrides["s_index"]["weather_volatility"] = {
-                "cloud": cloud_vol,
-                "temp": temp_vol,
-            }
-
-            logger.info(
-                "Strategy: Weather volatility cloud=%.2f temp=%.2f passed to s_index.",
-                cloud_vol,
-                temp_vol,
-            )
-            append_strategy_event(
-                "WEATHER_ADJUSTMENT",
-                f"Weather volatility (Cloud: {cloud_vol:.2f}, Temp: {temp_vol:.2f}) passed to planner.",
-                {"cloud_vol": cloud_vol, "temp_vol": temp_vol},
             )
 
         # --- Rule: Price Volatility (Kepler Tuning) ---

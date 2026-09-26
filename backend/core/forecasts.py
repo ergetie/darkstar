@@ -10,7 +10,6 @@ from open_meteo_solar_forecast import OpenMeteoSolarForecast
 from backend.core import ha_client, prices
 from backend.exceptions import PVForecastError
 from ml.api import get_forecast_slots
-from ml.weather import async_get_weather_volatility
 
 logger = logging.getLogger("darkstar.core.forecasts")
 
@@ -642,22 +641,9 @@ async def get_all_input_data(
     vacation_id = sensors.get("vacation_mode")
     alarm_id = sensors.get("alarm_state")
 
-    timezone_name = config.get("timezone", "Europe/Stockholm")
-    local_tz = pytz.timezone(timezone_name)
-    now_local = datetime.now(local_tz)
-    horizon_end = now_local + timedelta(hours=48)
-
-    volatility_raw = await async_get_weather_volatility(now_local, horizon_end, config)
-    cloud_vol = float(volatility_raw.get("cloud_volatility", 0.0) or 0.0)
-    temp_vol = float(volatility_raw.get("temp_volatility", 0.0) or 0.0)
-
     context = {
         "vacation_mode": await ha_client.get_ha_bool(vacation_id) if vacation_id else False,
         "alarm_armed": await ha_client.get_ha_bool(alarm_id) if alarm_id else False,
-        "weather_volatility": {
-            "cloud": max(0.0, min(1.0, cloud_vol)),
-            "temp": max(0.0, min(1.0, temp_vol)),
-        },
     }
     # -------------------------------------
 

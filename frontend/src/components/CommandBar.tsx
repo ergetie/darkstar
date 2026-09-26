@@ -8,13 +8,17 @@ import {
     Rocket,
     Flame,
     BatteryCharging,
-    ChevronLeft,
-    ChevronRight,
     Palmtree,
     Car,
+    Gauge,
+    Droplets,
+    CalendarCheck,
+    CalendarX,
+    type LucideIcon,
 } from 'lucide-react'
 import Card from './Card'
 import SocStepper from './ui/SocStepper'
+import QuickAction, { QuickActionChips, QuickActionSection, type QuickActionTone } from './ui/QuickAction'
 import { clampSoc } from './ui/socStepper'
 import { Api, type EVChargerState, type ExecutorStatusResponse, type PlannerSIndex } from '../lib/api'
 import { useSocket } from '../lib/hooks'
@@ -26,10 +30,29 @@ type PlannerMeta = {
     s_index?: PlannerSIndex
 } | null
 
-const TOP_UP_DEFAULT_SOC = 50
-const EV_CHARGE_DEFAULT_SOC = 80
+const TOP_UP_DEFAULT_SOC = 60
+const EV_CHARGE_DEFAULT_SOC = 60
+const SOC_PRESETS = [40, 60, 80, 100]
 const BOOST_MINUTES_OPTIONS = [30, 60, 120]
+const BOOST_DEFAULT_MINUTES = 60
+/** Custom boost range; must match WATER_BOOST_* in executor/engine.py */
+const BOOST_MIN_MINUTES = 15
+const BOOST_MAX_MINUTES = 360
+const BOOST_STEP_MINUTES = 15
 const VACATION_DAYS_OPTIONS = [1, 3, 7, 14, 30]
+const VACATION_DEFAULT_DAYS = 3
+const VACATION_MAX_DAYS = 365
+/** Plan counts as outdated after this many missed scheduler intervals */
+const PLAN_STALE_RUN_MULTIPLE = 3
+/** Outdated threshold when the scheduler interval is unknown */
+const PLAN_STALE_FALLBACK_MINUTES = 180
+
+function formatMinutes(minutes: number): string {
+    const h = Math.floor(minutes / 60)
+    const m = minutes % 60
+    if (h === 0) return `${m}m`
+    return m === 0 ? `${h}h` : `${h}h ${m}m`
+}
 
 interface CommandBarProps {
     riskAppetite: number
@@ -43,7 +66,6 @@ interface CommandBarProps {
         enable_scheduler?: boolean
         every_minutes?: number | null
     } | null
-    automationSaving: boolean
     schedulerStatus: {
         last_run_at?: string | null
         last_run_status?: string | null
@@ -67,7 +89,6 @@ interface CommandBarProps {
     plannerMeta: PlannerMeta
     onSetRiskAppetite: (level: number) => void
     onSetComfortLevel: (level: number) => void
-    onToggleScheduler: () => void
     onRefresh: () => void
 }
 
@@ -88,7 +109,6 @@ export default function CommandBar({
     comfortLevel,
     executorStatus,
     automationConfig,
-    automationSaving,
     schedulerStatus,
     vacationMode,
     vacationModeHA,
@@ -100,18 +120,18 @@ export default function CommandBar({
     plannerMeta,
     onSetRiskAppetite,
     onSetComfortLevel,
-    onToggleScheduler,
     onRefresh,
 }: CommandBarProps) {
     const { toast } = useToast()
 
     const [plannerProgress, setPlannerProgress] = useState<PlannerProgress | null>(null)
     const [quickActionLoading, setQuickActionLoading] = useState<string | null>(null)
-    const [vacationDaysIdx, setVacationDaysIdx] = useState(1)
-    const [boostMinutesIdx, setBoostMinutesIdx] = useState(1)
+    const [vacationDays, setVacationDays] = useState(VACATION_DEFAULT_DAYS)
+    const [boostMinutes, setBoostMinutes] = useState(BOOST_DEFAULT_MINUTES)
+    const [loadingTopUp, setLoadingTopUp] = useState(false)
     const [topUpSoc, setTopUpSoc] = useState(TOP_UP_DEFAULT_SOC)
     const [evTargetSoc, setEvTargetSoc] = useState(EV_CHARGE_DEFAULT_SOC)
-    const [evAmpsOpen, setEvAmpsOpen] = useState(false)
+    /** null = charger maximum (no current_a sent) */
     const [evAmps, setEvAmps] = useState<number | null>(null)
     const [selectedEvId, setSelectedEvId] = useState<string>('')
     const [loadingEv, setLoadingEv] = useState(false)
@@ -125,6 +145,12 @@ export default function CommandBar({
         const id = setInterval(() => setNow(Date.now()), 1000)
         return () => clearInterval(id)
     }, [waterBoostActive?.boost, waterBoostActive?.expires_at])
+
+    // Minute tick so the plan status can turn stale without a refresh
+    useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), 60_000)
+        return () => clearInterval(id)
+    }, [])
 
     useSocket('planner_progress', (data: any) => {
         if (data.phase === 'failed') {
@@ -184,6 +210,8 @@ export default function CommandBar({
     }
 
     const handleToggleTopUp = async () => {
+        if (loadingTopUp) return
+        setLoadingTopUp(true)
         try {
             const activeQA = executorStatus?.quick_action
             if (activeQA?.type === 'force_charge') {
@@ -200,6 +228,8 @@ export default function CommandBar({
         } catch (e) {
             console.error('Top Up/Stop failed', e)
             toast({ message: e instanceof Error ? e.message : 'Action failed', variant: 'error' })
+        } finally {
+            setLoadingTopUp(false)
         }
     }
 
@@ -211,7 +241,7 @@ export default function CommandBar({
                 await Api.ev.manualCharge.stop(selectedEv.id)
                 toast({ message: `EV charge stopped (${selectedEv.name})`, variant: 'success' })
             } else {
-                const currentA = selectedEv.type === 'current' && evAmpsOpen ? effectiveEvAmps : null
+                const currentA = selectedEv.type === 'current' ? effectiveEvAmps : null
                 await Api.ev.manualCharge.start(selectedEv.id, {
                     target_soc: evTargetSoc,
                     ...(currentA != null ? { current_a: currentA } : {}),
@@ -237,7 +267,7 @@ export default function CommandBar({
                 )
                 toast({ message: 'Water Boost Cancelled', variant: 'success' })
             } else {
-                const duration = BOOST_MINUTES_OPTIONS[boostMinutesIdx]
+                const duration = boostMinutes
                 if (waterHeaters.length > 1 && effectiveSelectedHeaterId) {
                     await Api.waterBoost.startFor(duration, [effectiveSelectedHeaterId])
                 } else {
@@ -262,7 +292,7 @@ export default function CommandBar({
                 await Api.configSave({ water_heating: { vacation_mode: { enabled: false, end_date: null } } })
                 toast({ message: 'Vacation Mode Off', variant: 'success' })
             } else {
-                const days = VACATION_DAYS_OPTIONS[vacationDaysIdx]
+                const days = vacationDays
                 const endDate = new Date()
                 endDate.setDate(endDate.getDate() + days)
                 const endDateStr = endDate.toISOString().split('T')[0]
@@ -296,7 +326,7 @@ export default function CommandBar({
         selectedEv?.type === 'current' && evMinA != null && evMaxA != null && evMaxA >= evMinA
             ? Array.from({ length: evMaxA - evMinA + 1 }, (_, i) => evMinA + i)
             : []
-    const effectiveEvAmps = evAmps != null && evAmpsOptions.includes(evAmps) ? evAmps : evMaxA
+    const effectiveEvAmps = evAmps != null && evAmpsOptions.includes(evAmps) ? evAmps : null
     const isBoostActive = waterBoostActive?.boost ?? false
     const isVacationActive = vacationMode || vacationModeHA
     const effectiveSelectedHeaterId =
@@ -328,310 +358,429 @@ export default function CommandBar({
         nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
     }
 
-    let planBadge = 'Local Plan'
-    if (plannerMeta?.planned_at) {
-        const planned = new Date(plannerMeta.planned_at)
-        const timeStr = planned.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        planBadge = `Plan: ${timeStr}`
-    }
+    const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const plannedDate = plannerMeta?.planned_at ? new Date(plannerMeta.planned_at) : null
+    const staleAfterMinutes = everyMinutes ? everyMinutes * PLAN_STALE_RUN_MULTIPLE : PLAN_STALE_FALLBACK_MINUTES
+    const isPlanStale = plannedDate != null && now - plannedDate.getTime() > staleAfterMinutes * 60_000
+    const schedulerOn = Boolean(automationConfig?.enable_scheduler)
+    const planNeedsAttention = !plannedDate || isPlanStale
+    const PlanStatusIcon = planNeedsAttention ? CalendarX : CalendarCheck
+    const lastValue = plannedDate ? formatTime(plannedDate) : 'No plan yet'
+    const nextValue = !schedulerOn ? 'Auto off' : nextRunDate ? formatTime(nextRunDate) : '—'
 
-    const riskLabel =
-        ({ 1: 'Safety', 2: 'Conservative', 3: 'Neutral', 4: 'Aggressive', 5: 'Gambler' } as Record<number, string>)[
-            riskAppetite
-        ] || 'Neutral'
-
-    const comfortLabel =
-        ({ 1: 'Economy', 2: 'Balanced', 3: 'Neutral', 4: 'Priority', 5: 'Maximum' } as Record<number, string>)[
-            comfortLevel
-        ] || 'Unknown'
+    const riskLevels = [
+        { level: 1, name: 'Safety', hint: 'Keeps ≥25% extra above min SoC' },
+        { level: 2, name: 'Conservative', hint: 'Keeps ≥15% extra above min SoC' },
+        { level: 3, name: 'Neutral', hint: 'Keeps ≥10% extra above min SoC' },
+        { level: 4, name: 'Aggressive', hint: 'Keeps ≥3% extra above min SoC' },
+        { level: 5, name: 'Gambler', hint: 'No extra reserve — down to min SoC' },
+    ]
+    const waterLevels = [
+        { level: 1, name: 'Economy', hint: 'Bulk heating in the cheapest hours' },
+        { level: 2, name: 'Balanced', hint: 'Mix of savings and comfort' },
+        { level: 3, name: 'Neutral', hint: 'Baseline heating windows' },
+        { level: 4, name: 'Priority', hint: 'More frequent heating' },
+        { level: 5, name: 'Maximum', hint: 'Very frequent heating, most stable temperature' },
+    ]
 
     const riskPillColorMap: Record<number, string> = {
-        1: 'bg-good text-[#100f0e] border-good',
-        2: 'bg-night text-[#100f0e] border-night',
-        3: 'bg-water text-[#100f0e] border-water',
-        4: 'bg-warn text-[#100f0e] border-warn',
-        5: 'bg-ai text-[#100f0e] border-ai',
+        1: 'bg-good text-[#100f0e]',
+        2: 'bg-night text-[#100f0e]',
+        3: 'bg-water text-[#100f0e]',
+        4: 'bg-warn text-[#100f0e]',
+        5: 'bg-ai text-[#100f0e]',
     }
-    const riskPills = (
-        <div className="flex items-center gap-1.5" title={`Risk Appetite: ${riskLabel}`}>
-            <span className="text-[10px] text-muted whitespace-nowrap">Risk</span>
-            <div className="flex gap-0.5 h-5">
-                {[1, 2, 3, 4, 5].map((level) => {
-                    const isActive = riskAppetite === level
-                    return (
-                        <button
-                            key={level}
-                            onClick={() => onSetRiskAppetite(level)}
-                            className={`w-4 rounded-sm text-[9px] font-medium transition border ${
-                                isActive
-                                    ? `${riskPillColorMap[level]} ring-1 ring-inset ring-white/5`
-                                    : 'bg-surface2/50 text-muted hover:bg-surface2 border-transparent'
-                            }`}
-                        >
-                            {level}
-                        </button>
-                    )
-                })}
-            </div>
-        </div>
-    )
-
     const waterPillColorMap: Record<number, string> = {
-        1: 'bg-good text-[#100f0e] border-good',
-        2: 'bg-night text-[#100f0e] border-night',
-        3: 'bg-water text-[#100f0e] border-water',
-        4: 'bg-warn text-[#100f0e] border-warn',
-        5: 'bg-bad text-[#100f0e] border-bad',
+        1: 'bg-good text-[#100f0e]',
+        2: 'bg-night text-[#100f0e]',
+        3: 'bg-water text-[#100f0e]',
+        4: 'bg-warn text-[#100f0e]',
+        5: 'bg-bad text-[#100f0e]',
     }
-    const waterPills = (
-        <div className="flex items-center gap-1.5" title={`Water Comfort: ${comfortLabel}`}>
-            <span className="text-[10px] text-muted whitespace-nowrap">Water</span>
-            <div className="flex gap-0.5 h-5">
-                {[1, 2, 3, 4, 5].map((level) => {
-                    const isActive = comfortLevel === level
-                    return (
+
+    const levelSelect = (
+        name: string,
+        title: string,
+        icon: LucideIcon,
+        tone: QuickActionTone,
+        levels: { level: number; name: string; hint: string }[],
+        current: number,
+        colorMap: Record<number, string>,
+        onSelect: (level: number) => void,
+    ) => (
+        <QuickAction
+            label={name}
+            icon={icon}
+            tone={tone}
+            title={title}
+            active={false}
+            value={`${current} · ${levels.find((l) => l.level === current)?.name ?? '—'}`}
+        >
+            {(close) => (
+                <div className="qa-levels" role="radiogroup" aria-label={title}>
+                    {levels.map((l) => (
                         <button
-                            key={level}
-                            onClick={() => onSetComfortLevel(level)}
-                            className={`w-4 rounded-sm text-[9px] font-medium transition border ${
-                                isActive
-                                    ? `${waterPillColorMap[level]} ring-1 ring-inset ring-white/5`
-                                    : 'bg-surface2/50 text-muted hover:bg-surface2 border-transparent'
-                            }`}
+                            key={l.level}
+                            type="button"
+                            role="radio"
+                            aria-checked={l.level === current}
+                            className="qa-level"
+                            data-selected={l.level === current || undefined}
+                            onClick={() => {
+                                if (l.level !== current) onSelect(l.level)
+                                close()
+                            }}
                         >
-                            {level}
+                            <span className={`qa-level-num ${colorMap[l.level]}`}>{l.level}</span>
+                            <span className="qa-level-text">
+                                <span className="qa-level-name">{l.name}</span>
+                                <span className="qa-level-hint">{l.hint}</span>
+                            </span>
                         </button>
-                    )
-                })}
-            </div>
-        </div>
+                    ))}
+                </div>
+            )}
+        </QuickAction>
     )
 
-    const overrideButtons = (
-        <div className="flex items-center gap-2">
+    const riskPills = levelSelect(
+        'Risk',
+        'Risk Appetite',
+        Gauge,
+        'accent',
+        riskLevels,
+        riskAppetite,
+        riskPillColorMap,
+        onSetRiskAppetite,
+    )
+    const waterPills = levelSelect(
+        'Water',
+        'Water Comfort',
+        Droplets,
+        'water',
+        waterLevels,
+        comfortLevel,
+        waterPillColorMap,
+        onSetComfortLevel,
+    )
+
+    const topUpActiveTarget = executorStatus?.quick_action?.params?.target_soc
+    const topUpPresets = SOC_PRESETS.filter((p) => p >= topUpMin).map((p) => ({ value: p, label: `${p}%` }))
+    const evPresets = SOC_PRESETS.map((p) => ({ value: p, label: `${p}%` }))
+
+    const quickActions = (
+        <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:flex-wrap sm:items-center">
             {/* Top Up */}
-            <div
-                className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
+            <QuickAction
+                label="Top Up"
+                icon={BatteryCharging}
+                tone="good"
+                title="Battery Top Up"
+                active={isTopUpActive}
+                value={
                     isTopUpActive
-                        ? 'bg-good/40 border border-good/60 shadow-[0_0_10px_rgba(34,197,94,0.4)]'
-                        : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
-                }`}
+                        ? typeof topUpActiveTarget === 'number'
+                            ? `→ ${topUpActiveTarget}%`
+                            : 'On'
+                        : `${effectiveTopUpSoc}%`
+                }
             >
-                {!isTopUpActive && (
-                    <div className="mr-1">
-                        <SocStepper
-                            value={effectiveTopUpSoc}
-                            min={topUpMin}
-                            max={100}
-                            onChange={setTopUpSoc}
-                            label="Top Up target"
-                        />
-                    </div>
-                )}
-                <button
-                    onClick={handleToggleTopUp}
-                    className={`flex items-center gap-1 ${isTopUpActive ? 'text-white' : 'text-good'}`}
-                >
-                    <BatteryCharging className={`h-3 w-3 ${isTopUpActive ? 'animate-pulse' : ''}`} />
-                    <span>{isTopUpActive ? 'STOP' : 'Top Up'}</span>
-                </button>
-            </div>
+                {(close) =>
+                    isTopUpActive ? (
+                        <>
+                            <p className="qa-status">
+                                Charging the battery from the grid
+                                {typeof topUpActiveTarget === 'number' ? ` to ${topUpActiveTarget}%` : ''}.
+                            </p>
+                            <button
+                                type="button"
+                                className="qa-submit"
+                                data-variant="stop"
+                                disabled={loadingTopUp}
+                                onClick={() => handleToggleTopUp().then(close)}
+                            >
+                                Stop Top Up
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <QuickActionSection label="Charge battery to">
+                                <QuickActionChips
+                                    label="Top Up target"
+                                    options={topUpPresets}
+                                    value={effectiveTopUpSoc}
+                                    onChange={setTopUpSoc}
+                                />
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-muted">Custom</span>
+                                    <SocStepper
+                                        value={effectiveTopUpSoc}
+                                        min={topUpMin}
+                                        max={100}
+                                        onChange={setTopUpSoc}
+                                        label="Top Up target"
+                                    />
+                                </div>
+                            </QuickActionSection>
+                            <button
+                                type="button"
+                                className="qa-submit"
+                                disabled={loadingTopUp}
+                                onClick={() => handleToggleTopUp().then(close)}
+                            >
+                                Start Top Up to {effectiveTopUpSoc}%
+                            </button>
+                        </>
+                    )
+                }
+            </QuickAction>
 
             {/* EV Charge */}
             {selectedEv && (
-                <div
-                    className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
-                        isEvChargeActive
-                            ? 'bg-ai/40 border border-ai/60'
-                            : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
-                    }`}
+                <QuickAction
+                    label="EV"
+                    icon={Car}
+                    tone="ai"
+                    title="EV Charge"
+                    active={isEvChargeActive}
+                    value={
+                        isEvChargeActive && selectedEv.manual_charge
+                            ? `→ ${selectedEv.manual_charge.target_soc}%`
+                            : `${evTargetSoc}%`
+                    }
                 >
-                    {evCandidates.length > 1 && (
-                        <select
-                            aria-label="EV charger"
-                            value={selectedEv.id}
-                            onChange={(e) => setSelectedEvId(e.target.value)}
-                            className="mr-1 max-w-[110px] bg-transparent text-[9px] text-muted outline-none"
-                            disabled={loadingEv}
-                        >
-                            {evCandidates.map((charger) => (
-                                <option key={charger.id} value={charger.id}>
-                                    {charger.name}
-                                </option>
-                            ))}
-                        </select>
-                    )}
-                    {!isEvChargeActive && (
-                        <div className="flex items-center mr-1">
-                            <SocStepper
-                                value={evTargetSoc}
-                                min={1}
-                                max={100}
-                                onChange={setEvTargetSoc}
-                                label="EV charge target"
-                                disabled={loadingEv}
-                            />
-                            {evAmpsOptions.length > 0 && (
-                                <>
-                                    <button
-                                        type="button"
-                                        onClick={() => setEvAmpsOpen((open) => !open)}
-                                        className={`ml-1 px-0.5 text-[9px] ${evAmpsOpen ? 'text-accent' : 'text-muted hover:text-accent'}`}
-                                        aria-label="Charging current"
-                                        aria-expanded={evAmpsOpen}
-                                        title="Charging current (default: charger maximum)"
+                    {(close) => (
+                        <>
+                            {evCandidates.length > 1 && (
+                                <QuickActionSection label="Charger">
+                                    <select
+                                        aria-label="EV charger"
+                                        value={selectedEv.id}
+                                        onChange={(e) => setSelectedEvId(e.target.value)}
+                                        className="qa-select"
+                                        disabled={loadingEv}
                                     >
-                                        A
-                                    </button>
-                                    {evAmpsOpen && (
-                                        <select
-                                            aria-label="Charging current in amps"
-                                            value={effectiveEvAmps ?? ''}
-                                            onChange={(e) => setEvAmps(Number(e.target.value))}
-                                            className="bg-transparent text-[9px] text-muted outline-none"
+                                        {evCandidates.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </QuickActionSection>
+                            )}
+                            {isEvChargeActive ? (
+                                <p className="qa-status">
+                                    {selectedEv.name} is charging
+                                    {selectedEv.manual_charge ? ` to ${selectedEv.manual_charge.target_soc}%` : ''}
+                                    {selectedEv.manual_charge?.current_a
+                                        ? ` at ${selectedEv.manual_charge.current_a} A`
+                                        : ''}
+                                    .
+                                </p>
+                            ) : (
+                                <>
+                                    <QuickActionSection label="Charge car to">
+                                        <QuickActionChips
+                                            label="EV charge target"
+                                            options={evPresets}
+                                            value={evTargetSoc}
+                                            onChange={setEvTargetSoc}
                                             disabled={loadingEv}
-                                        >
-                                            {evAmpsOptions.map((a) => (
-                                                <option key={a} value={a}>
-                                                    {a} A
-                                                </option>
-                                            ))}
-                                        </select>
+                                        />
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs text-muted">Custom</span>
+                                            <SocStepper
+                                                value={evTargetSoc}
+                                                min={1}
+                                                max={100}
+                                                onChange={setEvTargetSoc}
+                                                label="EV charge target"
+                                                disabled={loadingEv}
+                                            />
+                                        </div>
+                                    </QuickActionSection>
+                                    {evAmpsOptions.length > 0 && (
+                                        <QuickActionSection label="Charging current">
+                                            <select
+                                                aria-label="Charging current in amps"
+                                                value={effectiveEvAmps ?? ''}
+                                                onChange={(e) =>
+                                                    setEvAmps(e.target.value === '' ? null : Number(e.target.value))
+                                                }
+                                                className="qa-select"
+                                                disabled={loadingEv}
+                                            >
+                                                <option value="">Charger maximum ({evMaxA} A)</option>
+                                                {evAmpsOptions.map((a) => (
+                                                    <option key={a} value={a}>
+                                                        {a} A
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </QuickActionSection>
                                     )}
                                 </>
                             )}
-                        </div>
+                            <button
+                                type="button"
+                                className="qa-submit"
+                                data-variant={isEvChargeActive ? 'stop' : undefined}
+                                disabled={loadingEv}
+                                onClick={() => handleToggleEvCharge().then(close)}
+                            >
+                                {isEvChargeActive ? 'Stop EV Charge' : `Start charging to ${evTargetSoc}%`}
+                            </button>
+                        </>
                     )}
-                    <button
-                        onClick={handleToggleEvCharge}
-                        disabled={loadingEv}
-                        className={`flex items-center gap-1 ${isEvChargeActive ? 'text-white' : 'text-ai'}`}
-                        title="Charge the car now to the target SoC"
-                    >
-                        <Car className={`h-3 w-3 ${isEvChargeActive ? 'animate-pulse' : ''}`} />
-                        <span>{isEvChargeActive ? 'STOP' : 'EV Charge'}</span>
-                        {isEvChargeActive && selectedEv.manual_charge && (
-                            <span className="text-white/80">→ {selectedEv.manual_charge.target_soc}%</span>
-                        )}
-                    </button>
-                </div>
+                </QuickAction>
             )}
 
-            {/* Boost */}
-            <div
-                className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
-                    isBoostActive
-                        ? 'bg-water/40 border border-water/60 shadow-[0_0_10px_rgba(var(--color-water),0.4)]'
-                        : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
-                }`}
+            {/* Water Boost */}
+            <QuickAction
+                label="Boost"
+                icon={Flame}
+                tone="water"
+                title="Water Heater Boost"
+                active={isBoostActive}
+                value={isBoostActive ? (boostCountdown ?? 'On') : formatMinutes(boostMinutes)}
             >
-                {!isBoostActive && (
-                    <div className="flex items-center mr-1">
+                {(close) => (
+                    <>
+                        {waterHeaters.length > 1 && (
+                            <QuickActionSection label="Water heater">
+                                <select
+                                    aria-label="Water heater to boost"
+                                    value={effectiveSelectedHeaterId}
+                                    onChange={(e) => setSelectedHeaterId(e.target.value)}
+                                    className="qa-select"
+                                    disabled={loadingBoost}
+                                >
+                                    {waterHeaters.map((heater) => (
+                                        <option key={heater.id} value={heater.id}>
+                                            {heater.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </QuickActionSection>
+                        )}
+                        {isBoostActive ? (
+                            <p className="qa-status">
+                                Boosting{activeBoostNames ? ` ${activeBoostNames}` : ''}
+                                {boostCountdown ? ` — ${boostCountdown} left` : ''}.
+                            </p>
+                        ) : (
+                            <QuickActionSection label="Boost for">
+                                <QuickActionChips
+                                    label="Boost duration"
+                                    options={BOOST_MINUTES_OPTIONS.map((m) => ({ value: m, label: formatMinutes(m) }))}
+                                    value={boostMinutes}
+                                    onChange={setBoostMinutes}
+                                    disabled={loadingBoost}
+                                />
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-muted">Custom (minutes)</span>
+                                    <SocStepper
+                                        value={boostMinutes}
+                                        min={BOOST_MIN_MINUTES}
+                                        max={BOOST_MAX_MINUTES}
+                                        step={BOOST_STEP_MINUTES}
+                                        unit="m"
+                                        onChange={(m) =>
+                                            setBoostMinutes(
+                                                clampSoc(
+                                                    Math.round(m / BOOST_STEP_MINUTES) * BOOST_STEP_MINUTES,
+                                                    BOOST_MIN_MINUTES,
+                                                    BOOST_MAX_MINUTES,
+                                                ),
+                                            )
+                                        }
+                                        label="Boost duration"
+                                        disabled={loadingBoost}
+                                    />
+                                </div>
+                            </QuickActionSection>
+                        )}
                         <button
-                            onClick={() => setBoostMinutesIdx((i) => Math.max(0, i - 1))}
-                            className="px-0.5 hover:text-accent"
-                            disabled={boostMinutesIdx === 0}
+                            type="button"
+                            className="qa-submit"
+                            data-variant={isBoostActive ? 'stop' : undefined}
+                            disabled={loadingBoost}
+                            onClick={() => handleToggleBoost().then(close)}
                         >
-                            <ChevronLeft className="h-2.5 w-2.5" />
+                            {isBoostActive ? 'Stop Boost' : `Start Boost for ${formatMinutes(boostMinutes)}`}
                         </button>
-                        <span className="text-muted text-[9px] min-w-[16px] text-center">
-                            {BOOST_MINUTES_OPTIONS[boostMinutesIdx] === 120
-                                ? '2h'
-                                : BOOST_MINUTES_OPTIONS[boostMinutesIdx] === 60
-                                  ? '1h'
-                                  : '30m'}
-                        </span>
-                        <button
-                            onClick={() => setBoostMinutesIdx((i) => Math.min(BOOST_MINUTES_OPTIONS.length - 1, i + 1))}
-                            className="px-0.5 hover:text-accent"
-                            disabled={boostMinutesIdx === BOOST_MINUTES_OPTIONS.length - 1}
-                        >
-                            <ChevronRight className="h-2.5 w-2.5" />
-                        </button>
-                    </div>
+                    </>
                 )}
-                {waterHeaters.length > 1 && (
-                    <select
-                        aria-label="Water heater to boost"
-                        value={effectiveSelectedHeaterId}
-                        onChange={(e) => setSelectedHeaterId(e.target.value)}
-                        className="mr-1 max-w-[110px] bg-transparent text-[9px] text-muted outline-none"
-                        disabled={loadingBoost}
-                    >
-                        {waterHeaters.map((heater) => (
-                            <option key={heater.id} value={heater.id}>
-                                {heater.name}
-                            </option>
-                        ))}
-                    </select>
-                )}
-                <button
-                    onClick={handleToggleBoost}
-                    disabled={loadingBoost}
-                    className={`flex items-center gap-1 ${isBoostActive ? 'text-white' : 'text-water'}`}
-                >
-                    <Flame className={`h-3 w-3 ${isBoostActive ? 'animate-pulse' : ''}`} />
-                    <span>{isBoostActive ? 'STOP' : 'Boost'}</span>
-                    {boostCountdown && <span className="text-water/80">{boostCountdown}</span>}
-                </button>
-                {isBoostActive && activeBoostNames && (
-                    <span className="ml-1 max-w-[130px] truncate text-[9px] text-water/80" title={activeBoostNames}>
-                        {activeBoostNames}
-                    </span>
-                )}
-            </div>
+            </QuickAction>
 
             {/* Vacation */}
-            <div
-                className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
-                    isVacationActive
-                        ? 'bg-amber-500/30 border border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
-                        : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
-                }`}
+            <QuickAction
+                label="Vacay"
+                icon={Palmtree}
+                tone="warn"
+                title="Vacation Mode"
+                active={isVacationActive}
+                value={isVacationActive ? 'On' : `${vacationDays}d`}
             >
-                {!isVacationActive && (
-                    <div className="flex items-center mr-1">
+                {(close) => (
+                    <>
+                        {isVacationActive ? (
+                            <p className="qa-status">
+                                Vacation mode is on — normal water heating is paused; only the periodic anti-legionella
+                                cycle runs.
+                                {vacationModeHA && !vacationMode ? ' (Set from Home Assistant.)' : ''}
+                            </p>
+                        ) : (
+                            <QuickActionSection label="Away for">
+                                <QuickActionChips
+                                    label="Vacation length"
+                                    options={VACATION_DAYS_OPTIONS.map((d) => ({ value: d, label: `${d}d` }))}
+                                    value={vacationDays}
+                                    onChange={setVacationDays}
+                                    disabled={loadingVacation}
+                                />
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-muted">Custom</span>
+                                    <SocStepper
+                                        value={vacationDays}
+                                        min={1}
+                                        max={VACATION_MAX_DAYS}
+                                        step={1}
+                                        unit="d"
+                                        onChange={setVacationDays}
+                                        label="Vacation length"
+                                        disabled={loadingVacation}
+                                    />
+                                </div>
+                            </QuickActionSection>
+                        )}
                         <button
-                            onClick={() => setVacationDaysIdx((i) => Math.max(0, i - 1))}
-                            className="px-0.5 hover:text-accent"
-                            disabled={vacationDaysIdx === 0}
+                            type="button"
+                            className="qa-submit"
+                            data-variant={isVacationActive ? 'stop' : undefined}
+                            disabled={loadingVacation}
+                            onClick={() => handleToggleVacation().then(close)}
                         >
-                            <ChevronLeft className="h-2.5 w-2.5" />
+                            {isVacationActive
+                                ? 'Turn off Vacation Mode'
+                                : `Start Vacation (${vacationDays} ${vacationDays === 1 ? 'day' : 'days'})`}
                         </button>
-                        <span className="text-muted text-[9px] min-w-[16px] text-center">
-                            {VACATION_DAYS_OPTIONS[vacationDaysIdx]}d
-                        </span>
-                        <button
-                            onClick={() => setVacationDaysIdx((i) => Math.min(VACATION_DAYS_OPTIONS.length - 1, i + 1))}
-                            className="px-0.5 hover:text-accent"
-                            disabled={vacationDaysIdx === VACATION_DAYS_OPTIONS.length - 1}
-                        >
-                            <ChevronRight className="h-2.5 w-2.5" />
-                        </button>
-                    </div>
+                    </>
                 )}
-                <button
-                    onClick={handleToggleVacation}
-                    disabled={loadingVacation}
-                    className={`flex items-center gap-1 ${isVacationActive ? 'text-amber-100' : 'text-amber-400/80'}`}
-                >
-                    <Palmtree className="h-3 w-3" />
-                    <span>{isVacationActive ? 'ON' : 'Vacay'}</span>
-                </button>
-            </div>
+            </QuickAction>
         </div>
     )
 
     return (
-        <Card className="px-4 py-2 border-accent/20 bg-surface/80 backdrop-blur-md">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-                {/* Left Group: Execution Controls */}
-                <div className="flex items-center gap-3">
+        <Card className="px-4 py-3 border-accent/20 bg-surface/80 backdrop-blur-md">
+            <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+                {/* Mode: execution controls + planner parameters */}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
                     <div className="flex items-center gap-2">
                         <button
                             onClick={handleRunPlanner}
                             disabled={isPlanning}
-                            className={`relative overflow-hidden flex items-center justify-center h-8 w-10 rounded-lg transition ${
+                            className={`relative overflow-hidden flex items-center justify-center h-10 w-11 sm:h-9 sm:w-10 rounded-lg transition ${
                                 plannerFailed
                                     ? 'bg-bad/10 border border-bad/50 text-bad'
                                     : isPlanning
@@ -658,7 +807,7 @@ export default function CommandBar({
                         <button
                             onClick={handleTogglePause}
                             disabled={quickActionLoading === 'pause'}
-                            className={`flex items-center justify-center h-8 w-10 rounded-lg transition ${
+                            className={`flex items-center justify-center h-10 w-11 sm:h-9 sm:w-10 rounded-lg transition ${
                                 isPaused
                                     ? 'bg-bad hover:bg-bad/80 text-white ring-2 ring-bad shadow-md'
                                     : 'bg-good hover:bg-good/80 text-white'
@@ -669,39 +818,33 @@ export default function CommandBar({
                         </button>
                     </div>
 
-                    <div className="h-6 w-px bg-line/40 hidden sm:block" />
-
-                    <div className="flex items-center gap-2">
-                        <span
-                            className={`h-2 w-2 rounded-full ${automationConfig?.enable_scheduler ? 'bg-good' : 'bg-muted'}`}
-                        />
-                        <button
-                            onClick={onToggleScheduler}
-                            disabled={automationSaving}
-                            className="text-[10px] font-medium text-text hover:text-accent disabled:opacity-50"
-                        >
-                            Auto: {automationConfig?.enable_scheduler ? 'ON' : 'OFF'}
-                        </button>
-                    </div>
-                </div>
-
-                {/* Center Group: Parameters & Overrides */}
-                <div className="flex flex-wrap items-center gap-4">
                     {riskPills}
                     {waterPills}
-                    <div className="h-6 w-px bg-line/40 hidden md:block" />
-                    {overrideButtons}
                 </div>
 
-                {/* Right Group: Status */}
-                <div className="flex items-center">
-                    <div
-                        className="flex items-center gap-1.5 text-[10px] bg-surface2/40 px-2 py-1 rounded text-text"
-                        title={`Last run: ${formatLocalIso(lastRunDate)}\nNext run: ${automationConfig?.enable_scheduler ? formatLocalIso(nextRunDate) : '—'}`}
-                    >
-                        <span className="text-good">✅</span>
-                        <span>{planBadge}</span>
-                    </div>
+                {/* Quick actions */}
+                {quickActions}
+
+                {/* Status */}
+                <div
+                    className="flex items-center gap-2"
+                    data-testid="plan-status"
+                    data-stale={isPlanStale || undefined}
+                    title={`Last run: ${formatLocalIso(lastRunDate)}\nNext run: ${schedulerOn ? formatLocalIso(nextRunDate) : '—'}`}
+                >
+                    <PlanStatusIcon
+                        className={`h-4 w-4 shrink-0 ${planNeedsAttention ? 'text-warn' : 'text-good'}`}
+                        aria-hidden="true"
+                    />
+                    <dl className="grid grid-cols-[auto_auto] gap-x-2 text-xs leading-tight tabular-nums">
+                        <dt className="text-muted">Last</dt>
+                        <dd className={isPlanStale || !plannedDate ? 'text-warn' : 'text-muted'}>
+                            {lastValue}
+                            {isPlanStale ? ' · outdated' : ''}
+                        </dd>
+                        <dt className="text-muted">Next</dt>
+                        <dd className={schedulerOn ? 'text-text font-medium' : 'text-warn'}>{nextValue}</dd>
+                    </dl>
                 </div>
             </div>
         </Card>

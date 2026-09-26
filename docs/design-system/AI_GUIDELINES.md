@@ -90,7 +90,27 @@ Shared target selector for Top Up and EV Charge (`components/ui/SocStepper.tsx`,
 ```tsx
 <SocStepper value={target} min={minSoc} max={100} onChange={setTarget} label="Top Up target" />
 ```
-− / + move 15 percentage points (clamped to min–max); tapping the value opens a number input (Enter/blur commits, Esc cancels, invalid input keeps the old value). Pure helpers `clampSoc` / `parseSocInput` live in `components/ui/socStepper.ts`.
+− / + move 15 percentage points (clamped to min–max); tapping the value opens a number input (Enter/blur commits, Esc cancels, invalid input keeps the old value). Pure helpers `clampSoc` / `parseSocInput` live in `components/ui/socStepper.ts`. For other integer values pass `step` and `unit`, e.g. `step={1} unit="d"` for days. Inside a `.qa-popover` the stepper renders at touch size automatically.
+
+### Quick Action (button + popover)
+Command bar controls (`components/ui/QuickAction.tsx`, classes `.qa-*`). One button shows icon, label and current value; tapping opens a popover with the settings and a Start/Stop button. Below 640px the popover is a bottom sheet. Closes on ✕, Esc or an outside tap.
+```tsx
+<QuickAction label="Top Up" icon={BatteryCharging} tone="good" title="Battery Top Up" active={isActive} value="60%">
+  {(close) => (
+    <>
+      <QuickActionSection label="Charge battery to">
+        <QuickActionChips label="Top Up target" options={presets} value={target} onChange={setTarget} />
+      </QuickActionSection>
+      <button className="qa-submit" onClick={() => start().then(close)}>Start</button>
+    </>
+  )}
+</QuickAction>
+```
+- `tone`: `accent` | `good` | `ai` | `water` | `warn` — drives border, text and the active fill.
+- `active`: filled button with the tone colour; put the live status (target, countdown) in `value`.
+- `.qa-submit` is the primary action; `data-variant="stop"` makes it the red Stop button.
+- `.qa-select` for dropdowns, `.qa-levels` / `.qa-level` for a tap-to-apply list (Risk / Water levels).
+- Touch targets: buttons, chips and rows are ≥ 44px high on mobile.
 
 ### Loading States
 ```tsx

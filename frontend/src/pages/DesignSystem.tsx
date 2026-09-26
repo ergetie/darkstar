@@ -13,6 +13,8 @@ import Modal from '../components/ui/Modal'
 import { Banner, Badge } from '../components/ui/Banner'
 import Switch from '../components/ui/Switch'
 import SocStepper from '../components/ui/SocStepper'
+import QuickAction, { QuickActionChips, QuickActionSection } from '../components/ui/QuickAction'
+import { BatteryCharging, Flame } from 'lucide-react'
 import { useToast } from '../lib/useToast'
 
 export default function DesignSystem() {
@@ -200,6 +202,51 @@ export default function DesignSystem() {
                                 onChange={setStepperValue}
                                 label="Example target"
                             />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm text-muted mb-2">
+                            Quick Action (<code>.qa-btn</code> + <code>.qa-popover</code>) — tap to open settings
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                            <QuickAction
+                                label="Top Up"
+                                icon={BatteryCharging}
+                                tone="good"
+                                title="Battery Top Up"
+                                active={false}
+                                value={`${stepperValue}%`}
+                            >
+                                {(close) => (
+                                    <>
+                                        <QuickActionSection label="Charge battery to">
+                                            <QuickActionChips
+                                                label="Example target"
+                                                options={[40, 60, 80, 100].map((v) => ({ value: v, label: `${v}%` }))}
+                                                value={stepperValue}
+                                                onChange={setStepperValue}
+                                            />
+                                        </QuickActionSection>
+                                        <button type="button" className="qa-submit" onClick={close}>
+                                            Start
+                                        </button>
+                                    </>
+                                )}
+                            </QuickAction>
+                            <QuickAction
+                                label="Boost"
+                                icon={Flame}
+                                tone="water"
+                                title="Water Heater Boost"
+                                active
+                                value="42:10"
+                            >
+                                {(close) => (
+                                    <button type="button" className="qa-submit" data-variant="stop" onClick={close}>
+                                        Stop Boost
+                                    </button>
+                                )}
+                            </QuickAction>
                         </div>
                     </div>
                 </div>

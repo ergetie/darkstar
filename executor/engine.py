@@ -164,6 +164,10 @@ EV_MANUAL_CHARGE_TIMEOUT = timedelta(hours=24)
 EV_MANUAL_CHARGE_STATE_KEY = "manual_charge"
 # Safety timeout for the battery Top Up (force_charge) quick action.
 FORCE_CHARGE_TIMEOUT = timedelta(hours=24)
+# Allowed water boost durations (minutes): MIN..MAX in STEP increments.
+WATER_BOOST_MIN_MINUTES = 15
+WATER_BOOST_MAX_MINUTES = 360
+WATER_BOOST_STEP_MINUTES = 15
 
 
 @dataclass
@@ -961,7 +965,8 @@ class ExecutorEngine:
         Start water heater boost (heat to 65°C for specified duration).
 
         Args:
-            duration_minutes: Duration in minutes (30, 60, or 120)
+            duration_minutes: Duration in minutes, WATER_BOOST_MIN_MINUTES to
+                WATER_BOOST_MAX_MINUTES in steps of WATER_BOOST_STEP_MINUTES
 
         Returns:
             Status dict with expires_at
@@ -973,10 +978,13 @@ class ExecutorEngine:
                 "error": "No water heater configured in system profile",
             }
 
-        valid_durations = [30, 60, 120]
-        if duration_minutes not in valid_durations:
+        if (
+            not WATER_BOOST_MIN_MINUTES <= duration_minutes <= WATER_BOOST_MAX_MINUTES
+            or duration_minutes % WATER_BOOST_STEP_MINUTES != 0
+        ):
             raise ValueError(
-                f"Invalid duration: {duration_minutes}. Must be one of {valid_durations}"
+                f"Invalid duration: {duration_minutes}. Must be {WATER_BOOST_MIN_MINUTES}-"
+                f"{WATER_BOOST_MAX_MINUTES} minutes in steps of {WATER_BOOST_STEP_MINUTES}"
             )
 
         configured_ids = [device.id for device in self.config.water_heater_devices]

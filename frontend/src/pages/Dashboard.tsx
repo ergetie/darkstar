@@ -101,7 +101,6 @@ export default function Dashboard() {
         enable_scheduler?: boolean
         every_minutes?: number | null
     } | null>(null)
-    const [automationSaving, setAutomationSaving] = useState(false)
     const [schedulerStatus, setSchedulerStatus] = useState<{
         last_run_at?: string | null
         last_run_status?: string | null
@@ -518,24 +517,6 @@ export default function Dashboard() {
         }
     }, [socketConnected, fetchAllData])
 
-    const toggleAutomationScheduler = async () => {
-        if (automationSaving) return
-        const current = automationConfig?.enable_scheduler ?? false
-        const next = !current
-        setAutomationSaving(true)
-        try {
-            await Api.configSave({ automation: { enable_scheduler: next } })
-            setAutomationConfig((prev) => ({
-                enable_scheduler: next,
-                every_minutes: prev?.every_minutes ?? null,
-            }))
-        } catch (err) {
-            console.error('Failed to toggle planner automation:', err)
-        } finally {
-            setAutomationSaving(false)
-        }
-    }
-
     let slotsOverride: ScheduleSlot[] | undefined
     if (localSchedule && localSchedule.length > 0) {
         const todayAndTomorrow = localSchedule.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
@@ -745,7 +726,6 @@ export default function Dashboard() {
                     comfortLevel={comfortLevel}
                     executorStatus={executorStatus}
                     automationConfig={automationConfig}
-                    automationSaving={automationSaving}
                     schedulerStatus={schedulerStatus}
                     vacationMode={vacationMode}
                     vacationModeHA={vacationModeHA}
@@ -761,7 +741,6 @@ export default function Dashboard() {
                     plannerMeta={plannerLocalMeta}
                     onSetRiskAppetite={handleSetRiskAppetite}
                     onSetComfortLevel={handleSetComfortLevel}
-                    onToggleScheduler={toggleAutomationScheduler}
                     onRefresh={fetchAllData}
                 />
             </motion.div>

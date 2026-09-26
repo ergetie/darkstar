@@ -84,6 +84,8 @@ async def set_water_boost(req: WaterBoostRequest) -> dict[str, Any]:
         raise HTTPException(501, "Water boost not supported by executor")
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     except Exception as e:
         logger.error(f"Error setting water boost: {e}\n{traceback.format_exc()}")
         raise HTTPException(500, f"Internal error setting water boost: {e}") from e

@@ -134,7 +134,7 @@ The EV charger API response SHALL include per charger whether a manual charge is
 - **THEN** `ev_charger_1` SHALL show the manual charge from the state file
 
 ### Requirement: Manual charge UI
-The command bar SHALL show an EV Charge control when at least one controllable charger is plugged in, using the shared SoC stepper for the target. With more than one plugged-in controllable charger the user SHALL choose which charger; with one, no selection step SHALL be shown. For current-type chargers an optional current setting SHALL be available behind a collapsed control; for binary chargers it SHALL NOT be shown. While active, the control SHALL show STOP, and the charger's EV card SHALL show "Manual charge → target%" with a Stop action.
+The command bar SHALL show an EV Charge control when at least one controllable charger is plugged in, using the shared SoC stepper for the target. With more than one plugged-in controllable charger the user SHALL choose which charger; with one, no selection step SHALL be shown. For current-type chargers an optional current setting SHALL be available in the control's popover, defaulting to the charger maximum; for binary chargers it SHALL NOT be shown. While active, the control SHALL show the target and offer Stop, and the charger's EV card SHALL show "Manual charge → target%" with a Stop action.
 
 #### Scenario: Single charger
 - **GIVEN** exactly one controllable charger, plugged in

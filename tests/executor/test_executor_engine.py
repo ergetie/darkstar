@@ -1682,6 +1682,18 @@ class TestWaterBoostCancellationNotification:
         assert unknown["success"] is False
         assert unknown["unknown_heater_ids"] == ["missing"]
 
+    @pytest.mark.parametrize("minutes", [15, 45, 90, 360])
+    async def test_boost_accepts_custom_durations_in_15_minute_steps(self, engine, minutes):
+        self._configure_devices(engine)
+        result = engine.set_water_boost(minutes)
+        assert result["success"] is True
+
+    @pytest.mark.parametrize("minutes", [0, 10, 20, 375])
+    async def test_boost_rejects_out_of_range_or_off_step_durations(self, engine, minutes):
+        self._configure_devices(engine)
+        with pytest.raises(ValueError, match="Invalid duration"):
+            engine.set_water_boost(minutes)
+
     async def test_boost_cancelled_notification_is_awaited(self, engine, temp_schedule):
         """Notification is sent (and awaited) when boost is cancelled due to low SoC."""
         from unittest.mock import AsyncMock

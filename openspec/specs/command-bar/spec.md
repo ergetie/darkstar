@@ -50,74 +50,62 @@ The CommandBar SHALL include a Pause/Resume button. When the executor is running
 
 ---
 
-### Requirement: Auto scheduler can be toggled from the command bar
-The CommandBar SHALL include an Auto toggle button that calls `onToggleScheduler` and reflects `automationConfig.enable_scheduler`. The button SHALL be disabled while `automationSaving` is true.
+### Requirement: Quick actions open a popover
+Every command bar control apart from Run Planner and Pause (Risk, Water, Top Up, EV Charge, Boost, Vacation) SHALL be a single `QuickAction` button (`components/ui/QuickAction.tsx`) showing an icon, a label and its current value. Tapping it SHALL open a popover holding the action's settings. On viewports narrower than 640px the popover SHALL be a bottom sheet. The popover SHALL close on its close button, on Escape and on a tap outside it. An active action SHALL show a filled button with its live status (target or countdown), and its popover SHALL offer a Stop action. Touch targets SHALL be at least 44px high on mobile.
 
-#### Scenario: Auto toggle shows correct on/off state
-- **WHEN** the scheduler is enabled
-- **THEN** the toggle shows "Auto: ON" with a green indicator dot
+#### Scenario: Opening a quick action
+- **WHEN** the user taps the Top Up button
+- **THEN** a dialog titled "Battery Top Up" opens with the target presets and a Start button
 
-#### Scenario: Auto toggle disabled while saving
-- **WHEN** `automationSaving` is true
-- **THEN** the toggle is non-interactive
+#### Scenario: Closing with Escape
+- **WHEN** a quick action popover is open and the user presses Escape
+- **THEN** the popover closes
 
 ---
 
 ### Requirement: Risk appetite can be selected from the command bar
-The CommandBar SHALL include a 5-level Risk pill selector (levels 1–5). Clicking a level SHALL call `onSetRiskAppetite(level)`. The active level SHALL be visually highlighted. Each level SHALL have a distinct color: 1=good, 2=night, 3=water, 4=warn, 5=ai.
+The CommandBar SHALL include a Risk button showing the current level and name (e.g. "Risk 3 · Neutral"). Its popover SHALL list levels 1–5 with name and a short hint, each with a distinct color: 1=good, 2=night, 3=water, 4=warn, 5=ai. Tapping a level SHALL call `onSetRiskAppetite(level)` and close the popover.
 
-#### Scenario: Selecting a risk level highlights it
-- **WHEN** the user clicks risk level 3
-- **THEN** pill 3 becomes highlighted and the others become inactive
+#### Scenario: Selecting a risk level
+- **WHEN** the user opens Risk and taps "Aggressive"
+- **THEN** `onSetRiskAppetite(4)` is called and the popover closes
 
 ---
 
 ### Requirement: Water comfort level can be selected from the command bar
-The CommandBar SHALL include a 5-level Water comfort pill selector (levels 1–5). Clicking a level SHALL call `onSetComfortLevel(level)`. The active level SHALL be highlighted. Each level SHALL have a distinct color: 1=good, 2=night, 3=water, 4=warn, 5=bad.
+The CommandBar SHALL include a Water button showing the current comfort level and name. Its popover SHALL list levels 1–5 with name and hint, each with a distinct color: 1=good, 2=night, 3=water, 4=warn, 5=bad. Tapping a level SHALL call `onSetComfortLevel(level)` and close the popover.
 
-#### Scenario: Selecting a comfort level highlights it
-- **WHEN** the user clicks water comfort level 2
-- **THEN** pill 2 becomes highlighted and the others become inactive
+#### Scenario: Selecting a comfort level
+- **WHEN** the user opens Water and taps "Economy"
+- **THEN** `onSetComfortLevel(1)` is called
 
 ---
 
 ### Requirement: Top Up override can be activated and stopped from the command bar
-The CommandBar SHALL include a Top Up button with the shared SoC stepper as target selector: − and + change the target by 15 percentage points, clamped to the configured `min_soc_percent`–100, and tapping the value opens an input where an exact integer in that range can be entered (invalid input is rejected and the previous value kept). When inactive, the user can adjust the target and activate by clicking "Top Up" (calls `Api.executor.quickAction.set('force_charge', …, { target_soc })`; the Top Up runs until the target SoC is reached, not for a fixed time). When active, the button shows "STOP" and clicking it calls `Api.executor.quickAction.clear()`. After any action, `onRefresh` is called.
+The Top Up popover SHALL offer target presets 40/60/80/100% (presets below the configured `min_soc_percent` hidden) and the shared SoC stepper for a custom target (− / + change by 15 percentage points, clamped to `min_soc_percent`–100; tapping the value allows typing an exact integer, invalid input keeps the previous value). The default target SHALL be 60%. "Start Top Up to X%" SHALL call `Api.executor.quickAction.set('force_charge', …, { target_soc })`; the Top Up runs until the target SoC is reached, not for a fixed time. When active, the button SHALL show "→ target%" and the popover SHALL offer "Stop Top Up", which calls `Api.executor.quickAction.clear()`. After any action, `onRefresh` is called.
 
 #### Scenario: Top Up target selector is hidden when active
 - **WHEN** `executorStatus.quick_action.type === 'force_charge'`
-- **THEN** the stepper is hidden and only the "STOP" button is shown
-
-#### Scenario: Clicking Stop deactivates Top Up
-- **WHEN** the user clicks "STOP" on an active Top Up
-- **THEN** `Api.executor.quickAction.clear()` is called and onRefresh is triggered
+- **THEN** the popover shows the status and a Stop button, without presets or stepper
 
 #### Scenario: Stepper increments by 15
-- **GIVEN** the target is 50%
+- **GIVEN** the target is 60%
 - **WHEN** the user presses +
-- **THEN** the target becomes 65%, and pressing + at 95% gives 100%
-
-#### Scenario: Exact value entry
-- **WHEN** the user taps the value and enters 72
-- **THEN** the target becomes 72%
+- **THEN** the target becomes 75%, and pressing + at 95% gives 100%
 
 ---
 
 ### Requirement: EV Charge control in the command bar
-The CommandBar SHALL include the EV Charge control defined by the `ev-manual-charge` capability, using the same shared SoC stepper as Top Up.
+The CommandBar SHALL include the EV Charge control defined by the `ev-manual-charge` capability as a quick action. Its popover SHALL offer a charger selector (only with more than one candidate charger), target presets 40/60/80/100% plus the shared SoC stepper (default 60%), and for current-type chargers a charging current selector defaulting to "Charger maximum" (no `current_a` sent).
 
-#### Scenario: Shared stepper
-- **WHEN** the EV Charge control is shown
-- **THEN** its target selector SHALL behave identically to the Top Up stepper
+#### Scenario: Custom charging current
+- **WHEN** the user selects 10 A and starts charging
+- **THEN** `Api.ev.manualCharge.start` is called with `current_a: 10`
 
 ---
 
 ### Requirement: Water Boost override can be activated and stopped from the command bar
-The CommandBar SHALL include a Boost button with a chevron-based duration selector (options: 30m, 1h, 2h). When inactive, clicking "Boost" calls `Api.waterBoost.start(duration)`. When active, the button shows "STOP", a countdown timer is displayed, and clicking stops the boost via `Api.waterBoost.cancel()`. The component SHALL subscribe to `water_boost_updated` WebSocket events to stay in sync with external boost state changes.
-
-#### Scenario: Boost button shows countdown when active
-- **WHEN** a water boost is active
-- **THEN** the Boost button shows "STOP" with a countdown timer (m:ss format) and a pulsing flame icon
+The Boost popover SHALL offer presets 30m, 1h, 2h (default 1h) plus a custom duration stepper (15–360 minutes in 15-minute steps; typed values are rounded to the nearest step) and, with more than one water heater, a heater selector. Starting calls `Api.waterBoost.start(duration)` (or `startFor` for a selected heater). When active, the button SHALL show a countdown (m:ss) with a pulsing flame icon, and the popover SHALL offer "Stop Boost", which calls `Api.waterBoost.cancel()`. The component SHALL subscribe to `water_boost_updated` WebSocket events to stay in sync with external boost state changes.
 
 #### Scenario: Boost state syncs via WebSocket
 - **WHEN** a `water_boost_updated` WebSocket event arrives
@@ -126,17 +114,22 @@ The CommandBar SHALL include a Boost button with a chevron-based duration select
 ---
 
 ### Requirement: Vacation mode override can be activated and stopped from the command bar
-The CommandBar SHALL include a Vacation button with a chevron-based duration selector (options: 1, 3, 7, 14, 30 days). When inactive, clicking "Vacay" calls `Api.configSave` with vacation_mode enabled and a computed end date. When active, clicking "ON" disables vacation mode. After any change, `window.dispatchEvent(new Event('config-updated'))` SHALL be fired.
+The Vacation popover SHALL offer presets of 1, 3, 7, 14, 30 days (default 3) and a custom day stepper (1–365, step 1, tap to type). Starting calls `Api.configSave` with vacation_mode enabled and a computed end date. When active, the button SHALL show "On" and the popover SHALL offer "Turn off Vacation Mode". After any change, `window.dispatchEvent(new Event('config-updated'))` SHALL be fired.
 
-#### Scenario: Vacation button shows ON state when active
-- **WHEN** `vacationMode || vacationModeHA` is true
-- **THEN** the Vacation button shows "ON" with amber highlighting, and the duration selector is hidden
+#### Scenario: Custom vacation length
+- **WHEN** the user types 10 in the custom stepper
+- **THEN** the start button reads "Start Vacation (10 days)"
 
 ---
 
 ### Requirement: Status badge shows plan freshness and next run
-The CommandBar SHALL display a status badge on the right showing a summary of the last planned schedule and the next scheduled run time. The badge SHALL be derived from `plannerMeta` and `schedulerStatus`.
+The CommandBar SHALL display a plan status on the right, derived from `plannerMeta`, `schedulerStatus` and `automationConfig`, using icons (no emoji). It SHALL show two aligned rows at the same text size: "Last" with the time of the latest plan (muted; "No plan yet" in warn color if none) and "Next" with the next scheduled run (emphasized; "Auto off" in warn color when the scheduler is disabled). The plan SHALL be marked outdated (warn icon and " · outdated") when it is older than 3 scheduler intervals, or 180 minutes when the interval is unknown. The status SHALL re-evaluate every minute. A tooltip SHALL show the full last and next run times.
 
 #### Scenario: Status badge is always visible
 - **WHEN** the user views the dashboard
-- **THEN** the status badge is visible in the right group of the command bar
+- **THEN** the plan status is visible in the command bar
+
+#### Scenario: Outdated plan
+- **GIVEN** the scheduler runs every 15 minutes
+- **WHEN** the last plan is 50 minutes old
+- **THEN** the Last time is shown in warn color with " · outdated"

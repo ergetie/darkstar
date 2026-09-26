@@ -40,3 +40,17 @@ async def test_cancel_water_boost_rejects_unknown_heater_ids():
         await cancel_water_boost(WaterBoostRequest(heater_ids=["missing"]))
 
     assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_set_water_boost_invalid_duration_is_400():
+    executor = MagicMock()
+    executor.set_water_boost.side_effect = ValueError("Invalid duration: 20")
+
+    with (
+        patch("backend.api.routers.executor.get_executor_instance", return_value=executor),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await set_water_boost(WaterBoostRequest(duration_minutes=20))
+
+    assert exc_info.value.status_code == 400

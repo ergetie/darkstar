@@ -41,17 +41,19 @@ Darkstar isn't magic; it's math. You control the math with **Risk Appetite**.
 ### What is "Risk Appetite"?
 Weather forecasts are never 100% perfect. "Risk Appetite" tells Darkstar how much to trust the forecast.
 
-| Level | Name             | Philosophy                     | Safety Buffer                                                                            |
-| :---- | :--------------- | :----------------------------- | :--------------------------------------------------------------------------------------- |
-| **1** | **Safety**       | *"I never want to run empty."* | **+35%** added to minimum battery target.                                                |
-| **2** | **Conservative** | *"Better safe than sorry."*    | **+20%** added buffer.                                                                   |
-| **3** | **Neutral**      | *"Trust the math."*            | **+10%** standard buffer.                                                                |
-| **4** | **Aggressive**   | *"I want maximum savings."*    | **+3%** minimal buffer.                                                                  |
-| **5** | **Gambler**      | *"Live dangerously."*          | **-7%**. Intentionally targets *below* minimum, betting on a replan/extra PV/Lower load. |
+| Level | Name             | Philosophy                     | Overnight safety floor                                                     |
+| :---- | :--------------- | :----------------------------- | :------------------------------------------------------------------------- |
+| **1** | **Safety**       | *"I never want to run empty."* | At least **25%** of capacity above min SoC, **+30%** margin on the deficit. |
+| **2** | **Conservative** | *"Better safe than sorry."*    | At least **15%** above min SoC, **+20%** margin.                            |
+| **3** | **Neutral**      | *"Trust the math."*            | At least **10%** above min SoC, **+15%** margin.                            |
+| **4** | **Aggressive**   | *"I want maximum savings."*    | At least **3%** above min SoC, **+5%** margin.                              |
+| **5** | **Gambler**      | *"Live dangerously."*          | No extra reserve: the floor can go down to min SoC, but never below it.     |
 
-**Example**:
-If your `Min SoC` is 10%, and you choose **Level 1 (Safety)**, Darkstar will aim to keep your battery at **45%** (10% + 35%) before the sun comes up, just in case the forecast is wrong.
-If you choose **Level 5 (Gambler)**, it might let you drop to **3%**, betting that the sun *will* shine.
+The safety floor is the energy Darkstar keeps in the battery to cover the forecast shortfall (load minus solar) until the next cheap or sunny period. The margin is added on top of that forecast shortfall; the minimum reserve applies even when no shortfall is forecast. Cold or unsettled weather adds a little extra, and the total extra is capped by `max_safety_buffer_percent` (scaled per level).
+
+**Example**: with a 20 kWh battery, `Min SoC` 10% and no forecast shortfall, **Safety** keeps at least 35% (10% + 25%) overnight, while **Gambler** lets the battery go down to 10%.
+
+In the dashboard, tap **Risk** in the command bar to pick a level.
 
 ### The "S-Index" (Strategic Index)
 You'll see an "S-Index" score on the dashboard. This measures **volatility**.
@@ -65,13 +67,14 @@ You'll see an "S-Index" score on the dashboard. This measures **volatility**.
 
 ### Quick Actions (Executor Tab)
 *   **Dynamic Monitoring**: All logs and charts in the Executor tab automatically respect your hardware's native units (**Amperes** or **Watts**).
-*   **Top Up (Force Charge)**: Charges the house battery now, at max power, until it reaches the target SoC you pick. It then stops and Darkstar follows the plan again. Set the target in the command bar with **−/+** (15% steps) or tap the number to type an exact value. The target can't be below your `min_soc_percent` or at/below the battery's current SoC. It stops early if you press **STOP**, and after 24 hours at the latest. Useful if a storm is coming.
+*   **Top Up (Force Charge)**: Charges the house battery now, at max power, until it reaches the target SoC you pick. It then stops and Darkstar follows the plan again. Tap **Top Up** in the command bar, pick a preset (40/60/80/100%) or set a custom target with **−/+** (15% steps) or by typing, then press **Start**. The target can't be below your `min_soc_percent` or at/below the battery's current SoC. It stops early if you open Top Up and press **Stop Top Up**, and after 24 hours at the latest. Useful if a storm is coming.
 *   **EV Charge**: Charges your car now until it reaches a target SoC — see [Charge now](#charge-now-manual-ev-charge) below.
 *   **Pause Plan**: Stops all automated control. Your battery will sit idle.
-*   **Water Boost**: Triggers the water heater immediately, ignoring price. Useful if you need a hot bath *now*.
+*   **Water Boost**: Triggers the water heater immediately, ignoring price, for 30 minutes, 1 hour, 2 hours or a custom length (15 minutes to 6 hours, in 15-minute steps). Useful if you need a hot bath *now*.
+*   **Vacation**: Pauses normal water heating for a number of days (presets or a custom number). Only the periodic anti-legionella cycle still runs.
 
 ### Water Heating Comfort
-In **Dashboard -> Water Comfort**, you can set the Water Heater "Comfort Level" (1-5).
+In the dashboard, tap **Water** in the command bar to set the Water Heater "Comfort Level" (1-5).
 
 The comfort level controls **two key parameters**:
 1. **Window Size** - How long each heating session can be
@@ -110,10 +113,10 @@ Darkstar treats your Electric Vehicle as a "Deferrable Load." This means it unde
 Use **EV Charge** in the dashboard command bar when you want the car charged *now*, regardless of the plan.
 
 *   The control appears when a car is plugged into a charger Darkstar controls. With several cars plugged in, pick the charger first.
-*   Choose the target SoC with **−/+** (15% steps) or tap the number to type an exact value (1–100%).
-*   **Current-type chargers** charge at the charger's `max_current_a`. Tap the small **A** to choose a lower current. **Binary chargers** are simply switched on.
+*   Tap **EV**, pick a preset (40/60/80/100%) or a custom target with **−/+** (15% steps) or by typing (1–100%), then press **Start charging**.
+*   **Current-type chargers** charge at the charger's `max_current_a`. Choose a lower current under **Charging current** in the EV popover. **Binary chargers** are simply switched on.
 *   The fuse/load balancer still applies: it may throttle or pause the car to protect your main fuse. A **Pause**, the **manual override**, or a **Force Stop** still stop charging.
-*   It ends by itself when the car reaches the target, when you unplug, when you press **STOP** (command bar or EV card), or after 24 hours. Darkstar then replans and goes back to the plan.
+*   It ends by itself when the car reaches the target, when you unplug, when you press **Stop** (command bar EV popover or EV card), or after 24 hours. Darkstar then replans and goes back to the plan.
 *   It does **not** change your charging goal (target SoC / ready-by). It survives a restart.
 *   The request is refused if the car isn't connected, its SoC is unknown, or it is already at the target. Requires `soc_sensor` (and ideally `plug_sensor`) on the charger.
 *   The car's SoC sensor often updates only every few minutes, so the car may end a few percent above the target.

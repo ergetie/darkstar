@@ -60,10 +60,7 @@ from planner.strategy.manual_plan import apply_manual_plan
 from planner.strategy.s_index import (
     calculate_deficit_ratio,
     calculate_dynamic_s_index,
-    calculate_dynamic_target_soc,
-    calculate_future_risk_factor,
     calculate_safety_floor,
-    calculate_target_soc_risk_factor,
 )
 
 __all__ = [
@@ -86,10 +83,7 @@ __all__ = [
     # Strategy
     "calculate_deficit_ratio",
     "calculate_dynamic_s_index",
-    "calculate_dynamic_target_soc",
-    "calculate_future_risk_factor",
     "calculate_safety_floor",
-    "calculate_target_soc_risk_factor",
     "config_to_kepler_config",
     # Output
     "dataframe_to_json_response",
