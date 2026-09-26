@@ -92,7 +92,7 @@ def test_recovery_is_reported_once_per_episode():
     assert consume_soc_recoveries() == {"ev1"}
     assert consume_soc_recoveries() == set()
     # Further valid readings without a new episode are not recoveries.
-    resolve_soc("ev1", 71.0, 15)
+    resolve_soc("ev1", 71.0, 15, now=T0 + timedelta(minutes=1))
     assert consume_soc_recoveries() == set()
 
 
@@ -109,7 +109,7 @@ def test_unplug_ending_episode_is_not_a_recovery():
 
 def test_planner_run_discards_the_recovery_it_planned_from():
     update_stale_soc_episode("ev1", resolve_soc("ev1", None, 15, now=T0))
-    resolve_soc("ev1", 70.0, 15)
+    resolve_soc("ev1", 70.0, 15, now=T0 + timedelta(minutes=1))
     discard_soc_recovery("ev1")
     assert consume_soc_recoveries() == set()
 
@@ -243,7 +243,8 @@ async def test_one_notification_per_episode(engine_factory):
     assert "Go-e" in eng.dispatcher.notify_ev_soc_stale.await_args.args[0]
 
     # Recovery resets the episode; a new episode notifies again.
-    resolve_soc("ev1", 60.0, 15)
+    # Pinned 30 min before T0 so the next _go_stale() (at T0) is past the 15-min window.
+    resolve_soc("ev1", 60.0, 15, now=T0 - timedelta(minutes=30))
     await eng._check_ev_soc_stale()
     _go_stale()
     await eng._check_ev_soc_stale()
@@ -279,7 +280,7 @@ async def test_soc_recovery_requests_exactly_one_replan(engine_factory, replan_m
 async def test_no_replan_while_fresh_without_prior_stale(engine_factory, replan_mock):
     eng = engine_factory()
     for _ in range(3):
-        resolve_soc("ev1", 60.0, 15)
+        resolve_soc("ev1", 60.0, 15, now=T0 + timedelta(minutes=1))
         await eng._check_ev_soc_stale()
     replan_mock.assert_not_called()
 
@@ -288,6 +289,6 @@ async def test_no_replan_while_fresh_without_prior_stale(engine_factory, replan_
 async def test_recovery_of_unconfigured_charger_is_ignored(engine_factory, replan_mock):
     eng = engine_factory()
     update_stale_soc_episode("other", resolve_soc("other", None, 15, now=T0))
-    resolve_soc("other", 60.0, 15)
+    resolve_soc("other", 60.0, 15, now=T0 + timedelta(minutes=1))
     await eng._check_ev_soc_stale()
     replan_mock.assert_not_called()

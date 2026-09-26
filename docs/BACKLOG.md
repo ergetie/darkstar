@@ -47,11 +47,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🔧 Improvements
 
-#### [Tests] Time-Dependent Load Profile Test
-
-**Goal:** Make `tests/backend/test_ha_client_load_profile.py::TestDeltaGuard::test_custom_max_meter_delta_kwh_is_honored` deterministic.
-
-**Notes:** The test builds its fixture history from `datetime.now()` (line ~23), so the injected 30 kWh jump can fall outside the profile window depending on the time of day. It passed all day 2026-09-25 and failed on 2026-09-26 on a clean HEAD. Pin the clock (freeze time or pass an explicit `now`) instead of loosening the assertion.
+<!-- Empty -->
 
 ---
 

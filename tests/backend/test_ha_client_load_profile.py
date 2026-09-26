@@ -12,15 +12,29 @@ from backend.core.ha_client import get_dummy_load_profile, get_load_profile_from
 from backend.health import clear_load_forecast_status, get_load_forecast_status
 
 
-def _fresh_start() -> datetime:
-    """A timestamp safely inside the function's trailing-7-day query window.
+# Pinned "current time" for get_load_profile_from_ha. With a real clock, the
+# local time of day of each synthetic sample shifts per run, so e.g. the
+# injected jump in test_custom_max_meter_delta_kwh_is_honored could land on
+# an interval that crosses local midnight (which the profile builder drops).
+FIXED_NOW = datetime(2026, 9, 20, 12, 0, tzinfo=pytz.UTC)
 
-    get_load_profile_from_ha computes its own `now` internally, so synthetic
-    history must be generated relative to real wall-clock time, with enough
-    buffer that clock drift between generation and the call never pushes a
-    data point before the query's start_time.
-    """
-    return datetime.now(pytz.UTC) - timedelta(days=7) + timedelta(minutes=20)
+
+class _FrozenDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):  # type: ignore[override]
+        return FIXED_NOW if tz is None else FIXED_NOW.astimezone(tz)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_clock():
+    with patch("backend.core.ha_client.datetime", _FrozenDatetime):
+        yield
+
+
+def _fresh_start() -> datetime:
+    """A timestamp safely inside the function's trailing-7-day query window
+    (relative to the pinned FIXED_NOW)."""
+    return FIXED_NOW - timedelta(days=7) + timedelta(minutes=20)
 
 
 def _state(value: str, ts: datetime, unit: str = "kWh") -> dict:
