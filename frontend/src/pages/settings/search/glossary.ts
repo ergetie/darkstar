@@ -65,9 +65,17 @@ export const glossaryEntries: GlossaryEntry[] = [
         relatedFieldKeys: [
             'nordpool.price_area',
             'pricing.vat_percent',
-            'pricing.grid_transfer_fee_sek',
+            'pricing.transfer_fee_rules',
             'pricing.energy_tax_sek',
         ],
+        relatedGuideIds: ['arbitrage-economics'],
+    },
+    {
+        id: 'time-of-use-transfer-fee',
+        term: 'Time-of-use Transfer Fee (Tidstariff)',
+        definition: `A grid transfer fee that depends on when you use electricity — typically higher on winter weekdays during the day. Set the grid transfer fee to Time-of-use and add rules by month, weekday and hour; the first rule that matches a slot sets its fee and "All other times" covers the rest. The planner then optimises against the real import price of every slot, so it shifts charging and consumption out of the expensive hours. Optionally, Swedish public holidays can count as weekend days.`,
+        aliases: ['tidstariff', 'time of use', 'tou', 'peak hours fee', 'winter tariff', 'höglasttid'],
+        relatedFieldKeys: ['pricing.transfer_fee_rules'],
         relatedGuideIds: ['arbitrage-economics'],
     },
     {

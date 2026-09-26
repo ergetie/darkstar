@@ -1,0 +1,515 @@
+[
+  {
+    "name": "winter weekday daytime",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-12-01T10:00",
+    "holidays_as_weekend": false,
+    "expected": true
+  },
+  {
+    "name": "winter weekday after end",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-12-01T23:00",
+    "holidays_as_weekend": false,
+    "expected": false
+  },
+  {
+    "name": "exclusive end 21:45",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-12-01T21:45",
+    "holidays_as_weekend": false,
+    "expected": true
+  },
+  {
+    "name": "exclusive end 22:00",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-12-01T22:00",
+    "holidays_as_weekend": false,
+    "expected": false
+  },
+  {
+    "name": "start inclusive 06:00",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-12-01T06:00",
+    "holidays_as_weekend": false,
+    "expected": true
+  },
+  {
+    "name": "before start 05:45",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-12-01T05:45",
+    "holidays_as_weekend": false,
+    "expected": false
+  },
+  {
+    "name": "summer month excluded",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-07-07T10:00",
+    "holidays_as_weekend": false,
+    "expected": false
+  },
+  {
+    "name": "weekend excluded",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-12-05T10:00",
+    "holidays_as_weekend": false,
+    "expected": false
+  },
+  {
+    "name": "holiday off matches actual weekday",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-12-25T10:00",
+    "holidays_as_weekend": false,
+    "expected": true
+  },
+  {
+    "name": "holiday on treated as weekend",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-12-25T10:00",
+    "holidays_as_weekend": true,
+    "expected": false
+  },
+  {
+    "name": "holiday on matches weekend rule",
+    "window": {
+      "weekdays": [
+        5,
+        6
+      ]
+    },
+    "local_datetime": "2026-12-25T10:00",
+    "holidays_as_weekend": true,
+    "expected": true
+  },
+  {
+    "name": "holiday off does not match weekend rule",
+    "window": {
+      "weekdays": [
+        5,
+        6
+      ]
+    },
+    "local_datetime": "2026-12-25T10:00",
+    "holidays_as_weekend": false,
+    "expected": false
+  },
+  {
+    "name": "julafton eve is holiday",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2026-12-24T10:00",
+    "holidays_as_weekend": true,
+    "expected": false
+  },
+  {
+    "name": "langfredagen 2027",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2027-03-26T10:00",
+    "holidays_as_weekend": true,
+    "expected": false
+  },
+  {
+    "name": "annandag pask 2027",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2027-03-29T10:00",
+    "holidays_as_weekend": true,
+    "expected": false
+  },
+  {
+    "name": "ordinary weekday with holidays on",
+    "window": {
+      "months": [
+        11,
+        12,
+        1,
+        2,
+        3
+      ],
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "hours": {
+        "start": 6,
+        "end": 22
+      }
+    },
+    "local_datetime": "2027-03-30T10:00",
+    "holidays_as_weekend": true,
+    "expected": true
+  },
+  {
+    "name": "wrap night 22:00",
+    "window": {
+      "hours": {
+        "start": 22,
+        "end": 6
+      }
+    },
+    "local_datetime": "2026-12-01T22:00",
+    "holidays_as_weekend": false,
+    "expected": true
+  },
+  {
+    "name": "wrap night 05:45",
+    "window": {
+      "hours": {
+        "start": 22,
+        "end": 6
+      }
+    },
+    "local_datetime": "2026-12-02T05:45",
+    "holidays_as_weekend": false,
+    "expected": true
+  },
+  {
+    "name": "wrap night 06:00",
+    "window": {
+      "hours": {
+        "start": 22,
+        "end": 6
+      }
+    },
+    "local_datetime": "2026-12-02T06:00",
+    "holidays_as_weekend": false,
+    "expected": false
+  },
+  {
+    "name": "wrap night midday",
+    "window": {
+      "hours": {
+        "start": 22,
+        "end": 6
+      }
+    },
+    "local_datetime": "2026-12-02T12:00",
+    "holidays_as_weekend": false,
+    "expected": false
+  },
+  {
+    "name": "wrap night 00:00",
+    "window": {
+      "hours": {
+        "start": 22,
+        "end": 6
+      }
+    },
+    "local_datetime": "2026-12-02T00:00",
+    "holidays_as_weekend": false,
+    "expected": true
+  },
+  {
+    "name": "omitted fields match all",
+    "window": {},
+    "local_datetime": "2026-06-20T03:15",
+    "holidays_as_weekend": true,
+    "expected": true
+  },
+  {
+    "name": "empty lists match all",
+    "window": {
+      "months": [],
+      "weekdays": []
+    },
+    "local_datetime": "2026-06-20T03:15",
+    "holidays_as_weekend": false,
+    "expected": true
+  },
+  {
+    "name": "end 24 includes 23:45",
+    "window": {
+      "hours": {
+        "start": 20,
+        "end": 24
+      }
+    },
+    "local_datetime": "2026-03-10T23:45",
+    "holidays_as_weekend": false,
+    "expected": true
+  },
+  {
+    "name": "end 24 excludes 19:45",
+    "window": {
+      "hours": {
+        "start": 20,
+        "end": 24
+      }
+    },
+    "local_datetime": "2026-03-10T19:45",
+    "holidays_as_weekend": false,
+    "expected": false
+  },
+  {
+    "name": "DST spring-forward day 03:00",
+    "window": {
+      "hours": {
+        "start": 3,
+        "end": 4
+      }
+    },
+    "local_datetime": "2026-03-29T03:00",
+    "holidays_as_weekend": false,
+    "expected": true
+  },
+  {
+    "name": "DST fall-back day 02:30",
+    "window": {
+      "hours": {
+        "start": 2,
+        "end": 3
+      }
+    },
+    "local_datetime": "2026-10-25T02:30",
+    "holidays_as_weekend": false,
+    "expected": true
+  }
+]

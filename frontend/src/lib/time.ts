@@ -47,3 +47,20 @@ export function filterSlotsByDay<T extends { start_time: string }>(slots: T[], s
     const filtered = slots.filter((s) => (sel === 'today' ? isToday(s.start_time, now) : isTomorrow(s.start_time, now)))
     return filtered
 }
+
+/** Wall-clock parts (month 1-12, hour 0-23) of an instant in the given timezone. */
+export function wallClockParts(
+    dateIso: string,
+    tz: string = TZ,
+): { year: number; month: number; day: number; hour: number } {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        hourCycle: 'h23',
+        timeZone: tz,
+    }).formatToParts(isoToLocal(dateIso))
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+    return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour') % 24 }
+}

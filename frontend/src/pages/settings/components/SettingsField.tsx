@@ -15,6 +15,8 @@ import { SolarArraysEditor } from './SolarArraysEditor'
 import { EntityArrayEditor } from './EntityArrayEditor'
 import { GiveWayListEditor, type GiveWayEntry, type ShedLoad } from './GiveWayListEditor'
 import { ExcessPvPriorityEditor, type ExcessPvPriorityEntry } from './ExcessPvPriorityEditor'
+import { TransferFeeRulesEditor } from './TransferFeeRulesEditor'
+import type { TransferFeeMode, TransferFeeRule } from '../transferFees'
 import { NumberInput } from '../../../components/ui/NumberInput'
 import { NumberPresetInput } from './NumberPresetInput'
 import { DEFAULT_NOMINAL_VOLTAGE_V } from '../evPower'
@@ -239,6 +241,30 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         haLoading={haLoading}
                     />
                 )
+            case 'transfer_fee_rules': {
+                let rules: TransferFeeRule[] = []
+                try {
+                    const parsed: unknown = JSON.parse(value || '[]')
+                    if (Array.isArray(parsed)) rules = parsed as TransferFeeRule[]
+                } catch {
+                    rules = []
+                }
+                const mode: TransferFeeMode =
+                    fullForm['pricing.transfer_fee_mode'] === 'time_of_use' ? 'time_of_use' : 'flat'
+                return (
+                    <TransferFeeRulesEditor
+                        mode={mode}
+                        rules={rules}
+                        flatFee={String(fullForm['pricing.grid_transfer_fee_sek'] ?? '')}
+                        holidaysAsWeekend={String(fullForm['pricing.holidays_as_weekend']) === 'true'}
+                        onModeChange={(m) => onChange('pricing.transfer_fee_mode', m)}
+                        onRulesChange={(next) => onChange(field.key, JSON.stringify(next))}
+                        onFlatFeeChange={(v) => onChange('pricing.grid_transfer_fee_sek', v)}
+                        onHolidaysChange={(v) => onChange('pricing.holidays_as_weekend', v ? 'true' : 'false')}
+                        disabled={isDisabled}
+                    />
+                )
+            }
             case 'info':
                 return (
                     <div className="flex items-start gap-3 p-4 bg-ai/5 border border-ai/20 rounded-2xl">

@@ -112,9 +112,14 @@ def effective_margin(settings: DeferralSettings, hours_to_deadline: float) -> fl
     return pct / 100.0
 
 
-def spot_to_import_price(spot_sek_kwh: float, config: dict[str, Any]) -> float:
-    """Convert raw spot (SEK/kWh) to the import price used in-horizon."""
-    import_price, _ = calculate_import_export_prices(spot_sek_kwh * 1000.0, config)
+def spot_to_import_price(
+    spot_sek_kwh: float, config: dict[str, Any], slot_start: datetime | None = None
+) -> float:
+    """Convert raw spot (SEK/kWh) to the import price used in-horizon.
+
+    ``slot_start`` resolves a time-of-use transfer fee; ``None`` uses the flat fee.
+    """
+    import_price, _ = calculate_import_export_prices(spot_sek_kwh * 1000.0, config, slot_start)
     return import_price
 
 
@@ -238,7 +243,7 @@ def price_post_horizon_slots(
         if spot is None:
             spot = forecast_spot.get(start)
         if spot is not None:
-            price = spot_to_import_price(spot, config) * (1.0 + margin)
+            price = spot_to_import_price(spot, config, start) * (1.0 + margin)
             source = SOURCE_FORECAST
         elif trailing_import is not None:
             price = trailing_import * (1.0 + margin)

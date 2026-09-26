@@ -13,6 +13,7 @@ export type FieldType =
     | 'balanced_loads'
     | 'give_way_list'
     | 'excess_pv_priority'
+    | 'transfer_fee_rules'
     | 'info'
 
 export interface HaEntity {
@@ -51,6 +52,8 @@ export interface BaseField {
     subsection?: string
     /** Custom CSS classes for the field wrapper (e.g., col-span-2) */
     className?: string
+    /** Other form keys this field edits; their validation errors are shown on this field */
+    errorKeys?: string[]
     /** For entity_array type: specifies which entity type to manage */
     entityType?: 'water_heater' | 'ev_charger'
     /** Inclusive numeric bounds, validated on edit (number fields only) */
@@ -239,11 +242,13 @@ export const systemSections: SettingsSection[] = [
             },
             { key: 'pricing.vat_percent', label: 'VAT (%)', path: ['pricing', 'vat_percent'], type: 'number' },
             {
-                key: 'pricing.grid_transfer_fee_sek',
-                label: 'Grid transfer fee (SEK/kWh)',
-                helper: 'Fee paid to your grid operator for power delivery.',
-                path: ['pricing', 'grid_transfer_fee_sek'],
-                type: 'number',
+                key: 'pricing.transfer_fee_rules',
+                label: 'Grid transfer fee',
+                helper: 'Fee paid to your grid operator for power delivery (SEK/kWh, excl. VAT). Flat, or time-of-use rules by month, weekday and hour.',
+                path: ['pricing', 'transfer_fee_rules'],
+                type: 'transfer_fee_rules',
+                className: 'col-span-2',
+                errorKeys: ['pricing.grid_transfer_fee_sek'],
             },
             {
                 key: 'pricing.energy_tax_sek',
@@ -1594,7 +1599,34 @@ export const advancedSections: SettingsSection[] = [
     },
 ]
 
-export const systemFieldList = systemSections.flatMap((section) => section.fields)
+// Pricing keys edited by the transfer fee editor (pricing.transfer_fee_rules)
+// rather than rendered as fields of their own.
+const systemHiddenFields: BaseField[] = [
+    {
+        key: 'pricing.transfer_fee_mode',
+        label: 'Transfer fee mode',
+        path: ['pricing', 'transfer_fee_mode'],
+        type: 'select',
+        options: [
+            { label: 'Flat', value: 'flat' },
+            { label: 'Time-of-use', value: 'time_of_use' },
+        ],
+    },
+    {
+        key: 'pricing.grid_transfer_fee_sek',
+        label: 'Grid transfer fee (SEK/kWh)',
+        path: ['pricing', 'grid_transfer_fee_sek'],
+        type: 'number',
+        min: 0,
+    },
+    {
+        key: 'pricing.holidays_as_weekend',
+        label: 'Treat holidays as weekend',
+        path: ['pricing', 'holidays_as_weekend'],
+        type: 'boolean',
+    },
+]
+export const systemFieldList = [...systemSections.flatMap((section) => section.fields), ...systemHiddenFields]
 
 // Include system toggles that control Parameters tab section visibility
 const systemToggleFields = systemFieldList.filter(

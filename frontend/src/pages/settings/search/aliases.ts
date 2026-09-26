@@ -17,7 +17,7 @@ export const fieldAliases: Record<string, string[]> = {
     'load_balancing.give_way_order': ['priority order', 'shedding order'],
     'load_balancing.enabled': ['breaker', 'fuse protection', 'overload'],
     'executor.excess_pv.priority': ['surplus solar', 'dump load', 'solar overflow'],
-    'pricing.grid_transfer_fee_sek': ['network fee', 'transmission fee'],
+    'pricing.transfer_fee_rules': ['network fee', 'transmission fee', 'tidstariff', 'time of use', 'nätavgift'],
     'nordpool.price_area': ['spot price', 'electricity price', 'bidding zone'],
     'advisor.enable_llm': ['ai', 'chatgpt', 'assistant'],
     'forecasting.pv_confidence_percent': ['solar trust', 'forecast confidence'],

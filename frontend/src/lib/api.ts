@@ -72,6 +72,8 @@ export type ScheduleTodayWithHistoryResponse = {
     timezone?: string
 }
 export type ConfigResponse = {
+    /** IANA timezone for all schedule/price calculations (backend default Europe/Stockholm). */
+    timezone?: string
     system?: {
         inverter_profile?: string
         battery?: { capacity_kwh?: number }
@@ -98,6 +100,14 @@ export type ConfigResponse = {
     pricing?: {
         vat_percent?: number
         grid_transfer_fee_sek?: number
+        transfer_fee_mode?: 'flat' | 'time_of_use'
+        holidays_as_weekend?: boolean
+        transfer_fee_rules?: {
+            months?: number[]
+            weekdays?: number[]
+            hours?: { start: number; end: number }
+            fee_sek: number
+        }[]
         energy_tax_sek?: number
     }
     input_sensors?: {

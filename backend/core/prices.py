@@ -1,20 +1,24 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytz
 import yaml
 from nordpool.elspot import Prices
 
 from backend.core.cache import cache_sync
+from backend.core.time_windows import matches, parse_window
 
 logger = logging.getLogger("darkstar.core.prices")
+
+# Processed Nordpool slots (import prices include fees); invalidated on pricing change.
+NORDPOOL_CACHE_KEY = "nordpool_data"
 
 
 async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
     # --- Smart Cache Check ---
-    cache_key = "nordpool_data"
+    cache_key = NORDPOOL_CACHE_KEY
     cached = cache_sync.get(cache_key)
 
     with Path(config_path).open() as f:
@@ -137,8 +141,82 @@ async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, 
         return []
 
 
+DEFAULT_GRID_TRANSFER_FEE_SEK = 0.2456
+TRANSFER_FEE_MODE_FLAT = "flat"
+TRANSFER_FEE_MODE_TOU = "time_of_use"
+
+# Invalid-rule warnings already logged, so per-slot resolution doesn't flood the log.
+_reported_invalid_rules: set[str] = set()
+
+
+def _warn_invalid_rule_once(index: int, rule: Any, error: Exception) -> None:
+    key = f"{index}:{rule!r}:{error}"
+    if key in _reported_invalid_rules:
+        return
+    _reported_invalid_rules.add(key)
+    logger.warning("Skipping invalid pricing.transfer_fee_rules[%d] (%s): %r", index, error, rule)
+
+
+def resolve_transfer_fee(
+    slot_start: datetime | None,
+    pricing_cfg: dict[str, Any],
+    tz: str | tzinfo = "Europe/Stockholm",
+) -> float:
+    """
+    Resolve the grid transfer fee (SEK/kWh, excl. VAT) for a slot.
+
+    In ``flat`` mode (default) or without ``slot_start`` the flat
+    ``grid_transfer_fee_sek`` is returned. In ``time_of_use`` mode the ordered
+    ``transfer_fee_rules`` are matched against the slot start in local time;
+    the first match wins and the flat fee is the catch-all. Invalid rules are
+    skipped with a (deduplicated) warning and never abort price calculation.
+
+    Naive ``slot_start`` values are interpreted as already local.
+    """
+    flat_fee = float(pricing_cfg.get("grid_transfer_fee_sek", DEFAULT_GRID_TRANSFER_FEE_SEK))
+    if slot_start is None:
+        return flat_fee
+    if pricing_cfg.get("transfer_fee_mode", TRANSFER_FEE_MODE_FLAT) != TRANSFER_FEE_MODE_TOU:
+        return flat_fee
+
+    rules: Any = pricing_cfg.get("transfer_fee_rules") or []
+    if not isinstance(rules, list):
+        _warn_invalid_rule_once(-1, rules, ValueError("transfer_fee_rules must be a list"))
+        return flat_fee
+
+    if slot_start.tzinfo is not None:
+        local_tz = pytz.timezone(tz) if isinstance(tz, str) else tz
+        local_dt = slot_start.astimezone(local_tz)
+    else:
+        local_dt = slot_start
+    holidays_as_weekend = bool(pricing_cfg.get("holidays_as_weekend", False))
+
+    for index, rule in enumerate(cast("list[Any]", rules)):
+        try:
+            window = parse_window(rule)
+            fee = parse_rule_fee(rule)
+        except ValueError as exc:
+            _warn_invalid_rule_once(index, rule, exc)
+            continue
+        if matches(window, local_dt, holidays_as_weekend):
+            return fee
+    return flat_fee
+
+
+def parse_rule_fee(rule: dict[str, Any]) -> float:
+    """Return a rule's ``fee_sek``. Raises ``ValueError`` if missing/negative/non-numeric."""
+    fee = rule.get("fee_sek")
+    if isinstance(fee, bool) or not isinstance(fee, int | float):
+        raise ValueError("fee_sek must be a number")
+    if fee < 0:
+        raise ValueError("fee_sek must not be negative")
+    return float(fee)
+
+
 def calculate_import_export_prices(
-    spot_price_mwh: float, config: dict[str, Any]
+    spot_price_mwh: float,
+    config: dict[str, Any],
+    slot_start: datetime | None = None,
 ) -> tuple[float, float]:
     """
     Calculate import and export prices from spot price.
@@ -146,13 +224,17 @@ def calculate_import_export_prices(
     Args:
         spot_price_mwh: Spot price in SEK/MWh
         config: Configuration dictionary
+        slot_start: Slot start time. Used to resolve a time-of-use transfer fee;
+            ``None`` uses the flat ``grid_transfer_fee_sek``.
 
     Returns:
         tuple: (import_price_sek_kwh, export_price_sek_kwh)
     """
     pricing_config = config.get("pricing", {})
     vat_percent = pricing_config.get("vat_percent", 25.0)
-    grid_transfer_fee_sek = pricing_config.get("grid_transfer_fee_sek", 0.2456)
+    grid_transfer_fee_sek = resolve_transfer_fee(
+        slot_start, pricing_config, config.get("timezone", "Europe/Stockholm")
+    )
     energy_tax_sek = pricing_config.get("energy_tax_sek", 0.439)
 
     spot_price_sek_kwh = spot_price_mwh / 1000.0
@@ -204,7 +286,9 @@ def _process_nordpool_data(
                 start_time = entry["start"].astimezone(local_tz)
                 end_time = entry["end"].astimezone(local_tz)
 
-        import_price, export_price = calculate_import_export_prices(entry["value"], config)
+        import_price, export_price = calculate_import_export_prices(
+            entry["value"], config, slot_start=start_time
+        )
 
         result.append(
             {

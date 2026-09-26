@@ -343,7 +343,7 @@ The Reflex loop (on the Advanced tab) is a related learning feature: it makes sm
         summary: 'How Darkstar decides when charging, discharging, or exporting is actually worth the money.',
         body: `Every decision the planner makes is economic: it compares what energy costs now against what it will cost later, and only acts when the difference is worth it.
 
-What you pay for a kWh is more than the spot price: VAT, the grid transfer fee, and energy tax come on top (configured under Pricing & Timezone). What you earn for an exported kWh is just the raw spot price — no fees, no VAT. That asymmetry is why exporting is usually the last choice, after using the energy yourself.
+What you pay for a kWh is more than the spot price: VAT, the grid transfer fee, and energy tax come on top (configured under Pricing & Timezone). If your grid operator charges a time-of-use transfer fee (tidstariff), switch the grid transfer fee to Time-of-use so each slot carries the fee that actually applies. What you earn for an exported kWh is just the raw spot price — no fees, no VAT. That asymmetry is why exporting is usually the last choice, after using the energy yourself.
 
 Battery arbitrage — charging cheap to use or sell expensive — has a real cost: wear on the battery. The battery cycle cost setting puts a price on that wear per kWh cycled, and the planner never treats cycling as free. On top of that, exports must clear a dynamic profit threshold before the planner bothers: when daily prices are flat the bar is high, and it comes down as the day's price spread grows (how far down depends on your risk level). This stops the battery from micro-cycling for pennies.
 
@@ -355,7 +355,7 @@ Grid export as a whole is gated by the "Enable grid export" toggle, and the Expo
             'export.enable_export',
             'battery_economics.battery_cycle_cost_kwh',
             'pricing.vat_percent',
-            'pricing.grid_transfer_fee_sek',
+            'pricing.transfer_fee_rules',
             'pricing.energy_tax_sek',
             'kepler.curtailment_penalty_sek',
             'kepler.ramping_cost_sek_per_kw',

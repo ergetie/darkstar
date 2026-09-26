@@ -12,9 +12,10 @@ import type { Chart, Scale, Tick, ChartData } from 'chart.js/auto'
 import zoomPlugin from 'chartjs-plugin-zoom'
 ChartJS.register(zoomPlugin)
 import { sampleChart } from '../lib/sample'
-import { Api } from '../lib/api'
+import { Api, type ConfigResponse } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
-import { formatHour, DaySel, isToday, isTomorrow } from '../lib/time'
+import { formatHour, DaySel, isToday, isTomorrow, wallClockParts } from '../lib/time'
+import { transferFeeAt, transferFeeConfigFromPricing, type TransferFeeConfig } from '../pages/settings/transferFees'
 // Note: We use a custom plugin for the NOW marker to support zooming.
 // CSS overlays don't work well with pan/zoom.
 
@@ -39,18 +40,51 @@ function useIsMobile(): boolean {
     return isMobile
 }
 
+/** Pricing inputs needed to split an import price into spot and fees+VAT. */
+export interface PricingBreakdownConfig {
+    vat: number
+    energyTax: number
+    transferFee: TransferFeeConfig
+    /** Configured IANA timezone (`config.timezone`); the backend matches rules in this zone. */
+    timezone: string
+}
+
+/** Backend fallback when `timezone` is unset in config. */
+const DEFAULT_TIMEZONE = 'Europe/Stockholm'
+
+/** Breakdown inputs from `/api/config`; `null` when the config has no `pricing` section. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function pricingBreakdownFromConfig(config: ConfigResponse): PricingBreakdownConfig | null {
+    const p = config.pricing
+    if (!p) return null
+    return {
+        vat: p.vat_percent ?? 25,
+        energyTax: p.energy_tax_sek ?? 0,
+        transferFee: transferFeeConfigFromPricing(p),
+        timezone: config.timezone || DEFAULT_TIMEZONE,
+    }
+}
+
 /** Splits a total SEK/kWh price into spot and fees+VAT parts.
- * Total = (Spot + Fees) * (1 + VAT/100); Spot = (Total / (1 + VAT/100)) - Fees. */
+ * Total = (Spot + Fees) * (1 + VAT/100); Spot = (Total / (1 + VAT/100)) - Fees.
+ * Fees = energy tax + the transfer fee for the slot. In time-of-use mode the fee
+ * is resolved from `slotStartIso` (wall-clock in the configured timezone); without a
+ * slot time the flat fee is used, like the backend. */
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
 export function splitPriceBreakdown(
     value: number,
-    pricing?: { vat: number; fees: number },
+    pricing?: PricingBreakdownConfig,
+    slotStartIso?: string | null,
 ): { spot: number; feesAndVat: number } | null {
     if (!pricing) return null
     const vatMul = 1 + pricing.vat / 100
     // Avoid division by zero
     const basePrice = vatMul > 0 ? value / vatMul : value
-    const spot = Math.max(0, basePrice - pricing.fees)
+    const transferFee = transferFeeAt(
+        pricing.transferFee,
+        slotStartIso ? wallClockParts(slotStartIso, pricing.timezone) : null,
+    )
+    const spot = Math.max(0, basePrice - (pricing.energyTax + transferFee))
     const feesAndVat = value - spot
     return { spot, feesAndVat }
 }
@@ -129,7 +163,7 @@ const chartOptions: ChartConfiguration['options'] = {
                         const pricing = data.pricingConfig
 
                         // If we have pricing config, show breakdown
-                        const breakdown = splitPriceBreakdown(value, pricing)
+                        const breakdown = splitPriceBreakdown(value, pricing, data.slotStarts?.[context.dataIndex])
                         if (breakdown) {
                             return [
                                 `${datasetLabel}: ${formattedValue}${unit}`,
@@ -287,7 +321,9 @@ interface ExtendedChartData extends ChartData {
     nowPct?: number | null
     hasNoData?: boolean
     plugins?: unknown
-    pricingConfig?: { vat: number; fees: number }
+    pricingConfig?: PricingBreakdownConfig
+    /** ISO start time per chart index (live data only), for per-slot fee breakdown. */
+    slotStarts?: string[]
 }
 
 const hexToRgba = (hex: string, alpha: number) => {
@@ -301,7 +337,7 @@ const hexToRgba = (hex: string, alpha: number) => {
 const createChartData = (
     values: ChartValues,
     _themeColors: Record<string, string> = {}, // Deprecated - using Design System tokens directly
-    pricing?: { vat: number; fees: number },
+    pricing?: PricingBreakdownConfig,
 ): ExtendedChartData => {
     // Design System Colors (from index.css)
     // Semantic mapping - APPROVED V2:
@@ -1044,7 +1080,7 @@ export default function ChartCard({
             if (dsLabel.includes('SEK/kWh')) {
                 formattedValue = value.toFixed(2)
                 unit = ' SEK/kWh'
-                const breakdown = splitPriceBreakdown(value, pricing)
+                const breakdown = splitPriceBreakdown(value, pricing, data.slotStarts?.[effectiveSelectedIndex])
                 if (breakdown) {
                     extra = `Spot: ${breakdown.spot.toFixed(2)} + Tax/Fees: ${breakdown.feesAndVat.toFixed(2)}`
                 }
@@ -1144,7 +1180,7 @@ export default function ChartCard({
         }
     })
     const [showOverlayMenu, setShowOverlayMenu] = useState(false)
-    const [pricingConfig, setPricingConfig] = useState<{ vat: number; fees: number } | undefined>()
+    const [pricingConfig, setPricingConfig] = useState<PricingBreakdownConfig | undefined>()
     const [excessPvPowerKw, setExcessPvPowerKw] = useState(1.0)
     const [scaling, setScaling] = useState({
         solarKwp: 10,
@@ -1189,12 +1225,8 @@ export default function ChartCard({
                 })
 
                 // Parse pricing for tooltips - always apply
-                if (config.pricing) {
-                    const p = config.pricing
-                    const vat = p.vat_percent ?? 25
-                    const fees = (p.grid_transfer_fee_sek ?? 0) + (p.energy_tax_sek ?? 0)
-                    setPricingConfig({ vat, fees })
-                }
+                const breakdownConfig = pricingBreakdownFromConfig(config)
+                if (breakdownConfig) setPricingConfig(breakdownConfig)
 
                 // Load custom entity power_kw for chart bar scaling
                 const powerKw = config?.executor?.excess_pv?.custom_entity?.power_kw
@@ -1650,7 +1682,7 @@ export function buildLiveData(
     slots: ScheduleSlot[],
     day: DaySel,
     themeColors: Record<string, string> = {},
-    pricing?: { vat: number; fees: number },
+    pricing?: PricingBreakdownConfig,
     excessPvPowerKw: number = 1.0,
     evAwaitingPlugInIds: string[] = [],
 ): (ExtendedChartData & { hasTomorrowPrices: boolean }) | null {
@@ -1741,6 +1773,7 @@ export function buildLiveData(
     }
 
     const labels: string[] = []
+    const slotStarts: string[] = []
     const price: (number | null)[] = []
     const pv: (number | null)[] = []
     const load: (number | null)[] = []
@@ -1775,6 +1808,7 @@ export function buildLiveData(
         const slot = slotByTime.get(bucketStart.toISOString())
 
         labels.push(formatHour(bucketStart.toISOString()))
+        slotStarts.push(bucketStart.toISOString())
 
         if (slot) {
             const hourFraction = resolutionMinutes / 60
@@ -1909,6 +1943,7 @@ export function buildLiveData(
             themeColors,
             pricing,
         ),
+        slotStarts,
         hasTomorrowPrices,
     }
 }

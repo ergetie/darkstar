@@ -13,7 +13,14 @@ from backend.config_migration import (
     write_config,
 )
 from backend.core.ha_client import get_ha_entity_state
+from backend.core.prices import (
+    NORDPOOL_CACHE_KEY,
+    TRANSFER_FEE_MODE_FLAT,
+    TRANSFER_FEE_MODE_TOU,
+    parse_rule_fee,
+)
 from backend.core.secrets import load_home_assistant_config, load_notifications_config, load_yaml
+from backend.core.time_windows import parse_window
 from backend.loads.base import EV_CHARGER_LOAD_TYPES, WATER_HEATER_LOAD_TYPES
 from executor.config import (
     EV_PLUG_IN_REMINDER_MINUTES_RANGE,
@@ -276,6 +283,10 @@ async def save_config(
         with config_path.open(encoding="utf-8") as f:
             user_data: dict[str, Any] = yaml_handler.load(f) or {}  # type: ignore[no-untyped-call]
 
+        # Snapshot pricing so the processed Nordpool price cache can be
+        # invalidated when fees/tariff rules change (prices embed them).
+        previous_pricing = _plain(user_data.get("pricing"))
+
         # Filter secrets before merging
         filter_secrets(payload, SECRET_KEYS)
 
@@ -319,6 +330,12 @@ async def save_config(
                 500,
                 detail={"message": "Config save aborted - post-write validation failed"},
             )
+
+        if _plain(data.get("pricing")) != previous_pricing:
+            from backend.core.cache import cache_sync
+
+            cache_sync.invalidate(NORDPOOL_CACHE_KEY)
+            logger.info("Nordpool price cache invalidated after pricing change")
 
         # REV F53: Notify executor to reload config after successful save
         try:
@@ -413,6 +430,72 @@ async def _phase_sensor_units_for_config(config: dict[str, Any]) -> dict[str, di
         if input_sensors.get(k)
     ]
     return await _fetch_phase_sensor_units(entity_ids)
+
+
+def _plain(value: Any) -> Any:
+    """Convert ruamel containers to plain dicts/lists for equality checks."""
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in cast("dict[Any, Any]", value).items()}
+    if isinstance(value, list):
+        return [_plain(v) for v in cast("list[Any]", value)]
+    return value
+
+
+def _validate_transfer_fee_rules(config: dict[str, Any]) -> list[dict[str, str]]:
+    """Validate ``pricing.transfer_fee_mode`` and ``pricing.transfer_fee_rules``."""
+    pricing: Any = config.get("pricing")
+    if not isinstance(pricing, dict):
+        return []
+    pricing = cast("dict[str, Any]", pricing)
+    issues: list[dict[str, str]] = []
+
+    mode: Any = pricing.get("transfer_fee_mode", TRANSFER_FEE_MODE_FLAT)
+    if mode not in (TRANSFER_FEE_MODE_FLAT, TRANSFER_FEE_MODE_TOU):
+        issues.append(
+            {
+                "severity": "error",
+                "message": f"pricing.transfer_fee_mode must be 'flat' or 'time_of_use' (got {mode})",
+                "guidance": "Choose Flat or Time-of-use in Settings > System > Pricing & Timezone.",
+            }
+        )
+
+    rules: Any = pricing.get("transfer_fee_rules")
+    if rules is None:
+        rules = []
+    if not isinstance(rules, list):
+        issues.append(
+            {
+                "severity": "error",
+                "message": "pricing.transfer_fee_rules must be a list of rules",
+                "guidance": "Each rule has optional months, weekdays and hours plus a fee_sek.",
+            }
+        )
+        return issues
+
+    for index, rule in enumerate(cast("list[Any]", rules), start=1):
+        try:
+            parse_window(rule)
+            parse_rule_fee(rule)
+        except ValueError as exc:
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"Transfer fee rule {index} is invalid: {exc}",
+                    "guidance": "Months are 1-12, weekdays 0-6 (Mon-Sun), hours a start 0-23 and "
+                    "a different end 1-24, and fee_sek a non-negative number.",
+                }
+            )
+
+    if mode == TRANSFER_FEE_MODE_TOU and not rules:
+        issues.append(
+            {
+                "severity": "warning",
+                "message": "Time-of-use transfer fee is enabled but has no rules",
+                "guidance": "Add at least one rule, or switch back to Flat. Until then the flat "
+                "transfer fee applies to every slot.",
+            }
+        )
+    return issues
 
 
 def _is_number(value: Any) -> bool:
@@ -679,6 +762,7 @@ def _validate_config_for_save(
         )
 
     issues.extend(_validate_ev_planning(config))
+    issues.extend(_validate_transfer_fee_rules(config))
 
     # Nominal grid voltage: ERROR outside 100-260 V (single value for all kW<->A conversion)
     raw_voltage: Any = None

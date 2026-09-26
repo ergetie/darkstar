@@ -4,7 +4,7 @@ import { Api } from '../../lib/api'
 import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
-import { systemFieldList, systemSections, InverterProfile, generateProfileEntityFields } from './types'
+import { systemFieldList, systemSections, InverterProfile, generateProfileEntityFields, BaseField } from './types'
 import { listChangedFields } from './utils'
 import { shouldRenderField } from './logic'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -87,6 +87,10 @@ export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }
     }, [profiles, form])
 
     const blocker = useUnsavedChangesGuard(isDirty)
+
+    // A field's own error, else the first error of a key it edits on its behalf
+    const fieldError = (field: BaseField): string | undefined =>
+        fieldErrors[field.key] ?? field.errorKeys?.map((k) => fieldErrors[k]).find(Boolean)
 
     const [haTestStatus, setHaTestStatus] = useState<string | null>(null)
 
@@ -277,11 +281,9 @@ export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }
                                                                                                     onChange={
                                                                                                         handleChange
                                                                                                     }
-                                                                                                    error={
-                                                                                                        fieldErrors[
-                                                                                                            field.key
-                                                                                                        ]
-                                                                                                    }
+                                                                                                    error={fieldError(
+                                                                                                        field,
+                                                                                                    )}
                                                                                                     haEntities={
                                                                                                         haEntities
                                                                                                     }
@@ -348,11 +350,9 @@ export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }
                                                                                                     ''
                                                                                                 }
                                                                                                 onChange={handleChange}
-                                                                                                error={
-                                                                                                    fieldErrors[
-                                                                                                        field.key
-                                                                                                    ]
-                                                                                                }
+                                                                                                error={fieldError(
+                                                                                                    field,
+                                                                                                )}
                                                                                                 haEntities={haEntities}
                                                                                                 haLoading={haLoading}
                                                                                                 fullForm={form}

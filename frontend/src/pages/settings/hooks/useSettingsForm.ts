@@ -3,6 +3,7 @@ import { Api, ConfigResponse } from '../../../lib/api'
 import { useToast } from '../../../lib/useToast'
 import { BaseField, HaEntity, InverterProfile, standardInverterKeys } from '../types'
 import { buildFormState, buildPatch, evChargerArrayError } from '../utils'
+import { rulesError } from '../transferFees'
 
 export interface UseSettingsFormReturn {
     config: ConfigResponse | null
@@ -152,6 +153,18 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
             if (field.type === 'entity_array' && field.entityType === 'ev_charger') {
                 const evError = evChargerArrayError(value)
                 if (evError) errors[key] = evError
+                return errors
+            }
+
+            if (field.type === 'transfer_fee_rules') {
+                let parsed: unknown
+                try {
+                    parsed = JSON.parse(value || '[]')
+                } catch {
+                    parsed = null
+                }
+                const rulesErr = rulesError(parsed)
+                if (rulesErr) errors[key] = rulesErr
                 return errors
             }
 

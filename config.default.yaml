@@ -263,8 +263,17 @@ nordpool:
 # Pricing Configuration (your electricity costs)
 pricing:
   vat_percent: 25.0                    # VAT percentage on electricity
-  grid_transfer_fee_sek: 0.2456        # Grid operator transfer fee per kWh
+  grid_transfer_fee_sek: 0.2456        # Grid operator transfer fee per kWh (flat; catch-all in time_of_use mode)
   energy_tax_sek: 0.439                # Energy tax per kWh
+  transfer_fee_mode: flat              # flat | time_of_use (per-slot fee from transfer_fee_rules)
+  holidays_as_weekend: false           # Treat Swedish public holidays (+ Midsommar/Jul/Nyårsafton) as Sat/Sun
+  transfer_fee_rules: []               # Ordered, first match wins; unmatched slots use grid_transfer_fee_sek
+  # Example (time-of-use, higher fee on winter weekdays 06-22):
+  # transfer_fee_rules:
+  #   - months: [11, 12, 1, 2, 3]      # 1-12; omitted/empty = all months
+  #     weekdays: [0, 1, 2, 3, 4]      # 0=Mon..6=Sun; omitted/empty = all days
+  #     hours: { start: 6, end: 22 }   # [start, end) local hours 0-24; start > end wraps midnight
+  #     fee_sek: 0.76                  # Transfer fee per kWh (excl. VAT)
 
 # Price Forecasting (Nordpool spot price prediction)
 price_forecast:

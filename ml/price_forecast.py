@@ -36,6 +36,7 @@ def derive_consumer_prices(
     spot_p50: float,
     spot_p90: float,
     config: dict[str, Any],
+    slot_start: datetime | str | None = None,
 ) -> dict[str, float]:
     """
     Derive import and export prices from spot price forecasts.
@@ -45,6 +46,8 @@ def derive_consumer_prices(
         spot_p50: P50 spot price forecast in SEK/kWh
         spot_p90: P90 spot price forecast in SEK/kWh
         config: Configuration dictionary with pricing settings
+        slot_start: Forecast slot start (datetime or ISO string). Used to
+            resolve a time-of-use transfer fee; ``None`` uses the flat fee.
 
     Returns:
         Dictionary with derived prices:
@@ -56,10 +59,12 @@ def derive_consumer_prices(
     spot_p50_mwh = spot_p50 * 1000.0
     spot_p90_mwh = spot_p90 * 1000.0
 
+    slot_dt = datetime.fromisoformat(slot_start) if isinstance(slot_start, str) else slot_start
+
     # Calculate import/export prices for each quantile
-    import_p10, export_p10 = calculate_import_export_prices(spot_p10_mwh, config)
-    import_p50, export_p50 = calculate_import_export_prices(spot_p50_mwh, config)
-    import_p90, export_p90 = calculate_import_export_prices(spot_p90_mwh, config)
+    import_p10, export_p10 = calculate_import_export_prices(spot_p10_mwh, config, slot_dt)
+    import_p50, export_p50 = calculate_import_export_prices(spot_p50_mwh, config, slot_dt)
+    import_p90, export_p90 = calculate_import_export_prices(spot_p90_mwh, config, slot_dt)
 
     return {
         "import_p10": import_p10,
@@ -507,6 +512,7 @@ async def get_d1_price_forecast_fallback(
                 spot_p50=forecast.get("spot_p50", 0),
                 spot_p90=forecast.get("spot_p90", 0),
                 config=config,
+                slot_start=forecast.get("slot_start"),
             )
             forecast.update(consumer_prices)
 

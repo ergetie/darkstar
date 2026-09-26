@@ -1,3 +1,5 @@
+import pytest
+
 from backend.api.routers.config import _validate_config_for_save
 
 
@@ -1184,3 +1186,64 @@ def test_current_charger_missing_phases_message_uses_name():
         ],
     }
     assert "Configure phases for Garage to enable planning" in _errors(cfg)
+
+
+def _pricing_config(**pricing):
+    return {"system": {"has_battery": False}, "pricing": {"grid_transfer_fee_sek": 0.25, **pricing}}
+
+
+def _transfer_issues(config):
+    return [
+        i
+        for i in _validate_config_for_save(config)
+        if "transfer fee" in i["message"].lower() or "transfer_fee" in i["message"]
+    ]
+
+
+def test_transfer_fee_valid_rules_no_issues():
+    config = _pricing_config(
+        transfer_fee_mode="time_of_use",
+        transfer_fee_rules=[
+            {"months": [11, 12, 1], "weekdays": [0, 4], "hours": {"start": 22, "end": 6}, "fee_sek": 0.5},
+            {"fee_sek": 0},
+        ],
+    )
+    assert _transfer_issues(config) == []
+
+
+def test_transfer_fee_equal_hours_rejected_naming_rule():
+    config = _pricing_config(
+        transfer_fee_rules=[{"fee_sek": 0.3}, {"hours": {"start": 8, "end": 8}, "fee_sek": 0.3}]
+    )
+    issues = _transfer_issues(config)
+    assert len(issues) == 1
+    assert issues[0]["severity"] == "error"
+    assert "rule 2" in issues[0]["message"]
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        {"months": [13], "fee_sek": 0.1},
+        {"weekdays": [7], "fee_sek": 0.1},
+        {"hours": {"start": 6, "end": 25}, "fee_sek": 0.1},
+        {"months": [1]},
+        {"fee_sek": -0.1},
+        {"fee_sek": "abc"},
+    ],
+)
+def test_transfer_fee_invalid_rule_errors(rule):
+    issues = _transfer_issues(_pricing_config(transfer_fee_rules=[rule]))
+    assert [i["severity"] for i in issues] == ["error"]
+    assert "rule 1" in issues[0]["message"]
+
+
+def test_transfer_fee_invalid_mode_error():
+    issues = _transfer_issues(_pricing_config(transfer_fee_mode="peak"))
+    assert [i["severity"] for i in issues] == ["error"]
+
+
+def test_transfer_fee_tou_without_rules_warns():
+    issues = _transfer_issues(_pricing_config(transfer_fee_mode="time_of_use", transfer_fee_rules=[]))
+    assert [i["severity"] for i in issues] == ["warning"]
+    assert "no rules" in issues[0]["message"]
