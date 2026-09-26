@@ -100,7 +100,10 @@ def make_lb(**overrides) -> LoadBalancer:
         enabled=True,
         main_fuse_a=20,
         resume_delay_s=120,
-        resume_margin_percent=90,
+        target_margin_percent=90,
+        # Legacy momentary semantics (immediate pause, no averaging window)
+        pause_debounce_s=0,
+        ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
     )
@@ -194,9 +197,9 @@ class TestEVIncreaseSide:
 
 
 class TestPauseResumeAntiFlap:
-    """4.4: pause below floor, resume only after delay + margin."""
+    """4.4 / D17: pause below floor, quick re-fit after the confirm window."""
 
-    def test_brief_dip_does_not_resume_before_delay(self):
+    def test_brief_dip_does_not_resume_before_confirm_window(self):
         lb = make_lb()
         ev_charging = EVBalancerInput("goe", [1], 10, 16, min_current_a=6, max_current_a=16)
 
@@ -207,15 +210,18 @@ class TestPauseResumeAntiFlap:
         # Stopped charger now reports current_setpoint_a=None (as the engine would)
         ev_stopped = EVBalancerInput("goe", [1], None, 16, min_current_a=6, max_current_a=16)
 
-        t_dip = BASE + timedelta(seconds=30)
-        status1 = lb.tick(t_dip, {1: 5.0, 2: 5.0, 3: 5.0}, fresh_ts(1, 2, 3, at=t_dip), [ev_stopped])
-        assert status1.ev_outputs[0].target_a is None  # still paused, only 30s elapsed
+        def tick(sec, l1):
+            t = BASE + timedelta(seconds=sec)
+            grid = {1: l1, 2: 5.0, 3: 5.0}
+            return lb.tick(t, grid, fresh_ts(1, 2, 3, at=t), [ev_stopped]).ev_outputs[0]
 
-        t_resume = BASE + timedelta(seconds=130)
-        status2 = lb.tick(
-            t_resume, {1: 5.0, 2: 5.0, 3: 5.0}, fresh_ts(1, 2, 3, at=t_resume), [ev_stopped]
-        )
-        assert status2.ev_outputs[0].target_a == 6  # resumes at floor after 120s + margin
+        assert tick(30, 5.0).target_a is None  # fits, confirm window starts
+        assert tick(35, 15.0).target_a is None  # dip over: 18 A target - 15 A < 6 A
+        assert tick(40, 5.0).target_a is None  # window restarts
+        assert tick(45, 5.0).target_a is None  # 5 s < 10 s
+        out = tick(50, 5.0)
+        # Largest fit within the 18 A target (18 - 5 = 13 A), under the 16 A plan
+        assert out.target_a == 13 and out.state == "throttling"
 
 
 class TestShedding:
@@ -273,11 +279,11 @@ class TestStaleSensorFailSafe:
         assert status.ev_outputs[0].target_a == 6
         assert status.ev_outputs[0].state == "stale_fallback"
 
-    def test_escalated_stale_pause_honors_resume_delay_after_recovery(self):
-        """9.3: once stale_fallback escalates to a full pause, a flapping
+    def test_escalated_stale_pause_needs_confirm_window_after_recovery(self):
+        """9.3 / D17: once stale_fallback escalates to a full pause, a flapping
         sensor that comes back fresh must not resume charging immediately —
-        it has to wait out resume_delay_s (with margin/headroom ok), exactly
-        like an overload-induced pause.
+        the readings have to fit for the confirm window, exactly like an
+        overload-induced pause.
         """
         lb = make_lb()
         ev = EVBalancerInput("goe", [1], 16, 16, min_current_a=6, max_current_a=16)
@@ -304,18 +310,17 @@ class TestStaleSensorFailSafe:
         assert out2.state == "paused"
         assert out2.target_a is None
 
-        # Just short of resume_delay_s since the pause began: still paused.
-        t3 = t1 + timedelta(seconds=119)
+        # Fresh and fitting for 9 s: still paused.
+        t3 = t2 + timedelta(seconds=9)
         status3 = lb.tick(t3, {1: 5.0}, fresh_ts(1, at=t3), [ev_stopped])
         assert status3.ev_outputs[0].state == "paused"
 
-        # Once resume_delay_s has elapsed since the pause began (and
-        # margin/headroom are fine), charging resumes at the floor.
-        t4 = t1 + timedelta(seconds=121)
+        # Fitting for the 10 s confirm window: resumes at the largest fit.
+        t4 = t2 + timedelta(seconds=10)
         status4 = lb.tick(t4, {1: 5.0}, fresh_ts(1, at=t4), [ev_stopped])
         out4 = status4.ev_outputs[0]
         assert out4.state == "throttling"
-        assert out4.target_a == 6
+        assert out4.target_a == 13
 
 
 class TestFeatureGating:
@@ -406,6 +411,84 @@ class TestPositionOrderedAllocation:
         assert status.state == "disabled"
 
 
+class TestSevereOverloadDuringShedHold:
+    """D16: a severe overload (above severe_overload_percent of main_fuse_a)
+    pauses the charger immediately even while a higher-listed shed entry
+    gave way this tick; below it the one-tick hold is unchanged."""
+
+    def _entries(self, setpoint=16):
+        wh = ShedLoadInput("wh", "water_heater", [2])
+        ev = EVBalancerInput("goe", [1, 2, 3], setpoint, 16, min_current_a=6, max_current_a=16)
+        return wh, ev
+
+    def test_severe_overload_during_shed_hold_pauses_immediately(self):
+        lb = make_lb(pause_debounce_s=5)  # debounce must not delay a severe pause
+        wh, ev = self._entries()
+        grid = {1: 5.0, 2: 26.0, 3: 5.0}  # 26 A > 125 % of 20 A
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev])
+
+        assert [o.load_id for o in status.shed_outputs if o.shed] == ["wh"]
+        out = status.ev_outputs[0]
+        assert out.target_a is None
+        assert out.state == "paused"
+        assert "pausing immediately" in out.reason
+
+    def test_non_severe_overload_during_shed_hold_keeps_hold(self):
+        lb = make_lb(pause_debounce_s=5)
+        wh, ev = self._entries()
+        grid = {1: 5.0, 2: 25.0, 3: 5.0}  # exactly 125 %: not above the severe line
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev])
+
+        assert [o.load_id for o in status.shed_outputs if o.shed] == ["wh"]
+        out = status.ev_outputs[0]
+        assert out.target_a == 16
+        assert out.state == "throttling"
+        assert "waiting for shed relief" in out.reason
+
+    def test_severe_overload_during_shed_hold_before_start_records_pause(self):
+        """A charger waiting to start also stops waiting on the unmeasured
+        relief under a severe overload: the pause clock starts, so resume
+        needs the full resume_delay_s."""
+        lb = make_lb()
+        wh, ev = self._entries(setpoint=None)
+        grid = {1: 5.0, 2: 26.0, 3: 5.0}
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev])
+
+        out = status.ev_outputs[0]
+        assert out.state == "paused"
+        assert "shed relief" not in out.reason
+
+        t1 = BASE + timedelta(seconds=10)
+        grid_ok = {1: 5.0, 2: 5.0, 3: 5.0}
+        status1 = lb.tick(t1, grid_ok, fresh_ts(1, 2, 3, at=t1), [wh, ev])
+        assert status1.ev_outputs[0].state == "paused"
+        assert "Waiting to resume" in status1.ev_outputs[0].reason
+
+    def test_recovery_after_severe_pause_follows_confirm_window_and_margin(self):
+        lb = make_lb(pause_debounce_s=5, ramp_up_window_s=60)
+        wh, ev = self._entries()
+        grid = {1: 5.0, 2: 26.0, 3: 5.0}
+        assert lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev]).ev_outputs[0].state == "paused"
+
+        _, paused_ev = self._entries(setpoint=None)
+
+        def tick(sec, l2):
+            t = BASE + timedelta(seconds=sec)
+            g = {1: 5.0, 2: l2, 3: 5.0}
+            return lb.tick(t, g, fresh_ts(1, 2, 3, at=t), [wh, paused_ev]).ev_outputs[0]
+
+        # No room for the floor within the 18 A target (18 - 17 = 1 A < 6 A).
+        for sec in range(10, 70, 10):
+            assert tick(sec, 17.0).state == "paused"
+        # Room again: the confirm window must pass before resuming.
+        assert tick(70, 5.0).state == "paused"
+        assert tick(75, 5.0).state == "paused"
+        out = tick(80, 5.0)
+        assert out.state == "throttling"
+        assert out.target_a == 13  # 18 A target - 5 A, under the 16 A plan
+        assert out.reason.startswith("Resuming at 13A")
+
+
 class TestInterleavedGiveWayOrder:
     """load-balancing-completion 3.1/3.2: shed loads and chargers interleave
     in one user-ordered list — top gives way first, restore in exact reverse
@@ -413,13 +496,14 @@ class TestInterleavedGiveWayOrder:
 
     def test_shed_above_charger_gives_way_before_charger_slows(self):
         """Spec scenario: water heater listed above the charger on the same
-        phase is shed first; the charger is only reduced if the deficit
-        persists after the shed."""
+        phase is shed first; below the severe threshold the charger holds
+        this tick and is only reduced if the deficit persists after the shed
+        (D16: at/above severe it pauses instead — see TestSevereOverloadDuringShedHold)."""
         lb = make_lb()
         wh = ShedLoadInput("wh", "water_heater", [2])
         ev = EVBalancerInput("goe", [1, 2, 3], 16, 16, min_current_a=6, max_current_a=16)
 
-        grid = {1: 5.0, 2: 26.0, 3: 5.0}  # L2 headroom = -6
+        grid = {1: 5.0, 2: 24.0, 3: 5.0}  # L2 headroom = -4, below the 25 A severe line
         status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev])
 
         # The water heater sheds; the charger holds its setpoint this tick.
@@ -493,13 +577,17 @@ class TestInterleavedGiveWayOrder:
         t1 = t0 + timedelta(seconds=5)
         lb.tick(t1, grid, fresh_ts(1, 2, 3, at=t1), [wh, ev_charging])  # ev pauses
 
-        # Recovery, past resume_delay_s for both.
+        # Recovery: the charger's confirm window, then past resume_delay_s
+        # for the shed load.
         ev_stopped = EVBalancerInput("goe", [1], None, 16, min_current_a=6, max_current_a=16)
         grid_ok = {1: 5.0, 2: 5.0, 3: 5.0}
+        t_fit = t1 + timedelta(seconds=115)
+        status_fit = lb.tick(t_fit, grid_ok, fresh_ts(1, 2, 3, at=t_fit), [wh, ev_stopped])
+        assert status_fit.ev_outputs[0].target_a is None  # confirm window starts
         t2 = t1 + timedelta(seconds=125)
         status2 = lb.tick(t2, grid_ok, fresh_ts(1, 2, 3, at=t2), [wh, ev_stopped])
         # Charger (gave way last) resumes first; wh stays shed this tick.
-        assert status2.ev_outputs[0].target_a == 6
+        assert status2.ev_outputs[0].target_a == 13
         assert [o.load_id for o in status2.shed_outputs if o.shed] == ["wh"]
 
         # Next tick the wh (nothing below it still given way) restores.

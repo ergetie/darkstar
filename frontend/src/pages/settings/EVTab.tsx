@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
+import { SectionInfoBox } from './components/SectionInfoBox'
 import { evFieldList, evSections } from './types'
 import { listChangedFields } from './utils'
 import { shouldRenderField } from './logic'
@@ -84,6 +85,7 @@ export const EVTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) =>
                                     {section.description && (
                                         <p className="mt-1 text-sm text-muted">{section.description}</p>
                                     )}
+                                    {section.infoBox && <SectionInfoBox infoBox={section.infoBox} />}
                                 </div>
                                 <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
                                     {section.fields.map((field) => {

@@ -107,7 +107,10 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         enabled=True,
         main_fuse_a=20,
         resume_delay_s=120,
-        resume_margin_percent=90,
+        target_margin_percent=90,
+        # Legacy momentary semantics (immediate pause, no averaging window)
+        pause_debounce_s=0,
+        ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
         loads=[
@@ -323,7 +326,10 @@ async def test_power_sensor_phase_end_to_end(temp_schedule, temp_db):
         enabled=True,
         main_fuse_a=20,
         resume_delay_s=120,
-        resume_margin_percent=90,
+        target_margin_percent=90,
+        # Legacy momentary semantics (immediate pause, no averaging window)
+        pause_debounce_s=0,
+        ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
         nominal_voltage_v=220,
@@ -462,7 +468,10 @@ async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
         enabled=True,
         main_fuse_a=20,
         resume_delay_s=120,
-        resume_margin_percent=90,
+        target_margin_percent=90,
+        # Legacy momentary semantics (immediate pause, no averaging window)
+        pause_debounce_s=0,
+        ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
         loads=[
@@ -512,7 +521,9 @@ async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
     engine._has_ev_charger = True
     engine._has_water_heater = True
 
-    grid = {"1": 5.0, "2": 26.0, "3": 5.0}  # L2 headroom = -6, WH's phase
+    # L2 headroom = -4 on WH's phase, below the 25 A severe line (125 % of
+    # 20 A) — above it the charger would pause instead of holding (D16).
+    grid = {"1": 5.0, "2": 24.0, "3": 5.0}
 
     async def fake_get_state(entity_id):
         mapping = {"sensor.grid_l1": "1", "sensor.grid_l2": "2", "sensor.grid_l3": "3"}

@@ -58,7 +58,14 @@ export default function Settings() {
     const [searchParams, setSearchParams] = useSearchParams()
     const activeTab = searchParams.get('tab') || 'system'
 
+    // Deep link: `?tab=<id>&field=<key>` opens a tab and jumps to one field
+    // (e.g. the EV card's "add to Excess PV priority" hint). A deep link into
+    // the Advanced tab is an explicit request to see it, so it turns Advanced
+    // mode on instead of being redirected away.
+    const deepLinkField = searchParams.get('field')
+
     const [advancedMode, setAdvancedMode] = useState<boolean>(() => {
+        if (activeTab === 'advanced' && deepLinkField) return true
         const saved = localStorage.getItem(STORAGE_KEY)
         return saved === 'true'
     })
@@ -66,7 +73,9 @@ export default function Settings() {
     const [systemFlags, setSystemFlags] = useState<SystemFlags>({})
     const [configLoading, setConfigLoading] = useState(true)
     const [fullConfig, setFullConfig] = useState<Record<string, unknown> | null>(null)
-    const [pendingJump, setPendingJump] = useState<{ tabId: string; fieldKey: string } | null>(null)
+    const [pendingJump, setPendingJump] = useState<{ tabId: string; fieldKey: string } | null>(() =>
+        deepLinkField ? { tabId: activeTab, fieldKey: deepLinkField } : null,
+    )
 
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY, String(advancedMode))

@@ -1587,8 +1587,9 @@ class ActionDispatcher:
     async def notify_plug_in_reminder(self, message: str) -> None:
         """Car-not-plugged-in reminder (ev-plug-in-reminder).
 
-        Opt-in per charger via ``plug_in_reminder_minutes``; dedupe per charging
-        window is the engine's job.
+        Opt-in via ``notifications.on_ev_plug_in_reminder`` with the global lead
+        time ``ev_plug_in_reminder_minutes``; dedupe per charging window is the
+        engine's job.
         """
         await self._send_notification(message, title="Darkstar EV")
 

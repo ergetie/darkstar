@@ -5,6 +5,7 @@ Loads and validates the executor configuration from config.yaml.
 """
 
 import logging
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -148,9 +149,6 @@ class EVChargerDeviceConfig:
     # Hours a missed goal stays active while the car is still plugged in
     # (ev-missed-goal-recovery). 0 disables the grace window.
     missed_goal_grace_hours: float = 4.0
-    # Minutes before the first planned charging slot to notify when the car is
-    # not plugged in (ev-plug-in-reminder). None/0 disables the reminder.
-    plug_in_reminder_minutes: int | None = None
 
     # HA entities the charging goal (set in the dashboard, stored in
     # data/ev_multi_day_state.json) is mirrored to/from. The goal itself is
@@ -175,6 +173,9 @@ class EVChargerDeviceConfig:
     phase_switching_enabled: bool = False
     phase_switch_hysteresis_kw: float = 0.5
     phase_switch_min_dwell_s: int = 600
+    # Grid phase (1-3) the charger draws on in 1-phase mode
+    # (load-balancer-graceful-degradation D6). Must be one of `phases`.
+    phase_1_line: int = 1
 
 
 class BalancedLoadType(Enum):
@@ -224,8 +225,26 @@ class LoadBalancingConfig:
     # Sourced from system.grid.main_fuse_a in YAML; folded in here for convenience
     # since it is always consumed alongside the rest of this config as a unit.
     main_fuse_a: int | None = None
+    # Anti-flap delay for restoring shed loads, escalating a stale phase
+    # sensor from the minimum-current fallback to a pause, and the EV surplus
+    # controller's resume. Balancer-paused chargers re-fit via
+    # resume_confirm_s instead (load-balancer-graceful-degradation D17).
     resume_delay_s: int = 120
-    resume_margin_percent: float = 90.0
+    # A balancer-paused charger re-fits once its phases have fitted the
+    # minimum current (momentary reading, within target_margin_percent) for
+    # this long; repeated pauses shortly after a re-fit lengthen it (D17).
+    resume_confirm_s: int = 10
+    # Increases, resume, restore and the return to 3-phase keep every phase's
+    # averaged current at or below this share of main_fuse_a (supersedes the
+    # legacy resume_margin_percent). Never triggers a reduction by itself.
+    target_margin_percent: float = 85.0
+    # A charger held at its floor pauses only once the overload has lasted
+    # this long (0 = pause immediately)...
+    pause_debounce_s: int = 5
+    # ...unless a phase it draws on reads above this share of main_fuse_a.
+    severe_overload_percent: float = 125.0
+    # Rolling-average window for increases/resume/restore/return to 3-phase.
+    ramp_up_window_s: int = 60
     increase_step_a: int = 1
     sensor_stale_after_s: int = 30
     # Sourced from system.grid.nominal_voltage_v (the single nominal grid
@@ -260,6 +279,8 @@ class NotificationConfig:
     on_override_activated: bool = True
     on_error: bool = True
     on_ev_soc_stale: bool = True
+    on_ev_plug_in_reminder: bool = False
+    ev_plug_in_reminder_minutes: int = 30
 
 
 @dataclass
@@ -333,6 +354,91 @@ def load_yaml(path: str) -> dict[str, Any]:
         return {}
 
 
+# Valid ranges (inclusive) for the graceful-degradation settings; shared with
+# backend/api/routers/config.py validation.
+TARGET_MARGIN_RANGE: tuple[float, float] = (50.0, 100.0)
+PAUSE_DEBOUNCE_RANGE: tuple[float, float] = (0.0, 60.0)
+RESUME_CONFIRM_RANGE: tuple[float, float] = (5.0, 300.0)
+SEVERE_OVERLOAD_RANGE: tuple[float, float] = (101.0, 200.0)
+RAMP_UP_WINDOW_RANGE: tuple[float, float] = (10.0, 600.0)
+# The shipped default of the superseded load_balancing.resume_margin_percent.
+# A config still carrying exactly this value was never tuned by the user (the
+# template merge wrote it into every config), so it migrates to the new, more
+# protective target default instead of pinning 90 %.
+LEGACY_RESUME_MARGIN_DEFAULT = 90.0
+
+
+def resolve_target_margin_percent(lb_data: dict[str, Any]) -> Any:
+    """target_margin_percent, else a user-tuned legacy resume_margin_percent, else 85."""
+    if lb_data.get("target_margin_percent") is not None:
+        return lb_data["target_margin_percent"]
+    legacy = lb_data.get("resume_margin_percent")
+    if legacy is not None:
+        try:
+            if float(legacy) != LEGACY_RESUME_MARGIN_DEFAULT:
+                return legacy
+        except (TypeError, ValueError):
+            pass
+    return LoadBalancingConfig.target_margin_percent
+
+
+def _ranged_number(raw: Any, key: str, valid: tuple[float, float], default: float) -> float:
+    """Parse a number in an inclusive range; invalid/out-of-range -> default (logged)."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s value %r — using default %s", key, raw, default)
+        return float(default)
+    if math.isnan(value) or not valid[0] <= value <= valid[1]:
+        logger.warning(
+            "%s=%r is outside the valid range %g-%g — using default %s",
+            key,
+            raw,
+            valid[0],
+            valid[1],
+            default,
+        )
+        return float(default)
+    return value
+
+
+EV_PLUG_IN_REMINDER_MINUTES_RANGE: tuple[int, int] = (1, 1440)
+
+
+def _parse_reminder_minutes(raw: Any) -> int:
+    """Parse ``executor.notifications.ev_plug_in_reminder_minutes`` (absent -> default)."""
+    default = NotificationConfig.ev_plug_in_reminder_minutes
+    if raw is None:
+        return default
+    lo, hi = EV_PLUG_IN_REMINDER_MINUTES_RANGE
+    return int(_ranged_number(raw, "ev_plug_in_reminder_minutes", (lo, hi), default))
+
+
+def _parse_phase_1_line(charger: dict[str, Any], charger_id: str, phases: list[int]) -> int:
+    """ev_chargers[].phase_1_line: 1-3 and one of the charger's phases.
+
+    An invalid value falls back to the default line (logged). The balancer
+    only offers 1-phase relief when the line is among the charger's phases,
+    so a bad value can never make relief target an unwired phase.
+    """
+    raw = charger.get("phase_1_line", EVChargerDeviceConfig.phase_1_line)
+    try:
+        line = int(raw)
+    except (TypeError, ValueError):
+        line = 0
+    if line not in (1, 2, 3) or (phases and line not in phases):
+        logger.warning(
+            "ev_chargers[%s].phase_1_line=%r must be one of the charger's phases %s — "
+            "using %s (1-phase relief disabled unless that line is wired)",
+            charger_id,
+            raw,
+            phases,
+            EVChargerDeviceConfig.phase_1_line,
+        )
+        return EVChargerDeviceConfig.phase_1_line
+    return line
+
+
 def _parse_load_balancing_config(
     data: dict[str, Any], system_data: dict[str, Any]
 ) -> LoadBalancingConfig:
@@ -404,8 +510,41 @@ def _parse_load_balancing_config(
         enabled=bool(lb_data.get("enabled", False)),
         main_fuse_a=main_fuse_a,
         resume_delay_s=int(lb_data.get("resume_delay_s", LoadBalancingConfig.resume_delay_s)),
-        resume_margin_percent=float(
-            lb_data.get("resume_margin_percent", LoadBalancingConfig.resume_margin_percent)
+        target_margin_percent=_ranged_number(
+            resolve_target_margin_percent(lb_data),
+            "load_balancing.target_margin_percent",
+            TARGET_MARGIN_RANGE,
+            LoadBalancingConfig.target_margin_percent,
+        ),
+        pause_debounce_s=int(
+            _ranged_number(
+                lb_data.get("pause_debounce_s", LoadBalancingConfig.pause_debounce_s),
+                "load_balancing.pause_debounce_s",
+                PAUSE_DEBOUNCE_RANGE,
+                LoadBalancingConfig.pause_debounce_s,
+            )
+        ),
+        resume_confirm_s=int(
+            _ranged_number(
+                lb_data.get("resume_confirm_s", LoadBalancingConfig.resume_confirm_s),
+                "load_balancing.resume_confirm_s",
+                RESUME_CONFIRM_RANGE,
+                LoadBalancingConfig.resume_confirm_s,
+            )
+        ),
+        severe_overload_percent=_ranged_number(
+            lb_data.get("severe_overload_percent", LoadBalancingConfig.severe_overload_percent),
+            "load_balancing.severe_overload_percent",
+            SEVERE_OVERLOAD_RANGE,
+            LoadBalancingConfig.severe_overload_percent,
+        ),
+        ramp_up_window_s=int(
+            _ranged_number(
+                lb_data.get("ramp_up_window_s", LoadBalancingConfig.ramp_up_window_s),
+                "load_balancing.ramp_up_window_s",
+                RAMP_UP_WINDOW_RANGE,
+                LoadBalancingConfig.ramp_up_window_s,
+            )
         ),
         increase_step_a=int(lb_data.get("increase_step_a", LoadBalancingConfig.increase_step_a)),
         sensor_stale_after_s=int(
@@ -684,20 +823,6 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
             else EVChargerDeviceConfig.missed_goal_grace_hours
         )
 
-        reminder_raw: Any = charger.get("plug_in_reminder_minutes")
-        plug_in_reminder_minutes: int | None = None
-        if reminder_raw is not None:
-            try:
-                reminder_val = int(reminder_raw)
-            except (TypeError, ValueError):
-                logger.warning(
-                    "EV charger %s: invalid plug_in_reminder_minutes %r - reminder disabled",
-                    charger_id,
-                    reminder_raw,
-                )
-                reminder_val = 0
-            plug_in_reminder_minutes = reminder_val if reminder_val > 0 else None
-
         ev_chargers_list.append(
             EVChargerDeviceConfig(
                 id=charger_id,
@@ -740,7 +865,6 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                     charger.get("replan_on_unplug", EVChargerDeviceConfig.replan_on_unplug)
                 ),
                 missed_goal_grace_hours=missed_goal_grace_hours,
-                plug_in_reminder_minutes=plug_in_reminder_minutes,
                 ha_ready_by_entity=_str_or_none(charger.get("ha_ready_by_entity")),
                 ha_target_soc_entity=_str_or_none(charger.get("ha_target_soc_entity")),
                 type=str(charger.get("type", EVChargerDeviceConfig.type)).lower(),
@@ -775,6 +899,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                         EVChargerDeviceConfig.phase_switch_min_dwell_s,
                     )
                 ),
+                phase_1_line=_parse_phase_1_line(charger, charger_id, charger_phases),
             )
         )
 
@@ -803,6 +928,12 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         ),
         on_error=bool(notif_data.get("on_error", NotificationConfig.on_error)),
         on_ev_soc_stale=bool(notif_data.get("on_ev_soc_stale", NotificationConfig.on_ev_soc_stale)),
+        on_ev_plug_in_reminder=bool(
+            notif_data.get("on_ev_plug_in_reminder", NotificationConfig.on_ev_plug_in_reminder)
+        ),
+        ev_plug_in_reminder_minutes=_parse_reminder_minutes(
+            notif_data.get("ev_plug_in_reminder_minutes")
+        ),
     )
 
     # Root battery config (New SSOT for REV F17)

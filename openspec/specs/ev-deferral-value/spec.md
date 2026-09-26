@@ -1,7 +1,7 @@
 # ev-deferral-value Specification
 
 ## Purpose
-TBD - created by archiving change ev-planning-model. Update Purpose after archive.
+Define how the planner values deferring EV charging past the plan horizon, using per-slot known or forecast prices and a deadline-aware risk margin.
 ## Requirements
 ### Requirement: Goal window is classified into known and forecast time per slot
 For each plugged charger with an active goal, the pipeline SHALL classify every slot from now until the goal deadline as either **in-horizon** or **post-horizon**:
@@ -95,6 +95,8 @@ The deferral risk margin SHALL be a user-set base that grows linearly as the goa
 - On every planner run, for each charger with a goal, with `h` = hours from now to the deadline, the planner SHALL compute `effective_margin = base + (max − base) × clamp(1 − h / ramp_hours, 0, 1)`.
 - The planner SHALL persist `effective_margin_percent` per charger alongside `deferral_price_source`.
 - All three settings SHALL be editable in the EV settings tab, with help text explaining that a higher margin charges earlier and relies less on price forecasts, and that the margin rises from the base to the maximum over the ramp window before the deadline.
+- The EV settings tab's "Goal Planning" section SHALL show an info box directly under its title that explains in plain language how Darkstar decides between charging now and waiting for cheaper forecast prices (published prices are optimised directly; later hours are priced at the published or forecast price plus the risk margin), what the risk margin and its ramp do, and what the shortfall penalty means.
+- The info box SHALL start collapsed, showing only its title and a one-line summary; an accessible expand/collapse control SHALL reveal the full explanation.
 
 #### Scenario: Default margin far from the deadline
 - **WHEN** the settings are absent from config and the deadline is 72 h away
@@ -114,6 +116,11 @@ The deferral risk margin SHALL be a user-set base that grows linearly as the goa
 #### Scenario: Out-of-range value rejected
 - **WHEN** the user saves a base of 150, or a maximum below the base
 - **THEN** config validation SHALL reject the value with an actionable error naming the key
+
+#### Scenario: Goal Planning explains itself
+- **WHEN** the user opens the EV settings tab
+- **THEN** the "Goal Planning" section SHALL show an info box under its title covering charge-now-versus-wait, the risk margin and ramp, and the shortfall penalty
+- **AND** the box SHALL initially show only a one-line summary, with the full text revealed by an expand control
 
 ### Requirement: Planner publishes a planned per-day estimate
 After each solve, the pipeline SHALL persist, and `GET /api/ev/chargers` SHALL return, a `planned_by_day` list per charger with a goal. It SHALL contain one entry `{date, kwh, basis}` per local calendar day from today through the deadline day:

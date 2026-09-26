@@ -112,6 +112,38 @@ describe('LoadBalancerStatusCard', () => {
         expect(screen.getByText('16A')).toBeInTheDocument()
     })
 
+    it('shows the 1-phase relief state once, without repeating the reason', async () => {
+        vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue({
+            enabled: true,
+            state: 'throttling',
+            reason: '1-phase on L1 — relieving L3',
+            main_fuse_a: 16,
+            phase_current_a: { '1': 8, '2': 8, '3': 17 },
+            phase_headroom_a: { '1': 8, '2': 8, '3': -1 },
+            target_margin_percent: 85,
+            ev: [
+                {
+                    charger_id: 'goe',
+                    charger_name: 'Garage EV',
+                    setpoint_a: 6,
+                    planned_target_a: 8,
+                    state: 'throttling',
+                    reason: '1-phase on L1 — relieving L3',
+                    phase_mode: 3,
+                    relief_1p: true,
+                    relief_reason: '1-phase on L1 — relieving L3',
+                    phase_1_line: 1,
+                },
+            ],
+            shed: [],
+        } as LoadBalancerStatusResponse)
+
+        renderCard()
+
+        expect(await screen.findByTestId('lb-relief')).toHaveTextContent('1-phase on L1 — relieving L3')
+        expect(screen.getAllByText('1-phase on L1 — relieving L3')).toHaveLength(1)
+    })
+
     it('shows shed loads when the balancer is shedding', async () => {
         vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue({
             enabled: true,

@@ -345,6 +345,23 @@ interface EVChargerControlFields {
     type?: string
     switch_entity?: string
     phases?: number[]
+    phase_switching_enabled?: boolean
+    phase_mode_entity?: string
+    phase_1_line?: number
+}
+
+/** load-balancer-graceful-degradation: a phase-switching charger's 1-phase line must be one of its phases. */
+export function evChargerInvalidPhaseOneLine(charger: EVChargerControlFields): boolean {
+    if (charger.enabled === false || !charger.phase_switching_enabled) return false
+    const phases = Array.isArray(charger.phases) ? charger.phases : []
+    return phases.length > 0 && !phases.includes(charger.phase_1_line ?? 1)
+}
+
+/** The phase-mode entity must be a writable select / input_select entity. */
+export function evChargerReadOnlyPhaseModeEntity(charger: EVChargerControlFields): boolean {
+    const entity = charger.phase_mode_entity?.trim()
+    if (charger.enabled === false || !charger.phase_switching_enabled || !entity) return false
+    return !['select', 'input_select'].includes(entity.split('.')[0])
 }
 
 /** True when an enabled current-type charger has no phases (power cannot be derived). */
@@ -382,6 +399,14 @@ export function evChargerArrayError(value: string): string | null {
     const noPhases = chargers.find(evChargerMissingPhases)
     if (noPhases) {
         return `Configure phases for ${noPhases.name || noPhases.id || 'this charger'} to enable planning`
+    }
+    const badLine = chargers.find(evChargerInvalidPhaseOneLine)
+    if (badLine) {
+        return `The 1-phase line of ${badLine.name || badLine.id || 'this charger'} must be one of its phases`
+    }
+    const readOnly = chargers.find(evChargerReadOnlyPhaseModeEntity)
+    if (readOnly) {
+        return `The phase-mode entity of ${readOnly.name || readOnly.id || 'this charger'} must be a writable select or input_select entity`
     }
     return null
 }

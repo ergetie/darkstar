@@ -12,7 +12,7 @@ function baseStatus(overrides: Partial<LoadBalancerStatusResponse> = {}): LoadBa
         main_fuse_a: 20,
         phase_current_a: { '1': 5, '2': 5, '3': 5 },
         phase_headroom_a: { '1': 15, '2': 15, '3': 15 },
-        resume_margin_percent: 90,
+        target_margin_percent: 90,
         ev: [],
         shed: [],
         ...overrides,
@@ -84,6 +84,52 @@ describe('LoadBalancerCompactView', () => {
         expect(screen.queryByText('Idle Charger')).not.toBeInTheDocument()
         expect(screen.getByText('Garage EV')).toBeInTheDocument()
         expect(screen.getByText('Throttling')).toBeInTheDocument()
+    })
+
+    it('shows the 1-phase relief state, even when the charger is otherwise idle', () => {
+        renderView(
+            baseStatus({
+                ev: [
+                    {
+                        charger_id: 'goe',
+                        charger_name: 'go-e',
+                        setpoint_a: 14,
+                        planned_target_a: 16,
+                        state: 'idle',
+                        reason: 'At target',
+                        phase_mode: 1,
+                        relief_1p: true,
+                        relief_reason: '1-phase on L1 — relieving L3',
+                        phase_1_line: 1,
+                    },
+                ],
+            }),
+        )
+
+        expect(screen.getByText('go-e')).toBeInTheDocument()
+        expect(screen.getByTestId('lb-compact-relief')).toHaveTextContent('1-phase on L1 — relieving L3')
+    })
+
+    it('falls back to the configured 1-phase line when no relief reason is known', () => {
+        renderView(
+            baseStatus({
+                ev: [
+                    {
+                        charger_id: 'goe',
+                        charger_name: 'go-e',
+                        setpoint_a: 6,
+                        planned_target_a: 16,
+                        state: 'throttling',
+                        reason: 'Ramping',
+                        relief_1p: true,
+                        relief_reason: null,
+                        phase_1_line: 2,
+                    },
+                ],
+            }),
+        )
+
+        expect(screen.getByTestId('lb-compact-relief')).toHaveTextContent('1-phase on L2')
     })
 
     it('omits non-shed loads and shows only actively shed ones', () => {

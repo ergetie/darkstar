@@ -55,6 +55,13 @@ export function chargerSetpointText(ev: LoadBalancerStatusResponse['ev'][number]
     return `${ev.setpoint_a}A${drawing}`
 }
 
+/** load-balancer-graceful-degradation 6.4: "1-phase on L1 — relieving L3". */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function reliefText(ev: LoadBalancerStatusResponse['ev'][number]): string {
+    if (ev.relief_reason) return ev.relief_reason
+    return `1-phase on L${ev.phase_1_line ?? 1} — relieving an overloaded phase`
+}
+
 /** ev-measured-draw: ", drawing X A" when the car's measured draw is known. */
 function measuredDrawText(ev: LoadBalancerStatusResponse['ev'][number]): string {
     if (ev.measured_a === null || ev.measured_a === undefined) return ''
@@ -178,7 +185,7 @@ export default function LoadBalancerStatusCard() {
     }
 
     const fuseA = status.main_fuse_a ?? 0
-    const margin = status.resume_margin_percent ?? 90
+    const margin = status.target_margin_percent ?? 85
     const shedLoads = status.shed.filter((s) => s.shed)
     const stateColor = STATE_COLORS[status.state] || 'text-muted'
     const StateIcon = status.state === 'idle' ? ShieldCheck : status.state === 'paused' ? PauseCircle : ShieldAlert
@@ -240,7 +247,7 @@ export default function LoadBalancerStatusCard() {
                                 <div
                                     className="absolute top-0 h-full w-px bg-line/60"
                                     style={{ left: `${margin}%` }}
-                                    title={`Resume margin (${margin}%)`}
+                                    title={`Target safety margin (${margin}%)`}
                                 />
                             </div>
                         </div>
@@ -261,7 +268,17 @@ export default function LoadBalancerStatusCard() {
                                 />
                                 <div className="min-w-0">
                                     <div className="font-semibold text-text truncate">{ev.charger_name}</div>
-                                    {ev.reason && <div className="text-muted text-[10px] mt-0.5">{ev.reason}</div>}
+                                    {ev.relief_1p && (
+                                        <div
+                                            className="text-warn text-[10px] font-semibold mt-0.5"
+                                            data-testid="lb-relief"
+                                        >
+                                            {reliefText(ev)}
+                                        </div>
+                                    )}
+                                    {ev.reason && !(ev.relief_1p && ev.reason === ev.relief_reason) && (
+                                        <div className="text-muted text-[10px] mt-0.5">{ev.reason}</div>
+                                    )}
                                     {ev.surplus_mode && (
                                         <div className="text-muted text-[10px] mt-0.5">
                                             Surplus charging

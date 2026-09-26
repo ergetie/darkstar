@@ -261,31 +261,108 @@ describe('EV charger phases requirement (ev-planning-model 7.x)', () => {
     })
 })
 
-describe('EV charger plug-in reminder (EntityArrayEditor)', () => {
-    function renderWithSpy(charger: EVChargerEntity) {
-        const onChange = vi.fn()
+describe('EV charger plug-in reminder moved to Notifications', () => {
+    it('no longer shows a per-charger plug-in reminder field', () => {
         render(
             <MemoryRouter>
-                <EntityArrayEditor entities={[charger]} entityType="ev_charger" onChange={onChange} />
+                <EntityArrayEditor entities={[makeCharger()]} entityType="ev_charger" onChange={vi.fn()} />
             </MemoryRouter>,
         )
-        return onChange
+        expect(screen.queryByLabelText('Plug-in reminder')).toBeNull()
+        expect(screen.queryByText(/plug-in reminder/i)).toBeNull()
+    })
+})
+
+describe('Phase switching: 1-phase line and phase-mode picker (load-balancer-graceful-degradation)', () => {
+    const haEntities = [
+        {
+            entity_id: 'select.go_echarger_417263_psm',
+            friendly_name: 'go-e PSM',
+            domain: 'select',
+            options: ['auto', 'one_phase', 'three_phases'],
+        },
+        { entity_id: 'binary_sensor.go_echarger_417263_fsp', friendly_name: 'go-e FSP', domain: 'binary_sensor' },
+        { entity_id: 'input_select.ev_phase', friendly_name: 'EV phase helper', domain: 'input_select' },
+    ]
+
+    function renderWith(overrides: Partial<EVChargerEntity>) {
+        render(
+            <MemoryRouter>
+                <EntityArrayEditor
+                    entities={[
+                        makeCharger({ switch_entity: 'switch.goe', phase_switching_enabled: true, ...overrides }),
+                    ]}
+                    entityType="ev_charger"
+                    onChange={vi.fn()}
+                    haEntities={haEntities}
+                />
+            </MemoryRouter>,
+        )
     }
 
-    it('defaults to Off', () => {
-        renderWithSpy(makeCharger())
-        expect(screen.getByLabelText('Plug-in reminder')).toHaveValue('0')
+    it('lists only writable select entities in the phase-mode picker', () => {
+        // jsdom has no layout: EntitySelect scrolls the highlighted option into view
+        Element.prototype.scrollIntoView = vi.fn()
+        renderWith({ phase_mode_entity: '' })
+        fireEvent.click(screen.getByText('Select Home Assistant phase-mode entity...'))
+        expect(screen.getByText('select.go_echarger_417263_psm')).toBeInTheDocument()
+        expect(screen.getByText('input_select.ev_phase')).toBeInTheDocument()
+        expect(screen.queryByText('binary_sensor.go_echarger_417263_fsp')).not.toBeInTheDocument()
     })
 
-    it('persists a 15-minute reminder', () => {
-        const onChange = renderWithSpy(makeCharger())
-        fireEvent.change(screen.getByLabelText('Plug-in reminder'), { target: { value: '15' } })
-        expect(onChange).toHaveBeenCalledWith([expect.objectContaining({ plug_in_reminder_minutes: 15 })])
+    it('offers the select options for the 1- and 3-phase values', () => {
+        renderWith({
+            phase_mode_entity: 'select.go_echarger_417263_psm',
+            phase_1_value: 'one_phase',
+            phase_3_value: 'three_phases',
+        })
+        const one = screen.getByLabelText('1-Phase Option')
+        expect(one).toHaveValue('one_phase')
+        expect(one).toContainHTML('<option value="auto"')
     })
 
-    it('shows the custom value input for a non-preset value', () => {
-        renderWithSpy(makeCharger({ plug_in_reminder_minutes: 45 }))
-        expect(screen.getByLabelText('Plug-in reminder')).toHaveValue('custom')
-        expect(screen.getByLabelText('Plug-in reminder minutes')).toHaveValue(45)
+    it('keeps a saved read-only entity visible with an inline error', () => {
+        renderWith({ phase_mode_entity: 'binary_sensor.go_echarger_417263_fsp' })
+        expect(screen.getByText('go-e FSP')).toBeInTheDocument()
+        expect(screen.getByTestId('ev-phase-mode-domain-error')).toHaveTextContent(/read-only/)
+    })
+
+    it('shows the 1-phase line selector limited to the charger phases, default L1', () => {
+        renderWith({ phases: [1, 2], phase_mode_entity: 'select.go_echarger_417263_psm' })
+        const block = screen.getByTestId('ev-phase-1-line')
+        expect(block).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'L1', pressed: true })).toBeInTheDocument()
+        const l3Buttons = screen.getAllByRole('button', { name: 'L3' })
+        // the phase-line L3 button is disabled because the charger has no L3
+        expect(l3Buttons.some((b) => b.hasAttribute('disabled') && b.getAttribute('aria-pressed') === 'false')).toBe(
+            true,
+        )
+    })
+
+    it('hides the 1-phase line selector while phase switching is off', () => {
+        renderWith({ phase_switching_enabled: false })
+        expect(screen.queryByTestId('ev-phase-1-line')).not.toBeInTheDocument()
+    })
+
+    it('flags a 1-phase line outside the charger phases and blocks saving', () => {
+        renderWith({ phases: [1, 2], phase_1_line: 3, phase_mode_entity: 'select.go_echarger_417263_psm' })
+        expect(screen.getByTestId('ev-phase-1-line-error')).toHaveTextContent('L3 is not one of')
+        const invalid = JSON.stringify([
+            makeCharger({
+                switch_entity: 'switch.goe',
+                phases: [1, 2],
+                phase_switching_enabled: true,
+                phase_1_line: 3,
+            }),
+        ])
+        expect(evChargerArrayError(invalid)).toMatch(/1-phase line/)
+        const readOnly = JSON.stringify([
+            makeCharger({
+                switch_entity: 'switch.goe',
+                phase_switching_enabled: true,
+                phase_mode_entity: 'binary_sensor.x',
+            }),
+        ])
+        expect(evChargerArrayError(readOnly)).toMatch(/writable select/)
     })
 })

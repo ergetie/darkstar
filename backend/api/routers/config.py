@@ -15,6 +15,14 @@ from backend.config_migration import (
 from backend.core.ha_client import get_ha_entity_state
 from backend.core.secrets import load_home_assistant_config, load_notifications_config, load_yaml
 from backend.loads.base import EV_CHARGER_LOAD_TYPES, WATER_HEATER_LOAD_TYPES
+from executor.config import (
+    EV_PLUG_IN_REMINDER_MINUTES_RANGE,
+    PAUSE_DEBOUNCE_RANGE,
+    RAMP_UP_WINDOW_RANGE,
+    RESUME_CONFIRM_RANGE,
+    SEVERE_OVERLOAD_RANGE,
+    TARGET_MARGIN_RANGE,
+)
 from executor.load_balancer import classify_phase_sensor_unit
 from executor.profiles import get_profile_from_config
 
@@ -500,6 +508,111 @@ def _validate_ev_planning(config: dict[str, Any]) -> list[dict[str, str]]:
     return issues
 
 
+def _validate_graceful_degradation_ranges(lb_cfg: Any) -> list[dict[str, str]]:
+    """Range checks for the load-balancer graceful-degradation settings."""
+    if not isinstance(lb_cfg, dict):
+        return []
+    lb = cast("dict[str, Any]", lb_cfg)
+    specs: list[tuple[str, tuple[float, float], bool, str]] = [
+        ("target_margin_percent", TARGET_MARGIN_RANGE, False, "%"),
+        ("pause_debounce_s", PAUSE_DEBOUNCE_RANGE, True, " s"),
+        ("resume_confirm_s", RESUME_CONFIRM_RANGE, True, " s"),
+        ("severe_overload_percent", SEVERE_OVERLOAD_RANGE, False, "%"),
+        ("ramp_up_window_s", RAMP_UP_WINDOW_RANGE, True, " s"),
+    ]
+    issues: list[dict[str, str]] = []
+    for key, (low, high), integer, unit in specs:
+        if key not in lb or lb[key] is None:
+            continue
+        value = lb[key]
+        valid_type = isinstance(value, int | float) and not isinstance(value, bool)
+        if valid_type and integer and float(value) != int(value):
+            valid_type = False
+        if not valid_type or not low <= float(value) <= high:
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": (
+                        f"load_balancing.{key} must be {'an integer' if integer else 'a number'} "
+                        f"in the range {low:g}-{high:g}{unit}: {value}"
+                    ),
+                    "guidance": f"Set load_balancing.{key} to a value between {low:g} and {high:g}.",
+                }
+            )
+    if "resume_margin_percent" in lb and "target_margin_percent" not in lb:
+        issues.append(
+            {
+                "severity": "warning",
+                "message": "load_balancing.resume_margin_percent is superseded by target_margin_percent",
+                "guidance": "It is migrated automatically on startup; set load_balancing.target_margin_percent instead.",
+            }
+        )
+    return issues
+
+
+def _validate_plug_in_reminder(config: dict[str, Any]) -> list[dict[str, str]]:
+    """executor.notifications.ev_plug_in_reminder_minutes must be an integer in range."""
+    executor_cfg: Any = config.get("executor")
+    if not isinstance(executor_cfg, dict):
+        return []
+    notif: Any = cast("dict[str, Any]", executor_cfg).get("notifications")
+    if not isinstance(notif, dict):
+        return []
+    raw: Any = cast("dict[str, Any]", notif).get("ev_plug_in_reminder_minutes")
+    if raw is None:
+        return []
+    low, high = EV_PLUG_IN_REMINDER_MINUTES_RANGE
+    valid = (
+        isinstance(raw, int | float)
+        and not isinstance(raw, bool)
+        and float(raw) == int(raw)
+        and low <= raw <= high
+    )
+    if valid:
+        return []
+    return [
+        {
+            "severity": "error",
+            "message": (
+                "executor.notifications.ev_plug_in_reminder_minutes must be an integer "
+                f"in the range {low}-{high} minutes: {raw}"
+            ),
+            "guidance": f"Set the plug-in reminder lead time to {low}-{high} minutes (default 30).",
+        }
+    ]
+
+
+def _validate_phase_1_line(ev: dict[str, Any], charger_label: Any) -> list[dict[str, str]]:
+    """ev_chargers[].phase_1_line must be 1-3 and one of the charger's phases."""
+    raw = ev.get("phase_1_line", 1)
+    phases_raw = ev.get("phases")
+    phases = (
+        [int(p) for p in cast("list[Any]", phases_raw) if isinstance(p, int | float)]
+        if isinstance(phases_raw, list)
+        else [1, 2, 3]
+    )
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw not in (1, 2, 3):
+        return [
+            {
+                "severity": "error",
+                "message": f"EV charger '{charger_label}' ev_chargers[].phase_1_line must be 1, 2 or 3: {raw}",
+                "guidance": "Set phase_1_line to the grid phase the charger uses in 1-phase mode (L1 for most chargers).",
+            }
+        ]
+    if phases and raw not in phases:
+        return [
+            {
+                "severity": "error",
+                "message": (
+                    f"EV charger '{charger_label}' ev_chargers[].phase_1_line (L{raw}) "
+                    f"is not one of the charger's phases {phases}"
+                ),
+                "guidance": "Pick a phase_1_line among the charger's configured phases.",
+            }
+        ]
+    return []
+
+
 def _validate_config_for_save(
     config: dict[str, Any],
     phase_sensor_units: dict[str, dict[str, str]] | None = None,
@@ -889,6 +1002,7 @@ def _validate_config_for_save(
                                 "guidance": "Use a Home Assistant select.* or input_select.* entity for commanded phase mode.",
                             }
                         )
+                    issues.extend(_validate_phase_1_line(ev, charger_label))
                     if not phase_1_value or not phase_3_value:
                         issues.append(
                             {
@@ -1219,6 +1333,8 @@ def _validate_config_for_save(
 
     # Load balancing: ERROR on any missing prerequisite when enabled (universal-load-balancing 1.5)
     lb_cfg = config.get("load_balancing", {})
+    issues.extend(_validate_graceful_degradation_ranges(lb_cfg))
+    issues.extend(_validate_plug_in_reminder(config))
     if lb_cfg.get("enabled", False):
         grid_cfg = system_cfg.get("grid", {})
         main_fuse_a = grid_cfg.get("main_fuse_a")

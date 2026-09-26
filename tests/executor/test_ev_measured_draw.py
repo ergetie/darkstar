@@ -245,7 +245,10 @@ def make_lb() -> LoadBalancer:
             enabled=True,
             main_fuse_a=20,
             resume_delay_s=120,
-            resume_margin_percent=90,
+            target_margin_percent=90,
+            # Legacy momentary semantics (immediate pause, no averaging window)
+            pause_debounce_s=0,
+            ramp_up_window_s=0,
             increase_step_a=1,
             sensor_stale_after_s=30,
         )

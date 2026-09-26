@@ -247,7 +247,7 @@ export default function EVChargingCard({
                 repeat: repeat,
                 ready_by_date: repeat === 'none' ? readyByDate : null,
                 n_days: repeat === 'every_n_days' ? nDays : null,
-                keep_on_after_target: targetSoc === 100 ? keepOn : false,
+                keep_on_after_target: keepOn,
             })
             toast({ message: `Goal saved for ${charger.name}`, variant: 'success' })
             setManualEdit(false)
@@ -497,16 +497,11 @@ export default function EVChargingCard({
                         </div>
                     )}
 
-                    {/* Keep charger on after target — only meaningful at 100% target */}
-                    <div className="flex items-center gap-2 pt-1">
-                        <Switch
-                            checked={keepOn}
-                            onCheckedChange={(checked) => setKeepOn(checked)}
-                            disabled={targetSoc !== 100}
-                        />
+                    {/* Keep charger on after target — works at any target SoC */}
+                    <div className="flex items-center gap-2 pt-1" data-testid="ev-keep-on-toggle">
+                        <Switch checked={keepOn} onCheckedChange={(checked) => setKeepOn(checked)} />
                         <span className="text-[10px] text-text font-normal">
                             Keep charger enabled after target SoC is met
-                            {targetSoc !== 100 && <span className="text-muted ml-1">(requires 100% target)</span>}
                         </span>
                     </div>
 
@@ -661,7 +656,7 @@ export default function EVChargingCard({
                                 <div>
                                     Surplus absorption off —{' '}
                                     <Link
-                                        to="/settings?tab=load-balancing"
+                                        to="/settings?tab=advanced&field=executor.excess_pv.priority"
                                         className="text-accent hover:underline font-semibold"
                                     >
                                         add this charger to Excess PV priority

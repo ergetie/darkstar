@@ -56,6 +56,12 @@ export interface BaseField {
     /** Inclusive numeric bounds, validated on edit (number fields only) */
     min?: number
     max?: number
+    /** Number fields only: render as quick choices plus a "Custom…" number input */
+    presets?: {
+        options: { value: number; label: string }[]
+        /** Seed value for the custom input when leaving a preset */
+        customDefault: number
+    }
 }
 
 export interface InverterProfile {
@@ -97,6 +103,13 @@ export interface SettingsSection<T extends BaseField = BaseField> {
     description: string
     isHA?: boolean
     fields: T[]
+    /** Optional plain-language explainer shown as an info banner under the section title */
+    infoBox?: {
+        title: string
+        /** One-line summary; when set, the box starts collapsed to this line and the paragraphs expand on demand */
+        tldr?: string
+        paragraphs: string[]
+    }
     /** Section-level conditional visibility */
     showIf?: {
         configKey: string
@@ -796,6 +809,30 @@ export const uiSections: SettingsSection[] = [
                 type: 'boolean',
             },
             {
+                key: 'executor.notifications.on_ev_plug_in_reminder',
+                label: 'On EV plug-in reminder',
+                helper: 'Remind you before planned EV charging when the car is not plugged in. Sent once per charging window, for every charger.',
+                path: ['executor', 'notifications', 'on_ev_plug_in_reminder'],
+                type: 'boolean',
+            },
+            {
+                key: 'executor.notifications.ev_plug_in_reminder_minutes',
+                label: 'Plug-in reminder lead time',
+                helper: 'How long before the planned charging start the plug-in reminder is sent (1-1440 minutes).',
+                path: ['executor', 'notifications', 'ev_plug_in_reminder_minutes'],
+                type: 'number',
+                min: 1,
+                max: 1440,
+                presets: {
+                    options: [
+                        { value: 15, label: '15 min before' },
+                        { value: 30, label: '30 min before' },
+                    ],
+                    customDefault: 45,
+                },
+                showIf: { configKey: 'executor.notifications.on_ev_plug_in_reminder' },
+            },
+            {
                 key: 'load_balancing.notify_interventions',
                 label: 'Notify on load balancer interventions',
                 path: ['load_balancing', 'notify_interventions'],
@@ -1093,6 +1130,16 @@ export const evSections: SettingsSection[] = [
         title: 'Goal Planning',
         description:
             'How the planner weighs charging now against cheaper forecast prices after the published Nordpool prices end.',
+        infoBox: {
+            title: 'How Darkstar decides: charge now or wait?',
+            tldr: 'Charges in the cheapest known hours; beyond published prices it only waits if forecast + safety margin is cheaper.',
+            paragraphs: [
+                'While Nordpool prices are published (today, plus tomorrow once the day-ahead prices come out in the early afternoon), Darkstar simply picks the cheapest hours that still reach your target by the ready-by time.',
+                'If your deadline is further away than the published prices, Darkstar has to guess. It compares charging now with the price of the later hours (a forecast where Nordpool has not published yet) plus a safety margin. It only waits when the forecast, including the margin, is still cheaper than charging now.',
+                'The risk margin is that safety markup. It starts at the base value and ramps up to the deadline value over the ramp window, so the closer the deadline, the less Darkstar trusts forecasts and the sooner it charges.',
+                'The shortfall penalty is what missing the target costs in the plan, per kWh short. The high default makes reaching the target near-mandatory; if the target cannot be reached in time, Darkstar still charges as much as it can.',
+            ],
+        },
         fields: [
             {
                 key: 'ev_planning.deferral_risk_margin_percent',
@@ -1318,9 +1365,63 @@ export const loadBalancingSections: SettingsSection[] = [
         ],
     },
     {
+        title: 'Overload Handling',
+        description:
+            'How much room the balancer keeps below your fuse and how patiently it reacts. Reductions when a phase goes over the fuse are always instant.',
+        fields: [
+            {
+                key: 'load_balancing.target_margin_percent',
+                label: 'Target safety margin (%)',
+                path: ['load_balancing', 'target_margin_percent'],
+                type: 'number',
+                min: 50,
+                max: 100,
+                helper: 'Aim to keep each phase at or below this share of your fuse. The balancer only ramps up, resumes or switches back to 3-phase while the phase stays under it; it never slows charging just for being above it.',
+            },
+            {
+                key: 'load_balancing.pause_debounce_s',
+                label: 'Pause delay (seconds)',
+                path: ['load_balancing', 'pause_debounce_s'],
+                type: 'number',
+                min: 0,
+                max: 60,
+                helper: 'Only pause if the overload lasts this long; the charger is held at its minimum current meanwhile. Set 0 for fast-acting fuses to pause at once.',
+            },
+            {
+                key: 'load_balancing.resume_confirm_s',
+                label: 'Resume confirm time (seconds)',
+                path: ['load_balancing', 'resume_confirm_s'],
+                type: 'number',
+                min: 5,
+                max: 300,
+                helper: 'A paused charger starts again once its phases have had room for the minimum current for this long, at the highest current that fits (switching to 1-phase if only that line has room). Grows to 30 s and then 2 min if it keeps pausing again soon after resuming.',
+            },
+            {
+                key: 'load_balancing.severe_overload_percent',
+                label: 'Immediate pause above (% of fuse)',
+                path: ['load_balancing', 'severe_overload_percent'],
+                type: 'number',
+                min: 101,
+                max: 200,
+                isAdvanced: true,
+                helper: 'A phase above this share of your fuse pauses charging at once, without waiting for the pause delay.',
+            },
+            {
+                key: 'load_balancing.ramp_up_window_s',
+                label: 'Ramp-up averaging window (seconds)',
+                path: ['load_balancing', 'ramp_up_window_s'],
+                type: 'number',
+                min: 10,
+                max: 600,
+                isAdvanced: true,
+                helper: 'Ramping up, restoring shed loads and switching back to 3-phase use the average over this window, so short spikes do not cause flapping. Reductions always use the live reading.',
+            },
+        ],
+    },
+    {
         title: 'Anti-Flap Tuning',
         description:
-            'Advanced timing parameters controlling how cautiously the balancer resumes or ramps back up after throttling.',
+            'Advanced timing parameters controlling how cautiously the balancer restores shed loads and ramps back up after throttling.',
         fields: [
             {
                 key: 'load_balancing.resume_delay_s',
@@ -1328,15 +1429,7 @@ export const loadBalancingSections: SettingsSection[] = [
                 path: ['load_balancing', 'resume_delay_s'],
                 type: 'number',
                 isAdvanced: true,
-                helper: 'How long headroom must stay healthy before resuming a throttled/shed load.',
-            },
-            {
-                key: 'load_balancing.resume_margin_percent',
-                label: 'Resume margin (%)',
-                path: ['load_balancing', 'resume_margin_percent'],
-                type: 'number',
-                isAdvanced: true,
-                helper: 'Only resume/increase current when phase current is below this % of the fuse rating.',
+                helper: 'How long headroom must stay healthy before a shed load is switched back on or paused solar-surplus charging resumes, and how long a stale phase sensor holds a charger at its minimum current before pausing it. Paused chargers use the resume confirm time instead.',
             },
             {
                 key: 'load_balancing.increase_step_a',

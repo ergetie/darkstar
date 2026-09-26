@@ -49,6 +49,10 @@ class PhaseModeController:
         self.failed: bool = False
         self._below_since: datetime | None = None
         self._above_since: datetime | None = None
+        # Set when 1-phase mode was commanded as load-balancer overload relief
+        # (load-balancer-graceful-degradation D4): the return to 3-phase then
+        # additionally needs the balancer's averaged "3-phase fits" signal.
+        self.relief_hold: bool = False
 
     def decide(
         self,
@@ -60,7 +64,12 @@ class PhaseModeController:
         enabled: bool,
         entity_configured: bool,
         is_binary: bool,
+        three_phase_fits: bool = True,
     ) -> PhaseModeDecision:
+        """Target-power state machine. three_phase_fits: the balancer's
+        averaged verdict that every 3-phase line has room for the minimum
+        current within the target margin; only consulted while relief_hold.
+        """
         if is_binary or not enabled or not entity_configured or self.failed:
             self._below_since = None
             self._above_since = None
@@ -79,7 +88,18 @@ class PhaseModeController:
             desired = 3
 
         if self.commanded_mode == desired:
+            if desired == 1 and self.relief_hold:
+                # Target power alone now wants 1-phase: the normal state
+                # machine owns the mode again.
+                self.relief_hold = False
             return PhaseModeDecision(self.commanded_mode, False, "already at desired phase mode")
+
+        if desired == 3 and self.relief_hold and not three_phase_fits:
+            return PhaseModeDecision(
+                self.commanded_mode,
+                False,
+                "holding 1-phase for overload relief — 3-phase does not fit the target margin yet",
+            )
 
         if condition_elapsed < min_dwell_s:
             return PhaseModeDecision(
@@ -99,10 +119,44 @@ class PhaseModeController:
 
         return PhaseModeDecision(desired, True, f"switching to {desired}-phase mode")
 
-    def on_switch_success(self, mode: int, now: datetime) -> None:
+    def relief_available(self, now: datetime, min_dwell_s: int) -> bool:
+        """Whether a 1-phase relief switch could be commanded right now:
+        not failed, not already 1-phase, and min_dwell_s since the last switch."""
+        if self.failed or self.commanded_mode == 1:
+            return False
+        if self.last_switch_time is None:
+            return True
+        return (now - self.last_switch_time).total_seconds() >= min_dwell_s
+
+    def decide_relief(
+        self,
+        now: datetime,
+        min_dwell_s: int,
+        enabled: bool,
+        entity_configured: bool,
+        is_binary: bool,
+    ) -> PhaseModeDecision:
+        """Balancer overload-relief demand: command 1-phase immediately,
+        bypassing the target-power threshold and hysteresis, but never while
+        min_dwell_s has not elapsed or the controller has failed."""
+        if is_binary or not enabled or not entity_configured or self.failed:
+            return PhaseModeDecision(self.commanded_mode, False, "phase switching inactive")
+        if self.commanded_mode == 1:
+            return PhaseModeDecision(self.commanded_mode, False, "already in 1-phase mode")
+        if not self.relief_available(now, min_dwell_s):
+            return PhaseModeDecision(
+                self.commanded_mode, False, f"relief blocked — last switch < {min_dwell_s}s ago"
+            )
+        return PhaseModeDecision(1, True, "switching to 1-phase mode for overload relief")
+
+    def on_switch_success(self, mode: int, now: datetime, relief: bool = False) -> None:
         self.commanded_mode = mode
         self.last_switch_time = now
         self.failed = False
+        self.relief_hold = relief and mode == 1
+        # A fresh mode starts its hysteresis window from scratch.
+        self._below_since = None
+        self._above_since = None
 
     def on_entity_unavailable(self) -> None:
         self.commanded_mode = None

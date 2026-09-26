@@ -16,6 +16,7 @@ import { EntityArrayEditor } from './EntityArrayEditor'
 import { GiveWayListEditor, type GiveWayEntry, type ShedLoad } from './GiveWayListEditor'
 import { ExcessPvPriorityEditor, type ExcessPvPriorityEntry } from './ExcessPvPriorityEditor'
 import { NumberInput } from '../../../components/ui/NumberInput'
+import { NumberPresetInput } from './NumberPresetInput'
 import { DEFAULT_NOMINAL_VOLTAGE_V } from '../evPower'
 
 interface SettingsFieldProps {
@@ -265,6 +266,21 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
             case 'text':
             case 'array':
             default: {
+                if (field.type === 'number' && field.presets) {
+                    return (
+                        <NumberPresetInput
+                            value={value}
+                            onChange={(val) => onChange(field.key, val)}
+                            presets={field.presets.options}
+                            customDefault={field.presets.customDefault}
+                            ariaLabel={field.label}
+                            disabled={isDisabled}
+                            min={field.min}
+                            max={field.max}
+                            step={5}
+                        />
+                    )
+                }
                 if (field.type === 'number') {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const numField = field as any

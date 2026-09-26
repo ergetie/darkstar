@@ -3,6 +3,7 @@ intervention notification gating, tested against the engine's tracking logic
 with synthetic balancer statuses (no HA, no full tick)."""
 
 import contextlib
+import logging
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -193,6 +194,7 @@ class TestInterventionNotifications:
         engine.dispatcher = MagicMock()
         engine.dispatcher.notify_balancer_intervention = AsyncMock()
 
+        engine._pause_goal_risk = MagicMock(return_value=(True, "deadline near"))
         paused = make_status(ev_state="paused", ev_target=None)
         await engine._notify_balancer_interventions(paused)
         await engine._notify_balancer_interventions(paused)
@@ -221,6 +223,7 @@ class TestInterventionNotifications:
         engine.dispatcher = MagicMock()
         engine.dispatcher.notify_balancer_intervention = AsyncMock()
 
+        engine._pause_goal_risk = MagicMock(return_value=(True, "deadline near"))
         await engine._notify_balancer_interventions(make_status(ev_state="paused", ev_target=None))
         await engine._notify_balancer_interventions(make_status(ev_state="idle", ev_target=16))
         await engine._notify_balancer_interventions(make_status(ev_state="paused", ev_target=None))
@@ -251,3 +254,228 @@ class TestInterventionNotifications:
         await engine._notify_balancer_interventions(shed)  # wh already shed before
 
         engine.dispatcher.notify_balancer_intervention.assert_not_called()
+
+
+class TestGoalAtRiskPauseNotifications:
+    """load-balancer-graceful-degradation 5.3: pauses notify only when the goal is at risk."""
+
+    @staticmethod
+    def _goal(deadline, planned_at=None, edited=None):
+        return {
+            "deadline": deadline.isoformat(),
+            "required_kwh": 10.0,
+            "last_updated": (edited or T0 - timedelta(hours=3)).isoformat(),
+            "last_planned_at": (planned_at or T0 - timedelta(hours=1)).isoformat(),
+        }
+
+    @pytest.mark.asyncio
+    async def test_pause_without_risk_does_not_notify_but_is_logged(self, engine, caplog):
+        engine.config.load_balancing.notify_interventions = True
+        engine.dispatcher = MagicMock()
+        engine.dispatcher.notify_balancer_intervention = AsyncMock()
+        deadline = T0 + timedelta(hours=30)
+        engine._last_schedule_meta = {
+            "ev_goal_diagnostics": {
+                "goe": {"deadline": deadline.isoformat(), "shortfall_kwh": 0.0, "reason": None}
+            }
+        }
+        with patch(
+            "backend.core.ev_state.read_ev_state", return_value={"goe": self._goal(deadline)}
+        ):
+            caplog.set_level(logging.INFO, logger="executor.engine")
+            for _ in range(3):
+                await engine._notify_balancer_interventions(
+                    make_status(ev_state="paused", ev_target=None), None, T0
+                )
+                await engine._notify_balancer_interventions(
+                    make_status(ev_state="throttling", ev_target=6), None, T0
+                )
+        engine.dispatcher.notify_balancer_intervention.assert_not_called()
+        assert "not notifying" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_pause_near_deadline_in_goal_slot_notifies_once(self, engine):
+        from executor.override import SlotPlan
+
+        engine.config.load_balancing.notify_interventions = True
+        engine.dispatcher = MagicMock()
+        engine.dispatcher.notify_balancer_intervention = AsyncMock()
+        deadline = T0 + timedelta(minutes=90)
+        engine._last_schedule_meta = {
+            "ev_goal_diagnostics": {
+                "goe": {"deadline": deadline.isoformat(), "shortfall_kwh": 0.0, "reason": None}
+            }
+        }
+        slot = SlotPlan(ev_charger_plans={"goe": 7.0})
+        with patch(
+            "backend.core.ev_state.read_ev_state", return_value={"goe": self._goal(deadline)}
+        ):
+            paused = make_status(ev_state="paused", ev_target=None)
+            await engine._notify_balancer_interventions(paused, slot, T0)
+            await engine._notify_balancer_interventions(paused, slot, T0)
+        engine.dispatcher.notify_balancer_intervention.assert_called_once()
+        message = engine.dispatcher.notify_balancer_intervention.call_args.args[0]
+        assert "go-e Gemini" in message and "goal at risk" in message
+
+    @pytest.mark.asyncio
+    async def test_relief_throttling_never_notifies(self, engine):
+        engine.config.load_balancing.notify_interventions = True
+        engine.dispatcher = MagicMock()
+        engine.dispatcher.notify_balancer_intervention = AsyncMock()
+        status = make_status(ev_state="throttling", ev_target=6)
+        status.ev_outputs[0].relief_1p_requested = True
+        await engine._notify_balancer_interventions(status, None, T0)
+        engine.dispatcher.notify_balancer_intervention.assert_not_called()
+
+
+class TestBalancerReliefDispatch:
+    """load-balancer-graceful-degradation 4.3: relief is dispatched after the
+    balancer through the phase controller (dwell and fail-safe still apply)."""
+
+    @staticmethod
+    def _relief_status():
+        status = make_status(ev_state="throttling", ev_target=6)
+        status.ev_outputs[0].relief_1p_requested = True
+        status.ev_outputs[0].reason = "1-phase on L1 — relieving L3"
+        return status
+
+    @staticmethod
+    def _enable_switching(engine):
+        charger = engine.config.ev_chargers[0]
+        charger.phase_switching_enabled = True
+        charger.phase_mode_entity = "select.goe_psm"
+        charger.phase_1_value = "one_phase"
+        engine.dispatcher = MagicMock()
+
+    @pytest.mark.asyncio
+    async def test_relief_switches_to_1_phase_and_holds(self, engine):
+        from executor.actions import ActionResult
+        from executor.ev_surplus import PhaseModeController
+
+        self._enable_switching(engine)
+        engine.dispatcher.set_ev_phase_mode = AsyncMock(
+            return_value=ActionResult(action_type="ev_phase_mode", success=True)
+        )
+        ctrl = PhaseModeController()
+        ctrl.on_switch_success(3, T0 - timedelta(hours=1))
+        engine._ev_phase_controllers["goe"] = ctrl
+
+        results = await engine._apply_balancer_relief(self._relief_status(), T0)
+
+        engine.dispatcher.set_ev_phase_mode.assert_awaited_once_with(
+            "select.goe_psm", 1, "one_phase"
+        )
+        assert len(results) == 1
+        assert ctrl.commanded_mode == 1 and ctrl.relief_hold
+        payload = engine.get_load_balancer_status()
+        ev_status = payload["ev"][0]
+        assert ev_status["relief_1p"] is True
+        assert ev_status["relief_reason"] == "1-phase on L1 — relieving L3"
+        assert ev_status["phase_1_line"] == 1
+
+    @pytest.mark.asyncio
+    async def test_relief_blocked_by_dwell(self, engine):
+        from executor.ev_surplus import PhaseModeController
+
+        self._enable_switching(engine)
+        engine.dispatcher.set_ev_phase_mode = AsyncMock()
+        ctrl = PhaseModeController()
+        ctrl.on_switch_success(3, T0 - timedelta(seconds=200))
+        engine._ev_phase_controllers["goe"] = ctrl
+
+        assert await engine._apply_balancer_relief(self._relief_status(), T0) == []
+        engine.dispatcher.set_ev_phase_mode.assert_not_awaited()
+        assert ctrl.commanded_mode == 3
+
+    @pytest.mark.asyncio
+    async def test_failed_relief_write_latches_fail_safe(self, engine):
+        from executor.actions import ActionResult
+        from executor.ev_surplus import PhaseModeController
+
+        self._enable_switching(engine)
+        engine.dispatcher.set_ev_phase_mode = AsyncMock(
+            return_value=ActionResult(action_type="ev_phase_mode", success=False)
+        )
+        ctrl = PhaseModeController()
+        ctrl.on_switch_success(3, T0 - timedelta(hours=1))
+        engine._ev_phase_controllers["goe"] = ctrl
+
+        await engine._apply_balancer_relief(self._relief_status(), T0)
+        assert ctrl.failed and not ctrl.relief_hold
+        assert not ctrl.relief_available(T0, 600)
+
+    @staticmethod
+    def _refit_status():
+        status = make_status(ev_state="throttling", ev_target=8)
+        status.ev_outputs[0].relief_1p_requested = True
+        status.ev_outputs[0].refit_from_pause = True
+        status.ev_outputs[0].reason = "Resuming 1-phase on L1 at 8A"
+        return status
+
+    @pytest.mark.asyncio
+    async def test_failed_refit_switch_keeps_charger_paused(self, engine):
+        """D17: a quick re-fit into 1-phase only starts charging once the
+        switch is applied; a failed write keeps the charger paused and
+        restarts the balancer's confirm window."""
+        from executor.actions import ActionResult
+        from executor.ev_surplus import PhaseModeController
+
+        self._enable_switching(engine)
+        engine.dispatcher.set_ev_phase_mode = AsyncMock(
+            return_value=ActionResult(action_type="ev_phase_mode", success=False)
+        )
+        ctrl = PhaseModeController()
+        ctrl.on_switch_success(3, T0 - timedelta(hours=1))
+        engine._ev_phase_controllers["goe"] = ctrl
+        engine._load_balancer._ev_last_refit_at["goe"] = T0
+
+        status = self._refit_status()
+        await engine._apply_balancer_relief(status, T0)
+
+        out = status.ev_outputs[0]
+        assert out.target_a is None and out.state == "paused"
+        assert status.state == "paused"
+        assert engine._load_balancer._ev_paused_at["goe"] == T0
+        assert "goe" not in engine._load_balancer._ev_last_refit_at
+
+    @pytest.mark.asyncio
+    async def test_refit_refused_by_dwell_keeps_charger_paused(self, engine):
+        from executor.ev_surplus import PhaseModeController
+
+        self._enable_switching(engine)
+        engine.dispatcher.set_ev_phase_mode = AsyncMock()
+        ctrl = PhaseModeController()
+        ctrl.on_switch_success(3, T0 - timedelta(seconds=200))
+        engine._ev_phase_controllers["goe"] = ctrl
+
+        status = self._refit_status()
+        await engine._apply_balancer_relief(status, T0)
+        engine.dispatcher.set_ev_phase_mode.assert_not_awaited()
+        assert status.ev_outputs[0].target_a is None
+
+    @pytest.mark.asyncio
+    async def test_refit_aborted_when_writes_are_skipped(self, engine):
+        self._enable_switching(engine)
+        engine.dispatcher.set_ev_phase_mode = AsyncMock()
+        status = self._refit_status()
+        await engine._apply_balancer_relief(status, T0, writes_allowed=False)
+        engine.dispatcher.set_ev_phase_mode.assert_not_awaited()
+        assert status.ev_outputs[0].target_a is None
+
+    @pytest.mark.asyncio
+    async def test_applied_refit_switch_resumes_at_refit_amps(self, engine):
+        from executor.actions import ActionResult
+        from executor.ev_surplus import PhaseModeController
+
+        self._enable_switching(engine)
+        engine.dispatcher.set_ev_phase_mode = AsyncMock(
+            return_value=ActionResult(action_type="ev_phase_mode", success=True)
+        )
+        ctrl = PhaseModeController()
+        ctrl.on_switch_success(3, T0 - timedelta(hours=1))
+        engine._ev_phase_controllers["goe"] = ctrl
+
+        status = self._refit_status()
+        await engine._apply_balancer_relief(status, T0)
+        assert status.ev_outputs[0].target_a == 8
+        assert ctrl.commanded_mode == 1 and ctrl.relief_hold

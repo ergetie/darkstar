@@ -96,3 +96,44 @@ describe('UITab test-notification button', () => {
         expect(screen.getByRole('button', { name: /Send Test Notification/i })).not.toBeDisabled()
     })
 })
+
+describe('UITab EV plug-in reminder (global notification setting)', () => {
+    function mockForm(overrides: Record<string, string>) {
+        const handleChange = vi.fn()
+        mockUseSettingsForm.mockReturnValue({
+            config: {},
+            form: { ...makeFormState(), ...overrides },
+            fields: uiFieldList,
+            fieldErrors: {},
+            loading: false,
+            saving: false,
+            statusMessage: null,
+            handleChange,
+            save: vi.fn(),
+            isDirty: false,
+        })
+        return handleChange
+    }
+
+    it('offers 15 and 30 minute quick choices and persists a choice', () => {
+        const handleChange = mockForm({
+            'executor.notifications.on_ev_plug_in_reminder': 'true',
+            'executor.notifications.ev_plug_in_reminder_minutes': '30',
+        })
+        renderTab()
+        const select = screen.getByRole('combobox', { name: 'Plug-in reminder lead time' })
+        expect(select).toHaveValue('30')
+        fireEvent.change(select, { target: { value: '15' } })
+        expect(handleChange).toHaveBeenCalledWith('executor.notifications.ev_plug_in_reminder_minutes', '15')
+    })
+
+    it('shows the custom input for a non-preset lead time', () => {
+        mockForm({
+            'executor.notifications.on_ev_plug_in_reminder': 'true',
+            'executor.notifications.ev_plug_in_reminder_minutes': '45',
+        })
+        renderTab()
+        expect(screen.getByRole('combobox', { name: 'Plug-in reminder lead time' })).toHaveValue('custom')
+        expect(screen.getByRole('spinbutton', { name: 'Plug-in reminder lead time (custom)' })).toHaveValue(45)
+    })
+})

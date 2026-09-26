@@ -25,7 +25,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -60,9 +60,11 @@ from .ev_surplus import (
     one_phase_min_kw,
     three_phase_min_kw,
 )
+from .goal_risk import pause_puts_goal_at_risk
 from .history import ExecutionHistory, ExecutionRecord
 from .load_balancer import (
     EVBalancerInput,
+    EVBalancerOutput,
     LoadBalancer,
     LoadBalancerStatus,
     ShedLoadInput,
@@ -194,6 +196,10 @@ _EV_PHASE_ACTIVE_THRESHOLD_W = 100.0
 # Seconds a new setpoint must stand before the car's measured draw is trusted
 # as the baseline for further amps adjustments (the car needs time to follow).
 EV_DRAW_SETTLE_S = 30
+# After a commanded phase switch, the charger's measured active phases may
+# still describe the old mode for a while; the balancer attributes the union
+# of measured and commanded phases during this window (protective).
+PHASE_SWITCH_SETTLE_S = 60
 
 # Sentinel: no load-balancer override present for this charger this tick —
 # _control_ev_charger_current computes its own target from the plan.
@@ -354,6 +360,11 @@ class ExecutorEngine:
         # by _run_load_balancer / _control_ev_charger in place of the plan-derived
         # target for surplus-eligible chargers).
         self._ev_surplus_controllers: dict[str, EVSurplusController] = {}
+        # Latest schedule.json meta (ev_goal_diagnostics for pause notifications).
+        self._last_schedule_meta: dict[str, Any] = {}
+        # Why each charger was last switched to 1-phase for overload relief
+        # (status surface, e.g. "1-phase on L1 — relieving L3").
+        self._ev_relief_reason: dict[str, str] = {}
         self._ev_phase_controllers: dict[str, PhaseModeController] = {}
         self._ev_surplus_targets: dict[str, int | None] = {}
         self._last_surplus_state: dict[str, str] = {}
@@ -1933,11 +1944,16 @@ class ExecutorEngine:
             # prerequisites are configured.
             balancer_status = self._run_load_balancer(state, original_slot, now)
             self._last_balancer_status = balancer_status
+            ev_surplus_phase_mode_results.extend(
+                await self._apply_balancer_relief(
+                    balancer_status, now, writes_allowed=not skip_writes
+                )
+            )
 
             # Sustained-throttle early replan + intervention notifications
             # (load-balancing-completion 4.x/5.x)
             self._track_balancer_throttling(balancer_status, now)
-            await self._notify_balancer_interventions(balancer_status)
+            await self._notify_balancer_interventions(balancer_status, original_slot, now)
 
             # Emit live metrics for UI sparklines (Rev E1) + balancer status (6.1)
             try:
@@ -2304,6 +2320,8 @@ class ExecutorEngine:
         raw_meta = payload.get("meta")
         if isinstance(raw_meta, dict):
             meta = cast("dict[str, Any]", raw_meta)
+        # Kept for goal-at-risk pause notifications (ev_goal_diagnostics).
+        self._last_schedule_meta = meta
         generated_at_str: str = str(meta.get("generated_at", "")) if meta else ""
         generated_at: datetime | None = None
         if generated_at_str:
@@ -2868,6 +2886,18 @@ class ExecutorEngine:
                 return None
             phase_ctrl.on_entity_recovered()
 
+        # load-balancer-graceful-degradation D4: while 1-phase is held for
+        # overload relief, 3-phase must fit the averaged target margin too.
+        three_phase_fits = True
+        if phase_ctrl.relief_hold:
+            dev_state = self._ev_charger_states.get(charger_cfg.id)
+            three_phase_fits = self._load_balancer.three_phase_fits(
+                charger_cfg.phases or [1, 2, 3],
+                [charger_cfg.phase_1_line],
+                float((dev_state.current_setpoint_a if dev_state else None) or 0),
+                charger_cfg.min_current_a,
+                now,
+            )
         decision = phase_ctrl.decide(
             now=now,
             target_power_kw=target_power_kw,
@@ -2879,19 +2909,31 @@ class ExecutorEngine:
             enabled=True,
             entity_configured=True,
             is_binary=False,
+            three_phase_fits=three_phase_fits,
         )
         if not decision.should_switch or decision.commanded_mode is None:
             return None
+        return await self._write_phase_mode(charger_cfg, phase_ctrl, decision.commanded_mode, now)
 
-        phase_option = (
-            charger_cfg.phase_1_value if decision.commanded_mode == 1 else charger_cfg.phase_3_value
-        )
-        result = await self.dispatcher.set_ev_phase_mode(
-            entity, decision.commanded_mode, phase_option
-        )
+    async def _write_phase_mode(
+        self,
+        charger_cfg: EVChargerDeviceConfig,
+        phase_ctrl: PhaseModeController,
+        mode: int,
+        now: datetime,
+        relief: bool = False,
+    ) -> ActionResult:
+        """Write a commanded phase mode and update the controller (the single
+        owner of the contactor, its dwell and its fail-safe latch)."""
+        assert self.dispatcher is not None
+        entity = charger_cfg.phase_mode_entity
+        assert entity
+
+        phase_option = charger_cfg.phase_1_value if mode == 1 else charger_cfg.phase_3_value
+        result = await self.dispatcher.set_ev_phase_mode(entity, mode, phase_option)
         self._log_ev_action(charger_cfg.id, result, "ev_phase_mode", now)
         if result.success:
-            phase_ctrl.on_switch_success(decision.commanded_mode, now)
+            phase_ctrl.on_switch_success(mode, now, relief=relief)
         else:
             phase_ctrl.on_entity_unavailable()
             logger.warning(
@@ -3017,7 +3059,7 @@ class ExecutorEngine:
                 active_phase_count=active_phase_count,
                 increase_step_a=self.config.load_balancing.increase_step_a,
                 resume_delay_s=self.config.load_balancing.resume_delay_s,
-                resume_margin_percent=self.config.load_balancing.resume_margin_percent,
+                resume_margin_percent=self.config.load_balancing.target_margin_percent,
                 phase_switch_can_lower_floor=phase_switch_can_lower_floor,
                 voltage_v=self.config.ev_nominal_voltage_v,
             )
@@ -3070,11 +3112,8 @@ class ExecutorEngine:
 
             charger_id = charger_cfg.id
             dev_state = self._ev_charger_states.get(charger_id)
-            phases = (
-                (dev_state.active_phases if dev_state and dev_state.active_phases else None)
-                or charger_cfg.phases
-                or [1, 2, 3]
-            )
+            phase_ctrl = self._ev_phase_controllers.get(charger_id)
+            phases = self._balancer_phases(charger_cfg, dev_state, phase_ctrl, now)
             max_current_a = charger_cfg.max_current_a or charger_cfg.min_current_a
 
             manual_target_a = self._ev_manual_target_a(charger_cfg)
@@ -3116,6 +3155,16 @@ class ExecutorEngine:
                 effective_draw_a=(
                     self._effective_baseline_a(charger_cfg, dev_state, now) if dev_state else None
                 ),
+                phase_1_line=charger_cfg.phase_1_line,
+                relief_available=bool(
+                    charger_cfg.phase_switching_enabled
+                    and charger_cfg.phase_mode_entity
+                    and self.dispatcher is not None
+                    and charger_cfg.phase_1_line in (charger_cfg.phases or [1, 2, 3])
+                    and (phase_ctrl or PhaseModeController()).relief_available(
+                        now, charger_cfg.phase_switch_min_dwell_s
+                    )
+                ),
             )
 
         shed_inputs_by_id = {
@@ -3146,6 +3195,112 @@ class ExecutorEngine:
             state.grid_current_updated_at,
             entries,
         )
+
+    @staticmethod
+    def _balancer_phases(
+        charger_cfg: EVChargerDeviceConfig,
+        dev_state: EVChargerState | None,
+        phase_ctrl: PhaseModeController | None,
+        now: datetime,
+    ) -> list[int]:
+        """Phases the balancer attributes a charger's draw to.
+
+        Measured active phases win (ev-measured-draw). Otherwise a charger
+        commanded to 1-phase draws on its phase_1_line only, else on its
+        configured phases. For PHASE_SWITCH_SETTLE_S after a commanded switch
+        the measurement may still describe the old mode, so the union of both
+        is used — more phases is always the protective attribution.
+        """
+        configured = list(charger_cfg.phases or [1, 2, 3])
+        commanded = configured
+        if (
+            charger_cfg.phase_switching_enabled
+            and phase_ctrl is not None
+            and phase_ctrl.commanded_mode == 1
+        ):
+            commanded = [charger_cfg.phase_1_line]
+        measured = list(dev_state.active_phases) if dev_state and dev_state.active_phases else None
+        if measured is None:
+            return commanded
+        if (
+            phase_ctrl is not None
+            and phase_ctrl.last_switch_time is not None
+            and (now - phase_ctrl.last_switch_time).total_seconds() < PHASE_SWITCH_SETTLE_S
+        ):
+            return sorted(set(measured) | set(commanded))
+        return measured
+
+    async def _apply_balancer_relief(
+        self, status: LoadBalancerStatus, now: datetime, writes_allowed: bool = True
+    ) -> list[ActionResult]:
+        """Degradation-ladder step 2 (load-balancer-graceful-degradation D4/D5):
+        command 1-phase for chargers the balancer asked to relieve, after the
+        balancer and before the setpoint write. The controller still enforces
+        dwell and its fail-safe; a refused or failed switch leaves the charger
+        at its floor this tick and the balancer pauses it on the next.
+        Relief switches never notify.
+
+        A quick re-fit from a pause into 1-phase (D17, refit_from_pause) is
+        only safe once the switch is applied: when it is refused or fails,
+        the charger's output is replaced with a pause so it never starts on
+        the phases that did not fit. With writes_allowed=False (manual
+        override) nothing is written and every such re-fit is aborted.
+        """
+        results: list[ActionResult] = []
+        if not status.enabled:
+            return results
+        cfg_by_id = {c.id: c for c in self.config.ev_chargers}
+        for idx, out in enumerate(status.ev_outputs):
+            if not out.relief_1p_requested:
+                continue
+            applied = False
+            charger_cfg = cfg_by_id.get(out.charger_id)
+            if (
+                writes_allowed
+                and charger_cfg is not None
+                and charger_cfg.phase_mode_entity
+                and self.dispatcher
+            ):
+                phase_ctrl = self._ev_phase_controllers.setdefault(
+                    out.charger_id, PhaseModeController()
+                )
+                decision = phase_ctrl.decide_relief(
+                    now=now,
+                    min_dwell_s=charger_cfg.phase_switch_min_dwell_s,
+                    enabled=charger_cfg.phase_switching_enabled,
+                    entity_configured=True,
+                    is_binary=charger_cfg.type != "current",
+                )
+                if not decision.should_switch:
+                    logger.info(
+                        "EV charger %s: 1-phase relief not applied (%s)",
+                        out.charger_id,
+                        decision.reason,
+                    )
+                else:
+                    result = await self._write_phase_mode(
+                        charger_cfg, phase_ctrl, 1, now, relief=True
+                    )
+                    results.append(result)
+                    applied = result.success
+                    if result.success:
+                        self._ev_relief_reason[out.charger_id] = out.reason
+                    self._log_ev_transition(
+                        out.charger_id,
+                        "phase_mode",
+                        "1-phase (relief)" if result.success else "write_failed",
+                        out.reason,
+                    )
+            if not applied and out.refit_from_pause:
+                self._load_balancer.abort_refit(out.charger_id, now)
+                status.ev_outputs[idx] = EVBalancerOutput(
+                    out.charger_id,
+                    None,
+                    "paused",
+                    "Waiting to resume — the 1-phase switch could not be applied",
+                )
+                status.state = "paused"
+        return results
 
     def _track_balancer_throttling(self, status: LoadBalancerStatus, now: datetime) -> None:
         """Sustained-throttle early replan (load-balancing-completion 4.1/4.2).
@@ -3222,14 +3377,22 @@ class ExecutorEngine:
         except Exception as e:
             logger.error("Failed to request balancer-triggered replan: %s", e)
 
-    async def _notify_balancer_interventions(self, status: LoadBalancerStatus) -> None:
-        """Intervention notifications (load-balancing-completion 5.1).
+    async def _notify_balancer_interventions(
+        self,
+        status: LoadBalancerStatus,
+        slot: "SlotPlan | None" = None,
+        now: datetime | None = None,
+    ) -> None:
+        """Intervention notifications (load-balancing-completion 5.1,
+        load-balancer-graceful-degradation D7).
 
-        Notifies once per qualifying transition — a load is shed, a charger is
-        paused, or the stale-sensor fail-safe engages — with the same
-        human-readable reason as the execution log. Routine throttle/ramp
-        adjustments never notify. State maps update even while the toggle is
-        off, so enabling it later doesn't fire for pre-existing states.
+        Notifies once per qualifying transition — a load is shed or the
+        stale-sensor fail-safe engages — with the same human-readable reason
+        as the execution log. A charger pause notifies only when it puts an
+        active EV goal at risk; other pauses are in the execution log only.
+        Routine throttle/ramp adjustments and 1-phase relief switches never
+        notify. State maps update even while the toggle is off, so enabling
+        it later doesn't fire for pre-existing states.
         """
         if not status.enabled:
             self._notified_ev_states.clear()
@@ -3246,11 +3409,24 @@ class ExecutorEngine:
                 and out.state != prev
                 and dispatcher is not None
             ):
-                label = (
-                    "charging paused" if out.state == "paused" else "stale-sensor fail-safe engaged"
-                )
                 name = charger_names.get(out.charger_id, out.charger_id)
-                await dispatcher.notify_balancer_intervention(f"{name}: {label} — {out.reason}")
+                if out.state == "paused":
+                    at_risk, why = self._pause_goal_risk(out.charger_id, slot, now)
+                    if at_risk:
+                        await dispatcher.notify_balancer_intervention(
+                            f"{name}: charging paused, goal at risk ({why}) — {out.reason}"
+                        )
+                    else:
+                        logger.info(
+                            "EV charger %s paused by the load balancer, not notifying (%s): %s",
+                            out.charger_id,
+                            why,
+                            out.reason,
+                        )
+                else:
+                    await dispatcher.notify_balancer_intervention(
+                        f"{name}: stale-sensor fail-safe engaged — {out.reason}"
+                    )
             self._notified_ev_states[out.charger_id] = out.state
 
         for shed_out in status.shed_outputs:
@@ -3260,6 +3436,34 @@ class ExecutorEngine:
                     f"Load '{shed_out.load_id}' switched off — {shed_out.reason}"
                 )
             self._notified_shed_states[shed_out.load_id] = shed_out.shed
+
+    def _pause_goal_risk(
+        self, charger_id: str, slot: "SlotPlan | None", now: datetime | None
+    ) -> tuple[bool, str]:
+        """Whether a balancer pause puts the charger's active goal at risk.
+        Any failure to evaluate fails open (at risk)."""
+        try:
+            from backend.core.ev_state import read_ev_state
+
+            goal = read_ev_state().get(charger_id)
+            diagnostics_all: Any = self._last_schedule_meta.get("ev_goal_diagnostics") or {}
+            diagnostics_raw: Any = (
+                cast("dict[str, Any]", diagnostics_all).get(charger_id)
+                if isinstance(diagnostics_all, dict)
+                else None
+            )
+            planned_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
+            return pause_puts_goal_at_risk(
+                goal,
+                cast("dict[str, Any]", diagnostics_raw)
+                if isinstance(diagnostics_raw, dict)
+                else None,
+                planned_kw,
+                now or datetime.now(UTC),
+            )
+        except Exception as e:
+            logger.warning("Could not evaluate EV goal risk for %s: %s", charger_id, e)
+            return True, "goal status unknown"
 
     def get_load_balancer_status(self) -> dict[str, Any]:
         """Serialize the latest balancer tick for the status surface (6.1/6.2),
@@ -3271,6 +3475,7 @@ class ExecutorEngine:
         """
         status = self._last_balancer_status
         charger_names = {ev.id: (ev.name or ev.id) for ev in self.config.ev_chargers}
+        cfg_by_id = {ev.id: ev for ev in self.config.ev_chargers}
         planned = getattr(self, "_last_balancer_planned_targets", {})
         balancer_outputs_by_id = {o.charger_id: o for o in status.ev_outputs} if status else {}
 
@@ -3285,6 +3490,18 @@ class ExecutorEngine:
             dev_state = self._ev_charger_states.get(charger_id)
             surplus_info = self._ev_surplus_status.get(charger_id)
             phase_ctrl = self._ev_phase_controllers.get(charger_id)
+            # load-balancer-graceful-degradation 6.4: 1-phase held (or being
+            # requested this tick) to relieve an overloaded phase.
+            relief_requested = balancer_out is not None and balancer_out.relief_1p_requested
+            relief_held = (
+                phase_ctrl is not None and phase_ctrl.relief_hold and phase_ctrl.commanded_mode == 1
+            )
+            relief_active = relief_requested or relief_held
+            relief_reason: str | None = None
+            if relief_requested and balancer_out is not None:
+                relief_reason = balancer_out.reason
+            elif relief_held:
+                relief_reason = self._ev_relief_reason.get(charger_id)
             ev_list.append(
                 {
                     "charger_id": charger_id,
@@ -3308,6 +3525,13 @@ class ExecutorEngine:
                     "surplus_state": surplus_info["state"] if surplus_info else None,
                     "surplus_reason": surplus_info["reason"] if surplus_info else None,
                     "phase_mode": phase_ctrl.commanded_mode if phase_ctrl else None,
+                    # load-balancer-graceful-degradation 6.4: 1-phase held (or
+                    # being requested this tick) to relieve an overloaded phase.
+                    "relief_1p": relief_active,
+                    "relief_reason": relief_reason,
+                    "phase_1_line": (
+                        cfg_by_id[charger_id].phase_1_line if charger_id in cfg_by_id else None
+                    ),
                     "paused": bool(surplus_info and surplus_info["state"] == "paused"),
                 }
             )
@@ -3318,7 +3542,7 @@ class ExecutorEngine:
                 "state": "disabled",
                 "reason": status.reason if status else "Load balancing disabled or unconfigured",
                 "main_fuse_a": status.main_fuse_a if status else None,
-                "resume_margin_percent": self.config.load_balancing.resume_margin_percent,
+                "target_margin_percent": self.config.load_balancing.target_margin_percent,
                 "tick_interval_s": self.config.interval_seconds,
                 "phase_current_a": {},
                 "phase_headroom_a": {},
@@ -3332,7 +3556,7 @@ class ExecutorEngine:
             "state": status.state,
             "reason": status.reason,
             "main_fuse_a": status.main_fuse_a,
-            "resume_margin_percent": self.config.load_balancing.resume_margin_percent,
+            "target_margin_percent": self.config.load_balancing.target_margin_percent,
             "tick_interval_s": self.config.interval_seconds,
             "phase_current_a": status.phase_current_a,
             "phase_headroom_a": status.phase_headroom_a,
@@ -3510,11 +3734,12 @@ class ExecutorEngine:
     ) -> None:
         """Notify once per charging window when charging is planned soon but the
         car is not plugged in (ev-plug-in-reminder). Plugging in resets it."""
-        enabled = [c for c in self.config.ev_chargers if c.plug_in_reminder_minutes]
-        if not enabled or not self.dispatcher:
+        notif = self.config.notifications
+        if not notif.on_ev_plug_in_reminder or not self.dispatcher:
             return
+        lead = timedelta(minutes=int(notif.ev_plug_in_reminder_minutes))
         starts: dict[str, datetime] | None = None
-        for charger in enabled:
+        for charger in self.config.ev_chargers:
             plug = plug_states.get(charger.id, "unknown")
             if plug == "plugged":
                 self._plug_in_reminder_sent.pop(charger.id, None)
@@ -3524,7 +3749,6 @@ class ExecutorEngine:
             start = starts.get(charger.id)
             if start is None:
                 continue
-            lead = timedelta(minutes=int(charger.plug_in_reminder_minutes or 0))
             if now < start - lead or self._plug_in_reminder_sent.get(charger.id) == start:
                 continue
             self._plug_in_reminder_sent[charger.id] = start

@@ -14,7 +14,12 @@ import pytz
 from sqlalchemy import create_engine
 
 from backend.learning.models import Base
-from executor.config import EVChargerDeviceConfig, ExecutorConfig, load_executor_config
+from executor.config import (
+    EVChargerDeviceConfig,
+    ExecutorConfig,
+    NotificationConfig,
+    load_executor_config,
+)
 from executor.engine import ExecutorEngine
 from executor.override import SlotPlan
 
@@ -51,10 +56,24 @@ def _charger(charger_id: str = "ev1", **overrides) -> EVChargerDeviceConfig:
     return EVChargerDeviceConfig(**params)
 
 
-def _engine(temp_schedule, temp_db, chargers, plug_states: dict[str, str | None]):
+def _engine(
+    temp_schedule,
+    temp_db,
+    chargers,
+    plug_states: dict[str, str | None],
+    reminder_minutes: int | None = None,
+):
+    """Build an engine; ``reminder_minutes`` enables the global plug-in reminder."""
+    notifications = NotificationConfig(
+        on_ev_plug_in_reminder=reminder_minutes is not None,
+        ev_plug_in_reminder_minutes=reminder_minutes or 30,
+    )
     with patch("executor.engine.load_executor_config") as mock_config:
         mock_config.return_value = ExecutorConfig(
-            schedule_path=temp_schedule, timezone="Europe/Stockholm", ev_chargers=chargers
+            schedule_path=temp_schedule,
+            timezone="Europe/Stockholm",
+            ev_chargers=chargers,
+            notifications=notifications,
         )
         with (
             patch("executor.engine.load_yaml", return_value={}),
@@ -182,7 +201,7 @@ def _write_schedule(path: str, start: datetime, kw: float = 7.0, charger: str = 
 async def test_reminder_sent_once_within_lead(temp_schedule, temp_db):
     start = TZ.localize(datetime(2026, 9, 25, 22, 0))
     _write_schedule(temp_schedule, start)
-    eng = _engine(temp_schedule, temp_db, [_charger(plug_in_reminder_minutes=30)], {"ev1": "off"})
+    eng = _engine(temp_schedule, temp_db, [_charger()], {"ev1": "off"}, 30)
     states = await eng._read_ev_plug_states()
 
     await eng._check_plug_in_reminders(start - timedelta(minutes=45), states)
@@ -200,19 +219,16 @@ async def test_reminder_sent_once_within_lead(temp_schedule, temp_db):
 async def test_no_reminder_when_plugged(temp_schedule, temp_db):
     start = TZ.localize(datetime(2026, 9, 25, 22, 0))
     _write_schedule(temp_schedule, start)
-    eng = _engine(temp_schedule, temp_db, [_charger(plug_in_reminder_minutes=30)], {"ev1": "on"})
+    eng = _engine(temp_schedule, temp_db, [_charger()], {"ev1": "on"}, 30)
     await eng._check_plug_in_reminders(start - timedelta(minutes=10), await eng._read_ev_plug_states())
     eng.dispatcher.notify_plug_in_reminder.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("minutes", [None, 0])
-async def test_reminder_disabled(temp_schedule, temp_db, minutes):
+async def test_reminder_disabled(temp_schedule, temp_db):
     start = TZ.localize(datetime(2026, 9, 25, 22, 0))
     _write_schedule(temp_schedule, start)
-    eng = _engine(
-        temp_schedule, temp_db, [_charger(plug_in_reminder_minutes=minutes)], {"ev1": "off"}
-    )
+    eng = _engine(temp_schedule, temp_db, [_charger()], {"ev1": "off"})
     await eng._check_plug_in_reminders(start - timedelta(minutes=1), await eng._read_ev_plug_states())
     eng.dispatcher.notify_plug_in_reminder.assert_not_awaited()
 
@@ -221,7 +237,7 @@ async def test_reminder_disabled(temp_schedule, temp_db, minutes):
 async def test_new_window_renotifies(temp_schedule, temp_db):
     first = TZ.localize(datetime(2026, 9, 25, 22, 0))
     _write_schedule(temp_schedule, first)
-    eng = _engine(temp_schedule, temp_db, [_charger(plug_in_reminder_minutes=30)], {"ev1": "off"})
+    eng = _engine(temp_schedule, temp_db, [_charger()], {"ev1": "off"}, 30)
     states = await eng._read_ev_plug_states()
     await eng._check_plug_in_reminders(first - timedelta(minutes=10), states)
 
@@ -239,7 +255,7 @@ async def test_plugging_in_resets_dedupe(temp_schedule, temp_db):
     start = TZ.localize(datetime(2026, 9, 25, 22, 0))
     _write_schedule(temp_schedule, start)
     plug = {"ev1": "off"}
-    eng = _engine(temp_schedule, temp_db, [_charger(plug_in_reminder_minutes=30)], plug)
+    eng = _engine(temp_schedule, temp_db, [_charger()], plug, 30)
     await eng._check_plug_in_reminders(start - timedelta(minutes=10), await eng._read_ev_plug_states())
     plug["ev1"] = "on"
     await eng._check_plug_in_reminders(start - timedelta(minutes=5), await eng._read_ev_plug_states())
@@ -248,18 +264,42 @@ async def test_plugging_in_resets_dedupe(temp_schedule, temp_db):
     assert eng.dispatcher.notify_plug_in_reminder.await_count == 2
 
 
-def test_config_parses_plug_in_reminder_minutes(tmp_path):
+@pytest.mark.asyncio
+async def test_global_lead_time_applies_to_every_charger(temp_schedule, temp_db):
+    start = TZ.localize(datetime(2026, 9, 25, 22, 0))
+    _write_schedule(temp_schedule, start)
+    eng = _engine(temp_schedule, temp_db, [_charger()], {"ev1": "off"}, 15)
+    states = await eng._read_ev_plug_states()
+    await eng._check_plug_in_reminders(start - timedelta(minutes=20), states)
+    eng.dispatcher.notify_plug_in_reminder.assert_not_awaited()
+    await eng._check_plug_in_reminders(start - timedelta(minutes=15), states)
+    eng.dispatcher.notify_plug_in_reminder.assert_awaited_once()
+
+
+def test_config_parses_global_plug_in_reminder(tmp_path):
     cfg = tmp_path / "config.yaml"
     cfg.write_text(
-        "executor:\n  enabled: true\n"
-        "ev_chargers:\n"
-        "  - id: a\n    plug_in_reminder_minutes: 15\n"
-        "  - id: b\n    plug_in_reminder_minutes: 0\n"
-        "  - id: c\n"
-        "  - id: d\n    plug_in_reminder_minutes: soon\n"
+        "executor:\n  enabled: true\n  notifications:\n"
+        "    on_ev_plug_in_reminder: true\n    ev_plug_in_reminder_minutes: 15\n"
     )
-    chargers = {c.id: c for c in load_executor_config(str(cfg)).ev_chargers}
-    assert chargers["a"].plug_in_reminder_minutes == 15
-    assert chargers["b"].plug_in_reminder_minutes is None
-    assert chargers["c"].plug_in_reminder_minutes is None
-    assert chargers["d"].plug_in_reminder_minutes is None
+    notif = load_executor_config(str(cfg)).notifications
+    assert notif.on_ev_plug_in_reminder is True
+    assert notif.ev_plug_in_reminder_minutes == 15
+
+
+@pytest.mark.parametrize("raw", ["soon", 0, 5000])
+def test_config_invalid_lead_time_uses_default(tmp_path, raw):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "executor:\n  notifications:\n    on_ev_plug_in_reminder: true\n"
+        f"    ev_plug_in_reminder_minutes: {raw}\n"
+    )
+    assert load_executor_config(str(cfg)).notifications.ev_plug_in_reminder_minutes == 30
+
+
+def test_config_defaults_reminder_off(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("executor:\n  enabled: true\n")
+    notif = load_executor_config(str(cfg)).notifications
+    assert notif.on_ev_plug_in_reminder is False
+    assert notif.ev_plug_in_reminder_minutes == 30

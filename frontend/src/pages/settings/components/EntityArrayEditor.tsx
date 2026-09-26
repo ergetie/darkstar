@@ -45,8 +45,6 @@ export interface EVChargerEntity {
     replan_on_plugin?: boolean
     replan_on_unplug?: boolean
     missed_goal_grace_hours?: number
-    /** Minutes before planned charging to notify if the car isn't plugged in; 0/absent = off */
-    plug_in_reminder_minutes?: number
     /** Minutes the last valid SoC is carried when the SoC sensor is unavailable (default 15) */
     soc_stale_after_minutes?: number
     current_entity?: string
@@ -62,6 +60,8 @@ export interface EVChargerEntity {
     phase_3_value?: string
     phase_switch_hysteresis_kw?: number
     phase_switch_min_dwell_s?: number
+    /** Grid phase (1-3) the charger uses in 1-phase mode */
+    phase_1_line?: number
     ha_ready_by_entity?: string
     ha_target_soc_entity?: string
     target_soc_percent?: number
@@ -115,7 +115,6 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     replan_on_plugin: true,
     replan_on_unplug: false,
     missed_goal_grace_hours: 4,
-    plug_in_reminder_minutes: 0,
     soc_stale_after_minutes: 15,
     current_entity: '',
     min_current_a: 6,
@@ -126,6 +125,7 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     phase_3_value: '3',
     phase_switch_hysteresis_kw: 0.5,
     phase_switch_min_dwell_s: 600,
+    phase_1_line: 1,
     target_soc_percent: 80,
     ready_by: '07:00',
     repeat: 'daily',
@@ -139,6 +139,12 @@ const DEFAULT_CHARGE_DISABLED_VALUE = 'off'
 const DEFAULT_PLUGGED_IN_STATES = 'on,true,1,connected'
 const DEFAULT_PHASE_1_VALUE = '1'
 const DEFAULT_PHASE_3_VALUE = '3'
+/** Only writable select domains can command a phase mode (read-only sensors can't). */
+const PHASE_MODE_DOMAINS = ['select', 'input_select']
+
+function isPhaseModeDomain(entityId: string): boolean {
+    return PHASE_MODE_DOMAINS.includes(entityId.split('.')[0])
+}
 
 function entityDomain(entityId: string | undefined, entity?: HaEntity): string {
     return entity?.domain || entityId?.split('.')[0] || ''
@@ -167,60 +173,6 @@ interface MappingValueFieldProps {
     options?: string[]
     onChange: (value: string) => void
     disabled: boolean
-}
-
-const PLUG_IN_REMINDER_PRESETS = [0, 15, 30]
-const PLUG_IN_REMINDER_CUSTOM_DEFAULT = 45
-
-/** Plug-in reminder lead time: Off / 15 / 30 minutes or a custom value (ev-plug-in-reminder). */
-const PlugInReminderField: React.FC<{
-    value: number | undefined
-    onChange: (minutes: number) => void
-    disabled: boolean
-}> = ({ value, onChange, disabled }) => {
-    const current = value ?? 0
-    const [custom, setCustom] = useState(!PLUG_IN_REMINDER_PRESETS.includes(current))
-    return (
-        <div>
-            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">Plug-in Reminder</label>
-            <select
-                aria-label="Plug-in reminder"
-                value={custom ? 'custom' : String(current)}
-                onChange={(event) => {
-                    if (event.target.value === 'custom') {
-                        setCustom(true)
-                        if (PLUG_IN_REMINDER_PRESETS.includes(current)) onChange(PLUG_IN_REMINDER_CUSTOM_DEFAULT)
-                    } else {
-                        setCustom(false)
-                        onChange(Number(event.target.value))
-                    }
-                }}
-                disabled={disabled}
-                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
-            >
-                <option value="0">Off</option>
-                <option value="15">15 min before</option>
-                <option value="30">30 min before</option>
-                <option value="custom">Custom…</option>
-            </select>
-            {custom && (
-                <div className="mt-2">
-                    <NumberInput
-                        aria-label="Plug-in reminder minutes"
-                        value={current}
-                        onChange={(val) => onChange(Math.max(1, Math.round(Number(val) || 0)))}
-                        disabled={disabled}
-                        step={5}
-                        min={1}
-                        max={240}
-                    />
-                </div>
-            )}
-            <p className="text-[10px] text-muted mt-1">
-                Notify before planned charging when the car isn&apos;t plugged in
-            </p>
-        </div>
-    )
 }
 
 const MappingValueField: React.FC<MappingValueFieldProps> = ({
@@ -314,6 +266,59 @@ const PluggedStatesField: React.FC<PluggedStatesFieldProps> = ({ value, options,
             <p className="text-[10px] text-muted mt-1">
                 States that mean the vehicle is connected; separate multiple states with commas.
             </p>
+        </div>
+    )
+}
+
+/** load-balancer-graceful-degradation 6.2: the grid phase the charger uses in 1-phase mode. */
+const PhaseOneLineSelector: React.FC<{
+    charger: EVChargerEntity
+    disabled?: boolean
+    onChange: (line: number) => void
+}> = ({ charger, disabled, onChange }) => {
+    const phases = charger.phases ?? []
+    const selected = charger.phase_1_line ?? 1
+    const invalid = phases.length > 0 && !phases.includes(selected)
+    return (
+        <div data-testid="ev-phase-1-line">
+            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
+                <span>1-Phase Line</span>
+                <Tooltip text="The grid phase this charger uses when it runs in 1-phase mode. The load balancer switches to 1-phase to take load off the other phases when one is overloaded. Most chargers (including go-e) use L1, but wiring varies." />
+            </label>
+            <div className="flex gap-2">
+                {[1, 2, 3].map((line) => {
+                    const available = phases.includes(line)
+                    const checked = selected === line
+                    return (
+                        <button
+                            key={line}
+                            type="button"
+                            aria-pressed={checked}
+                            disabled={disabled || !available}
+                            onClick={() => onChange(line)}
+                            className={`
+                                px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-200
+                                ${
+                                    checked
+                                        ? 'bg-accent/20 border-accent/50 text-accent font-bold'
+                                        : 'bg-surface2 border-line/50 text-muted hover:border-accent/40 hover:text-text'
+                                }
+                                disabled:opacity-40 disabled:cursor-not-allowed
+                            `}
+                        >
+                            L{line}
+                        </button>
+                    )
+                })}
+            </div>
+            {invalid ? (
+                <p className="text-[10px] text-bad mt-1.5" role="alert" data-testid="ev-phase-1-line-error">
+                    L{selected} is not one of this charger&apos;s phases. Pick one of{' '}
+                    {phases.map((p) => `L${p}`).join(', ')}.
+                </p>
+            ) : (
+                <p className="text-[10px] text-muted mt-1.5">Grid phase the charger draws on in 1-phase mode.</p>
+            )}
         </div>
     )
 }
@@ -1050,19 +1055,6 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                             </div>
                                         )}
 
-                                        {/* Plug-in reminder (EV only) */}
-                                        {!isWaterHeater && (
-                                            <PlugInReminderField
-                                                value={(entity as EVChargerEntity).plug_in_reminder_minutes}
-                                                onChange={(minutes) =>
-                                                    updateEntity(index, {
-                                                        plug_in_reminder_minutes: minutes,
-                                                    } as Partial<EVChargerEntity>)
-                                                }
-                                                disabled={disabled}
-                                            />
-                                        )}
-
                                         {/* Water Heater Specific Fields */}
                                         {isWaterHeater && (
                                             <>
@@ -1250,7 +1242,15 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                         Phase Mode Entity
                                                                     </label>
                                                                     <EntitySelect
-                                                                        entities={haEntities}
+                                                                        entities={haEntities.filter(
+                                                                            (haEntity) =>
+                                                                                isPhaseModeDomain(haEntity.entity_id) ||
+                                                                                // keep a saved non-select entity visible
+                                                                                // so its inline error makes sense
+                                                                                haEntity.entity_id ===
+                                                                                    (entity as EVChargerEntity)
+                                                                                        .phase_mode_entity,
+                                                                        )}
                                                                         value={
                                                                             (entity as EVChargerEntity)
                                                                                 .phase_mode_entity || ''
@@ -1271,6 +1271,24 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                             <p className="text-[10px] text-bad mt-1">
                                                                                 Required when phase switching is
                                                                                 enabled.
+                                                                            </p>
+                                                                        )}
+                                                                    {(entity as EVChargerEntity).phase_mode_entity &&
+                                                                        !isPhaseModeDomain(
+                                                                            (entity as EVChargerEntity)
+                                                                                .phase_mode_entity || '',
+                                                                        ) && (
+                                                                            <p
+                                                                                className="text-[10px] text-bad mt-1"
+                                                                                role="alert"
+                                                                                data-testid="ev-phase-mode-domain-error"
+                                                                            >
+                                                                                {
+                                                                                    (entity as EVChargerEntity)
+                                                                                        .phase_mode_entity
+                                                                                }{' '}
+                                                                                is read-only. Pick a writable select or
+                                                                                input_select entity (e.g. select.*_psm).
                                                                             </p>
                                                                         )}
                                                                 </div>
@@ -1322,6 +1340,18 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                             disabled={disabled}
                                                                         />
                                                                     </div>
+                                                                )}
+                                                                {(entity as EVChargerEntity)
+                                                                    .phase_switching_enabled && (
+                                                                    <PhaseOneLineSelector
+                                                                        charger={entity as EVChargerEntity}
+                                                                        disabled={disabled}
+                                                                        onChange={(line) =>
+                                                                            updateEntity(index, {
+                                                                                phase_1_line: line,
+                                                                            } as Partial<EVChargerEntity>)
+                                                                        }
+                                                                    />
                                                                 )}
                                                                 <div className="grid grid-cols-2 gap-3">
                                                                     <div>

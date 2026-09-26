@@ -22,7 +22,9 @@ The main fuse rating is the physical amp rating of your fuse (e.g. 20A per phase
 
 The give-way order is the list of things the balancer is allowed to act on, ranked by your preference. The top entry gives way first when a phase overloads (e.g. slow down the EV charger before shedding the water heater), and things come back in the exact reverse order once the phase has headroom again.
 
-The anti-flap settings (resume delay, resume margin, ramp-up step, stale-sensor timeout) control how cautiously the balancer resumes or ramps back up — they exist so a noisy sensor reading doesn't cause the system to flicker loads on and off.
+The overload settings decide how much room the balancer keeps below your fuse (target safety margin, 85% by default) and how patiently it reacts: a charger at its minimum current only pauses if the overload lasts longer than the pause delay (5 s by default), unless a phase goes far over the fuse. A charger that can switch phases first moves to 1-phase on a line with room before it pauses. A paused charger resumes once its phases have had room for the minimum current for the resume confirm time (10 s by default), at the highest current that fits, switching to 1-phase if only that line has room; if it keeps pausing again right after resuming, the wait grows automatically.
+
+The anti-flap settings (resume delay for shed loads, ramp-up step, stale-sensor timeout) control how cautiously the balancer restores loads or ramps back up — they exist so a noisy sensor reading doesn't cause the system to flicker loads on and off.
 
 This is a software safety net, not a certified protection device. If your EV charger has its own built-in load-management setting, keep that enabled too as a backup.`,
         aliases: ['breaker', 'circuit breaker', 'overload protection', 'phases'],
@@ -32,25 +34,94 @@ This is a software safety net, not a certified protection device. If your EV cha
             'input_sensors.grid_current_l1',
             'load_balancing.give_way_order',
             'load_balancing.resume_delay_s',
-            'load_balancing.resume_margin_percent',
+            'load_balancing.target_margin_percent',
+            'load_balancing.pause_debounce_s',
+            'load_balancing.resume_confirm_s',
             'load_balancing.sensor_stale_after_s',
         ],
     },
     {
         id: 'ev-charging',
         title: 'Guide: EV Charging',
-        summary: 'How your EV chargers are configured for smart, optimized charging.',
-        body: `Darkstar can manage one or more EV chargers, scheduling their charging around cheap electricity prices and available solar power instead of just charging at full speed whenever plugged in.
+        summary:
+            'Set up your chargers, set charging goals, and see how Darkstar picks the cheapest time to charge and keeps your fuse safe.',
+        body: `Darkstar plans EV charging around electricity prices and solar power. You tell it how full the car should be and by when; it picks the cheapest hours that get there and keeps your main fuse safe while charging.
 
-Each charger you add needs a unique ID, a friendly name, its maximum power rating, and a sensor that reports how much power it's currently drawing. This lets the planner know exactly how much of your total load is the car, separate from everything else in the house (this is called "load disaggregation").
+1. Setting up a charger (EV tab)
+- Current chargers (type "current") let Darkstar set the charging amps. Give the minimum and maximum current (6 A minimum by default) and the phases the charger is wired to. Power is worked out for you: amps × number of phases × grid voltage (System → Grid, 230 V by default).
+- If phases are missing, the editor shows "Configure phases for <name> to enable planning" and the charger cannot be saved or planned until you pick them.
+- Binary chargers (type "binary") can only be switched on or off. Enter their rated power (kW) instead of amps.
+- A plug sensor tells Darkstar whether the car is connected. The "plugged in" values default to on, true, 1, connected. If the sensor goes unavailable, the last known state is kept and the card shows "Charger unreachable".
 
-Once a charger is configured, two other things become available:
-- The Load Balancing tab appears, so the charger's current can be automatically throttled if your main fuse is at risk of overloading.
-- The EV charger can be included in the give-way order, so it's one of the things that slows down (or speeds back up) as part of load balancing.
+2. Charging goals (EV card on the dashboard)
+- A goal is a target SoC and a ready-by time.
+- Once: a single date and time.
+- Repeating: Daily, Weekdays, Weekends, or Every N Days (2-7).
+- Changing the ready-by entity in Home Assistant always creates a one-off goal for that date and time (it replaces a repeating goal). Changing the HA target SoC only changes the target.
+- "Keep charger enabled after target SoC is met" keeps the charger switched on until the ready-by time once the target is reached, at any target level, for example for preconditioning. It does not apply while the car's SoC is stale. No extra energy is planned; the car decides whether it draws.
 
-If you also have solar, excess PV can be prioritized towards EV charging before it's exported to the grid, depending on how your excess-PV sink priority is set up on the Advanced tab.`,
-        aliases: ['car', 'car charging', 'wallbox', 'electric vehicle'],
-        relatedFieldKeys: ['ev_chargers', 'load_balancing.enabled', 'load_balancing.give_way_order'],
+3. How planning works
+- While prices are published (today, and tomorrow from the early afternoon), Darkstar picks the cheapest slots that reach the target in time.
+- When the deadline is further away, it compares charging now with waiting. Hours beyond the plan are priced at their published or forecast price plus a risk margin, so it only waits when that is still cheaper.
+- The risk margin starts at the base value (12%) and ramps up to the deadline value (50%) over the last 48 hours. The closer the deadline, the less Darkstar trusts forecasts. Change these under EV → Goal Planning.
+- The shortfall penalty (50 SEK/kWh by default) makes reaching the target near-mandatory. If the goal cannot be reached in time, Darkstar still charges as much as possible.
+- The card shows "Planned per day" chips. Days marked "est." are estimates from forecast prices and change as real prices are published.
+
+4. Solar surplus
+- The home battery comes first: surplus is only shared once it reaches the Excess PV SoC threshold.
+- After that, sinks get surplus in the order of the Excess PV sink priority list (Advanced tab). Put the EV first to let it take surplus before other loads; what it cannot take goes to the next sink.
+- Only current chargers that are actually plugged in can take surplus. Surplus energy counts toward the goal.
+
+5. Replanning
+- Saving a goal, or a goal change from Home Assistant, starts a new plan right away. The card shows "RE-PLANNING…" until it is done, or "Re-plan failed — showing last plan" if it fails.
+- Plugging in replans (on by default per charger); unplugging can replan too (off by default).
+- When a stale SoC sensor comes back, Darkstar replans once.
+- Darkstar plans even while the car is away, using the last known SoC. The card then says "plug in the car", and charging only starts once it is plugged in.
+- Plug-in reminder: turn on "On EV plug-in reminder" in UI → Notifications to get a message 15, 30 or a custom number of minutes before planned charging if the car is not plugged in. It applies to all chargers and is sent once per charging window.
+
+6. When the SoC reading drops out
+- Darkstar keeps using the last SoC for "SoC Stale After" minutes (15 by default, per charger).
+- After that, goal charging pauses until a reading returns, the card shows a warning, and (if "On EV SoC unavailable" is on) you get one notification.
+
+7. What EV charging costs
+- On the dashboard's Grid & Financial card, "↳ of which EV" under Grid Import shows the grid cost and energy of EV charging for the selected period. It is part of Grid Import, not added on top. Solar energy used by the car has no price.
+
+8. Load balancing (Load Balancing tab)
+- Darkstar keeps each phase at or below the target safety margin (85% of the main fuse) when raising charging current.
+- If a phase goes over the fuse, charging amps drop at once, down to the minimum current.
+- If the overload still lasts 5 seconds at the minimum, a charger that can switch phases moves to 1-phase on a line with room ("1-phase on L1 — relieving L3"). Otherwise it pauses.
+- Above 125% of the fuse it pauses immediately, without waiting.
+- A paused charger starts again as soon as its phases have had room for the minimum current for 10 seconds (the resume confirm time). It resumes in its current phase mode if that fits; otherwise, if 1-phase on its line fits and the dwell time has passed, it switches to 1-phase and resumes. It starts at the highest current that fits, up to the planned current. If it keeps pausing again soon after resuming, the wait grows to 30 seconds and then 2 minutes, and goes back to normal after 10 minutes of steady charging.
+- Current only goes back up after the house load, averaged over 60 seconds, leaves room. After a phase switch, a charger waits the dwell time (10 minutes by default) before switching again.
+
+9. Phase switching (optional, per charger)
+- Turn on phase switching and pick the phase-mode entity. It must be a select or input_select entity; read-only entities such as binary_sensor cannot be used.
+- Pick the options Darkstar sends for 1-phase and 3-phase mode, and the line the charger uses in 1-phase mode.
+- Example (go-e): phase-mode entity select.<charger>_psm, 1-phase option one_phase, 3-phase option three_phases, 1-phase line L1.`,
+        aliases: [
+            'car',
+            'car charging',
+            'wallbox',
+            'electric vehicle',
+            'charging goal',
+            'ready by',
+            'phase switching',
+            'plug-in reminder',
+        ],
+        relatedFieldKeys: [
+            'ev_chargers',
+            'system.grid.nominal_voltage_v',
+            'ev_planning.deferral_risk_margin_percent',
+            'ev_planning.deferral_risk_margin_max_percent',
+            'ev_planning.deferral_risk_ramp_hours',
+            'kepler.ev_shortfall_penalty_sek_per_kwh',
+            'executor.excess_pv.priority',
+            'executor.notifications.on_ev_plug_in_reminder',
+            'executor.notifications.on_ev_soc_stale',
+            'load_balancing.target_margin_percent',
+            'load_balancing.pause_debounce_s',
+            'load_balancing.resume_confirm_s',
+        ],
     },
     {
         id: 'water-heater',
@@ -198,6 +269,8 @@ Vacation state also feeds the load forecasting, so the system learns that away-d
         summary: 'Getting told what Darkstar is doing, via Home Assistant notifications.',
         body: `Darkstar can notify you when it acts, using any Home Assistant notify service — typically the mobile app on your phone (e.g. notify.mobile_app_your_phone). Set the service once, then choose which events you care about with the per-event toggles: battery charging starting or stopping, grid export starting or stopping, water heating starting or stopping, SoC target changes, a manual override activating, and errors.
 
+Two EV notifications live in the same list: a warning when an EV's SoC reading stays unavailable, and an optional plug-in reminder that is sent a set time (15 or 30 minutes, or your own value) before planned charging if the car isn't plugged in.
+
 Load balancer interventions have their own separate toggle, since fuse-protection events are the kind of thing you may want to know about even if you've muted the routine ones.
 
 If you're looking for "price alerts" — a heads-up about unusually cheap or expensive hours coming up — those aren't sent as notifications. They appear in the Advisor card on the dashboard, based on the price forecast (see the AI Advisor guide).`,
@@ -208,6 +281,7 @@ If you're looking for "price alerts" — a heads-up about unusually cheap or exp
             'executor.notifications.on_export_start',
             'executor.notifications.on_water_heat_start',
             'executor.notifications.on_error',
+            'executor.notifications.on_ev_plug_in_reminder',
             'load_balancing.notify_interventions',
         ],
     },

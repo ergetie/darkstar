@@ -141,7 +141,6 @@ ev_chargers:
     replan_on_plugin: true           # Re-run planner immediately when this EV plugs in
     replan_on_unplug: false          # Re-run planner immediately when this EV unplugs
     missed_goal_grace_hours: 4       # Keep pursuing a missed goal this many hours while still plugged in (0 = off)
-    plug_in_reminder_minutes: 0      # Notify this many minutes before planned charging if the car isn't plugged in (0 = off)
     soc_stale_after_minutes: 15      # Keep using the last valid SoC this long when the SoC sensor is unavailable; after that goal charging is suspended
     phase_mode_entity: ""            # HA select entity for commanded phase mode (1/3-phase)
     phase_switching_enabled: false   # Master toggle for commanded phase switching
@@ -149,6 +148,7 @@ ev_chargers:
     phase_3_value: "3"                # Select option sent for three-phase mode
     phase_switch_hysteresis_kw: 0.5  # Deadband around the 3-phase minimum before switching
     phase_switch_min_dwell_s: 600    # Minimum time between phase switches (contactor protection)
+    phase_1_line: 1                  # Grid phase (1-3) the charger uses in 1-phase mode; must be one of phases. The load balancer switches to 1-phase to relieve an overload on another phase
 
   # Example: Second EV (disabled by default)
   # - id: ev_charger_2
@@ -313,8 +313,12 @@ grid:
 # it does not replace it.
 load_balancing:
   enabled: false                       # Master switch — feature is opt-in and a no-op until true
-  resume_delay_s: 120                  # Seconds a recovered phase must stay healthy before resuming/restoring a throttled or shed load (anti-flap)
-  resume_margin_percent: 90            # Only resume/increase when phase current is below this % of main_fuse_a
+  resume_delay_s: 120                  # Seconds a recovered phase must stay healthy before a shed load is restored or paused solar-surplus charging resumes, and how long a stale phase sensor holds a charger at its minimum current before pausing it (anti-flap). Balancer-paused chargers use resume_confirm_s instead.
+  resume_confirm_s: 10                 # A charger paused by the balancer resumes once its phases have had room for the minimum current (within target_margin_percent) for this long (5-300 s). Grows automatically (to 30 s, then 120 s) if it keeps pausing again soon after resuming; resets after 10 min of stable charging.
+  target_margin_percent: 85            # Aim to keep each phase at or below this % of main_fuse_a: increases, shed-load restore and the return to 3-phase use the ~ramp_up_window_s average against it; a paused charger resumes when the live reading fits within it (50-100). Never reduces by itself — only a phase over main_fuse_a triggers a reduction. Replaces resume_margin_percent.
+  pause_debounce_s: 5                  # Only pause a charger held at its minimum current if the overload lasts this long (0-60 s; 0 = pause immediately). Lower it for fast-acting fuses.
+  severe_overload_percent: 125         # Pause immediately, without the debounce, when a phase reads above this % of main_fuse_a (101-200)
+  ramp_up_window_s: 60                 # Rolling-average window (s) for increases/shed-load restore/return to 3-phase (paused chargers resume on the live reading, see resume_confirm_s); decreases always use the momentary reading (10-600)
   increase_step_a: 1                   # Max ampere increase per tick when ramping EV charging back up
   sensor_stale_after_s: 30             # Treat phase current sensors as stale after this many seconds without an update
   notify_interventions: false          # Send a notification (HA notify, Discord fallback) when a load is shed, a charger is paused, or the stale-sensor fail-safe engages. Routine throttle adjustments never notify.
@@ -447,6 +451,8 @@ executor:
     on_override_activated: true        # Notify when manual override triggers
     on_error: true                     # Notify on executor errors
     on_ev_soc_stale: true              # Notify once when an EV's SoC reading stays unavailable (goal charging suspended)
+    on_ev_plug_in_reminder: false      # Remind before planned EV charging when the car isn't plugged in
+    ev_plug_in_reminder_minutes: 30    # Lead time for the plug-in reminder (minutes before the planned start)
 
   # Override Configuration (real-time safety triggers)
   # These settings control when the executor overrides the planned schedule

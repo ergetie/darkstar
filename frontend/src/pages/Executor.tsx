@@ -43,6 +43,8 @@ type NotificationSettings = {
     on_override_activated: boolean
     on_error: boolean
     on_ev_soc_stale?: boolean
+    on_ev_plug_in_reminder?: boolean
+    ev_plug_in_reminder_minutes?: number
 }
 
 // Types for executor API responses
@@ -1624,6 +1626,11 @@ export default function Executor() {
                                         key: 'on_ev_soc_stale',
                                         label: 'EV SoC Unavailable',
                                         desc: 'When goal charging pauses for a stale SoC',
+                                    },
+                                    {
+                                        key: 'on_ev_plug_in_reminder',
+                                        label: 'EV Plug-in Reminder',
+                                        desc: 'Before planned charging if the car is unplugged',
                                     },
                                 ].map((item) => (
                                     <div

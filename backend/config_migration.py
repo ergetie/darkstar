@@ -600,6 +600,113 @@ def _migrate_nominal_voltage(config: dict[str, Any]) -> tuple[dict[str, Any], bo
     return config, True
 
 
+def _migrate_target_margin(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Replace ``load_balancing.resume_margin_percent`` with ``target_margin_percent``.
+
+    - Legacy key absent: unchanged (idempotent).
+    - Both present: the new key wins; the legacy key is dropped.
+    - Legacy key only, user-tuned value: moved as-is to ``target_margin_percent``.
+    - Legacy key only, still the old shipped default (90): dropped, so the
+      template merge supplies the new, more protective default (85). The
+      template merge wrote 90 into every config, so it carries no user intent.
+    """
+    from executor.config import LEGACY_RESUME_MARGIN_DEFAULT
+
+    lb_raw: Any = config.get("load_balancing")
+    if not isinstance(lb_raw, dict) or "resume_margin_percent" not in lb_raw:
+        return config, False
+    lb = cast("dict[str, Any]", lb_raw)
+    keys = list(lb.keys())
+    position = keys.index("resume_margin_percent")
+    legacy = lb.pop("resume_margin_percent")
+
+    if lb.get("target_margin_percent") is not None:
+        logger.info(
+            f"🔄 Removed load_balancing.resume_margin_percent ({legacy}); "
+            f"target_margin_percent ({lb['target_margin_percent']}) already set"
+        )
+        return config, True
+
+    try:
+        is_default = float(legacy) == LEGACY_RESUME_MARGIN_DEFAULT
+    except (TypeError, ValueError):
+        is_default = True
+    if is_default:
+        logger.info(
+            f"🔄 Removed load_balancing.resume_margin_percent ({legacy}, the old default); "
+            "target_margin_percent uses the new default"
+        )
+        return config, True
+
+    insert_fn: Any = getattr(lb, "insert", None)
+    if callable(insert_fn):
+        insert_fn(position, "target_margin_percent", legacy)
+    else:
+        lb["target_margin_percent"] = legacy
+    logger.info(
+        f"🔄 Migrated load_balancing.resume_margin_percent -> target_margin_percent: {legacy}"
+    )
+    return config, True
+
+
+def _migrate_plug_in_reminder_to_global(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Replace per-charger ``plug_in_reminder_minutes`` with the global notification setting.
+
+    - No charger carries the key: unchanged (idempotent).
+    - Any charger with a positive value: ``executor.notifications.on_ev_plug_in_reminder``
+      is enabled and ``ev_plug_in_reminder_minutes`` is set to the largest value.
+    - Only zero/invalid values: the keys are dropped and the global defaults apply
+      (reminder off).
+    - The per-charger keys are always removed.
+    """
+    chargers_raw: Any = config.get("ev_chargers")
+    if not isinstance(chargers_raw, list):
+        return config, False
+
+    found = False
+    lead_minutes: list[int] = []
+    for charger_raw in cast("list[Any]", chargers_raw):
+        if not isinstance(charger_raw, dict):
+            continue
+        charger = cast("dict[str, Any]", charger_raw)
+        if "plug_in_reminder_minutes" not in charger:
+            continue
+        found = True
+        value = charger.pop("plug_in_reminder_minutes")
+        try:
+            minutes = int(value)
+        except (TypeError, ValueError):
+            continue
+        if minutes > 0:
+            lead_minutes.append(minutes)
+
+    if not found:
+        return config, False
+
+    if not lead_minutes:
+        logger.info("🔄 Removed per-charger plug_in_reminder_minutes (all disabled)")
+        return config, True
+
+    executor_raw: Any = config.get("executor")
+    if not isinstance(executor_raw, dict):
+        executor_raw = {}
+        config["executor"] = executor_raw
+    executor_cfg = cast("dict[str, Any]", executor_raw)
+    notif_raw: Any = executor_cfg.get("notifications")
+    if not isinstance(notif_raw, dict):
+        notif_raw = {}
+        executor_cfg["notifications"] = notif_raw
+    notif = cast("dict[str, Any]", notif_raw)
+    lead = max(lead_minutes)
+    notif["on_ev_plug_in_reminder"] = True
+    notif["ev_plug_in_reminder_minutes"] = lead
+    logger.info(
+        "🔄 Migrated per-charger plug_in_reminder_minutes -> "
+        f"executor.notifications.on_ev_plug_in_reminder=true, ev_plug_in_reminder_minutes={lead}"
+    )
+    return config, True
+
+
 def _warn_ev_chargers_missing_phases(config: dict[str, Any]) -> None:
     """Log a warning for every current-type EV charger without ``phases``.
 
@@ -1148,6 +1255,16 @@ async def migrate_config(
     # migration, which logs derived kW using it)
     user_config, voltage_changes = _migrate_nominal_voltage(user_config)
     if voltage_changes:
+        pre_merge_changes = True
+
+    # 2.1a1b Replace load_balancing.resume_margin_percent with target_margin_percent
+    user_config, margin_changes = _migrate_target_margin(user_config)
+    if margin_changes:
+        pre_merge_changes = True
+
+    # 2.1a1c Move per-charger plug_in_reminder_minutes to the global notification setting
+    user_config, reminder_changes = _migrate_plug_in_reminder_to_global(user_config)
+    if reminder_changes:
         pre_merge_changes = True
 
     # 2.1a2 Migrate EV charger power keys to the derived power model

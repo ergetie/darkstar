@@ -472,6 +472,8 @@ async def get_notifications() -> dict[str, Any]:
             "on_override_activated": getattr(cfg, "on_override_activated", False),
             "on_error": cfg.on_error,
             "on_ev_soc_stale": getattr(cfg, "on_ev_soc_stale", True),
+            "on_ev_plug_in_reminder": cfg.on_ev_plug_in_reminder,
+            "ev_plug_in_reminder_minutes": cfg.ev_plug_in_reminder_minutes,
         }
 
     # Fallback to config file
@@ -491,6 +493,8 @@ async def get_notifications() -> dict[str, Any]:
             "on_export_stop": notify_cfg.get("on_export_stop", False),
             "on_error": notify_cfg.get("on_error", False),
             "on_ev_soc_stale": notify_cfg.get("on_ev_soc_stale", True),
+            "on_ev_plug_in_reminder": notify_cfg.get("on_ev_plug_in_reminder", False),
+            "ev_plug_in_reminder_minutes": notify_cfg.get("ev_plug_in_reminder_minutes", 30),
         }
     except Exception:
         return {"service": None}

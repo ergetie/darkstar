@@ -372,6 +372,12 @@ export type LoadBalancerEvStatus = {
     surplus_reason?: string | null
     phase_mode?: number | null
     paused?: boolean
+    /** load-balancer-graceful-degradation 6.4: held (or switching) to 1-phase to relieve an overloaded phase */
+    relief_1p?: boolean
+    /** e.g. "1-phase on L1 — relieving L3" */
+    relief_reason?: string | null
+    /** Grid phase the charger uses in 1-phase mode */
+    phase_1_line?: number | null
 }
 
 export type LoadBalancerShedStatus = {
@@ -388,7 +394,8 @@ export type LoadBalancerStatusResponse = {
     main_fuse_a: number | null
     phase_current_a: Record<string, number>
     phase_headroom_a: Record<string, number>
-    resume_margin_percent?: number
+    /** Balancer ramps up only while each phase stays at or below this share of the fuse */
+    target_margin_percent?: number
     /** Executor tick interval (s) — the balancer reacts and reports once per tick. */
     tick_interval_s?: number
     /** excess-pv-priority-dispatch 4.1: whole-house measured surplus (export - import), kW */

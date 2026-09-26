@@ -573,7 +573,10 @@ class TestLoadBalancingConfig:
         assert lb.enabled is False
         assert lb.main_fuse_a is None
         assert lb.resume_delay_s == 120
-        assert lb.resume_margin_percent == 90.0
+        assert lb.target_margin_percent == 85.0
+        assert lb.pause_debounce_s == 5
+        assert lb.severe_overload_percent == 125.0
+        assert lb.ramp_up_window_s == 60
         assert lb.increase_step_a == 1
         assert lb.sensor_stale_after_s == 30
         assert lb.loads == []
@@ -629,7 +632,8 @@ class TestLoadBalancingConfig:
         assert lb.enabled is True
         assert lb.main_fuse_a == 20
         assert lb.resume_delay_s == 90
-        assert lb.resume_margin_percent == 85.0
+        # A user-tuned legacy resume_margin_percent carries over.
+        assert lb.target_margin_percent == 85.0
         assert lb.increase_step_a == 2
         assert lb.sensor_stale_after_s == 15
         assert len(lb.loads) == 2

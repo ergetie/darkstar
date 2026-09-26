@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import EVChargingCard from './EVChargingCard'
 import { Api } from '../lib/api'
+import { advancedFieldList } from '../pages/settings/types'
 import type { EVChargerState, LoadBalancerEvStatus, LoadBalancerStatusResponse } from '../lib/api'
 
 vi.mock('../lib/api', () => ({
@@ -158,10 +159,14 @@ describe('EVChargingCard balancer badge (7.6)', () => {
 })
 
 describe('EVChargingCard settings link (7.7)', () => {
-    it('uses a React Router Link to the load-balancing tab, not a raw <a> to advanced', () => {
+    it('links to the Excess PV priority field on the Advanced tab via a React Router Link', () => {
         renderCard(baseCharger({ type: 'current' }))
         const link = screen.getByRole('link', { name: /add this charger to Excess PV priority/i })
-        expect(link).toHaveAttribute('href', '/settings?tab=load-balancing')
+        expect(link).toHaveAttribute('href', '/settings?tab=advanced&field=executor.excess_pv.priority')
+    })
+
+    it('points at a field that really lives on the Advanced tab', () => {
+        expect(advancedFieldList.some((f) => f.key === 'executor.excess_pv.priority')).toBe(true)
     })
 })
 
@@ -310,5 +315,25 @@ describe('EVChargingCard stale SoC (ev-soc-staleness)', () => {
     it('shows no warning for a live SoC', () => {
         renderCard(baseCharger({ soc_status: 'live' }))
         expect(screen.queryByTestId('ev-soc-unavailable')).not.toBeInTheDocument()
+    })
+})
+
+describe('EVChargingCard keep-on after target (ev-target-charging)', () => {
+    it('lets the user enable keep-on at a target below 100% and saves it', async () => {
+        vi.mocked(Api.ev.setSchedule).mockResolvedValue({} as never)
+        renderCard(baseCharger({ target_soc_percent: 80, keep_on_after_target: false }))
+        fireEvent.click(screen.getByText('Configure Goal'))
+        const row = screen.getByTestId('ev-keep-on-toggle')
+        const toggle = row.firstElementChild as HTMLElement
+        expect(toggle.className).not.toMatch(/cursor-not-allowed/)
+        expect(screen.queryByText(/requires 100% target/i)).not.toBeInTheDocument()
+        fireEvent.click(toggle)
+        fireEvent.click(screen.getByText('Save Goal'))
+        await waitFor(() =>
+            expect(Api.ev.setSchedule).toHaveBeenCalledWith(
+                'ev1',
+                expect.objectContaining({ target_soc_percent: 80, keep_on_after_target: true }),
+            ),
+        )
     })
 })

@@ -176,3 +176,33 @@ describe('search', () => {
         expect(Array.isArray(result.glossary)).toBe(true)
     })
 })
+
+describe('EV Charging guide', () => {
+    it.each(['phase switching', 'plug-in reminder', 'ready by'])('is found by "%s"', (query) => {
+        expect(searchGuides(query).some((r) => r.guide.id === 'ev-charging')).toBe(true)
+    })
+
+    it('covers every topic of the current EV system', () => {
+        const body = guides.find((g) => g.id === 'ev-charging')!.body
+        for (const topic of [
+            'Setting up a charger',
+            'Charging goals',
+            'How planning works',
+            'Solar surplus',
+            'Replanning',
+            'SoC reading drops out',
+            'of which EV',
+            'Load balancing',
+            'Phase switching',
+            'select.<charger>_psm',
+        ]) {
+            expect(body).toContain(topic)
+        }
+    })
+
+    it('describes keep-on after target as working at any target (ev-target-charging)', () => {
+        const body = guides.find((g) => g.id === 'ev-charging')!.body
+        expect(body).toContain('at any target level')
+        expect(body).not.toMatch(/100% target/)
+    })
+})

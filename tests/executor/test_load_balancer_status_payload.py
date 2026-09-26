@@ -26,7 +26,7 @@ def engine():
             water_heater=None,
             ev_chargers=[],
             load_balancing=MagicMock(
-                enabled=False, main_fuse_a=None, loads=[], resume_margin_percent=90.0
+                enabled=False, main_fuse_a=None, loads=[], target_margin_percent=90.0
             ),
         )
         mock_yaml.return_value = {
@@ -44,7 +44,7 @@ class TestDisabledPayload:
         assert payload["enabled"] is False
         assert payload["state"] == "disabled"
         assert payload["main_fuse_a"] is None
-        assert payload["resume_margin_percent"] == 90.0
+        assert payload["target_margin_percent"] == 90.0
         assert payload["phase_current_a"] == {}
         assert payload["phase_headroom_a"] == {}
         assert payload["ev"] == []
@@ -62,7 +62,7 @@ class TestDisabledPayload:
         payload = engine.get_load_balancer_status()
         assert payload["enabled"] is False
         assert payload["state"] == "disabled"
-        assert payload["resume_margin_percent"] == 90.0
+        assert payload["target_margin_percent"] == 90.0
 
 
 class TestEnabledPayload:
@@ -90,7 +90,7 @@ class TestEnabledPayload:
             assert payload["state"] == state
             assert payload["reason"] == f"reason for {state}"
             assert payload["main_fuse_a"] == 20
-            assert payload["resume_margin_percent"] == 90.0
+            assert payload["target_margin_percent"] == 90.0
             assert payload["phase_current_a"] == {1: 18.0, 2: 5.0, 3: 5.0}
             assert payload["phase_headroom_a"] == {1: 2.0, 2: 15.0, 3: 15.0}
 
