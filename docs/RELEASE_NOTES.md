@@ -1,3 +1,19 @@
+## [v2.7.1-beta] - EV Fixes & Quick Actions - 2026-09-26
+
+**✨ New**
+
+- **Quick action popovers**: Top Up, EV, Boost, Vacay, Risk and Water open a popover (a bottom sheet on mobile) with presets and custom values. The EV current selector now lives in the EV popover. The Auto toggle is removed, and plan status shows Last/Next rows.
+- **Manual EV charging**, with an EV node for each charger on the dashboard.
+- **Smarter EV planning**: charging is priced by how long it's put off, replacing the fixed daily quota. The plan updates straight away when you change a goal and shows that it's waiting while it does.
+- **EV cost breakdown** and energy tracking for each charger. Past slots keep their planned EV charging.
+- **Graceful fuse-limit handling**: EV charging slows down gradually near the fuse limit instead of cutting out.
+
+**🐛 Bug Fixes**
+
+EV charger control is more reliable. Current-based chargers now work, amps adjust to the power actually measured, goals missed during outages are caught up, and stale SOC readings are handled safely. Published Nordpool prices are now preferred over forecasts. HA sensor freshness is judged correctly, base load shows on the House node again, the load profile counts readings that cross midnight, and the logo has no stray bar.
+
+---
+
 ## [v2.7.0-beta] - Load Balancing, Goal-Based EV Charging, Price Forecasting & Stability - 2026-09-18
 
 > [!IMPORTANT]
