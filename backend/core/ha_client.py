@@ -458,20 +458,18 @@ async def get_ha_datetime(entity_id: str) -> datetime | None:
 
 async def get_initial_state(
     config_path: str = "config.yaml",
-    ev_plugged_in_override: bool | None = None,
-    ev_plug_override_charger_id: str | None = None,
+    ev_plug_overrides: dict[str, bool] | None = None,
 ) -> dict[str, Any]:
     """
     Get the initial battery state (Asynchronous).
 
     Args:
         config_path: Path to config.yaml
-        ev_plugged_in_override: If provided, use this value for the specific charger
-            identified by ev_plug_override_charger_id (or all chargers if None).
-        ev_plug_override_charger_id: Charger ID to apply the plug state override to.
-            If None and ev_plugged_in_override is set, applies to the first enabled charger
-            (legacy behaviour). With per-device replans, this should always be set.
+        ev_plug_overrides: Per-charger plug-state overrides ({charger_id: plugged}).
+            A charger listed here uses the override instead of its HA plug sensor
+            (avoids the REST race right after a plug event).
     """
+    plug_overrides: dict[str, bool] = ev_plug_overrides or {}
     config = secrets.load_yaml(config_path)
 
     # Use system.battery if available, otherwise fall back to battery
@@ -531,10 +529,7 @@ async def get_initial_state(
                 per_device_reads.append((key, lambda e=soc_sensor: get_ha_sensor_float(e)))
 
             # Only fetch plug from HA if no override applies to this charger
-            is_override_charger = ev_plug_override_charger_id == charger_id or (
-                ev_plug_override_charger_id is None and ev is enabled_ev_chargers[0]
-            )
-            if plug_sensor and not (ev_plugged_in_override is not None and is_override_charger):
+            if plug_sensor and charger_id not in plug_overrides:
                 key = f"ev_plug_{charger_id}"
                 # Raw state: unavailable/unknown must be told apart from unplugged.
                 per_device_reads.append((key, lambda e=plug_sensor: get_ha_entity_state(e)))
@@ -567,16 +562,11 @@ async def get_initial_state(
                     )
 
             # Plug state
-            is_override_charger = ev_plug_override_charger_id == charger_id or (
-                ev_plug_override_charger_id is None and ev is enabled_ev_chargers[0]
-            )
             unreachable = False
-            if ev_plugged_in_override is not None and is_override_charger:
-                plugged_in = ev_plugged_in_override
+            if charger_id in plug_overrides:
+                plugged_in = plug_overrides[charger_id]
                 remember_plug_state(charger_id, plugged_in)
-                logger.debug(
-                    "EV %s: using plug state override=%s", charger_id, ev_plugged_in_override
-                )
+                logger.debug("EV %s: using plug state override=%s", charger_id, plugged_in)
             elif plug_sensor:
                 plug_state: Any = per_device_results.get(f"ev_plug_{charger_id}")
                 raw_plug: object = (

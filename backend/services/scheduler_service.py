@@ -9,18 +9,36 @@ import asyncio
 import contextlib
 import logging
 import random
+from collections.abc import Coroutine, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from backend.services.planner_service import PlannerResult, planner_service
 
+if TYPE_CHECKING:
+    from concurrent.futures import Future as ConcurrentFuture
+
 logger = logging.getLogger("darkstar.services.scheduler")
 
 _SKIP_LOG_INTERVAL_S = 300
+
+# Goal-change replan requests are collapsed over this window so a burst of goal
+# edits (e.g. HA writing target SoC and ready-by as two events) yields one run.
+GOAL_CHANGE_DEBOUNCE_S = 2.0
+
+
+class ReplanReason(StrEnum):
+    """Why an immediate (non-scheduled) planner run is requested."""
+
+    PLUG_IN = "plug_in"
+    UNPLUG = "unplug"
+    GOAL_CHANGE = "goal_change"
+    LOAD_BALANCER = "load_balancer"
 
 
 @dataclass
@@ -56,6 +74,11 @@ class SchedulerService:
         self._status = SchedulerStatus()
         self._last_skip_reason: str | None = None
         self._last_skip_logged_at: datetime | None = None
+        # Main application event loop, captured at start() so replans requested
+        # from other threads (HA websocket) are dispatched onto it.
+        self.main_loop: asyncio.AbstractEventLoop | None = None
+        self._goal_debounce_task: asyncio.Task[None] | None = None
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def _log_skip(self, reason: str, due_at: datetime | None) -> None:
         """Log a planning skip immediately on reason changes and periodically after."""
@@ -90,6 +113,7 @@ class SchedulerService:
 
         self._running = True
         self._status.running = True
+        self.main_loop = asyncio.get_running_loop()
         self._task = asyncio.create_task(self._loop(), name="scheduler_loop")
         logger.info("Scheduler started")
 
@@ -108,26 +132,58 @@ class SchedulerService:
 
     async def trigger_now(
         self,
-        ev_plugged_in_override: bool | None = None,
-        ev_charger_id_override: str | None = None,
+        ev_plug_overrides: dict[str, bool] | None = None,
     ) -> PlannerResult:
-        """Manually trigger an immediate planner run.
+        """Trigger an immediate planner run (coalesced if one is in progress).
 
         Args:
-            ev_plugged_in_override: If True, passes plugged-in state to planner to avoid REST race
-            ev_charger_id_override: Charger ID to apply the plug state override to (Task 7.3)
+            ev_plug_overrides: Per-charger plug-state overrides ({charger_id: plugged})
+                applied instead of the HA plug sensor to avoid the REST race.
         """
         self._status.current_task = "planning"
         self._last_skip_reason = None
         try:
-            result = await planner_service.run_once(
-                ev_plugged_in_override=ev_plugged_in_override,
-                ev_charger_id_override=ev_charger_id_override,
-            )
-            self._update_status_from_result(result)
+            result = await planner_service.run_once(ev_plug_overrides=ev_plug_overrides)
+            if not result.queued:
+                self._update_status_from_result(result)
             return result
         finally:
             self._status.current_task = "idle"
+
+    def spawn_background(self, coro: Coroutine[Any, Any, Any], *, label: str) -> None:
+        """Run a fire-and-forget coroutine on the current loop, keeping a strong
+        reference until it finishes and logging any failure."""
+        task = asyncio.get_running_loop().create_task(coro)
+        self._background_tasks.add(task)
+
+        def _on_done(t: "asyncio.Task[Any]") -> None:
+            self._background_tasks.discard(t)
+            if not t.cancelled() and t.exception() is not None:
+                logger.error("%s failed: %s", label, t.exception())
+
+        task.add_done_callback(_on_done)
+
+    async def request_goal_replan(self, charger_ids: Iterable[str]) -> None:
+        """Debounced goal-change replan (fire-and-forget).
+
+        Marks the chargers as plan-pending immediately; the first request in a
+        burst starts a GOAL_CHANGE_DEBOUNCE_S timer and later requests join it,
+        so one burst produces exactly one (coalesced) planner run.
+        """
+        planner_service.mark_goal_replan_pending(list(charger_ids))
+        if self._goal_debounce_task is not None and not self._goal_debounce_task.done():
+            return
+        self._goal_debounce_task = asyncio.create_task(
+            self._run_goal_replan_after_debounce(), name="goal_replan_debounce"
+        )
+
+    async def _run_goal_replan_after_debounce(self) -> None:
+        await asyncio.sleep(GOAL_CHANGE_DEBOUNCE_S)
+        self._goal_debounce_task = None
+        try:
+            await self.trigger_now()
+        except Exception:
+            logger.exception("Goal-change replan failed")
 
     async def _loop(self) -> None:
         """Main scheduler loop."""
@@ -224,7 +280,9 @@ class SchedulerService:
 
         try:
             result = await planner_service.run_once()
-            self._update_status_from_result(result)
+            # A coalesced request did not run yet; the follow-up reports its own result.
+            if not result.queued:
+                self._update_status_from_result(result)
 
         finally:
             self._status.current_task = "idle"
@@ -475,3 +533,63 @@ class SchedulerService:
 
 # Global singleton
 scheduler_service = SchedulerService()
+
+
+def request_replan(
+    reason: ReplanReason,
+    *,
+    ev_overrides: dict[str, bool] | None = None,
+    charger_ids: Iterable[str] = (),
+) -> None:
+    """Request an immediate planner run from any thread (fire-and-forget).
+
+    The single dispatch path for plug-in/unplug, goal-change and executor
+    (load-balancer) replans. Runs on the main event loop: via create_task when
+    called on that loop (API, executor), via run_coroutine_threadsafe when
+    called from another thread (HA websocket). Goal-change requests are
+    debounced; the others are dispatched immediately. The executor is never
+    run as part of the replan; it applies the new plan on its next tick.
+
+    Args:
+        reason: Why the replan is requested (logged; selects debounce).
+        ev_overrides: Per-charger plug-state overrides for the run.
+        charger_ids: Chargers whose goal changed (GOAL_CHANGE only; drives plan_pending).
+    """
+    ids = list(charger_ids)
+    if reason is ReplanReason.GOAL_CHANGE:
+        # Synchronously, so a response built right after the request already
+        # reports plan_pending for these chargers.
+        planner_service.mark_goal_replan_pending(ids)
+
+    async def _dispatch() -> None:
+        if reason is ReplanReason.GOAL_CHANGE:
+            await scheduler_service.request_goal_replan(ids)
+        else:
+            await scheduler_service.trigger_now(ev_plug_overrides=ev_overrides)
+
+    try:
+        current_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+    main_loop = scheduler_service.main_loop
+    target_loop = main_loop if main_loop is not None and not main_loop.is_closed() else current_loop
+
+    logger.info("Replan requested (reason=%s, overrides=%s)", reason.value, ev_overrides)
+
+    if target_loop is None:
+        logger.error("No main event loop available; cannot dispatch replan (%s)", reason.value)
+        return
+
+    if current_loop is target_loop:
+        scheduler_service.spawn_background(_dispatch(), label=f"Replan ({reason.value})")
+        return
+
+    future: ConcurrentFuture[Any] = asyncio.run_coroutine_threadsafe(_dispatch(), target_loop)
+
+    def _on_future_done(fut: "ConcurrentFuture[Any]") -> None:
+        try:
+            fut.result()
+        except Exception as exc:
+            logger.error("Replan (%s) failed: %s", reason.value, exc)
+
+    future.add_done_callback(_on_future_done)

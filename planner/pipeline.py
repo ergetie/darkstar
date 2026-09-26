@@ -20,7 +20,11 @@ if TYPE_CHECKING:
     from datetime import date, datetime
 
 
-from backend.core.ev_goal import resolve_next_ready_by, resolve_previous_ready_by
+from backend.core.ev_goal import (
+    backfill_anchor_date,
+    resolve_next_ready_by,
+    resolve_previous_ready_by,
+)
 from backend.core.ev_power import (
     DEFAULT_NOMINAL_VOLTAGE_V,
     charger_power_limits,
@@ -231,6 +235,131 @@ def resolve_ev_effective_deadline(
     return grace_end, True
 
 
+def _ev_plannable(state: dict[str, Any]) -> bool:
+    """A charger the solver plans goal charging for: plugged, or assumed plugged.
+
+    Assumed-plugged chargers (unplugged, active goal, known last SoC) are
+    planned as if connected so the plan shows what will happen once the car
+    is plugged in; the executor never acts on them until it is.
+    """
+    return bool(state.get("plugged_in") or state.get("assumed_plugged"))
+
+
+def _resolve_ev_charger_plan_state(
+    ev_cfg_item: dict[str, Any],
+    ha_state: dict[str, Any],
+    persisted_goal: dict[str, Any],
+    now_dt: datetime,
+    tz: pytz.BaseTzInfo,
+    sqlite_path: str,
+    enabled_charger_count: int,
+) -> dict[str, Any]:
+    """Per-charger planning state (deadline, required kWh, plug/assumed flags).
+
+    Plugged chargers resolve their deadline (with the missed-goal grace).
+    Unplugged chargers with an active goal and a known last SoC (live, else
+    ``persisted_goal["current_soc_percent"]``) are planned as assumed plugged
+    (ev-goal-lifecycle-feedback D7); without a known SoC they are not planned.
+    """
+    charger_id = ev_cfg_item.get("id", "")
+    plugged_in = bool(ha_state.get("plugged_in", False))
+    deadline: datetime | None = None
+    required_kwh: float | None = None
+    keep_on_after_target = bool(ev_cfg_item.get("keep_on_after_target", False))
+    soc_for_plan = ha_state.get("soc_percent")
+    assumed_plugged = False
+
+    in_grace = False
+    if plugged_in:
+        deadline, in_grace = resolve_ev_effective_deadline(ev_cfg_item, ha_state, now_dt, tz)
+        if in_grace and deadline is not None:
+            logger.info(
+                "EV %s: goal %s%% by %s missed (SoC=%.1f%%), still plugged in - "
+                "grace window active, effective deadline %s",
+                charger_id,
+                ev_cfg_item.get("target_soc_percent"),
+                ev_cfg_item.get("ready_by"),
+                float(ha_state.get("soc_percent") or 0.0),
+                deadline.strftime("%Y-%m-%d %H:%M"),
+            )
+        if deadline is not None:
+            required_kwh = _calculate_required_kwh(
+                ev_cfg_item,
+                ha_state,
+                sqlite_path,
+                tz,
+                single_enabled_charger=(enabled_charger_count == 1),
+            )
+            logger.info(
+                "EV %s: SoC=%.1f%%, Plugged=%s, Target=%d%%, "
+                "Required=%.2f kWh, ReadyBy=%s, Deadline=%s",
+                charger_id,
+                ha_state.get("soc_percent") or 0.0,
+                plugged_in,
+                ev_cfg_item.get("target_soc_percent"),
+                required_kwh or 0.0,
+                ev_cfg_item.get("ready_by"),
+                deadline.strftime("%Y-%m-%d %H:%M"),
+            )
+        else:
+            logger.info(
+                "EV %s: SoC=%.1f%%, Plugged=%s, no active deadline",
+                charger_id,
+                ha_state.get("soc_percent") or 0.0,
+                plugged_in,
+            )
+    elif ev_cfg_item.get("target_soc_percent") is not None:
+        # Assumed-plugged planning (ev-goal-lifecycle-feedback D7):
+        # plan the goal as if connected, from the live SoC if HA still
+        # reports it, else the last persisted reading. No SoC known ->
+        # not planned (never a fabricated SoC).
+        if soc_for_plan is None:
+            soc_for_plan = persisted_goal.get("current_soc_percent")
+        candidate_deadline = resolve_next_ready_by(ev_cfg_item, now_dt, tz)
+        if soc_for_plan is None:
+            if candidate_deadline is not None:
+                logger.info(
+                    "EV %s: unplugged with a goal but no known SoC - not planned",
+                    charger_id,
+                )
+        elif candidate_deadline is not None:
+            candidate_required = _calculate_required_kwh(
+                ev_cfg_item,
+                {**ha_state, "soc_percent": float(soc_for_plan)},
+                sqlite_path,
+                tz,
+                single_enabled_charger=(enabled_charger_count == 1),
+            )
+            if candidate_required > 0:
+                deadline = candidate_deadline
+                required_kwh = candidate_required
+                assumed_plugged = True
+                logger.info(
+                    "EV %s: unplugged, planning as assumed plugged "
+                    "(SoC=%.1f%%, Required=%.2f kWh, Deadline=%s)",
+                    charger_id,
+                    float(soc_for_plan),
+                    required_kwh,
+                    deadline.strftime("%Y-%m-%d %H:%M"),
+                )
+
+    return {
+        "id": charger_id,
+        "soc_percent": soc_for_plan,
+        "plugged_in": plugged_in,
+        "assumed_plugged": assumed_plugged,
+        "unreachable": bool(ha_state.get("unreachable", False)),
+        "deadline": deadline,
+        "required_kwh": required_kwh,
+        "keep_on_after_target": keep_on_after_target,
+        "missed_goal_grace": in_grace,
+        "deferral_tiers": [],
+        "deferral_price_source": None,
+        "effective_margin_percent": None,
+        "planned_by_day": [],
+    }
+
+
 def _calculate_required_kwh(
     charger_cfg: dict[str, Any],
     ha_state: dict[str, Any],
@@ -400,7 +529,7 @@ def compute_ev_goal_diagnostics(
     for state in ev_states:
         required_kwh = state.get("required_kwh")
         deadline = state.get("deadline")
-        if not state.get("plugged_in") or required_kwh is None or deadline is None:
+        if not _ev_plannable(state) or required_kwh is None or deadline is None:
             continue
         if required_kwh <= 0:
             continue
@@ -550,6 +679,7 @@ def merge_ev_goals_from_state(
             goal_cfg["repeat"] = charger_state.get("repeat")
             goal_cfg["ready_by_date"] = charger_state.get("ready_by_date")
             goal_cfg["n_days"] = charger_state.get("n_days")
+            goal_cfg["anchor_date"] = charger_state.get("anchor_date")
             goal_cfg["last_updated"] = charger_state.get("last_updated")
             goal_cfg["keep_on_after_target"] = bool(
                 charger_state.get("keep_on_after_target", False)
@@ -567,6 +697,7 @@ def merge_ev_goals_from_state(
             goal_cfg["repeat"] = None
             goal_cfg["ready_by_date"] = None
             goal_cfg["n_days"] = None
+            goal_cfg["anchor_date"] = None
             goal_cfg["last_updated"] = None
             goal_cfg["keep_on_after_target"] = False
             if charger_state and charger_state.get("ready_by"):
@@ -594,14 +725,18 @@ def _persist_ev_multi_day_state(
     tz: pytz.BaseTzInfo,
     now: datetime,
     voltage: float = DEFAULT_NOMINAL_VOLTAGE_V,
+    *,
+    goals_read_at: datetime,
 ) -> None:
     """Merge per-charger progress into ``data/ev_multi_day_state.json``.
 
     Goal fields (``target_soc_percent``, ``ready_by``, ``repeat``,
-    ``ready_by_date``, ``n_days``, ``keep_on_after_target``, ``source``,
-    ``last_updated``) belong to the dashboard/API/HA and are preserved
-    verbatim — the planner never invents or derives a goal from config, and
-    never touches ``last_updated`` (it anchors ``every_n_days``). Progress
+    ``ready_by_date``, ``n_days``, ``anchor_date``, ``keep_on_after_target``,
+    ``source``, ``last_updated``) belong to the dashboard/API/HA and are
+    preserved verbatim — the planner never invents or derives a goal from
+    config and never touches ``last_updated``. The one exception is the
+    legacy ``every_n_days`` backfill: a goal without ``anchor_date`` gets its
+    current ``last_updated``-derived anchor persisted so the cycle is locked. Progress
     fields (``deadline``, ``required_kwh``, ``delivered_kwh``,
     ``remaining_kwh``, ``planned_by_day``, ``deferral_price_source``,
     ``effective_margin_percent``, ``status``, ``last_planned_at``) are
@@ -609,6 +744,10 @@ def _persist_ev_multi_day_state(
     ``quota_schedule`` keys are dropped (the entry is rebuilt).
     Chargers with no goal, or not processed this run (disabled/skipped), keep
     their existing entry untouched — this is a merge, not a replace.
+
+    ``last_planned_at`` is ``goals_read_at``: the wall-clock instant the run
+    read the goals (not the floored slot time ``now``). The API treats a goal
+    as pending while its wall-clock ``last_updated`` is later than this.
     """
     from backend.core.ev_state import update_ev_state
 
@@ -637,6 +776,8 @@ def _persist_ev_multi_day_state(
             remaining_kwh = None if required_kwh is None else max(0.0, required_kwh)
 
             margin = state.get("effective_margin_percent")
+            goal_view = dict(existing_charger)
+            backfill_anchor_date(goal_view, tz)
 
             new_entry: dict[str, Any] = {
                 # Goal fields: preserved verbatim, never derived from config.
@@ -645,6 +786,7 @@ def _persist_ev_multi_day_state(
                 "repeat": existing_charger.get("repeat"),
                 "ready_by_date": existing_charger.get("ready_by_date"),
                 "n_days": existing_charger.get("n_days"),
+                "anchor_date": goal_view.get("anchor_date"),
                 "keep_on_after_target": bool(existing_charger.get("keep_on_after_target", False)),
                 "source": existing_charger.get("source"),
                 "last_updated": existing_charger.get("last_updated"),
@@ -668,7 +810,8 @@ def _persist_ev_multi_day_state(
                     now,
                 ),
                 "missed_goal_grace": bool(state.get("missed_goal_grace", False)),
-                "last_planned_at": now.isoformat(),
+                "assumed_plugged": bool(state.get("assumed_plugged", False)),
+                "last_planned_at": goals_read_at.isoformat(),
             }
             # The executor's active manual charge (ev-manual-charge) shares
             # this entry; it is not the planner's to drop.
@@ -893,7 +1036,7 @@ async def _build_ev_deferral_plans(
     now: datetime,
     voltage: float,
 ) -> dict[str, DeferralPlan]:
-    """Compute deferral tiers for every plugged charger with an active goal.
+    """Compute deferral tiers for every plugged (or assumed-plugged) charger with an active goal.
 
     Mutates each state dict with ``deferral_tiers`` (for the adapter),
     ``deferral_price_source`` and ``effective_margin_percent`` (persisted).
@@ -914,7 +1057,7 @@ async def _build_ev_deferral_plans(
     for state in ev_states:
         deadline = cast("datetime | None", state.get("deadline"))
         required_kwh = cast("float | None", state.get("required_kwh"))
-        if not state.get("plugged_in") or deadline is None or required_kwh is None:
+        if not _ev_plannable(state) or deadline is None or required_kwh is None:
             continue
         if required_kwh <= 0:
             continue
@@ -1459,6 +1602,7 @@ class PlannerPipeline:
         ev_voltage = nominal_voltage_v(active_config)
         ev_deferral_plans: dict[str, DeferralPlan] = {}
         sqlite_path_ev = ""
+        goals_read_at: datetime = pd.Timestamp.now(tz="UTC").to_pydatetime()  # re-stamped below
         if has_ev_charger:
             ev_charger_states_raw: list[dict[str, Any]] = initial_state.get("ev_charger_states", [])
             ev_chargers_cfg_raw: list[dict[str, Any]] = active_config.get("ev_chargers", [])
@@ -1470,6 +1614,11 @@ class PlannerPipeline:
 
             from backend.core.ev_state import read_ev_state
 
+            # Wall-clock instant this run read the goals (never the floored
+            # slot time or now_override): goal ``last_updated`` stamps are
+            # wall-clock, so an edit is covered by this plan only if it is
+            # at or before this instant. Edits during the run stay pending.
+            goals_read_at = pd.Timestamp.now(tz=tz).to_pydatetime()
             ev_state_data = read_ev_state()
             ev_chargers_cfg = merge_ev_goals_from_state(ev_chargers_cfg_raw, ev_state_data)
             enabled_charger_count = sum(1 for c in ev_chargers_cfg if c.get("enabled", True))
@@ -1485,68 +1634,16 @@ class PlannerPipeline:
                     (s for s in ev_charger_states_raw if s.get("id") == charger_id),
                     default_state,
                 )
-                plugged_in = bool(ha_state.get("plugged_in", False))
-                deadline: datetime | None = None
-                required_kwh: float | None = None
-                keep_on_after_target = bool(ev_cfg_item.get("keep_on_after_target", False))
-
-                in_grace = False
-                if plugged_in:
-                    deadline, in_grace = resolve_ev_effective_deadline(
-                        ev_cfg_item, ha_state, now_dt, tz
-                    )
-                    if in_grace and deadline is not None:
-                        logger.info(
-                            "EV %s: goal %s%% by %s missed (SoC=%.1f%%), still plugged in - "
-                            "grace window active, effective deadline %s",
-                            charger_id,
-                            ev_cfg_item.get("target_soc_percent"),
-                            ev_cfg_item.get("ready_by"),
-                            float(ha_state.get("soc_percent") or 0.0),
-                            deadline.strftime("%Y-%m-%d %H:%M"),
-                        )
-                    if deadline is not None:
-                        required_kwh = _calculate_required_kwh(
-                            ev_cfg_item,
-                            ha_state,
-                            sqlite_path,
-                            tz,
-                            single_enabled_charger=(enabled_charger_count == 1),
-                        )
-                        logger.info(
-                            "EV %s: SoC=%.1f%%, Plugged=%s, Target=%d%%, "
-                            "Required=%.2f kWh, ReadyBy=%s, Deadline=%s",
-                            charger_id,
-                            ha_state.get("soc_percent") or 0.0,
-                            plugged_in,
-                            ev_cfg_item.get("target_soc_percent"),
-                            required_kwh or 0.0,
-                            ev_cfg_item.get("ready_by"),
-                            deadline.strftime("%Y-%m-%d %H:%M"),
-                        )
-                    else:
-                        logger.info(
-                            "EV %s: SoC=%.1f%%, Plugged=%s, no active deadline",
-                            charger_id,
-                            ha_state.get("soc_percent") or 0.0,
-                            plugged_in,
-                        )
-
                 ev_charger_states_with_goal.append(
-                    {
-                        "id": charger_id,
-                        "soc_percent": ha_state.get("soc_percent"),
-                        "plugged_in": plugged_in,
-                        "unreachable": bool(ha_state.get("unreachable", False)),
-                        "deadline": deadline,
-                        "required_kwh": required_kwh,
-                        "keep_on_after_target": keep_on_after_target,
-                        "missed_goal_grace": in_grace,
-                        "deferral_tiers": [],
-                        "deferral_price_source": None,
-                        "effective_margin_percent": None,
-                        "planned_by_day": [],
-                    }
+                    _resolve_ev_charger_plan_state(
+                        ev_cfg_item,
+                        ha_state,
+                        ev_state_data.get(charger_id, {}),
+                        now_dt,
+                        tz,
+                        sqlite_path,
+                        enabled_charger_count,
+                    )
                 )
 
             sqlite_path_ev = sqlite_path
@@ -1721,6 +1818,7 @@ class PlannerPipeline:
                     tz,
                     now_dt,
                     ev_voltage,
+                    goals_read_at=goals_read_at,
                 )
             except Exception as exc:
                 logger.warning("EV multi-day state persistence failed: %s", exc)
@@ -1833,6 +1931,13 @@ class PlannerPipeline:
                 planner_state_debug,
                 extra_meta={
                     "ev_goal_diagnostics": ev_goal_diagnostics,
+                    # Chargers planned while unplugged ("planned - awaiting plug-in");
+                    # the executor never acts on their slots until plugged.
+                    "ev_assumed_plugged": [
+                        str(st.get("id", ""))
+                        for st in ev_charger_states_with_goal
+                        if st.get("assumed_plugged")
+                    ],
                     "time_limit_hit": result.time_limit_hit,
                 },
             )

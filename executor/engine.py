@@ -24,7 +24,7 @@ import logging
 import os
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -412,6 +412,8 @@ class ExecutorEngine:
 
         # Async background tasks reference (RUF006 fix)
         self._background_tasks: set[asyncio.Task[Any]] = set()
+        # ev-plug-in-reminder dedupe: charger_id -> start of the window reminded for
+        self._plug_in_reminder_sent: dict[str, datetime] = {}
 
         # Config and profile mtime caching
         self._config_mtime: float | None = None
@@ -1618,6 +1620,16 @@ class ExecutorEngine:
             if self._ev_manual_charge:
                 await self._check_ev_manual_charge_end(now)
             self._maybe_request_ev_manual_replan(now)
+
+            # ev-goal-lifecycle-feedback D7/D8: planned EV charging is only
+            # actionable for chargers that are live-plugged (the plan may include
+            # assumed-plugged slots for a car that is away). Gate the slot once
+            # so switch control, source isolation, surplus and the balancer all
+            # see the same actionable plan; remind the user to plug in.
+            if slot is not None and self._has_ev_charger and self.config.ev_chargers:
+                plug_states = await self._read_ev_plug_states()
+                await self._check_plug_in_reminders(now, plug_states)
+                slot = self._gate_ev_plan_on_plug_state(slot, plug_states)
 
             # 4. Check for active Quick Action OR Water Boost
             quick_action = self._get_quick_action_status()
@@ -3194,21 +3206,11 @@ class ExecutorEngine:
         return True
 
     def _request_balancer_replan(self) -> None:
-        """Request a planner run via the same mechanism as the plug/unplug triggers."""
+        """Request a planner run via the shared replan dispatch helper."""
         try:
-            from backend.services.scheduler_service import scheduler_service
+            from backend.services.scheduler_service import ReplanReason, request_replan
 
-            task = asyncio.create_task(scheduler_service.trigger_now())
-            self._background_tasks.add(task)
-
-            def _on_done(t: "asyncio.Task[Any]") -> None:
-                self._background_tasks.discard(t)
-                try:
-                    t.result()
-                except Exception as exc:
-                    logger.error("Balancer-triggered replan failed: %s", exc)
-
-            task.add_done_callback(_on_done)
+            request_replan(ReplanReason.LOAD_BALANCER)
         except Exception as e:
             logger.error("Failed to request balancer-triggered replan: %s", e)
 
@@ -3442,6 +3444,154 @@ class ExecutorEngine:
         if keep_on_charger_ids:
             return f"{EV_KEEP_ON_REASON_MARKER}: {', '.join(keep_on_charger_ids)}"
         return None
+
+    def _first_planned_ev_starts(self, now: datetime) -> dict[str, datetime]:
+        """Start of each charger's first current-or-upcoming slot with planned kW > 0.1.
+
+        Read from schedule.json (the plan the executor follows). A slot already
+        in progress counts, so a car still away at the start is reminded.
+        """
+        try:
+            with Path(self.config.schedule_path).open(encoding="utf-8") as f:
+                payload: Any = json.load(f)
+        except (OSError, ValueError):
+            return {}
+        schedule_raw: Any = (
+            cast("dict[str, Any]", payload).get("schedule", []) if isinstance(payload, dict) else []
+        )
+        if not isinstance(schedule_raw, list):
+            return {}
+        tz = pytz.timezone(self.config.timezone)
+        starts: dict[str, datetime] = {}
+        for item in cast("list[Any]", schedule_raw):
+            if not isinstance(item, dict):
+                continue
+            slot_data = cast("dict[str, Any]", item)
+            start_str = slot_data.get("start_time")
+            if not start_str:
+                continue
+            try:
+                start = datetime.fromisoformat(str(start_str).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            start = tz.localize(start) if start.tzinfo is None else start.astimezone(tz)
+            end = start + timedelta(minutes=15)
+            end_str = slot_data.get("end_time_kepler") or slot_data.get("end_time")
+            if end_str:
+                try:
+                    parsed_end = datetime.fromisoformat(str(end_str).replace("Z", "+00:00"))
+                    parsed_end = (
+                        tz.localize(parsed_end)
+                        if parsed_end.tzinfo is None
+                        else parsed_end.astimezone(tz)
+                    )
+                    if parsed_end > start:
+                        end = parsed_end
+                except ValueError:
+                    pass
+            if end <= now:
+                continue
+            plan = self._parse_slot_plan(slot_data)
+            for charger_id, kw in plan.ev_charger_plans.items():
+                if kw > 0.1 and charger_id not in starts:
+                    starts[charger_id] = start
+        return starts
+
+    async def _check_plug_in_reminders(
+        self, now: datetime, plug_states: dict[str, EVPlugState]
+    ) -> None:
+        """Notify once per charging window when charging is planned soon but the
+        car is not plugged in (ev-plug-in-reminder). Plugging in resets it."""
+        enabled = [c for c in self.config.ev_chargers if c.plug_in_reminder_minutes]
+        if not enabled or not self.dispatcher:
+            return
+        starts: dict[str, datetime] | None = None
+        for charger in enabled:
+            plug = plug_states.get(charger.id, "unknown")
+            if plug == "plugged":
+                self._plug_in_reminder_sent.pop(charger.id, None)
+                continue
+            if starts is None:
+                starts = self._first_planned_ev_starts(now)
+            start = starts.get(charger.id)
+            if start is None:
+                continue
+            lead = timedelta(minutes=int(charger.plug_in_reminder_minutes or 0))
+            if now < start - lead or self._plug_in_reminder_sent.get(charger.id) == start:
+                continue
+            self._plug_in_reminder_sent[charger.id] = start
+            message = (
+                f"{charger.name or charger.id}: charging planned at {start.strftime('%H:%M')} "
+                "but the car isn't plugged in"
+            )
+            logger.info("Plug-in reminder: %s", message)
+            try:
+                await self.dispatcher.notify_plug_in_reminder(message)
+            except Exception as e:
+                logger.warning("Failed to send plug-in reminder: %s", e)
+
+    async def _read_ev_plug_states(self) -> dict[str, EVPlugState]:
+        """Live plug state per configured charger (shared ``read_ev_live_state``).
+
+        A charger without a plug sensor reads as plugged (same assumption as the
+        planner); an unreadable/unreachable plug reads as ``unknown``. Empty when
+        there is no HA client (nothing can be switched then anyway).
+        """
+        states: dict[str, EVPlugState] = {}
+        if not self.ha_client:
+            return states
+        for charger in self.config.ev_chargers:
+            live = await read_ev_live_state(
+                charger.id,
+                self.ha_client.get_state_value,
+                soc_sensor=None,
+                plug_sensor=charger.plug_sensor,
+                plugged_in_states=charger.plugged_in_states,
+            )
+            states[charger.id] = live.plug
+        return states
+
+    def _gate_ev_plan_on_plug_state(
+        self, slot: SlotPlan, plug_states: dict[str, EVPlugState]
+    ) -> SlotPlan:
+        """Drop planned kW, keep-on and surplus flags of chargers not live-plugged.
+
+        Unknown plug state counts as not plugged. Manual charge is handled
+        separately (it checks the plug itself) and the measured-EV-draw
+        fail-safe for source isolation is unaffected. Without an HA client the
+        slot is returned unchanged.
+        """
+        if not self.ha_client:
+            return slot
+        charger_ids = set(slot.ev_charger_plans) | set(slot.ev_keep_on) | set(slot.ev_surplus_kw)
+        blocked = {cid for cid in charger_ids if plug_states.get(cid, "unknown") != "plugged"}
+        blocked_active = {
+            cid
+            for cid in blocked
+            if slot.ev_charger_plans.get(cid, 0.0) > 0.1
+            or slot.ev_keep_on.get(cid, False)
+            or slot.ev_surplus_kw.get(cid, 0.0) > 0.01
+        }
+        if not blocked_active:
+            return slot
+        removed_kw = sum(slot.ev_charger_plans.get(cid, 0.0) for cid in blocked)
+        logger.info(
+            "EV plan not actionable for %s (charger not plugged in) - ignoring planned charging",
+            ", ".join(sorted(blocked_active)),
+        )
+        return replace(
+            slot,
+            ev_charging_kw=max(0.0, slot.ev_charging_kw - removed_kw),
+            ev_charger_plans={
+                cid: (0.0 if cid in blocked else kw) for cid, kw in slot.ev_charger_plans.items()
+            },
+            ev_keep_on={
+                cid: (False if cid in blocked else on) for cid, on in slot.ev_keep_on.items()
+            },
+            ev_surplus_kw={
+                cid: (0.0 if cid in blocked else kw) for cid, kw in slot.ev_surplus_kw.items()
+            },
+        )
 
     def _charger_should_be_on(self, slot: "SlotPlan | None", charger_id: str) -> bool:
         """True when a charger has planned power, is held on via

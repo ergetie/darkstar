@@ -17,7 +17,8 @@ async def run_planner() -> dict[str, Any]:
     Uses asyncio.to_thread() internally to avoid blocking the event loop.
     Returns structured response with timing and slot count.
     """
-    result = await planner_service.run_once()
+    # If a run is in progress, wait for the coalesced follow-up instead of erroring.
+    result = await planner_service.run_once(wait=True)
 
     if result.success:
         return {

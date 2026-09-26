@@ -23,6 +23,8 @@ import { formatHour, DaySel, isToday, isTomorrow } from '../lib/time'
 const EV_STANDBY_BAND_KW = 0.3
 
 // Hook: returns true when viewport is below Tailwind's `md` breakpoint (768px)
+const EV_AWAITING_PLUG_IN_LABEL = 'EV Planned — Awaiting Plug-in'
+
 function useIsMobile(): boolean {
     const [isMobile, setIsMobile] = useState(() => {
         if (typeof window === 'undefined') return false
@@ -109,6 +111,9 @@ const chartOptions: ChartConfiguration['options'] = {
                     const datasetLabel = context.dataset.label || ''
                     if (datasetLabel === 'EV Standby') {
                         return 'EV Standby: Charger switch held on after target — car draws only what it needs'
+                    }
+                    if (datasetLabel === EV_AWAITING_PLUG_IN_LABEL && context.parsed.y != null) {
+                        return `${EV_AWAITING_PLUG_IN_LABEL}: ${context.parsed.y.toFixed(2)} kW — planned, starts once the car is plugged in`
                     }
                     const value = context.parsed.y
                     if (value === null || value === undefined) return ''
@@ -260,6 +265,7 @@ type ChartValues = {
     evCharging?: (number | null)[]
     evSurplus?: (number | null)[]
     evKeepOn?: (number | null)[]
+    evAwaitingPlugIn?: (number | null)[]
     socTarget?: (number | null)[]
     socProjected?: (number | null)[]
     socActual?: (number | null)[]
@@ -700,6 +706,25 @@ const createChartData = (
                 order: 0,
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
             } as any,
+            {
+                // Planned goal charging for an unplugged car (assumed plugged):
+                // hollow dashed violet bars, distinct from actionable EV charging.
+                type: 'bar',
+                label: EV_AWAITING_PLUG_IN_LABEL,
+                data: values.evAwaitingPlugIn ?? values.labels.map(() => null),
+                backgroundColor: 'rgba(139, 92, 246, 0.08)', // DS.ai (violet), faint fill
+                borderColor: DS.ai,
+                borderDash: [4, 3],
+                glow: false,
+                borderWidth: 1,
+                borderRadius: 2,
+                yAxisID: 'y1',
+                barPercentage: 0.85,
+                categoryPercentage: 0.9,
+                grouped: false,
+                order: 0,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
         ],
     }
 
@@ -941,6 +966,8 @@ type ChartCardProps = {
     refreshToken?: number
     useHistoryForToday?: boolean
     slotsOverride?: ScheduleSlot[]
+    /** Chargers planned while unplugged; their slots render as "awaiting plug-in" */
+    evAwaitingPlugInIds?: string[]
 }
 
 export default function ChartCard({
@@ -948,7 +975,10 @@ export default function ChartCard({
     refreshToken = 0,
     slotsOverride,
     useHistoryForToday = false,
+    evAwaitingPlugInIds,
 }: ChartCardProps) {
+    // Stable key so the data effect only re-runs when the set of ids changes.
+    const evAwaitingKey = (evAwaitingPlugInIds ?? []).slice().sort().join(',')
     const isMobile = useIsMobile()
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
     const [hasRealData, setHasRealData] = useState(false) // Track when real data has been loaded
@@ -1377,7 +1407,14 @@ export default function ChartCard({
         if (!isChartUsable(chartInstance) || Object.keys(themeColors).length === 0) return
         const applyData = (slots: ScheduleSlot[]) => {
             if (!isChartUsable(chartRef.current)) return
-            const liveData = buildLiveData(slots, currentDay, themeColors, pricingConfig, excessPvPowerKw)
+            const liveData = buildLiveData(
+                slots,
+                currentDay,
+                themeColors,
+                pricingConfig,
+                excessPvPowerKw,
+                evAwaitingKey ? evAwaitingKey.split(',') : [],
+            )
             if (!liveData) return
 
             setHasNoDataMessage(!!liveData.hasNoData)
@@ -1407,6 +1444,7 @@ export default function ChartCard({
             if (ds[19]) ds[19].hidden = !overlays.showActual || !overlays.export
             if (ds[20]) ds[20].hidden = !overlays.showActual || !overlays.water
             if (ds[21]) ds[21].hidden = !overlays.evKeepOn // EV Standby
+            if (ds[22]) ds[22].hidden = !overlays.ev // EV awaiting plug-in
 
             try {
                 if (chartRef.current) {
@@ -1474,6 +1512,7 @@ export default function ChartCard({
         useHistoryForToday,
         pricingConfig,
         excessPvPowerKw,
+        evAwaitingKey,
     ])
 
     // Memoize theme colors to prevent unnecessary re-computations
@@ -1613,6 +1652,7 @@ export function buildLiveData(
     themeColors: Record<string, string> = {},
     pricing?: { vat: number; fees: number },
     excessPvPowerKw: number = 1.0,
+    evAwaitingPlugInIds: string[] = [],
 ): (ExtendedChartData & { hasTomorrowPrices: boolean }) | null {
     const hasTomorrowPrices = slots.some((slot) => isTomorrow(slot.start_time) && slot.import_price_sek_kwh != null)
     const filtered = slots.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
@@ -1713,6 +1753,8 @@ export function buildLiveData(
     const evCharging: (number | null)[] = []
     const evSurplus: (number | null)[] = []
     const evKeepOn: (number | null)[] = []
+    const evAwaitingPlugIn: (number | null)[] = []
+    const awaitingIds = new Set(evAwaitingPlugInIds)
     const socTarget: (number | null)[] = []
     const socProjected: (number | null)[] = []
     const socActual: (number | null)[] = []
@@ -1763,7 +1805,16 @@ export function buildLiveData(
                     : null,
             )
             const regularEv = slot.ev_charging_kw ?? 0
-            evCharging.push(regularEv > 0.01 ? regularEv : null)
+            // Split planned EV kW of assumed-plugged chargers into its own series.
+            const awaitingEv = slot.ev_chargers
+                ? Object.entries(slot.ev_chargers).reduce(
+                      (sum, [id, kw]) => (awaitingIds.has(id) ? sum + (kw || 0) : sum),
+                      0,
+                  )
+                : 0
+            const actionableEv = Math.max(0, regularEv - awaitingEv)
+            evCharging.push(actionableEv > 0.01 ? actionableEv : null)
+            evAwaitingPlugIn.push(awaitingEv > 0.01 ? awaitingEv : null)
 
             const surplusEv = slot.ev_surplus_kw
                 ? Object.values(slot.ev_surplus_kw).reduce((sum: number, val: number) => sum + (val || 0), 0)
@@ -1795,6 +1846,7 @@ export function buildLiveData(
             evCharging.push(null)
             evSurplus.push(null)
             evKeepOn.push(null)
+            evAwaitingPlugIn.push(null)
             water.push(null)
             waterBoost.push(null)
             customEntityActive.push(null)
@@ -1840,6 +1892,7 @@ export function buildLiveData(
                 evCharging,
                 evSurplus,
                 evKeepOn,
+                evAwaitingPlugIn,
                 socTarget,
                 socProjected,
                 socActual,

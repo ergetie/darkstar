@@ -33,6 +33,10 @@ class EVChargerInput:
     plugged_in: bool
     deadline: datetime | None
     required_kwh: float | None = None
+    # Unplugged charger with an active goal and known last SoC, planned as if
+    # connected (scheduled charging + deferral tiers, never surplus). The
+    # executor does not act on its slots until the charger is plugged in.
+    assumed_plugged: bool = False
     # Minimum plannable power when charging is on. Only meaningful for
     # control_type "current" (semi-continuous); derived by the adapter from
     # min_current_a x phases. Defaults to 0.0 for "binary" callers that don't

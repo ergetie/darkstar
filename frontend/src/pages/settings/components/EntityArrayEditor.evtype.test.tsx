@@ -1,5 +1,5 @@
 /* load-balancing-completion 7.3: dynamic-current explainer + no-SoC warning */
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { EntityArrayEditor, type EVChargerEntity } from './EntityArrayEditor'
@@ -258,5 +258,34 @@ describe('EV charger phases requirement (ev-planning-model 7.x)', () => {
         expect(evChargerDisabledReason(binary, 120)).toBeNull()
         expect(evChargerPowerLimits(binary, 120)).toEqual({ minKw: 3.7, maxKw: 3.7 })
         expect(evChargerArrayError(JSON.stringify([binary]))).toBeNull()
+    })
+})
+
+describe('EV charger plug-in reminder (EntityArrayEditor)', () => {
+    function renderWithSpy(charger: EVChargerEntity) {
+        const onChange = vi.fn()
+        render(
+            <MemoryRouter>
+                <EntityArrayEditor entities={[charger]} entityType="ev_charger" onChange={onChange} />
+            </MemoryRouter>,
+        )
+        return onChange
+    }
+
+    it('defaults to Off', () => {
+        renderWithSpy(makeCharger())
+        expect(screen.getByLabelText('Plug-in reminder')).toHaveValue('0')
+    })
+
+    it('persists a 15-minute reminder', () => {
+        const onChange = renderWithSpy(makeCharger())
+        fireEvent.change(screen.getByLabelText('Plug-in reminder'), { target: { value: '15' } })
+        expect(onChange).toHaveBeenCalledWith([expect.objectContaining({ plug_in_reminder_minutes: 15 })])
+    })
+
+    it('shows the custom value input for a non-preset value', () => {
+        renderWithSpy(makeCharger({ plug_in_reminder_minutes: 45 }))
+        expect(screen.getByLabelText('Plug-in reminder')).toHaveValue('custom')
+        expect(screen.getByLabelText('Plug-in reminder minutes')).toHaveValue(45)
     })
 })

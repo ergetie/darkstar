@@ -70,7 +70,7 @@ Config validation SHALL NOT require Home Assistant to be reachable, and SHALL NO
 - **THEN** config validation SHALL accept the charger and its limits SHALL be derived
 
 ### Requirement: Per-device MILP decision variables
-The Kepler solver SHALL create separate decision variables for each plugged-in, enabled EV charger: a binary `ev_charge[d][t]` (charging on/off) and continuous `ev_energy[d][t]` (energy in kWh) indexed by device `d` and time slot `t`.
+The Kepler solver SHALL create separate decision variables for each enabled EV charger that is plugged in, and for each enabled EV charger that is unplugged but has an active goal with a resolved deadline and a known last SoC ("assumed plugged"): a binary `ev_charge[d][t]` (charging on/off) and continuous `ev_energy[d][t]` (energy in kWh) indexed by device `d` and time slot `t`. Assumed-plugged chargers SHALL NOT receive surplus-charging variables. Their goal requirement SHALL be modelled exactly as for a plugged charger with a goal (in-horizon scheduled energy plus post-horizon deferral tiers plus shortfall, per `ev-deferral-value`); only surplus energy is absent from it. Their scheduled energy SHALL count in the energy balance and grid import budget like any other charger, and their results SHALL be marked `assumed_plugged: true` in the per-charger schedule output.
 
 The energy link SHALL depend on the charger's control type:
 
@@ -86,10 +86,20 @@ The binary `ev_charge[d][t]` SHALL continue to drive discharge blocking (`any_ev
 - **THEN** the solver SHALL create independent binary and energy variables for each charger
 - **AND** each charger MAY charge in different time slots
 
-#### Scenario: Unplugged charger gets no variables
-- **WHEN** a charger is enabled but not plugged in
+#### Scenario: Unplugged charger without a goal gets no variables
+- **WHEN** a charger is enabled but not plugged in and has no active goal
 - **THEN** the solver SHALL NOT create decision variables for that charger
 - **AND** no energy demand from that charger SHALL appear in the energy balance
+
+#### Scenario: Unplugged charger with a goal is planned as assumed plugged
+- **WHEN** a charger is enabled, unplugged, has an active goal with a resolved deadline and a last known SoC
+- **THEN** the solver SHALL create scheduled-charging variables for it but no surplus variables
+- **AND** deferral tiers SHALL be built for it when its deadline is beyond the horizon, as for a plugged charger
+- **AND** its results SHALL be marked `assumed_plugged: true`
+
+#### Scenario: Unplugged charger with a goal but no known SoC
+- **WHEN** a charger is unplugged with an active goal and no live or persisted SoC is available
+- **THEN** the solver SHALL NOT create variables for that charger
 
 #### Scenario: Single charger behaves identically to current system
 - **WHEN** only one enabled `type: binary` charger is plugged in
@@ -306,16 +316,25 @@ A `HealthIssue` with `category="ev"`, `severity="critical"`, and `code="EV_MISSI
 - **AND** the next planner run includes the charger in `KeplerConfig.ev_chargers`
 
 ### Requirement: Per-device ready-by resolution
-The pipeline SHALL resolve each charger's next ready-by datetime independently from its state-file goal (`ready_by` + `repeat`, `n_days` when `repeat: every_n_days`, or `ready_by_date` when `repeat: none`). Resolution SHALL use **one shared resolver function** used identically by the planner pipeline, the schedule API, and the HA sync — divergent duplicate implementations are a defect. The shared resolver SHALL default `n_days` to 1 and SHALL anchor the `every_n_days` cycle to the goal's `last_updated` date (deterministic and user-controllable by re-saving), not a hard-coded epoch. A missing/null `repeat` SHALL be treated as `daily` (never string-matched against `"none"`). This resolved datetime SHALL be used as the Kepler deadline for that charger. A charger past a non-repeating ready-by datetime SHALL have no deadline (inert).
+The pipeline SHALL resolve each charger's next ready-by datetime independently from its state-file goal (`ready_by` + `repeat`, `n_days` when `repeat: every_n_days`, or `ready_by_date` when `repeat: none`). Resolution SHALL use **one shared resolver function** used identically by the planner pipeline, the schedule API, and the HA sync — divergent duplicate implementations are a defect. The shared resolver SHALL default `n_days` to 1 and SHALL anchor the `every_n_days` cycle to the goal's `anchor_date`, falling back to the local date of `last_updated` only for legacy goals without an `anchor_date` (the fallback value SHALL be persisted as `anchor_date` by the next goal write so the cycle is locked), not a hard-coded epoch. A missing/null `repeat` SHALL be treated as `daily` (never string-matched against `"none"`). This resolved datetime SHALL be used as the Kepler deadline for that charger. A charger past a non-repeating ready-by datetime SHALL have no deadline (inert). Resolution SHALL apply to chargers with an active goal whether or not they are currently plugged in.
 
 #### Scenario: Daily repeat resolves to the next occurrence
 - **WHEN** `ready_by: "07:00"`, `repeat: daily`, and the current time is 22:00
 - **THEN** the resolved deadline SHALL be tomorrow 07:00
 
 #### Scenario: Every-N-days repeat
-- **WHEN** `repeat: every_n_days`, `n_days: 3`, and the goal was last saved today
-- **THEN** the resolved deadline SHALL be the `ready_by` time 3 days from the save date, and every 3 days thereafter
+- **WHEN** `repeat: every_n_days`, `n_days: 3`, and `anchor_date` is today
+- **THEN** the resolved deadline SHALL be the `ready_by` time 3 days from the anchor date, and every 3 days thereafter
 - **AND** the API, planner, and HA sync SHALL all resolve the same datetime
+
+#### Scenario: Anchor unaffected by unrelated writes
+- **WHEN** an every-3-days goal has `anchor_date` 2026-09-20 and its `last_updated` is rewritten on 2026-09-25 by an HA change
+- **THEN** the resolved deadlines SHALL still fall on 2026-09-23, 2026-09-26, …
+
+#### Scenario: Legacy goal without an anchor
+- **WHEN** an every-N-days goal has no `anchor_date`
+- **THEN** the resolver SHALL use the local date of `last_updated`
+- **AND** the next goal write SHALL persist that date as `anchor_date`
 
 #### Scenario: One-off date in the future
 - **WHEN** `repeat: none`, `ready_by_date: "2026-06-12"`, `ready_by: "07:00"`, and today is 2026-06-08
@@ -328,6 +347,10 @@ The pipeline SHALL resolve each charger's next ready-by datetime independently f
 #### Scenario: Null repeat from a legacy state file
 - **WHEN** a state-file goal has `repeat: null`
 - **THEN** the resolver SHALL treat it as `daily` (not as the one-off `"none"` mode)
+
+#### Scenario: Unplugged charger with a goal
+- **WHEN** a charger with a daily 07:00 goal is unplugged at 22:00
+- **THEN** its deadline SHALL still resolve to tomorrow 07:00
 
 ### Requirement: Per-device EV config supports optional HA goal entities
 Each entry in `ev_chargers[]` SHALL support two optional fields: `ha_ready_by_entity` (string, HA `input_datetime` entity ID) and `ha_target_soc_entity` (string, HA `input_number` entity ID). When configured, the backend SHALL sync the charger's ready-by time and target SoC bidirectionally with those entities, and HA values SHALL take priority over the dashboard value when set. (The core goal fields — `target_soc_percent`, `ready_by`, `repeat`, `keep_on_after_target` — are defined by the `per-device-ev-scheduling` change in Module 4. **No `charge_priority`** — surplus ordering is owned by `excess_pv.priority[]`.)
@@ -345,3 +368,20 @@ Each entry in `ev_chargers[]` SHALL support two optional fields: `ha_ready_by_en
 #### Scenario: HA value overrides the dashboard value
 - **WHEN** both an HA goal entity and a dashboard-set value exist for the same field
 - **THEN** the HA value SHALL take precedence (mirroring the vacation-mode override)
+
+### Requirement: Executor ignores planned charging for chargers that are not plugged in
+The executor SHALL use a charger's planned EV kW, keep-on flag and surplus flag for switch control and source isolation only while the charger's live plug state is connected. When the plug state is disconnected or unknown, planned charging for that charger SHALL NOT switch the charger on and SHALL NOT block battery discharge. The measured-EV-draw fail-safe for source isolation and manual-charge handling SHALL be unaffected.
+
+#### Scenario: Assumed-plugged slot while the car is away
+- **WHEN** the current slot plans 7 kW for a charger that is unplugged
+- **THEN** the executor SHALL NOT switch the charger on
+- **AND** SHALL NOT block battery discharge on account of that planned charging
+
+#### Scenario: Car plugged in during a planned slot
+- **WHEN** the car is plugged in during a slot with planned charging
+- **THEN** the executor SHALL act on the plan from the next tick (the plug-in replan then refreshes the plan with real state)
+
+#### Scenario: Plug state unknown
+- **WHEN** the charger's plug state cannot be read
+- **THEN** planned charging SHALL be treated as not actionable for that charger
+- **AND** measured EV draw above threshold SHALL still block battery discharge

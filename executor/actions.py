@@ -1584,6 +1584,14 @@ class ActionDispatcher:
             except Exception as e:
                 logger.warning("Balancer Discord fallback failed: %s", e)
 
+    async def notify_plug_in_reminder(self, message: str) -> None:
+        """Car-not-plugged-in reminder (ev-plug-in-reminder).
+
+        Opt-in per charger via ``plug_in_reminder_minutes``; dedupe per charging
+        window is the engine's job.
+        """
+        await self._send_notification(message, title="Darkstar EV")
+
     async def notify_override(self, override_type: str, reason: str) -> None:
         """Send notification about an override activation."""
         if self.config.notifications.on_override_activated:

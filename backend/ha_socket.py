@@ -28,9 +28,6 @@ class HAWebSocketClient:
         ] = {}  # Must init before _get_monitored_entities (F64 writes ev_chargers here)
         self.monitored_entities = self._get_monitored_entities()
         self.running = False
-        self.main_loop: asyncio.AbstractEventLoop | None = (
-            None  # Rev EVFIX: Store main event loop for cross-thread dispatch
-        )
         self.background_tasks: set[asyncio.Task[Any]] = set()
 
         # Runtime Statistics (Production Observability)
@@ -357,7 +354,11 @@ class HAWebSocketClient:
             import pytz
 
             from backend.api.routers.ev import sync_goal_to_ha
-            from backend.core.ev_goal import resolve_next_ready_by
+            from backend.core.ev_goal import (
+                apply_ha_ready_by,
+                resolve_next_ready_by,
+                stamp_ha_goal_update,
+            )
             from backend.core.ev_state import update_ev_state
             from backend.core.ha_client import parse_ha_datetime_state
 
@@ -377,6 +378,7 @@ class HAWebSocketClient:
                 return
 
             to_push: list[tuple[str, int | None, datetime | None, str | None, str | None]] = []
+            adopted: list[str] = []
 
             def _mutate(state_data: dict[str, dict[str, Any]]) -> None:
                 for ev in ev_chargers:
@@ -419,28 +421,19 @@ class HAWebSocketClient:
                         charger_state["target_soc_percent"] = ha_soc_val
                         changed = True
 
-                    if ha_ready_by_dt is not None:
-                        ready_by_val = f"{ha_ready_by_dt.hour:02d}:{ha_ready_by_dt.minute:02d}"
-                        date_val = ha_ready_by_dt.date().isoformat()
-                        if (
-                            charger_state.get("ready_by") != ready_by_val
-                            or charger_state.get("repeat") != "none"
-                            or charger_state.get("ready_by_date") != date_val
-                        ):
-                            charger_state["ready_by"] = ready_by_val
-                            charger_state["repeat"] = "none"
-                            charger_state["ready_by_date"] = date_val
-                            changed = True
+                    if ha_ready_by_dt is not None and apply_ha_ready_by(
+                        charger_state, ha_ready_by_dt.astimezone(tz)
+                    ):
+                        changed = True
 
                     if not charger_state:
                         # No goal on either side — nothing to adopt or push.
                         continue
 
                     if changed:
-                        charger_state.setdefault("keep_on_after_target", False)
-                        charger_state["source"] = "ha"
-                        charger_state["last_updated"] = now.isoformat()
+                        stamp_ha_goal_update(charger_state, now, tz)
                         state_data[charger_id] = charger_state
+                        adopted.append(charger_id)
                         logger.info(
                             "Reconnect sync: adopted HA goal values for EV %s "
                             "(target=%s, ready_by=%s)",
@@ -466,6 +459,12 @@ class HAWebSocketClient:
                         )
 
             update_ev_state(_mutate)
+
+            if adopted:
+                # Adopted HA goal values change the plan; a no-op reconcile never replans.
+                from backend.services.scheduler_service import ReplanReason, request_replan
+
+                request_replan(ReplanReason.GOAL_CHANGE, charger_ids=adopted)
 
             for charger_id, target_soc, ready_by_dt, target_soc_entity, ready_by_entity in to_push:
                 task = asyncio.create_task(
@@ -643,6 +642,7 @@ class HAWebSocketClient:
 
                 import pytz
 
+                from backend.core.ev_goal import apply_ha_ready_by, stamp_ha_goal_update
                 from backend.core.ev_state import last_darkstar_write, update_ev_state
                 from backend.core.ha_client import parse_ha_datetime_state
 
@@ -675,17 +675,8 @@ class HAWebSocketClient:
                                 charger_id,
                             )
                         else:
-                            ready_by_val = f"{dt.hour:02d}:{dt.minute:02d}"
-                            if charger_state.get("ready_by") != ready_by_val:
-                                charger_state["ready_by"] = ready_by_val
-                                changed = True
-
-                            # If repeat is "none" or not set, update ready_by_date
-                            if charger_state.get("repeat") == "none":
-                                date_val = dt.date().isoformat()
-                                if charger_state.get("ready_by_date") != date_val:
-                                    charger_state["ready_by_date"] = date_val
-                                    changed = True
+                            # HA ready-by is always a one-off goal (ha-schedule-sync).
+                            changed = apply_ha_ready_by(charger_state, dt.astimezone(tz))
                     elif key.startswith("ev_target_soc_"):
                         try:
                             target_soc = int(float(state_val))
@@ -699,12 +690,8 @@ class HAWebSocketClient:
                             logger.error("Error parsing target SoC from HA: %s", e)
 
                     if changed:
-                        # Update source and last_updated
-                        charger_state["source"] = "ha"
-                        charger_state["last_updated"] = datetime.now(UTC).isoformat()
-                        # Make sure other required keys are set
-                        charger_state.setdefault("repeat", "daily")
-                        charger_state.setdefault("keep_on_after_target", False)
+                        # A target-SoC-only change never touches repeat.
+                        stamp_ha_goal_update(charger_state, datetime.now(UTC), tz)
                         state_data[charger_id] = charger_state
 
                     outcome["changed"] = changed
@@ -725,6 +712,10 @@ class HAWebSocketClient:
                     ws_manager.emit_sync(
                         "ev_schedule_changed", {"charger_id": charger_id, "id": charger_id}
                     )
+
+                    from backend.services.scheduler_service import ReplanReason, request_replan
+
+                    request_replan(ReplanReason.GOAL_CHANGE, charger_ids=[charger_id])
             except Exception as e:
                 logger.error(f"Failed to handle HA EV schedule change: {e}", exc_info=True)
             return
@@ -1133,39 +1124,19 @@ class HAWebSocketClient:
                     )
                     return
 
-            # Import here to avoid circular imports
-            from backend.services.scheduler_service import scheduler_service
+            from backend.services.scheduler_service import ReplanReason, request_replan
 
-            # Task 7.3: Pass charger_id through so get_initial_state can override that
-            # specific charger's plug state
+            # Task 7.3: override that specific charger's plug state in the run
             effective_charger_id = charger_id or triggering_ev.get("id")
             logger.info(
-                "Triggering immediate EV re-plan for charger %s via scheduler_service (plugged_in=%s)",
+                "Triggering immediate EV re-plan for charger %s (plugged_in=%s)",
                 effective_charger_id,
                 plugged_in,
             )
-
-            # Rev EVFIX: Use run_coroutine_threadsafe for cross-thread dispatch
-            if self.main_loop is None:
-                logger.error("Main event loop not set, cannot trigger replan")
-                return
-
-            future = asyncio.run_coroutine_threadsafe(
-                scheduler_service.trigger_now(
-                    ev_plugged_in_override=plugged_in,
-                    ev_charger_id_override=effective_charger_id,
-                ),
-                self.main_loop,
+            request_replan(
+                ReplanReason.PLUG_IN if plugged_in else ReplanReason.UNPLUG,
+                ev_overrides={str(effective_charger_id): plugged_in},
             )
-
-            # Add done callback to log any exceptions
-            def _on_replan_done(fut: Any) -> None:
-                try:
-                    fut.result()
-                except Exception as exc:
-                    logger.error(f"EV re-plan task failed: {exc}")
-
-            future.add_done_callback(_on_replan_done)
 
         except Exception as e:
             logger.error(f"Failed to trigger EV re-plan: {e}")
@@ -1182,14 +1153,6 @@ def start_ha_socket_client():
     if _ha_client is None:
         try:
             _ha_client = HAWebSocketClient()
-            # Rev EVFIX: Capture main event loop for cross-thread dispatch
-            try:
-                _ha_client.main_loop = asyncio.get_running_loop()
-                logger.debug("Captured main event loop for cross-thread dispatch")
-            except RuntimeError:
-                logger.warning(
-                    "No running event loop - EV replan will not work until loop is available"
-                )
             _ha_client.start()
             logger.info("✅ HA WebSocket client initialized")
         except Exception as e:

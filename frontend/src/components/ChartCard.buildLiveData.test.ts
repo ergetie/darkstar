@@ -87,4 +87,41 @@ describe('buildLiveData', () => {
         expect(evSurplus[0]).toBeCloseTo(1.7)
         expect(evSurplus[1]).toBeNull() // 0 total is below the 0.01 display threshold -> null
     })
+
+    it('splits assumed-plugged charger kW into the awaiting plug-in series', () => {
+        vi.setSystemTime(new Date('2026-07-15T10:00:00Z'))
+        const slots: ScheduleSlot[] = [
+            makeSlot('2026-07-15T00:00:00Z', {
+                import_price_sek_kwh: 1.0,
+                ev_charging_kw: 10,
+                ev_chargers: { away: 7, home: 3 },
+            }),
+            makeSlot('2026-07-15T00:15:00Z', {
+                import_price_sek_kwh: 1.0,
+                ev_charging_kw: 3,
+                ev_chargers: { home: 3 },
+            }),
+        ]
+        const result = buildLiveData(slots, 'today', {}, undefined, 1.0, ['away'])
+        const evCharging = dsByLabel(result, 'EV Charging (kW)').data as (number | null)[]
+        const awaiting = dsByLabel(result, 'EV Planned — Awaiting Plug-in').data as (number | null)[]
+        expect(evCharging[0]).toBeCloseTo(3)
+        expect(awaiting[0]).toBeCloseTo(7)
+        expect(evCharging[1]).toBeCloseTo(3)
+        expect(awaiting[1]).toBeNull()
+    })
+
+    it('leaves EV charging unchanged when no charger awaits plug-in', () => {
+        vi.setSystemTime(new Date('2026-07-15T10:00:00Z'))
+        const slots: ScheduleSlot[] = [
+            makeSlot('2026-07-15T00:00:00Z', {
+                import_price_sek_kwh: 1.0,
+                ev_charging_kw: 7,
+                ev_chargers: { away: 7 },
+            }),
+        ]
+        const result = buildLiveData(slots, 'today')
+        expect((dsByLabel(result, 'EV Charging (kW)').data as (number | null)[])[0]).toBeCloseTo(7)
+        expect((dsByLabel(result, 'EV Planned — Awaiting Plug-in').data as (number | null)[])[0]).toBeNull()
+    })
 })

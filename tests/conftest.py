@@ -80,6 +80,20 @@ def isolated_ev_state_file(monkeypatch, tmp_path):
     monkeypatch.setattr(ev_state, "STATE_FILE_PATH", tmp_path / "ev_multi_day_state.json")
 
 
+@pytest.fixture(autouse=True)
+def no_background_replans(monkeypatch):
+    """Keep goal/plug writes from dispatching real background planner runs.
+
+    Goal saves and HA goal changes call ``request_replan`` (fire-and-forget),
+    which would otherwise run the real planner against the test config after
+    the debounce. Tests that assert dispatch patch it themselves or call the
+    imported function object directly.
+    """
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr("backend.services.scheduler_service.request_replan", MagicMock())
+
+
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_env():
     """Set up a clean, hermetic test environment.

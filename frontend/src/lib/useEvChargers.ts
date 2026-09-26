@@ -5,7 +5,7 @@ import { useSocket } from './hooks'
 /**
  * Per-charger status from GET /api/ev/chargers (goal, manual charge, type,
  * current limits), refreshed whenever a goal, the plan or a manual charge
- * changes. Returns an empty list while `enabled` is false.
+ * changes (or a replan fails). Returns an empty list while `enabled` is false.
  */
 export function useEvChargers(enabled: boolean) {
     const [chargers, setChargers] = useState<EVChargerState[]>([])
@@ -37,6 +37,8 @@ export function useEvChargers(enabled: boolean) {
     useSocket('ev_manual_charge_updated', refresh)
     useSocket('ev_schedule_changed', refresh)
     useSocket('schedule_updated', refresh)
+    // A failed goal-triggered replan clears plan_pending server-side.
+    useSocket('planner_error', refresh)
 
     return { chargers: enabled ? chargers : [], refresh }
 }

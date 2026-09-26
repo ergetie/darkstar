@@ -730,6 +730,14 @@ export type EVChargerState = {
     externally_controlled: boolean
     last_updated: string | null
     last_planned_at: string | null
+    /** every_n_days cycle anchor (YYYY-MM-DD), null for other repeat modes */
+    anchor_date?: string | null
+    /** Goal edited after the last plan, or a goal-triggered replan is queued/running */
+    plan_pending?: boolean
+    /** Plan schedules goal charging while the car is unplugged (awaiting plug-in) */
+    assumed_plugged?: boolean
+    /** Start (ISO) of the first upcoming slot with planned charging, null when none */
+    planned_start?: string | null
     /** Active manual "charge now" override, null when none */
     manual_charge?: EVManualCharge | null
     /** Why the charger is disabled for planning (e.g. missing phases), null when enabled */

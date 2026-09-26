@@ -596,6 +596,11 @@ function EVTabContent({ config }: { config: ConfigResponse | null }) {
         fetchChargers()
     })
 
+    // A failed goal-triggered replan clears plan_pending server-side.
+    useSocket('planner_error', () => {
+        fetchChargers()
+    })
+
     const [loadBalancing, setLoadBalancing] = useState<LoadBalancerStatusResponse | null>(null)
 
     useEffect(() => {

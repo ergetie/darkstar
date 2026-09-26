@@ -170,6 +170,10 @@ export default function Dashboard() {
     const { toast } = useToast()
 
     const { chargers: evChargerStatuses, refresh: refreshEvChargers } = useEvChargers(systemFlags.hasEvCharger)
+    const evAwaitingPlugInIds = useMemo(
+        () => evChargerStatuses.filter((c) => c.assumed_plugged).map((c) => c.id),
+        [evChargerStatuses],
+    )
     // Managed loads shown on their own Power Flow nodes, subtracted from House.
     const managedLoadNodeIds = useMemo(() => {
         const ids = new Set<string>()
@@ -726,7 +730,12 @@ export default function Dashboard() {
 
             {/* Row 1: Chart */}
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                <ChartCard useHistoryForToday={true} refreshToken={chartRefreshToken} slotsOverride={slotsOverride} />
+                <ChartCard
+                    useHistoryForToday={true}
+                    refreshToken={chartRefreshToken}
+                    slotsOverride={slotsOverride}
+                    evAwaitingPlugInIds={evAwaitingPlugInIds}
+                />
             </motion.div>
 
             {/* Row 2: Unified Command Bar */}

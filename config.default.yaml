@@ -141,6 +141,7 @@ ev_chargers:
     replan_on_plugin: true           # Re-run planner immediately when this EV plugs in
     replan_on_unplug: false          # Re-run planner immediately when this EV unplugs
     missed_goal_grace_hours: 4       # Keep pursuing a missed goal this many hours while still plugged in (0 = off)
+    plug_in_reminder_minutes: 0      # Notify this many minutes before planned charging if the car isn't plugged in (0 = off)
     phase_mode_entity: ""            # HA select entity for commanded phase mode (1/3-phase)
     phase_switching_enabled: false   # Master toggle for commanded phase switching
     phase_1_value: "1"                # Select option sent for one-phase mode

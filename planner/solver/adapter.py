@@ -173,6 +173,7 @@ def build_ev_charger_inputs(
                 battery_capacity_kwh=float(ev.get("battery_capacity_kwh", 0.0)),
                 current_soc_percent=soc_percent,
                 plugged_in=plugged_in,
+                assumed_plugged=bool(state.get("assumed_plugged", False)) and not plugged_in,
                 deadline=deadline,
                 required_kwh=float(required_kwh) if required_kwh is not None else None,
                 deferral_tiers=deferral_tiers,

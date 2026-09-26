@@ -49,7 +49,7 @@ async def _get(monkeypatch, persisted: dict, diagnostics: dict | None) -> dict:
     monkeypatch.setattr(
         ev_router,
         "_load_schedule_meta",
-        lambda: {"ev_goal_diagnostics": {"ev1": diagnostics} if diagnostics else {}},
+        lambda _schedule=None: {"ev_goal_diagnostics": {"ev1": diagnostics} if diagnostics else {}},
     )
     monkeypatch.setattr(
         ev_router,

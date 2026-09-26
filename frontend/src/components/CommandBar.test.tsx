@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CommandBar from './CommandBar'
 import { Api, type EVChargerState } from '../lib/api'
+import { useSocket } from '../lib/hooks'
 
 const toast = vi.fn()
 
@@ -187,5 +188,29 @@ describe('CommandBar EV Charge', () => {
         expect(screen.queryByLabelText('Increase EV charge target')).not.toBeInTheDocument()
         fireEvent.click(screen.getByRole('button', { name: /STOP.*80%/ }))
         await waitFor(() => expect(Api.ev.manualCharge.stop).toHaveBeenCalledWith('ev1'))
+    })
+})
+
+describe('CommandBar planner feedback', () => {
+    function handlers() {
+        const map: Record<string, (data: unknown) => void> = {}
+        for (const [event, cb] of vi.mocked(useSocket).mock.calls) map[event as string] = cb as (d: unknown) => void
+        return map
+    }
+
+    it('server-started run spins the planner button via planner_progress', () => {
+        renderBar()
+        act(() => handlers()['planner_progress']({ phase: 'running_solver', elapsed_ms: 100 }))
+        const button = screen.getByTitle('Run Planner')
+        expect(button).toBeDisabled()
+        expect(button.getAttribute('data-planner-phase')).toBe('running_solver')
+    })
+
+    it('planner_error shows the failed state and an error toast', () => {
+        renderBar()
+        act(() => handlers()['planner_error']({ error: 'Nordpool unavailable', duration_ms: 50 }))
+        const button = screen.getByTitle('Planner failed')
+        expect(button.getAttribute('data-planner-phase')).toBe('failed')
+        expect(toast).toHaveBeenCalledWith({ message: 'Planner failed: Nordpool unavailable', variant: 'error' })
     })
 })

@@ -288,7 +288,7 @@ async def test_goal_survives_planner_persist_cycle_byte_identical(tmp_path, monk
         }
     ]
     _persist_ev_multi_day_state(
-        ev_states, [{"id": "ev1", "rated_power_kw": 7.4}], sqlite_path="", tz=tz, now=now
+        ev_states, [{"id": "ev1", "rated_power_kw": 7.4}], sqlite_path="", tz=tz, now=now, goals_read_at=now
     )
 
     goal_after_persist = json.loads(state_file.read_text())["ev1"]

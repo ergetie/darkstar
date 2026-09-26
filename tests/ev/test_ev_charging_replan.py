@@ -66,64 +66,24 @@ class TestEVReplanAsyncDispatch:
 
         return str(config_path), str(secrets_path)
 
-    @pytest.mark.asyncio
-    async def test_trigger_ev_replan_uses_run_coroutine_threadsafe(self, mock_config, tmp_path):
-        """Task 5.1: Verify run_coroutine_threadsafe is used (not create_task)."""
-        _config_path, _secrets_path = mock_config
+    def test_trigger_ev_replan_uses_shared_helper(self, mock_config):
+        """Plug-in replans are dispatched through the shared request_replan helper."""
+        from backend.ha_socket import HAWebSocketClient
+        from backend.services.scheduler_service import ReplanReason
 
-        # Change to temp directory so config files are found
-        original_dir = Path.cwd()
-
-        try:
-            import os
-
-            os.chdir(tmp_path)
-
-            from backend.ha_socket import HAWebSocketClient
-
+        with (
+            patch("backend.ha_socket.load_yaml") as mock_load_yaml,
+            patch("backend.ha_socket.load_home_assistant_config", return_value={}),
+        ):
+            mock_load_yaml.return_value = {
+                "system": {"has_ev_charger": True},
+                "ev_chargers": [{"enabled": True, "id": "ev1", "replan_on_plugin": True}],
+            }
             client = HAWebSocketClient()
+            with patch("backend.services.scheduler_service.request_replan") as mock_request:
+                client._trigger_ev_replan()
 
-            # Set up the main event loop (simulating startup)
-            loop = asyncio.get_event_loop()
-            client.main_loop = loop
-
-            # Mock run_coroutine_threadsafe to capture the call
-            with patch("asyncio.run_coroutine_threadsafe") as mock_run_threadsafe:
-                mock_future = MagicMock()
-                mock_run_threadsafe.return_value = mock_future
-
-                # Mock the scheduler service (imported inside the function)
-                with (
-                    patch("backend.services.scheduler_service.scheduler_service") as mock_scheduler,
-                    patch("backend.ha_socket.load_yaml") as mock_load_yaml,
-                ):
-                    mock_scheduler.trigger_now = AsyncMock(return_value=MagicMock(success=True))
-                    # Return the config literal
-                    mock_load_yaml.return_value = {
-                        "system": {"has_ev_charger": True},
-                        "ev_chargers": [{"enabled": True, "replan_on_plugin": True}],
-                    }
-
-                    # Call the trigger method
-                    client._trigger_ev_replan()
-
-                    # Assert run_coroutine_threadsafe was called (not create_task)
-                    mock_run_threadsafe.assert_called_once()
-                    # Verify the coroutine and loop were passed correctly
-                    args = mock_run_threadsafe.call_args
-                    assert args[0][1] == loop  # Second arg should be the main loop
-
-                    # Close the coroutine that was passed to run_coroutine_threadsafe.
-                    # The mock intercepted it without consuming/awaiting it, so Python
-                    # would emit a "coroutine never awaited" warning during GC otherwise.
-                    mock_run_threadsafe.call_args[0][0].close()
-
-                    # Verify add_done_callback was called
-                    mock_future.add_done_callback.assert_called_once()
-        finally:
-            import os
-
-            os.chdir(original_dir)
+        mock_request.assert_called_once_with(ReplanReason.PLUG_IN, ev_overrides={"ev1": True})
 
 
 class TestEVReplanConfigPath:
@@ -162,25 +122,21 @@ class TestEVReplanConfigPath:
             from backend.ha_socket import HAWebSocketClient
 
             client = HAWebSocketClient()
-            client.main_loop = asyncio.get_event_loop()
 
             with (
-                patch("backend.services.scheduler_service.scheduler_service") as mock_scheduler,
+                patch("backend.services.scheduler_service.request_replan") as mock_request,
                 patch("backend.ha_socket.load_yaml") as mock_load_yaml,
             ):
-                mock_scheduler.trigger_now = AsyncMock()
                 # Return the config literal
                 mock_load_yaml.return_value = {
                     "system": {"has_ev_charger": True},
                     "ev_chargers": [{"enabled": True, "replan_on_plugin": False}],
                 }
 
-                with patch("asyncio.run_coroutine_threadsafe") as mock_run_threadsafe:
-                    client._trigger_ev_replan()
+                client._trigger_ev_replan()
 
-                    # Should NOT trigger because replan_on_plugin=False
-                    mock_run_threadsafe.assert_not_called()
-                    mock_scheduler.trigger_now.assert_not_called()
+                # Should NOT trigger because replan_on_plugin=False
+                mock_request.assert_not_called()
         finally:
             import os
 
@@ -203,6 +159,7 @@ class TestEVInitialStateOverride:
             "ev_chargers": [
                 {
                     "enabled": True,
+                    "id": "ev_1",
                     "name": "Test EV",
                     "soc_sensor": "sensor.test_soc",
                     "plug_sensor": "binary_sensor.test_plug",
@@ -238,7 +195,7 @@ class TestEVInitialStateOverride:
 
                     # Call with override=True
                     result = await get_initial_state(
-                        config_path=str(config_path), ev_plugged_in_override=True
+                        config_path=str(config_path), ev_plug_overrides={"ev_1": True}
                     )
 
                     # Verify ev_plugged_in is True from override
@@ -496,8 +453,6 @@ class TestPerDevicePlugSensorMapping:
         ):
             client = HAWebSocketClient()
 
-        client.main_loop = MagicMock()
-
         config_with_replan = {
             "system": {"has_ev_charger": True},
             "ev_chargers": [
@@ -508,32 +463,21 @@ class TestPerDevicePlugSensorMapping:
 
         with (
             patch("backend.ha_socket.load_yaml", return_value=config_with_replan),
-            patch("asyncio.run_coroutine_threadsafe") as mock_threadsafe,
+            patch("backend.services.scheduler_service.request_replan") as mock_request,
         ):
-            mock_future = MagicMock()
-            mock_threadsafe.return_value = mock_future
+            # charger_a has replan_on_plugin=True → should trigger
+            client._trigger_ev_replan(charger_id="charger_a")
+            mock_request.assert_called_once()
+            mock_request.reset_mock()
 
-            with patch("backend.services.scheduler_service.scheduler_service") as mock_svc:
-                mock_svc.trigger_now = AsyncMock()
+            # charger_b has replan_on_plugin=False → should NOT trigger
+            client._trigger_ev_replan(charger_id="charger_b")
+            mock_request.assert_not_called()
 
-                # charger_a has replan_on_plugin=True → should trigger
-                client._trigger_ev_replan(charger_id="charger_a")
-                mock_threadsafe.assert_called_once()
-                # Close the coroutine before resetting to avoid RuntimeWarning
-                if mock_threadsafe.call_args_list:
-                    coro = mock_threadsafe.call_args_list[0].args[0]
-                    if hasattr(coro, "close"):
-                        coro.close()
-                mock_threadsafe.reset_mock()
-
-                # charger_b has replan_on_plugin=False → should NOT trigger
-                client._trigger_ev_replan(charger_id="charger_b")
-                mock_threadsafe.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_trigger_ev_replan_passes_charger_id_to_trigger_now(self):
-        """_trigger_ev_replan passes charger_id through to scheduler_service.trigger_now."""
+    def test_trigger_ev_replan_passes_charger_override(self):
+        """_trigger_ev_replan carries the charger's plug override to the helper."""
         from backend.ha_socket import HAWebSocketClient
+        from backend.services.scheduler_service import ReplanReason
 
         with (
             patch("backend.ha_socket.load_yaml", return_value=self._make_cfg()),
@@ -541,43 +485,22 @@ class TestPerDevicePlugSensorMapping:
         ):
             client = HAWebSocketClient()
 
-        client.main_loop = asyncio.get_event_loop()
-
         config_with_replan = {
             "system": {"has_ev_charger": True},
             "ev_chargers": [
-                {"enabled": True, "id": "charger_a", "replan_on_plugin": True},
+                {"enabled": True, "id": "charger_a", "replan_on_unplug": True},
             ],
         }
 
         with (
             patch("backend.ha_socket.load_yaml", return_value=config_with_replan),
-            patch("asyncio.run_coroutine_threadsafe") as mock_threadsafe,
+            patch("backend.services.scheduler_service.request_replan") as mock_request,
         ):
-            mock_future = MagicMock()
-            mock_threadsafe.return_value = mock_future
+            client._trigger_ev_replan(charger_id="charger_a", plugged_in=False)
 
-            async def dummy_coro():
-                pass
-
-            with patch(
-                "backend.services.scheduler_service.scheduler_service.trigger_now",
-                new_callable=MagicMock,
-                return_value=dummy_coro(),
-            ) as mock_trigger:
-                client._trigger_ev_replan(charger_id="charger_a")
-
-                mock_threadsafe.assert_called_once()
-                mock_trigger.assert_called_once_with(
-                    ev_plugged_in_override=True, ev_charger_id_override="charger_a"
-                )
-
-                coro = mock_threadsafe.call_args[0][0]
-                assert coro is not None
-                coro.close()  # Prevent ResourceWarning
-
-                # Loop is the second argument
-                assert mock_threadsafe.call_args[0][1] == client.main_loop
+        mock_request.assert_called_once_with(
+            ReplanReason.UNPLUG, ev_overrides={"charger_a": False}
+        )
 
 
 if __name__ == "__main__":

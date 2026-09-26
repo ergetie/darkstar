@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react'
 import {
+    AlertTriangle,
     Play,
     Pause,
     Loader2,
@@ -132,6 +133,15 @@ export default function CommandBar({
         } else {
             setPlannerProgress(data)
         }
+    })
+
+    // Any failed run (manual or server-started: goal change, plug event,
+    // scheduler) — including failures that never emit a `failed` phase.
+    useSocket('planner_error', (raw: unknown) => {
+        const data = (raw ?? {}) as { error?: string | null; duration_ms?: number }
+        setPlannerProgress({ phase: 'failed', elapsed_ms: data.duration_ms ?? 0 })
+        setTimeout(() => setPlannerProgress(null), 3000)
+        toast({ message: `Planner failed: ${data.error || 'Unknown error'}`, variant: 'error' })
     })
 
     useSocket('schedule_updated', () => {
@@ -270,6 +280,7 @@ export default function CommandBar({
 
     const isPaused = executorStatus?.paused != null
     const isPlanning = plannerProgress !== null
+    const plannerFailed = plannerProgress?.phase === 'failed'
     const isTopUpActive = executorStatus?.quick_action?.type === 'force_charge'
     const topUpMin = clampSoc(batteryMinSoc, 0, 100)
     const effectiveTopUpSoc = clampSoc(topUpSoc, topUpMin, 100)
@@ -621,13 +632,18 @@ export default function CommandBar({
                             onClick={handleRunPlanner}
                             disabled={isPlanning}
                             className={`relative overflow-hidden flex items-center justify-center h-8 w-10 rounded-lg transition ${
-                                isPlanning
-                                    ? 'bg-surface border border-accent/50 text-accent cursor-wait'
-                                    : 'bg-accent hover:bg-accent2 text-[#100f0e]'
+                                plannerFailed
+                                    ? 'bg-bad/10 border border-bad/50 text-bad'
+                                    : isPlanning
+                                      ? 'bg-surface border border-accent/50 text-accent cursor-wait'
+                                      : 'bg-accent hover:bg-accent2 text-[#100f0e]'
                             }`}
-                            title="Run Planner"
+                            title={plannerFailed ? 'Planner failed' : 'Run Planner'}
+                            data-planner-phase={plannerProgress?.phase ?? 'idle'}
                         >
-                            {isPlanning && plannerProgress?.phase !== 'complete' ? (
+                            {plannerFailed ? (
+                                <AlertTriangle className="h-4 w-4" />
+                            ) : isPlanning && plannerProgress?.phase !== 'complete' ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                                 <Rocket className="h-4 w-4" />

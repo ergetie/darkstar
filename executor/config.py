@@ -148,6 +148,9 @@ class EVChargerDeviceConfig:
     # Hours a missed goal stays active while the car is still plugged in
     # (ev-missed-goal-recovery). 0 disables the grace window.
     missed_goal_grace_hours: float = 4.0
+    # Minutes before the first planned charging slot to notify when the car is
+    # not plugged in (ev-plug-in-reminder). None/0 disables the reminder.
+    plug_in_reminder_minutes: int | None = None
 
     # HA entities the charging goal (set in the dashboard, stored in
     # data/ev_multi_day_state.json) is mirrored to/from. The goal itself is
@@ -680,6 +683,20 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
             else EVChargerDeviceConfig.missed_goal_grace_hours
         )
 
+        reminder_raw: Any = charger.get("plug_in_reminder_minutes")
+        plug_in_reminder_minutes: int | None = None
+        if reminder_raw is not None:
+            try:
+                reminder_val = int(reminder_raw)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "EV charger %s: invalid plug_in_reminder_minutes %r - reminder disabled",
+                    charger_id,
+                    reminder_raw,
+                )
+                reminder_val = 0
+            plug_in_reminder_minutes = reminder_val if reminder_val > 0 else None
+
         ev_chargers_list.append(
             EVChargerDeviceConfig(
                 id=charger_id,
@@ -722,6 +739,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                     charger.get("replan_on_unplug", EVChargerDeviceConfig.replan_on_unplug)
                 ),
                 missed_goal_grace_hours=missed_goal_grace_hours,
+                plug_in_reminder_minutes=plug_in_reminder_minutes,
                 ha_ready_by_entity=_str_or_none(charger.get("ha_ready_by_entity")),
                 ha_target_soc_entity=_str_or_none(charger.get("ha_target_soc_entity")),
                 type=str(charger.get("type", EVChargerDeviceConfig.type)).lower(),

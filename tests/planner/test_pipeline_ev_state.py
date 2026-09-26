@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -65,8 +65,9 @@ def test_persist_ev_multi_day_state_preserves_goals(tmp_path, monkeypatch):
 
     tz = pytz.timezone("Europe/Stockholm")
     now = datetime(2026, 6, 10, 15, 0, tzinfo=UTC)
+    read_at = now + timedelta(seconds=18)
 
-    _persist_ev_multi_day_state(ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now)
+    _persist_ev_multi_day_state(ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now, goals_read_at=read_at)
 
     # 3. Verify state file has preserved existing goal fields + source verbatim,
     # and refreshed only the progress fields.
@@ -94,7 +95,8 @@ def test_persist_ev_multi_day_state_preserves_goals(tmp_path, monkeypatch):
     assert "daily_quota_kwh" not in charger
     assert "quota_schedule" not in charger
     assert charger["current_soc_percent"] == 50.0
-    assert charger["last_planned_at"] == now.isoformat()
+    # Wall-clock read instant, not the floored slot start ``now``.
+    assert charger["last_planned_at"] == read_at.isoformat()
 
 
 def test_persist_keeps_executor_manual_charge(tmp_path, monkeypatch):
@@ -112,6 +114,7 @@ def test_persist_keeps_executor_manual_charge(tmp_path, monkeypatch):
         sqlite_path="",
         tz=pytz.timezone("Europe/Stockholm"),
         now=datetime(2026, 6, 10, 15, 0, tzinfo=UTC),
+        goals_read_at=datetime(2026, 6, 10, 15, 0, tzinfo=UTC),
     )
 
     updated = json.loads(state_file.read_text())["ev1"]
@@ -147,7 +150,7 @@ def test_persist_skips_chargers_with_no_goal(tmp_path, monkeypatch):
     tz = pytz.timezone("Europe/Stockholm")
     now = datetime(2026, 6, 10, 15, 0, tzinfo=UTC)
 
-    _persist_ev_multi_day_state(ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now)
+    _persist_ev_multi_day_state(ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now, goals_read_at=now)
 
     # No goal existed, so nothing is persisted for this charger.
     if state_file.exists():
@@ -191,7 +194,7 @@ def test_persist_preserves_disabled_charger_entry(tmp_path, monkeypatch):
     tz = pytz.timezone("Europe/Stockholm")
     now = datetime(2026, 6, 10, 15, 0, tzinfo=UTC)
 
-    _persist_ev_multi_day_state(ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now)
+    _persist_ev_multi_day_state(ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now, goals_read_at=now)
 
     updated = json.loads(state_file.read_text())
     assert updated["ev_disabled"] == existing["ev_disabled"]

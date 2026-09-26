@@ -22,7 +22,7 @@ import pytz
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.core.ev_goal import resolve_next_ready_by
+from backend.core.ev_goal import every_n_days_anchor, resolve_next_ready_by
 from backend.core.ev_live_state import read_ev_live_state
 from backend.core.ev_plug import (
     DEFAULT_EV_PLUGGED_IN_STATES,
@@ -185,6 +185,7 @@ async def set_ev_charger_schedule(
 
     # 3. Read and update state file (locked read-modify-write)
     now = datetime.now(UTC)
+    goal_tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
     new_charger_state: dict[str, Any] = {}
 
     def _mutate(state: dict[str, dict[str, Any]]) -> None:
@@ -199,6 +200,12 @@ async def set_ev_charger_schedule(
             new_charger_state = {}
             return
         charger_state = state.get(id, {})
+        anchor_date = _next_anchor_date(
+            charger_state, body, now.astimezone(goal_tz).date(), goal_tz
+        )
+        charger_state.pop("anchor_date", None)
+        if anchor_date is not None:
+            charger_state["anchor_date"] = anchor_date
         charger_state.update(
             {
                 "target_soc_percent": body.target_soc_percent,
@@ -218,6 +225,12 @@ async def set_ev_charger_schedule(
 
     update_ev_state(_mutate)
     charger_state = new_charger_state
+
+    # Fire-and-forget goal-change replan (debounced, coalesced); the response
+    # never waits for the planner. The executor applies the plan on its next tick.
+    from backend.services.scheduler_service import ReplanReason, request_replan
+
+    request_replan(ReplanReason.GOAL_CHANGE, charger_ids=[id])
 
     # 4. Trigger fire-and-forget sync to HA in background if entities configured
     ha_ready_by_entity = charger_cfg.get("ha_ready_by_entity")
@@ -243,6 +256,46 @@ async def set_ev_charger_schedule(
             return c
 
     raise HTTPException(status_code=404, detail="Charger not found after update")
+
+
+def _next_anchor_date(
+    previous: dict[str, Any],
+    body: EVChargerScheduleBody,
+    today: date,
+    tz: pytz.BaseTzInfo,
+) -> str | None:
+    """``anchor_date`` for an API goal write (per-device-ev-scheduling / ev-schedule-api).
+
+    Only ``every_n_days`` goals carry an anchor. It re-anchors on today when the
+    goal is new to ``every_n_days``, ``n_days`` changed, or no anchor is
+    derivable; otherwise the existing anchor (legacy goals: the one derived
+    from ``last_updated``, now persisted) is kept so saving other fields never
+    moves the cycle.
+    """
+    if body.repeat != "every_n_days":
+        return None
+    prev_repeat = str(previous.get("repeat") or "").lower()
+    prev_n = previous.get("n_days") or 1
+    new_n = body.n_days or 1
+    existing = every_n_days_anchor(previous, tz) if prev_repeat == "every_n_days" else None
+    if existing is None or prev_n != new_n:
+        return today.isoformat()
+    return existing.isoformat()
+
+
+def _plan_pending(charger_id: str, persisted: dict[str, Any]) -> bool:
+    """Goal edited after the last plan, or a goal-triggered run queued/running."""
+    from backend.services.planner_service import planner_service
+
+    if planner_service.goal_replan_pending(charger_id):
+        return True
+    goal_edited = _parse_iso_deadline(persisted.get("last_updated"))
+    plan_time = _parse_iso_deadline(persisted.get("last_planned_at"))
+    if goal_edited is None or plan_time is None or goal_edited <= plan_time:
+        return False
+    # A failed goal-triggered run is reported (not pending) until the goal changes again.
+    failed_at = planner_service.goal_replan_failed_at(charger_id)
+    return failed_at is None or failed_at < goal_edited
 
 
 def _load_ev_state() -> dict[str, dict[str, Any]]:
@@ -305,15 +358,44 @@ def _planned_by_day_view(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _load_schedule_meta() -> dict[str, Any]:
-    """Read ``meta`` from schedule.json. Returns ``{}`` if missing/unreadable."""
+def _load_schedule() -> dict[str, Any]:
+    """Read schedule.json. Returns ``{}`` if missing/unreadable."""
     try:
         with SCHEDULE_PATH.open(encoding="utf-8") as f:
             data: Any = json.load(f)
     except (OSError, ValueError):
         return {}
-    meta: Any = cast("dict[str, Any]", data).get("meta") if isinstance(data, dict) else None
+    return cast("dict[str, Any]", data) if isinstance(data, dict) else {}
+
+
+def _load_schedule_meta(schedule: dict[str, Any] | None = None) -> dict[str, Any]:
+    """``meta`` of schedule.json. Returns ``{}`` if missing/unreadable."""
+    data = schedule if schedule is not None else _load_schedule()
+    meta: Any = data.get("meta")
     return cast("dict[str, Any]", meta) if isinstance(meta, dict) else {}
+
+
+def _first_planned_starts(schedule: dict[str, Any], now: datetime) -> dict[str, str]:
+    """Start (ISO) of each charger's first not-yet-ended slot with planned kW > 0.1."""
+    slots: Any = schedule.get("schedule")
+    if not isinstance(slots, list):
+        return {}
+    starts: dict[str, str] = {}
+    for item in cast("list[Any]", slots):
+        if not isinstance(item, dict):
+            continue
+        slot = cast("dict[str, Any]", item)
+        start = _parse_iso_deadline(slot.get("start_time"))
+        end = _parse_iso_deadline(slot.get("end_time_kepler") or slot.get("end_time"))
+        if start is None or (end is not None and end <= now):
+            continue
+        per_charger: Any = slot.get("ev_chargers")
+        if not isinstance(per_charger, dict):
+            continue
+        for charger_id, kw in cast("dict[str, Any]", per_charger).items():
+            if isinstance(kw, int | float) and kw > 0.1 and charger_id not in starts:
+                starts[str(charger_id)] = start.isoformat()
+    return starts
 
 
 def _active_goal_shortfall(
@@ -369,11 +451,13 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
     ev_chargers_cfg: list[dict[str, Any]] = config.get("ev_chargers", []) or []
     ev_voltage = nominal_voltage_v(config)
     state_by_id = _load_ev_state()
-    schedule_meta = _load_schedule_meta()
+    schedule = _load_schedule()
+    schedule_meta = _load_schedule_meta(schedule)
     goal_diagnostics = cast(
         "dict[str, dict[str, Any]]", schedule_meta.get("ev_goal_diagnostics") or {}
     )
     now = datetime.now(UTC)
+    planned_starts = _first_planned_starts(schedule, now)
     # The executor runs manual charges; the state file is only its mirror
     # and is read when no executor instance exists.
     from backend.api.routers.executor import get_executor_instance
@@ -501,6 +585,10 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 "externally_controlled": externally_controlled,
                 "last_updated": None,
                 "last_planned_at": None,
+                "anchor_date": None,
+                "plan_pending": _plan_pending(charger_id, {}),
+                "assumed_plugged": False,
+                "planned_start": None,
                 "manual_charge": manual_charge,
                 "disabled_reason": disabled_reason,
             }
@@ -573,6 +661,11 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             "externally_controlled": externally_controlled,
             "last_updated": persisted.get("last_updated"),
             "last_planned_at": persisted.get("last_planned_at"),
+            "anchor_date": persisted.get("anchor_date"),
+            "plan_pending": _plan_pending(charger_id, persisted),
+            "assumed_plugged": bool(persisted.get("assumed_plugged", False))
+            and plugged_in is not True,
+            "planned_start": planned_starts.get(charger_id),
             "manual_charge": manual_charge,
             "disabled_reason": disabled_reason,
         }

@@ -99,7 +99,7 @@ async def test_ev_schedule_e2e_flow(tmp_path, monkeypatch):
         }
     ]
     # Execute persist step
-    _persist_ev_multi_day_state(ev_states, cfg["ev_chargers"], sqlite_path="", tz=tz, now=now)
+    _persist_ev_multi_day_state(ev_states, cfg["ev_chargers"], sqlite_path="", tz=tz, now=now, goals_read_at=now)
 
     # State file should now have computed properties
     state_data = json.loads(state_file.read_text())

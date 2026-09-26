@@ -3,9 +3,7 @@
 ## Purpose
 
 TBD - Defines the CommandBar component that provides execution controls, parameter selectors, override actions, and status display for the dashboard.
-
 ## Requirements
-
 ### Requirement: CommandBar renders as a single full-width card
 The `CommandBar` component (`frontend/src/components/CommandBar.tsx`) SHALL render as a single full-width card with three horizontally arranged groups: execution controls (left), parameter selectors and override actions (center), status badge (right).
 
@@ -20,7 +18,7 @@ The `CommandBar` component (`frontend/src/components/CommandBar.tsx`) SHALL rend
 ---
 
 ### Requirement: Planner can be run from the command bar
-The CommandBar SHALL include a Run Planner button that triggers the planner and displays inline progress. The button SHALL call `Api.runPlanner()` then `Api.executor.run()`. Progress SHALL be tracked through phases: `starting → fetching_inputs → fetching_prices → applying_learning → running_solver → applying_schedule → complete / failed`. The button SHALL be disabled while planning is in progress.
+The CommandBar SHALL include a Run Planner button that triggers the planner and displays inline progress. The button SHALL call `Api.runPlanner()` then `Api.executor.run()`. Progress SHALL be tracked through phases: `starting → fetching_inputs → fetching_prices → applying_learning → running_solver → applying_schedule → complete / failed`. The button SHALL be disabled while planning is in progress. The button SHALL reflect planner runs started by the server (goal changes, plug events, scheduler) through the same progress events, and SHALL handle the `planner_error` event by showing the failed state and surfacing the error message to the user.
 
 #### Scenario: Planner button shows progress while running
 - **WHEN** the user clicks the Run Planner button
@@ -30,7 +28,14 @@ The CommandBar SHALL include a Run Planner button that triggers the planner and 
 - **WHEN** the planner phase reaches `complete`
 - **THEN** the button returns to its default state and enables
 
----
+#### Scenario: Server-started run spins the button
+- **WHEN** a goal save triggers a planner run on the server
+- **THEN** the button SHALL show the spinner and progress until the run completes or fails
+
+#### Scenario: Planner error is surfaced
+- **WHEN** a `planner_error` event is received
+- **THEN** the button SHALL show the failed state
+- **AND** the error message SHALL be shown to the user (for example as an error toast)
 
 ### Requirement: Executor can be paused and resumed from the command bar
 The CommandBar SHALL include a Pause/Resume button. When the executor is running, the button SHALL show a Pause action (green). When the executor is paused, the button SHALL show a Resume action (red, pulsing). Toggling SHALL call `Api.executor.pause()` or `Api.executor.resume()` accordingly, then call `onRefresh`.

@@ -45,6 +45,8 @@ export interface EVChargerEntity {
     replan_on_plugin?: boolean
     replan_on_unplug?: boolean
     missed_goal_grace_hours?: number
+    /** Minutes before planned charging to notify if the car isn't plugged in; 0/absent = off */
+    plug_in_reminder_minutes?: number
     current_entity?: string
     min_current_a?: number
     max_current_a?: number
@@ -111,6 +113,7 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     replan_on_plugin: true,
     replan_on_unplug: false,
     missed_goal_grace_hours: 4,
+    plug_in_reminder_minutes: 0,
     current_entity: '',
     min_current_a: 6,
     phases: [1, 2, 3],
@@ -161,6 +164,60 @@ interface MappingValueFieldProps {
     options?: string[]
     onChange: (value: string) => void
     disabled: boolean
+}
+
+const PLUG_IN_REMINDER_PRESETS = [0, 15, 30]
+const PLUG_IN_REMINDER_CUSTOM_DEFAULT = 45
+
+/** Plug-in reminder lead time: Off / 15 / 30 minutes or a custom value (ev-plug-in-reminder). */
+const PlugInReminderField: React.FC<{
+    value: number | undefined
+    onChange: (minutes: number) => void
+    disabled: boolean
+}> = ({ value, onChange, disabled }) => {
+    const current = value ?? 0
+    const [custom, setCustom] = useState(!PLUG_IN_REMINDER_PRESETS.includes(current))
+    return (
+        <div>
+            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">Plug-in Reminder</label>
+            <select
+                aria-label="Plug-in reminder"
+                value={custom ? 'custom' : String(current)}
+                onChange={(event) => {
+                    if (event.target.value === 'custom') {
+                        setCustom(true)
+                        if (PLUG_IN_REMINDER_PRESETS.includes(current)) onChange(PLUG_IN_REMINDER_CUSTOM_DEFAULT)
+                    } else {
+                        setCustom(false)
+                        onChange(Number(event.target.value))
+                    }
+                }}
+                disabled={disabled}
+                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
+            >
+                <option value="0">Off</option>
+                <option value="15">15 min before</option>
+                <option value="30">30 min before</option>
+                <option value="custom">Custom…</option>
+            </select>
+            {custom && (
+                <div className="mt-2">
+                    <NumberInput
+                        aria-label="Plug-in reminder minutes"
+                        value={current}
+                        onChange={(val) => onChange(Math.max(1, Math.round(Number(val) || 0)))}
+                        disabled={disabled}
+                        step={5}
+                        min={1}
+                        max={240}
+                    />
+                </div>
+            )}
+            <p className="text-[10px] text-muted mt-1">
+                Notify before planned charging when the car isn&apos;t plugged in
+            </p>
+        </div>
+    )
 }
 
 const MappingValueField: React.FC<MappingValueFieldProps> = ({
@@ -963,6 +1020,19 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                     Keep charging toward a missed goal while still plugged in. 0 = off
                                                 </p>
                                             </div>
+                                        )}
+
+                                        {/* Plug-in reminder (EV only) */}
+                                        {!isWaterHeater && (
+                                            <PlugInReminderField
+                                                value={(entity as EVChargerEntity).plug_in_reminder_minutes}
+                                                onChange={(minutes) =>
+                                                    updateEntity(index, {
+                                                        plug_in_reminder_minutes: minutes,
+                                                    } as Partial<EVChargerEntity>)
+                                                }
+                                                disabled={disabled}
+                                            />
                                         )}
 
                                         {/* Water Heater Specific Fields */}

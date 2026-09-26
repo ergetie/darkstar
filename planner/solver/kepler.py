@@ -130,8 +130,11 @@ class KeplerSolver:
                 )
 
         # EV Charging as deferrable load (per-device, multi-charger support)
-        # Only create variables for plugged-in chargers
-        plugged_chargers: list[EVChargerInput] = [c for c in config.ev_chargers if c.plugged_in]
+        # Variables for plugged-in chargers and for assumed-plugged ones
+        # (unplugged with an active goal; see EVChargerInput.assumed_plugged).
+        plugged_chargers: list[EVChargerInput] = [
+            c for c in config.ev_chargers if c.plugged_in or c.assumed_plugged
+        ]
         ev_any_enabled: bool = len(plugged_chargers) > 0
 
         # Per-device indexed variables: ev_charge[device_id][t], ev_energy[device_id][t]
@@ -279,7 +282,8 @@ class KeplerSolver:
         custom_entity_enabled = len(custom_entity_items) > 0
 
         # EV surplus sinks: one continuous variable per `ev` priority entry whose
-        # charger is plugged in and current-controlled (task 2.5).
+        # charger is plugged in and current-controlled (task 2.5). Assumed-plugged
+        # chargers never get surplus: it is opportunistic and needs a real plug.
         ev_surplus_items: list[tuple[str, EVChargerInput, float]] = []
         for entry in config.excess_pv_priority:
             if entry.type != "ev" or not entry.charger_id:
@@ -288,7 +292,9 @@ class KeplerSolver:
                 (
                     c
                     for c in plugged_chargers
-                    if c.id == entry.charger_id and c.control_type == "current"
+                    if c.id == entry.charger_id
+                    and c.control_type == "current"
+                    and not c.assumed_plugged
                 ),
                 None,
             )

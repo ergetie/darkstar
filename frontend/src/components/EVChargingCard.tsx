@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Clock, RotateCw, Sun, Trash2, Loader2, Save, Zap } from 'lucide-react'
+import { AlertTriangle, Clock, PlugZap, RotateCw, Sun, Trash2, Loader2, Save, Zap } from 'lucide-react'
 import {
     Api,
     EVChargerState,
@@ -8,6 +8,7 @@ import {
     type LoadBalancerStatusResponse,
     type LoadBalancerEvStatus,
 } from '../lib/api'
+import { useSocket } from '../lib/hooks'
 import { useToast } from '../lib/useToast'
 import Switch from './ui/Switch'
 
@@ -125,6 +126,15 @@ export function deriveChargerStatus(
     return { statusText, statusColor }
 }
 
+/** "22:00"-style local time of an ISO datetime, or null when absent/invalid. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function formatLocalTime(iso: string | null | undefined): string | null {
+    if (!iso) return null
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return null
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
 export default function EVChargingCard({
     charger,
     config,
@@ -187,6 +197,28 @@ export default function EVChargingCard({
     const isSurplusPriority = excessPv.some(
         (entry: ExcessPvPriorityEntry) => entry.type === 'ev' && entry.charger_id === charger.id,
     )
+
+    // Re-plan feedback (ev-dashboard-card): while the server reports
+    // plan_pending the previous plan's numbers are hidden. A planner_error
+    // during that window marks this goal edit's re-plan as failed; the marker
+    // clears by itself once the goal is edited again or a new plan lands.
+    const planPending = charger.plan_pending === true
+    const [failedReplan, setFailedReplan] = useState<{
+        lastUpdated: string | null
+        lastPlannedAt: string | null
+    } | null>(null)
+    useSocket('planner_error', () => {
+        if (charger.plan_pending) {
+            setFailedReplan({ lastUpdated: charger.last_updated, lastPlannedAt: charger.last_planned_at })
+        }
+    })
+    const replanFailed =
+        !planPending &&
+        failedReplan !== null &&
+        failedReplan.lastUpdated === charger.last_updated &&
+        failedReplan.lastPlannedAt === charger.last_planned_at
+    const plannedStart = formatLocalTime(charger.planned_start)
+    const awaitingPlugIn = charger.assumed_plugged === true && !planPending
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -279,9 +311,20 @@ export default function EVChargingCard({
                                 HA-Driven
                             </span>
                         )}
-                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold ${statusColor}`}>
-                            {statusText.toUpperCase()}
-                        </span>
+                        {planPending ? (
+                            <span
+                                className="text-[9px] px-2 py-0.5 rounded-full font-semibold bg-accent/10 text-accent border border-accent/20 flex items-center gap-1"
+                                data-testid="ev-replanning"
+                                role="status"
+                            >
+                                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                RE-PLANNING…
+                            </span>
+                        ) : (
+                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold ${statusColor}`}>
+                                {statusText.toUpperCase()}
+                            </span>
+                        )}
                     </div>
                 )}
             </div>
@@ -317,7 +360,30 @@ export default function EVChargingCard({
                 </p>
             )}
 
-            {!isEditing && shortfallText && (
+            {!isEditing && replanFailed && (
+                <p
+                    className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3 flex items-center gap-1"
+                    data-testid="ev-replan-failed"
+                    role="status"
+                >
+                    <AlertTriangle className="h-3 w-3" />
+                    Re-plan failed — showing last plan
+                </p>
+            )}
+
+            {!isEditing && awaitingPlugIn && (
+                <p
+                    className="text-[10px] text-accent bg-accent/10 border border-accent/20 rounded-lg px-2 py-1 mb-3 flex items-center gap-1"
+                    data-testid="ev-awaiting-plug-in"
+                >
+                    <PlugZap className="h-3 w-3" />
+                    {plannedStart
+                        ? `Planned from ${plannedStart} — plug in the car`
+                        : 'Charging planned — plug in the car'}
+                </p>
+            )}
+
+            {!isEditing && !planPending && shortfallText && (
                 <p
                     className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
                     data-testid="ev-shortfall"
@@ -449,39 +515,47 @@ export default function EVChargingCard({
             ) : (
                 /* Viewing Active Goal */
                 <div className="space-y-3">
-                    {/* Visual Progress Bar (delivered_kwh / required_kwh) */}
-                    <div className="space-y-1">
-                        <div className="flex justify-between text-[9px] text-muted font-medium">
-                            <span>Delivered: {delivered.toFixed(1)} kWh</span>
-                            <span>
-                                Target: {required.toFixed(1)} kWh ({progressPercent}% of goal)
-                            </span>
-                        </div>
-                        <div className="h-1.5 w-full bg-line/20 rounded-full relative overflow-hidden">
-                            <div
-                                className="h-full bg-ev rounded-full animate-pulse"
-                                style={{ width: `${progressPercent}%` }}
-                            />
-                        </div>
-                    </div>
+                    {planPending ? (
+                        <p className="text-[10px] text-muted italic" data-testid="ev-replanning-note">
+                            Updating the plan for this goal…
+                        </p>
+                    ) : (
+                        <div className={`space-y-3 ${replanFailed ? 'opacity-60' : ''}`} data-testid="ev-plan-values">
+                            {/* Visual Progress Bar (delivered_kwh / required_kwh) */}
+                            <div className="space-y-1">
+                                <div className="flex justify-between text-[9px] text-muted font-medium">
+                                    <span>Delivered: {delivered.toFixed(1)} kWh</span>
+                                    <span>
+                                        Target: {required.toFixed(1)} kWh ({progressPercent}% of goal)
+                                    </span>
+                                </div>
+                                <div className="h-1.5 w-full bg-line/20 rounded-full relative overflow-hidden">
+                                    <div
+                                        className="h-full bg-ev rounded-full animate-pulse"
+                                        style={{ width: `${progressPercent}%` }}
+                                    />
+                                </div>
+                            </div>
 
-                    {/* Quota schedule summary */}
-                    {charger.delivered_kwh !== null && charger.required_kwh !== null && (
-                        <div className="flex justify-between text-[10px] bg-surface-elevated p-2 rounded-lg border border-line/10">
-                            <div>
-                                <span className="text-muted text-[9px] block">Delivered Today</span>
-                                <span className="font-semibold text-text">
-                                    {(charger.delivered_kwh ?? 0).toFixed(1)} kWh
-                                </span>
-                            </div>
-                            <div className="text-right">
-                                <span className="text-muted text-[9px] block">Remaining Need</span>
-                                <span className="font-semibold text-accent">
-                                    {charger.remaining_kwh !== null
-                                        ? `${(charger.remaining_kwh ?? 0).toFixed(1)} kWh`
-                                        : '—'}
-                                </span>
-                            </div>
+                            {/* Quota schedule summary */}
+                            {charger.delivered_kwh !== null && charger.required_kwh !== null && (
+                                <div className="flex justify-between text-[10px] bg-surface-elevated p-2 rounded-lg border border-line/10">
+                                    <div>
+                                        <span className="text-muted text-[9px] block">Delivered Today</span>
+                                        <span className="font-semibold text-text">
+                                            {(charger.delivered_kwh ?? 0).toFixed(1)} kWh
+                                        </span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-muted text-[9px] block">Remaining Need</span>
+                                        <span className="font-semibold text-accent">
+                                            {charger.remaining_kwh !== null
+                                                ? `${(charger.remaining_kwh ?? 0).toFixed(1)} kWh`
+                                                : '—'}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -510,9 +584,11 @@ export default function EVChargingCard({
                     </div>
 
                     {/* Planned per-day estimate (known vs forecast-based) */}
-                    {charger.planned_by_day && charger.planned_by_day.length > 0 && (
-                        <div className="pt-1 border-t border-line/10">
-                            <div className="text-[9px] text-muted font-medium mb-1">Planned per day</div>
+                    {!planPending && charger.planned_by_day && charger.planned_by_day.length > 0 && (
+                        <div className={`pt-1 border-t border-line/10 ${replanFailed ? 'opacity-60' : ''}`}>
+                            <div className="text-[9px] text-muted font-medium mb-1">
+                                Planned per day{replanFailed && ' (last plan)'}
+                            </div>
                             <div className="flex gap-2 overflow-x-auto pb-0.5 custom-scrollbar">
                                 {charger.planned_by_day.map((day) => {
                                     const d = parseLocalISODate(day.date)

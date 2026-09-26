@@ -40,6 +40,10 @@ class PlannerResult:
     error_code: str | None = None
     error_details: dict[str, Any] | None = None
     fix_hint: str | None = None
+    # True when the request was coalesced into a follow-up run instead of
+    # executing now (planner-run-coalescing). The follow-up result is
+    # delivered to callers that asked to wait.
+    queued: bool = False
 
 
 class PlannerService:
@@ -59,6 +63,25 @@ class PlannerService:
         self._consecutive_failures: int = 0
         self._retry_suspended: bool = False
         self._suspended_since: datetime | None = None
+
+        # Run coalescing (planner-run-coalescing): a request that arrives while
+        # a run is in progress is never dropped. It sets _rerun_requested and
+        # merges its plug overrides; exactly one follow-up run executes after
+        # the current one finishes (success or failure).
+        self._rerun_requested: bool = False
+        self._pending_plug_overrides: dict[str, bool] = {}
+        self._followup_future: asyncio.Future[PlannerResult] | None = None
+        self._followup_task: asyncio.Task[None] | None = None
+
+        # Goal-triggered replan tracking for plan_pending (ev-goal-lifecycle-feedback).
+        # Chargers move from "waiting" to "running" when a run starts (that run
+        # reads the edited goal), and leave "running" when it finishes.
+        self._goal_waiting: set[str] = set()
+        self._goal_running: set[str] = set()
+        # When a goal-triggered run failed per charger: plan_pending stops
+        # reporting a goal edit older than the failure (the UI shows the last
+        # plan as stale instead of an endless "Re-planning…").
+        self._goal_failed_at: dict[str, datetime] = {}
 
     @property
     def retry_suspended(self) -> bool:
@@ -160,129 +183,193 @@ class PlannerService:
             "is_running": self._lock.locked(),
         }
 
+    def mark_goal_replan_pending(self, charger_ids: set[str] | list[str]) -> None:
+        """Record that a goal-triggered replan is queued for these chargers."""
+        self._goal_waiting.update(cid for cid in charger_ids if cid)
+
+    def goal_replan_pending(self, charger_id: str) -> bool:
+        """Whether a goal-triggered replan for this charger is queued or running."""
+        return charger_id in self._goal_waiting or charger_id in self._goal_running
+
+    def goal_replan_failed_at(self, charger_id: str) -> datetime | None:
+        """When the latest goal-triggered run covering this charger failed (None if it didn't)."""
+        return self._goal_failed_at.get(charger_id)
+
+    def _is_busy(self) -> bool:
+        return self._lock.locked() or self._followup_task is not None
+
     async def run_once(
         self,
-        ev_plugged_in_override: bool | None = None,
-        ev_charger_id_override: str | None = None,
+        ev_plug_overrides: dict[str, bool] | None = None,
+        *,
+        wait: bool = False,
     ) -> PlannerResult:
         """
         Run the planner asynchronously.
         Handles cache invalidation and WebSocket notification automatically.
 
-        Uses a lock to prevent concurrent planner executions.
+        Concurrent requests are coalesced: while a run is in progress, the
+        request is queued into exactly one follow-up run (plug overrides merged
+        per charger, latest wins) that starts when the current run finishes.
 
         Args:
-            ev_plugged_in_override: If True, passes plugged-in state to avoid REST race
-            ev_charger_id_override: Charger ID to apply the plug state override to (Task 7.3)
+            ev_plug_overrides: Per-charger plug-state overrides ({charger_id: plugged})
+                used instead of the HA plug sensor to avoid the REST race.
+            wait: When the request is coalesced, await the follow-up run and
+                return its result (synchronous manual runs) instead of
+                returning a queued acknowledgement.
         """
-        # Prevent concurrent runs
-        if self._lock.locked():
-            logger.warning("Planner already running, skipping concurrent request")
-            return PlannerResult(
-                success=False,
-                planned_at=datetime.now(UTC),
-                error="Planner already running",
+        if self._is_busy():
+            future = self._queue_followup(ev_plug_overrides)
+            if wait:
+                return await asyncio.shield(future)
+            return PlannerResult(success=True, planned_at=datetime.now(UTC), queued=True)
+
+        result = await self._run_locked(ev_plug_overrides or {})
+        self._schedule_followup_if_needed()
+        return result
+
+    def _queue_followup(
+        self, ev_plug_overrides: dict[str, bool] | None
+    ) -> "asyncio.Future[PlannerResult]":
+        self._rerun_requested = True
+        if ev_plug_overrides:
+            self._pending_plug_overrides.update(ev_plug_overrides)
+        if self._followup_future is None or self._followup_future.done():
+            self._followup_future = asyncio.get_running_loop().create_future()
+        logger.info("Planner busy; request coalesced into one follow-up run")
+        return self._followup_future
+
+    def _schedule_followup_if_needed(self) -> None:
+        if self._rerun_requested and self._followup_task is None:
+            self._followup_task = asyncio.create_task(self._run_followups())
+
+    async def _run_followups(self) -> None:
+        try:
+            while self._rerun_requested:
+                self._rerun_requested = False
+                overrides = self._pending_plug_overrides
+                self._pending_plug_overrides = {}
+                future = self._followup_future
+                self._followup_future = None
+                try:
+                    result = await self._run_locked(overrides)
+                except BaseException as exc:  # cancellation: never leave a waiter hanging
+                    if future is not None and not future.done():
+                        future.set_exception(exc)
+                    raise
+                if future is not None and not future.done():
+                    future.set_result(result)
+        finally:
+            self._followup_task = None
+
+    async def _run_locked(self, ev_plug_overrides: dict[str, bool]) -> PlannerResult:
+        async with self._lock:
+            self._goal_running = self._goal_waiting
+            self._goal_waiting = set()
+            try:
+                return await self._execute(ev_plug_overrides)
+            finally:
+                self._goal_running = set()
+
+    async def _execute(self, ev_plug_overrides: dict[str, bool]) -> PlannerResult:
+        # naive by design: elapsed-duration only, never crosses a module boundary
+        start = datetime.now()
+        planned_at = datetime.now(UTC)
+        self._planner_start_time = start
+
+        try:
+            await self._emit_progress("fetching_inputs")
+
+            from bin.run_planner import main as run_planner_main
+
+            exit_code = await run_planner_main(
+                progress_callback=self._emit_progress,
+                ev_plug_overrides=ev_plug_overrides or None,
             )
 
-        async with self._lock:
+            if exit_code == 0:
+                slot_count = self._count_schedule_slots()
+                result = PlannerResult(
+                    success=True,
+                    planned_at=planned_at,
+                    slot_count=slot_count,
+                )
+            else:
+                result = PlannerResult(
+                    success=False,
+                    planned_at=planned_at,
+                    error=f"Planner exited with code {exit_code}",
+                )
+
             # naive by design: elapsed-duration only, never crosses a module boundary
-            start = datetime.now()
-            planned_at = datetime.now(UTC)
-            self._planner_start_time = start
+            result.duration_ms = (datetime.now() - start).total_seconds() * 1000
 
-            try:
-                await self._emit_progress("fetching_inputs")
-
-                from bin.run_planner import main as run_planner_main
-
-                exit_code = await run_planner_main(
-                    progress_callback=self._emit_progress,
-                    ev_plugged_in_override=ev_plugged_in_override,
-                    ev_charger_id_override=ev_charger_id_override,
-                )
-
-                if exit_code == 0:
-                    slot_count = self._count_schedule_slots()
-                    result = PlannerResult(
-                        success=True,
-                        planned_at=planned_at,
-                        slot_count=slot_count,
-                    )
-                else:
-                    result = PlannerResult(
-                        success=False,
-                        planned_at=planned_at,
-                        error=f"Planner exited with code {exit_code}",
-                    )
-
-                # naive by design: elapsed-duration only, never crosses a module boundary
-                result.duration_ms = (datetime.now() - start).total_seconds() * 1000
-
-                if result.success:
-                    await self._emit_progress("complete")
-                    self._on_success()
-                    await self._notify_success(result)
-                else:
-                    self._consecutive_failures += 1
-                    await self._notify_error(result)
-
-                self._current_phase = None
-                self._planner_start_time = None
-
-                return result
-
-            except PlannerError as e:
-                logger.exception("Planner execution failed with typed error: %s", e.code)
+            if result.success:
+                await self._emit_progress("complete")
+                self._on_success()
+                await self._notify_success(result)
+            else:
                 self._consecutive_failures += 1
-                self._last_error_code = e.code
-                self._last_error_at = datetime.now(UTC)
-                self._last_error_details = e.details or {}
-                self._apply_retry_policy(e.code)
-
-                # naive by design: elapsed-duration only, never crosses a module boundary
-                duration_ms = (datetime.now() - start).total_seconds() * 1000
-                result = PlannerResult(
-                    success=False,
-                    planned_at=planned_at,
-                    error=e.message,
-                    duration_ms=duration_ms,
-                    error_code=e.code.value,
-                    error_details=e.details,
-                    fix_hint=e.fix_hint,
-                )
                 await self._notify_error(result)
-                await self._emit_progress("failed")
 
-                self._current_phase = None
-                self._planner_start_time = None
+            self._current_phase = None
+            self._planner_start_time = None
 
-                return result
+            return result
 
-            except Exception as e:
-                logger.exception("Planner execution failed")
-                self._consecutive_failures += 1
-                self._last_error_code = PlannerErrorCode.UNKNOWN
-                self._last_error_at = datetime.now(UTC)
-                self._last_error_details = {"exception": str(e)}
-                self._apply_retry_policy(PlannerErrorCode.UNKNOWN)
+        except PlannerError as e:
+            logger.exception("Planner execution failed with typed error: %s", e.code)
+            self._consecutive_failures += 1
+            self._last_error_code = e.code
+            self._last_error_at = datetime.now(UTC)
+            self._last_error_details = e.details or {}
+            self._apply_retry_policy(e.code)
 
-                # naive by design: elapsed-duration only, never crosses a module boundary
-                duration_ms = (datetime.now() - start).total_seconds() * 1000
-                result = PlannerResult(
-                    success=False,
-                    planned_at=planned_at,
-                    error=f"{type(e).__name__}: {e!s}",
-                    duration_ms=duration_ms,
-                    error_code=PlannerErrorCode.UNKNOWN.value,
-                    error_details={"exception": str(e)},
-                )
-                await self._notify_error(result)
-                await self._emit_progress("failed")
+            # naive by design: elapsed-duration only, never crosses a module boundary
+            duration_ms = (datetime.now() - start).total_seconds() * 1000
+            result = PlannerResult(
+                success=False,
+                planned_at=planned_at,
+                error=e.message,
+                duration_ms=duration_ms,
+                error_code=e.code.value,
+                error_details=e.details,
+                fix_hint=e.fix_hint,
+            )
+            await self._notify_error(result)
+            await self._emit_progress("failed")
 
-                self._current_phase = None
-                self._planner_start_time = None
+            self._current_phase = None
+            self._planner_start_time = None
 
-                return result
+            return result
+
+        except Exception as e:
+            logger.exception("Planner execution failed")
+            self._consecutive_failures += 1
+            self._last_error_code = PlannerErrorCode.UNKNOWN
+            self._last_error_at = datetime.now(UTC)
+            self._last_error_details = {"exception": str(e)}
+            self._apply_retry_policy(PlannerErrorCode.UNKNOWN)
+
+            # naive by design: elapsed-duration only, never crosses a module boundary
+            duration_ms = (datetime.now() - start).total_seconds() * 1000
+            result = PlannerResult(
+                success=False,
+                planned_at=planned_at,
+                error=f"{type(e).__name__}: {e!s}",
+                duration_ms=duration_ms,
+                error_code=PlannerErrorCode.UNKNOWN.value,
+                error_details={"exception": str(e)},
+            )
+            await self._notify_error(result)
+            await self._emit_progress("failed")
+
+            self._current_phase = None
+            self._planner_start_time = None
+
+            return result
 
     def _on_success(self) -> None:
         self._consecutive_failures = 0
@@ -306,6 +393,11 @@ class PlannerService:
 
     async def _notify_success(self, result: PlannerResult) -> None:
         """Invalidate cache and emit WebSocket event on success."""
+        # Clear before emitting so a refetch triggered by the event sees
+        # plan_pending=false for chargers this run covered.
+        for charger_id in self._goal_running:
+            self._goal_failed_at.pop(charger_id, None)
+        self._goal_running = set()
         try:
             await cache.invalidate("schedule:current")
             await ws_manager.emit(
@@ -327,6 +419,10 @@ class PlannerService:
 
     async def _notify_error(self, result: PlannerResult) -> None:
         """Emit WebSocket error event on failure."""
+        failed_at = datetime.now(UTC)
+        for charger_id in self._goal_running:
+            self._goal_failed_at[charger_id] = failed_at
+        self._goal_running = set()
         try:
             await ws_manager.emit(
                 "planner_error",
