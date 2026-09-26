@@ -62,34 +62,40 @@ from planner.strategy.s_index import (
 from planner.vacation_state import load_last_anti_legionella, save_last_anti_legionella
 
 
-def _ev_delivered_today_kwh(db_path: str, charger_id: str, tz: pytz.BaseTzInfo) -> float:
-    """Fetch aggregate EV charging energy recorded today from slot_observations.
+def _ev_delivered_today_kwh(
+    db_path: str, charger_id: str, tz: pytz.BaseTzInfo, now: datetime
+) -> float | None:
+    """One charger's recorded EV energy since local midnight of ``now``.
 
-    The table currently stores only aggregate ``ev_charging_kwh``; this is used
-    as a best-effort delivered-so-far value for the single/primary charger case.
+    Reads the per-charger ``ev_charger_observations`` rows (ev-per-charger-energy)
+    for slots starting in ``[local midnight, now)``. ``now`` is the planner's
+    effective time, so ``now_override`` is honoured. Returns None (unknown)
+    when the charger has no rows in that window or the table is unreadable;
+    there is no fallback to the unattributable ``slot_observations`` aggregate.
     """
     import sqlite3
-    from datetime import datetime, time
+    from datetime import datetime as _datetime, time
 
+    local_now = now.astimezone(tz) if now.tzinfo else tz.localize(now)
+    start_local = tz.localize(_datetime.combine(local_now.date(), time.min))
     try:
         conn = sqlite3.connect(db_path, timeout=10)
     except Exception:
-        return 0.0
-
+        return None
     try:
-        today = datetime.now(tz).date()
-        start_local = tz.localize(datetime.combine(today, time.min))
-        start_iso = start_local.isoformat()
-        cursor = conn.execute(
-            "SELECT SUM(ev_charging_kwh) FROM slot_observations WHERE slot_start >= ?",
-            (start_iso,),
-        )
-        row = cursor.fetchone()
-        return float(row[0]) if row and row[0] is not None else 0.0
-    except Exception:
-        return 0.0
+        row = conn.execute(
+            "SELECT SUM(energy_kwh), COUNT(*) FROM ev_charger_observations "
+            "WHERE charger_id = ? AND slot_start >= ? AND slot_start < ?",
+            (charger_id, start_local.isoformat(), local_now.isoformat()),
+        ).fetchone()
+    except Exception as exc:
+        logger.debug("EV %s: per-charger delivered energy unavailable: %s", charger_id, exc)
+        return None
     finally:
         conn.close()
+    if not row or not row[1]:
+        return None
+    return float(row[0] or 0.0)
 
 
 def _load_previous_schedule(schedule_path: Path = DEFAULT_SCHEDULE_PATH) -> list[dict[str, Any]]:
@@ -252,14 +258,18 @@ def _resolve_ev_charger_plan_state(
     now_dt: datetime,
     tz: pytz.BaseTzInfo,
     sqlite_path: str,
-    enabled_charger_count: int,
 ) -> dict[str, Any]:
     """Per-charger planning state (deadline, required kWh, plug/assumed flags).
 
-    Plugged chargers resolve their deadline (with the missed-goal grace).
-    Unplugged chargers with an active goal and a known last SoC (live, else
-    ``persisted_goal["current_soc_percent"]``) are planned as assumed plugged
-    (ev-goal-lifecycle-feedback D7); without a known SoC they are not planned.
+    Plugged chargers resolve their deadline (with the missed-goal grace). A
+    plugged charger whose SoC sensor is configured but whose resolved SoC is
+    ``stale`` (ev-soc-staleness) gets no required energy: goal charging is
+    suspended until a valid reading returns.
+    Unplugged chargers with an active goal and a known last SoC (live or
+    carried, else ``persisted_goal["current_soc_percent"]``, regardless of
+    its age) are planned as assumed plugged (ev-goal-lifecycle-feedback D7);
+    without a known SoC they are not planned. The executor never acts on an
+    unplugged charger, and the plug-in replan re-plans from the real SoC.
     """
     charger_id = ev_cfg_item.get("id", "")
     plugged_in = bool(ha_state.get("plugged_in", False))
@@ -267,7 +277,9 @@ def _resolve_ev_charger_plan_state(
     required_kwh: float | None = None
     keep_on_after_target = bool(ev_cfg_item.get("keep_on_after_target", False))
     soc_for_plan = ha_state.get("soc_percent")
+    soc_status = ha_state.get("soc_status")
     assumed_plugged = False
+    soc_suspended = False
 
     in_grace = False
     if plugged_in:
@@ -283,13 +295,19 @@ def _resolve_ev_charger_plan_state(
                 deadline.strftime("%Y-%m-%d %H:%M"),
             )
         if deadline is not None:
-            required_kwh = _calculate_required_kwh(
-                ev_cfg_item,
-                ha_state,
-                sqlite_path,
-                tz,
-                single_enabled_charger=(enabled_charger_count == 1),
+            required_kwh = _calculate_required_kwh(ev_cfg_item, ha_state, sqlite_path, tz, now_dt)
+        if deadline is not None and required_kwh is None:
+            soc_suspended = True
+            logger.warning(
+                "EV %s: SoC unavailable (status=%s, last reading %s min ago) - "
+                "goal charging suspended",
+                charger_id,
+                soc_status or "stale",
+                f"{float(ha_state['soc_age_minutes']):.0f}"
+                if ha_state.get("soc_age_minutes") is not None
+                else "n/a",
             )
+        elif deadline is not None:
             logger.info(
                 "EV %s: SoC=%.1f%%, Plugged=%s, Target=%d%%, "
                 "Required=%.2f kWh, ReadyBy=%s, Deadline=%s",
@@ -328,9 +346,9 @@ def _resolve_ev_charger_plan_state(
                 {**ha_state, "soc_percent": float(soc_for_plan)},
                 sqlite_path,
                 tz,
-                single_enabled_charger=(enabled_charger_count == 1),
+                now_dt,
             )
-            if candidate_required > 0:
+            if candidate_required is not None and candidate_required > 0:
                 deadline = candidate_deadline
                 required_kwh = candidate_required
                 assumed_plugged = True
@@ -346,6 +364,8 @@ def _resolve_ev_charger_plan_state(
     return {
         "id": charger_id,
         "soc_percent": soc_for_plan,
+        "soc_status": soc_status,
+        "soc_suspended": soc_suspended,
         "plugged_in": plugged_in,
         "assumed_plugged": assumed_plugged,
         "unreachable": bool(ha_state.get("unreachable", False)),
@@ -365,23 +385,21 @@ def _calculate_required_kwh(
     ha_state: dict[str, Any],
     db_path: str | None,
     tz: pytz.BaseTzInfo,
-    *,
-    single_enabled_charger: bool = True,
-) -> float:
+    now: datetime | None = None,
+) -> float | None:
     """Compute remaining kWh required to reach target SoC.
 
-    When a live SoC reading is available, ``required_kwh = max(0, (target -
-    current_soc)/100 * capacity)`` — the live reading already reflects
-    charging progress, so delivered-today is NOT subtracted on top of it
-    (that would double-count progress and leave the car short of target).
+    With a resolved SoC (``live`` or ``carried``, ev-soc-staleness),
+    ``required_kwh = max(0, (target - soc)/100 * capacity)`` — the SoC already
+    reflects charging progress, so delivered-today is NOT subtracted on top.
 
-    Only when SoC is unavailable (sensor missing/unreadable — distinguished
-    from a real 0.0 reading by ``ha_state["soc_percent"]`` being ``None``)
-    does the calculation fall back to ``target/100 * capacity -
-    delivered_today``. That fallback's ``slot_observations.ev_charging_kwh``
-    column is an unattributable aggregate across all chargers, so it is only
-    applied when exactly one charger is enabled; with multiple SoC-less
-    chargers, nothing is subtracted (a warning is logged instead).
+    When a SoC sensor is configured but no resolved SoC exists (``stale``),
+    returns None: goal charging is suspended rather than planned against a
+    fabricated SoC.
+
+    Only when no SoC sensor is configured at all is the SoC-less estimate
+    ``target/100 * capacity`` used, minus this charger's own delivered-today
+    energy (ev-per-charger-energy). Unknown delivered energy is not subtracted.
     """
     target_soc = float(charger_cfg.get("target_soc_percent", 80))
     capacity = float(charger_cfg.get("battery_capacity_kwh") or 0.0)
@@ -390,21 +408,18 @@ def _calculate_required_kwh(
     if current_soc is not None:
         return max(0.0, (target_soc - float(current_soc)) / 100.0 * capacity)
 
+    if charger_cfg.get("soc_sensor"):
+        return None
+
     required = max(0.0, target_soc / 100.0 * capacity)
     if not db_path:
         return required
-
-    if not single_enabled_charger:
-        logger.warning(
-            "EV %s: SoC unavailable with multiple EV chargers enabled - "
-            "delivered-today (slot_observations.ev_charging_kwh) is an "
-            "unattributable aggregate; not subtracting.",
-            charger_cfg.get("id", ""),
-        )
-        return required
+    from datetime import datetime as _datetime
 
     charger_id = str(charger_cfg.get("id", ""))
-    delivered = _ev_delivered_today_kwh(db_path, charger_id, tz)
+    delivered = _ev_delivered_today_kwh(db_path, charger_id, tz, now or _datetime.now(tz))
+    if delivered is None:
+        return required
     return max(0.0, required - delivered)
 
 
@@ -443,18 +458,16 @@ def _apply_keep_on_after_target(
 ) -> None:
     """Post-solve keep-on-standby flag for ``keep_on_after_target``.
 
-    When a charger has ``keep_on_after_target=True`` and the goal target SoC is
-    100% and live SoC is already at 100%, the solver schedules no EV slots
-    (``required_kwh=0``). This sets ``slot.ev_keep_on[charger_id] = True`` on
-    each upcoming slot (``now < end_time <= deadline``) so the executor keeps
-    the charger connected as a standby supply for EV ambient/cabin/
-    preconditioning loads — the EV's onboard charger self-gates actual battery
-    draw past 100%. The flag carries no planned energy: ``ev_charger_results``/
-    ``ev_charge_kw`` are left untouched (0 from the solver), so schedule
-    totals stay energy-consistent. After the ready-by deadline the charger
-    idles (no flag), matching the agreed window: target-met → deadline. Gated
-    on target=100 to avoid overcharging chemistries sensitive to repeated
-    full-top-ups.
+    When a charger has ``keep_on_after_target=True`` and its resolved SoC
+    (``live`` or ``carried``) is at or above the goal's target SoC — any target,
+    not only 100% — the solver schedules no EV slots (``required_kwh=0``).
+    This sets ``slot.ev_keep_on[charger_id] = True`` on each upcoming slot
+    (``now < end_time <= deadline``) so the executor keeps the charger
+    connected as a standby supply for EV ambient/cabin/preconditioning loads;
+    the car's own charge limit gates actual battery draw. The flag carries no
+    planned energy: ``ev_charger_results``/``ev_charge_kw`` are left untouched
+    (0 from the solver), so schedule totals stay energy-consistent. After the
+    ready-by deadline the charger idles (no flag). A stale SoC never flags.
     """
     cfg_by_id = {str(c.get("id", "")): c for c in ev_chargers_cfg}
     keep_on_map: dict[str, Any] = {}
@@ -463,9 +476,11 @@ def _apply_keep_on_after_target(
             continue
         charger_id = str(state.get("id", ""))
         cfg = cfg_by_id.get(charger_id, {})
-        if int(cfg.get("target_soc_percent", 0) or 0) != 100:
+        target = cfg.get("target_soc_percent")
+        soc = state.get("soc_percent")
+        if target is None or soc is None or state.get("soc_status") == "stale":
             continue
-        if float(state.get("soc_percent", 0.0) or 0.0) < 100.0:
+        if float(soc) < float(target):
             continue
         deadline = state.get("deadline")
         if deadline is None or deadline <= now:
@@ -525,6 +540,7 @@ def compute_ev_goal_diagnostics(
     cfg_by_id = {str(c.get("id", "")): c for c in ev_chargers_cfg}
     load_by_start = {s.start_time: float(s.load_kwh) for s in input_slots}
     diagnostics: dict[str, dict[str, Any]] = {}
+    solver_shortfall_by_charger: dict[str, float] = getattr(result, "ev_shortfall_kwh", None) or {}
 
     for state in ev_states:
         required_kwh = state.get("required_kwh")
@@ -543,14 +559,7 @@ def compute_ev_goal_diagnostics(
                 slot_h = min(slot_h, first_slot_remaining_h)
             scheduled_kwh += s.ev_charger_results.get(charger_id, 0.0) * slot_h
         deferred_kwh = sum((deferred_kwh_by_charger or {}).get(charger_id, []))
-        solver_shortfall = next(
-            (
-                s.ev_shortfall_kwh[charger_id]
-                for s in result.slots
-                if charger_id in s.ev_shortfall_kwh
-            ),
-            None,
-        )
+        solver_shortfall = solver_shortfall_by_charger.get(charger_id)
         shortfall_kwh = max(
             0.0,
             float(solver_shortfall)
@@ -658,6 +667,11 @@ def _warn_on_zero_scheduled_active_goals(
         )
 
 
+# (charger_id, goal fingerprint) pairs already warned about a ready-by set
+# without a target SoC; the warning is logged once per goal state per process.
+_warned_incomplete_goals: set[tuple[str, tuple[Any, ...]]] = set()
+
+
 def merge_ev_goals_from_state(
     ev_chargers_cfg_raw: list[dict[str, Any]],
     ev_state_data: dict[str, dict[str, Any]],
@@ -700,18 +714,30 @@ def merge_ev_goals_from_state(
             goal_cfg["anchor_date"] = None
             goal_cfg["last_updated"] = None
             goal_cfg["keep_on_after_target"] = False
+            fingerprint = (
+                charger_state.get("ready_by"),
+                charger_state.get("ready_by_date"),
+                charger_state.get("repeat"),
+                charger_state.get("last_updated"),
+            )
             if charger_state and charger_state.get("ready_by"):
                 # A ready-by with no target SoC is a half-set goal: the whole
                 # goal is dropped here, which reads downstream as "no active
                 # deadline" and looks identical to no goal at all. Say so, so
-                # it is diagnosable from the log instead of silent.
-                logger.warning(
-                    "EV %s: ready-by %s is set but no target SoC is - the goal is "
-                    "incomplete and no charging will be planned. Set a target SoC "
-                    "for this charger in Darkstar or via its ha_target_soc_entity.",
-                    charger_id,
-                    charger_state.get("ready_by"),
-                )
+                # it is diagnosable from the log instead of silent — once per
+                # goal state, not on every planner run.
+                warn_key = (str(charger_id), fingerprint)
+                if warn_key in _warned_incomplete_goals:
+                    logger.debug("EV %s: incomplete goal (already warned)", charger_id)
+                else:
+                    _warned_incomplete_goals.add(warn_key)
+                    logger.warning(
+                        "EV %s: ready-by %s is set but no target SoC is - the goal is "
+                        "incomplete and no charging will be planned. Set a target SoC "
+                        "for this charger in Darkstar or via its ha_target_soc_entity.",
+                        charger_id,
+                        charger_state.get("ready_by"),
+                    )
             else:
                 logger.debug("EV %s: no goal set in the dashboard - charger inert", charger_id)
         merged.append(goal_cfg)
@@ -768,11 +794,18 @@ def _persist_ev_multi_day_state(
             required_kwh = state.get("required_kwh")
             max_kw = charger_power_limits(cfg, voltage)[1]
             capacity = float(cfg.get("battery_capacity_kwh") or 0.0)
-            current_soc = float(state.get("soc_percent") or 0.0)
+            # A missing SoC keeps the last persisted reading (assumed-plugged
+            # planning reads it back); it is never written as 0%.
+            soc_raw = state.get("soc_percent")
+            current_soc: float | None = (
+                float(soc_raw)
+                if soc_raw is not None
+                else existing_charger.get("current_soc_percent")
+            )
 
-            delivered_kwh = 0.0
+            delivered_kwh: float | None = None
             if sqlite_path:
-                delivered_kwh = _ev_delivered_today_kwh(sqlite_path, charger_id, tz)
+                delivered_kwh = _ev_delivered_today_kwh(sqlite_path, charger_id, tz, now)
             remaining_kwh = None if required_kwh is None else max(0.0, required_kwh)
 
             margin = state.get("effective_margin_percent")
@@ -793,11 +826,14 @@ def _persist_ev_multi_day_state(
                 # Progress fields: refreshed every run this charger is processed.
                 "deadline": deadline.isoformat() if deadline else None,
                 "required_kwh": round(float(required_kwh), 3) if required_kwh is not None else None,
-                "delivered_kwh": round(delivered_kwh, 3),
+                "delivered_kwh": round(delivered_kwh, 3) if delivered_kwh is not None else None,
                 "remaining_kwh": round(float(remaining_kwh), 3)
                 if remaining_kwh is not None
                 else None,
-                "current_soc_percent": round(current_soc, 2),
+                "current_soc_percent": round(float(current_soc), 2)
+                if current_soc is not None
+                else None,
+                "soc_suspended": bool(state.get("soc_suspended", False)),
                 "battery_capacity_kwh": capacity,
                 "planned_by_day": state.get("planned_by_day") or [],
                 "deferral_price_source": state.get("deferral_price_source"),
@@ -1621,7 +1657,6 @@ class PlannerPipeline:
             goals_read_at = pd.Timestamp.now(tz=tz).to_pydatetime()
             ev_state_data = read_ev_state()
             ev_chargers_cfg = merge_ev_goals_from_state(ev_chargers_cfg_raw, ev_state_data)
-            enabled_charger_count = sum(1 for c in ev_chargers_cfg if c.get("enabled", True))
 
             # Calculate per-device goals and attach to state dicts
             for ev_cfg_item in ev_chargers_cfg:
@@ -1642,7 +1677,6 @@ class PlannerPipeline:
                         now_dt,
                         tz,
                         sqlite_path,
-                        enabled_charger_count,
                     )
                 )
 

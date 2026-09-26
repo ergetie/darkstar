@@ -228,7 +228,7 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
     with patch("executor.engine.datetime", _FakeDateTime):
         # --- Stage 1: mid-session at 16A, stove spike hits (headroom -6) ---
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=16, charging_started_at=t0
+            charging_active=True, current_setpoint_a=16
         )
         grid["1"] = 26.0
         await engine.run_once()
@@ -282,7 +282,7 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
 
         # --- Stage 4: stale sensor two-stage fail-safe ---
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=16, charging_started_at=_FakeDateTime._current
+            charging_active=True, current_setpoint_a=16
         )
         stale_phase = "1"
         t_stale_start = _FakeDateTime._current
@@ -417,7 +417,7 @@ async def test_power_sensor_phase_end_to_end(temp_schedule, temp_db):
     with patch("executor.engine.datetime", _FakeDateTime):
         # --- Stage 1: power+voltage sensor resolves to the same 26A overload ---
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=16, charging_started_at=t0
+            charging_active=True, current_setpoint_a=16
         )
         await engine.run_once()
 
@@ -564,7 +564,7 @@ async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
         # --- Tick 1: L2 overloaded, WH listed above the charger -> WH sheds,
         # charger holds its 16A setpoint (never slowed, never stopped) ---
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=16, charging_started_at=t0
+            charging_active=True, current_setpoint_a=16
         )
         await engine.run_once()
 

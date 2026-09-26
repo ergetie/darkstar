@@ -39,7 +39,7 @@ On start, the setpoint SHALL be written before the switch is enabled. Each write
 - **THEN** the executor SHALL set it back to the configured enabled value
 
 ### Requirement: Minimum current floor with pause semantics
-The executor SHALL never write a setpoint below `min_current_a` (default 6), and SHALL never write 0 A. Whenever charging must stop (the target, planned or balancer-capped, falls below the floor; the plan ends; a load-balancer pause; the safety timeout; manual override or force_stop), the executor SHALL stop charging by setting the `switch_entity` to its configured `charge_disabled_value` (select-like) or `off` (switch-like), and SHALL treat the session as paused rather than failed. No value SHALL be hardcoded.
+The executor SHALL never write a setpoint below `min_current_a` (default 6), and SHALL never write 0 A. Whenever charging must stop (the target, planned or balancer-capped, falls below the floor; the plan ends; a load-balancer pause; manual override or force_stop), the executor SHALL stop charging by setting the `switch_entity` to its configured `charge_disabled_value` (select-like) or `off` (switch-like). It SHALL treat the session as paused rather than failed. No value SHALL be hardcoded.
 
 #### Scenario: Plan implies 4 A
 - **WHEN** the planner-derived target computes to 4 A
@@ -59,7 +59,7 @@ The executor SHALL determine how many phases the car actually draws on from the 
 - **AND** the balancer SHALL treat the charger as loading L1 only
 
 ### Requirement: Binary chargers remain unchanged
-Devices with `type: binary` (or absent type) SHALL keep the existing ON/OFF switch behavior, including the 30-minute safety timeout, per-device state tracking, and source isolation. Current-type devices SHALL retain the same safety timeout and source isolation semantics.
+Devices with `type: binary` (or absent type) SHALL keep the existing ON/OFF switch behavior, per-device state tracking, and source isolation. Current-type devices SHALL retain the same source isolation semantics.
 
 #### Scenario: Mixed fleet
 - **WHEN** one charger is `type: binary` and another is `type: current`

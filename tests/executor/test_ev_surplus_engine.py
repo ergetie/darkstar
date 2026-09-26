@@ -248,7 +248,7 @@ async def test_balancer_cap_clamps_surplus_proposal(temp_schedule, temp_db):
         json.dump(schedule, f)
 
     engine._ev_charger_states["goe"] = EVChargerState(
-        charging_active=True, current_setpoint_a=16, charging_started_at=now
+        charging_active=True, current_setpoint_a=16
     )
 
     await engine.run_once()

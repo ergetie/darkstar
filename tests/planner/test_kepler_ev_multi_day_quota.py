@@ -150,4 +150,4 @@ def test_surplus_counts_toward_requirement():
     surplus = sum(s.ev_surplus_kw.get("ev1", 0.0) for s in result.slots)
     assert scheduled == pytest.approx(0.0, abs=0.05)
     assert surplus >= 5.0 - 0.05
-    assert result.slots[0].ev_shortfall_kwh["ev1"] == pytest.approx(0.0, abs=0.05)
+    assert result.ev_shortfall_kwh["ev1"] == pytest.approx(0.0, abs=0.05)

@@ -20,6 +20,7 @@ interface GridCardProps {
     netCost: number | null
     importKwh: number | null
     exportKwh: number | null
+    hasEvCharger?: boolean
 }
 
 interface ResourcesCardProps {
@@ -121,7 +122,7 @@ export function isValidDateRange(start: string, end: string): boolean {
 
 // --- Domain Cards ---
 
-export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
+export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false }: GridCardProps) {
     const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'custom'>('today')
     const [previousPeriod, setPreviousPeriod] = useState<'today' | 'yesterday' | 'week' | 'month'>('today')
     const [startDate, setStartDate] = useState<string>('')
@@ -138,6 +139,9 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
         net_cost_incl_wear_sek: number
         grid_import_kwh: number
         grid_export_kwh: number
+        ev_charging_kwh: number
+        ev_cost_sek: number
+        ev_solar_share: number | null
         slot_count: number
     } | null>(null)
     const [loading, setLoading] = useState(true)
@@ -181,6 +185,9 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                         net_cost_incl_wear_sek: data.net_cost_incl_wear_sek,
                         grid_import_kwh: data.grid_import_kwh,
                         grid_export_kwh: data.grid_export_kwh,
+                        ev_charging_kwh: data.ev_charging_kwh ?? 0,
+                        ev_cost_sek: data.ev_cost_sek ?? 0,
+                        ev_solar_share: data.ev_solar_share ?? null,
                         slot_count: data.slot_count,
                     })
                 }
@@ -329,9 +336,47 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
             {/* Financial Breakdown */}
             {rangeData && (
                 <div className="grid grid-cols-2 gap-1.5 mb-2 relative z-10 text-[10px]">
-                    <div className="flex justify-between p-1.5 rounded bg-surface2/30">
-                        <span className="text-muted">Grid Import</span>
-                        <span className="text-bad font-medium">-{rangeData.import_cost_sek.toFixed(1)} kr</span>
+                    <div className="col-span-2 p-1.5 rounded bg-surface2/30">
+                        <div className="flex justify-between">
+                            <span className="text-muted">Grid Import</span>
+                            <span className="text-bad font-medium">-{rangeData.import_cost_sek.toFixed(1)} kr</span>
+                        </div>
+                        {/* EV sub-row: the EV's share of Grid Import. Shown whenever an EV charger is
+                            configured (0 kr · 0 kWh on idle ranges); also kept when historical EV
+                            energy exists after the charger was removed. */}
+                        {(hasEvCharger || rangeData.ev_charging_kwh > 0) && (
+                            <div
+                                className="flex justify-between gap-2 mt-1 pl-3"
+                                title="Grid import cost of EV charging in this period. Part of Grid Import above, not added to Net. Solar energy used by the EV is not given a price."
+                            >
+                                <span className="text-muted">↳ of which EV</span>
+                                <span className="flex items-baseline gap-1.5 min-w-0">
+                                    {rangeData.ev_charging_kwh > 0 ? (
+                                        <>
+                                            <span className="text-bad font-medium">
+                                                -{rangeData.ev_cost_sek.toFixed(1)} kr
+                                            </span>
+                                            <span className="text-muted">
+                                                {rangeData.ev_charging_kwh.toFixed(1)} kWh
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="text-muted font-medium">0 kr</span>
+                                            <span className="text-muted">0 kWh</span>
+                                        </>
+                                    )}
+                                    {rangeData.ev_charging_kwh > 0 && rangeData.ev_solar_share != null && (
+                                        <span
+                                            className="text-good cursor-help"
+                                            title="Share of EV energy that came from solar. For information only; solar energy has no cost in the EV figure."
+                                        >
+                                            {Math.round(rangeData.ev_solar_share * 100)}% solar
+                                        </span>
+                                    )}
+                                </span>
+                            </div>
+                        )}
                     </div>
                     <div className="flex justify-between p-1.5 rounded bg-surface2/30">
                         <span className="text-muted">Export Rev</span>

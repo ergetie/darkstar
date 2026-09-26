@@ -10,6 +10,13 @@ import httpx
 import pytz
 
 from backend.core import secrets
+from backend.core.ev_live_state import (
+    ResolvedSoc,
+    discard_soc_recovery,
+    resolve_soc,
+    soc_stale_after_minutes,
+    update_stale_soc_episode,
+)
 from backend.core.ev_plug import (
     DEFAULT_EV_PLUGGED_IN_STATES,
     is_ev_plugged_in,
@@ -545,20 +552,52 @@ async def get_initial_state(
             soc_sensor = ev.get("soc_sensor", "")
             plug_sensor = ev.get("plug_sensor", "")
 
-            # SoC: None when unavailable (no sensor configured, or the sensor
-            # read failed) — distinguished from a real 0.0% reading, so the
-            # required-kWh calculation doesn't misidentify "unknown" as
-            # "already at 0%" (see planner.pipeline._calculate_required_kwh).
+            # SoC (ev-soc-staleness): a valid reading is ``live``; without one
+            # the last valid reading is carried for ``soc_stale_after_minutes``,
+            # after which the SoC is ``stale`` (None) and the planner suspends
+            # goal charging. None is never read as 0% (see
+            # planner.pipeline._calculate_required_kwh).
             soc_percent: float | None = None
+            soc_status: str | None = None
+            soc_age_minutes: float | None = None
+            resolved: ResolvedSoc | None = None
             if soc_sensor:
                 ha_soc_val = per_device_results.get(f"ev_soc_{charger_id}")
-                if ha_soc_val is not None:
-                    soc_percent = float(ha_soc_val)
-                else:
+                window = soc_stale_after_minutes(ev)
+                resolved = resolve_soc(
+                    charger_id,
+                    float(ha_soc_val) if ha_soc_val is not None else None,
+                    window,
+                )
+                soc_percent = resolved.soc_percent
+                soc_status = resolved.status
+                soc_age_minutes = resolved.age_minutes
+                if resolved.status == "live":
+                    # This planner run already plans from the recovered
+                    # reading; no separate recovery replan is needed.
+                    discard_soc_recovery(charger_id)
+                elif resolved.status == "carried":
                     logger.warning(
-                        "EV %s SoC sensor %s returned no data, defaulting to 0%%",
+                        "EV %s SoC sensor %s unavailable - carrying last known SoC "
+                        "%.1f%% from %.0f min ago",
                         charger_id,
                         soc_sensor,
+                        resolved.soc_percent,
+                        resolved.age_minutes or 0.0,
+                    )
+                elif resolved.status == "stale":
+                    age_txt = (
+                        f"{resolved.age_minutes:.0f} min"
+                        if resolved.age_minutes is not None
+                        else "no valid reading since startup"
+                    )
+                    logger.warning(
+                        "EV %s SoC sensor %s unavailable for %s (window %.0f min) - "
+                        "goal charging suspended",
+                        charger_id,
+                        soc_sensor,
+                        age_txt,
+                        window,
                     )
 
             # Plug state
@@ -596,9 +635,18 @@ async def get_initial_state(
                 {
                     "id": charger_id,
                     "soc_percent": soc_percent,
+                    "soc_status": soc_status,
+                    "soc_age_minutes": soc_age_minutes,
                     "plugged_in": plugged_in,
                     "unreachable": unreachable,
                 }
+            )
+            # Only a plugged charger's stale SoC suspends goal charging and
+            # warrants the notification; unplugged chargers plan from their
+            # persisted SoC (assumed-plugged planning).
+            update_stale_soc_episode(
+                charger_id,
+                resolved if plugged_in else None,
             )
 
     # Build aggregate values for backward compatibility (legacy scalar field:

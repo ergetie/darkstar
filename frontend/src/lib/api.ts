@@ -431,6 +431,10 @@ export type EnergyTodayResponse = {
     battery_charge_kwh: number | null
     battery_discharge_kwh: number | null
     ev_charging_kwh: number | null
+    ev_grid_kwh?: number | null
+    ev_solar_kwh?: number | null
+    ev_cost_sek?: number | null
+    ev_solar_share?: number | null
     water_heating_kwh: number | null
     net_cost_sek: number | null
     battery_cycles: number | null
@@ -454,6 +458,12 @@ export type EnergyRangeResponse = {
     water_heating_kwh: number
     pv_production_kwh: number
     load_consumption_kwh: number
+    ev_charging_kwh: number
+    // EV attribution, grid first. ev_cost_sek is the EV grid import cost only (part of import_cost_sek); ev_solar_share is informational.
+    ev_grid_kwh: number
+    ev_solar_kwh: number
+    ev_cost_sek: number
+    ev_solar_share: number | null
     import_cost_sek: number
     export_revenue_sek: number
     grid_charge_cost_sek: number
@@ -699,6 +709,10 @@ export type EVChargerState = {
     /** Plug sensor or switch reads unavailable/unknown; plugged_in is the last known state */
     unreachable?: boolean
     soc_percent: number | null
+    /** Resolved SoC status (null when no SoC sensor is configured) */
+    soc_status?: 'live' | 'carried' | 'stale' | null
+    /** Age in minutes of the last valid SoC reading (null when none since startup) */
+    soc_age_minutes?: number | null
     power_kw: number | null
     target_soc_percent: number | null
     ready_by: string | null
@@ -720,7 +734,7 @@ export type EVChargerState = {
     min_current_a?: number | null
     max_current_a?: number | null
     n_days: number | null
-    status: 'on_track' | 'at_risk' | 'behind' | 'complete' | 'idle'
+    status: 'on_track' | 'at_risk' | 'behind' | 'complete' | 'idle' | 'soc_unavailable'
     /** kWh the current plan will not deliver by the deadline (at_risk only) */
     shortfall_kwh?: number | null
     shortfall_reason?: 'grid_limit' | 'deadline_too_close' | 'cost_tradeoff' | null

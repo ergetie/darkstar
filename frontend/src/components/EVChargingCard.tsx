@@ -121,9 +121,23 @@ export function deriveChargerStatus(
     } else if (charger.status === 'idle') {
         statusText = 'Idle'
         statusColor = 'bg-surface2 text-muted'
+    } else if (charger.status === 'soc_unavailable') {
+        statusText = 'SoC unavailable'
+        statusColor = 'bg-warn/10 text-warn border border-warn/20'
     }
 
     return { statusText, statusColor }
+}
+
+/** Warning for a stale SoC (ev-soc-staleness), or null unless status is soc_unavailable. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function describeSocUnavailable(charger: EVChargerState): string | null {
+    if (charger.status !== 'soc_unavailable') return null
+    const age =
+        charger.soc_age_minutes != null
+            ? `No SoC reading for ${Math.round(charger.soc_age_minutes)} min`
+            : 'No SoC reading since startup'
+    return `${age} — goal charging paused until the car reports its SoC again`
 }
 
 /** "22:00"-style local time of an ISO datetime, or null when absent/invalid. */
@@ -286,6 +300,7 @@ export default function EVChargingCard({
     const progressPercent = computeProgressPercent(charger)
     const { statusText, statusColor } = deriveChargerStatus(charger, balancerEv)
     const shortfallText = describeShortfall(charger)
+    const socUnavailableText = describeSocUnavailable(charger)
 
     return (
         <div className="bg-surface2/30 rounded-xl p-3 border border-line/10 relative overflow-hidden transition-all duration-300">
@@ -380,6 +395,16 @@ export default function EVChargingCard({
                     {plannedStart
                         ? `Planned from ${plannedStart} — plug in the car`
                         : 'Charging planned — plug in the car'}
+                </p>
+            )}
+
+            {!isEditing && !planPending && socUnavailableText && (
+                <p
+                    className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
+                    data-testid="ev-soc-unavailable"
+                    role="status"
+                >
+                    {socUnavailableText}
                 </p>
             )}
 

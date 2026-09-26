@@ -82,7 +82,7 @@ def test_goal_met_when_cheap_slots_exist():
     assert result.is_optimal
 
     total_ev = sum(s.ev_charge_kw for s in result.slots)
-    shortfall = result.slots[-1].ev_shortfall_kwh.get("test_ev", 0.0)
+    shortfall = result.ev_shortfall_kwh.get("test_ev", 0.0)
     assert total_ev >= 10.0 - 0.01
     assert shortfall == pytest.approx(0.0, abs=0.01)
 
@@ -98,7 +98,7 @@ def test_shortfall_when_deadline_is_tight():
     assert result.is_optimal
 
     total_ev = sum(s.ev_charge_kw for s in result.slots)
-    shortfall = result.slots[-1].ev_shortfall_kwh.get("test_ev", 0.0)
+    shortfall = result.ev_shortfall_kwh.get("test_ev", 0.0)
     assert total_ev <= 14.8 + 0.01
     assert shortfall > 5.0
 
@@ -122,6 +122,7 @@ def test_deferral_tier_cheaper_than_horizon_takes_the_energy():
 
     assert sum(s.ev_charge_kw for s in result.slots) == pytest.approx(0.0, abs=0.01)
     assert result.ev_deferred_kwh["test_ev"] == [pytest.approx(10.0, abs=0.01)]
+
 
 def test_deferral_to_cheaper_slots():
     """Solver avoids expensive slots when the goal can be met in cheaper slots."""

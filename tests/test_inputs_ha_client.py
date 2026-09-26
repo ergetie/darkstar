@@ -85,8 +85,9 @@ class TestGatherSensorReads:
 
 
 @pytest.mark.asyncio
-async def test_ev_soc_fallback_logging_no_crash():
-    """Verify that EV SoC fallback logging with '0%%' does not crash due to formatting."""
+async def test_ev_soc_unavailable_logging_is_truthful():
+    """An unavailable EV SoC is logged as unavailable with the suspend outcome,
+    never as "defaulting to 0%" (ev-soc-staleness), and formats without crashing."""
     from backend.core.ha_client import get_initial_state
 
     # Config with EV charger enabled but sensor returns no data
@@ -130,10 +131,13 @@ async def test_ev_soc_fallback_logging_no_crash():
         # This should NOT raise ValueError: incomplete format
         result = await get_initial_state()
 
-        # Verify the warning was logged with 0%%
-        ev_soc_warnings = [call for call in warning_calls if "defaulting to" in call[0]]
+        assert not [call for call in warning_calls if "defaulting to" in call[0]]
+        ev_soc_warnings = [call for call in warning_calls if "SoC sensor" in call[0]]
         assert len(ev_soc_warnings) == 1
-        assert "0%%" in ev_soc_warnings[0][0]  # Format string has escaped %%
+        rendered = ev_soc_warnings[0][0] % ev_soc_warnings[0][1]
+        assert "unavailable" in rendered
+        assert "goal charging suspended" in rendered
+        assert result["ev_charger_states"][0]["soc_status"] == "stale"
 
         # Legacy aggregate scalar defaults to 0 for backward compat...
         assert result["ev_soc_percent"] == 0.0
@@ -503,3 +507,80 @@ async def test_steady_soc_with_fresh_last_reported_no_warning(caplog):
     with caplog.at_level(logging.WARNING, logger="darkstar.planner.preflight"):
         check_soc_staleness({"initial_state": initial})
     assert "DATA_STALE" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_ev_soc_dropout_carries_last_known_value():
+    """A brief SoC dropout carries the last valid reading (ev-soc-staleness)."""
+    from backend.core.ev_live_state import remember_soc
+    from backend.core.ha_client import get_initial_state
+
+    test_config = {
+        "system": {"has_ev_charger": True, "battery": {"capacity_kwh": 10.0}},
+        "ev_chargers": [{"id": "ev1", "enabled": True, "soc_sensor": "sensor.ev_soc"}],
+        "input_sensors": {"battery_soc": "sensor.battery_soc"},
+    }
+    remember_soc("ev1", 55.0)
+    warning_calls = []
+    with (
+        patch("backend.core.secrets.load_yaml", return_value=test_config),
+        patch(
+            "backend.core.ha_client.get_ha_sensor_float",
+            side_effect=lambda e: {"sensor.battery_soc": 50.0}.get(e),
+        ),
+        patch(
+            "backend.core.ha_client.get_ha_entity_state",
+            new_callable=AsyncMock,
+            return_value={"state": "50.0"},
+        ),
+        patch("backend.core.ha_client.logger") as mock_logger,
+    ):
+        mock_logger.warning = lambda msg, *args: warning_calls.append(msg % args)
+        result = await get_initial_state()
+
+    state = result["ev_charger_states"][0]
+    assert state["soc_percent"] == 55.0
+    assert state["soc_status"] == "carried"
+    assert any("carrying last known SoC 55.0%" in w for w in warning_calls)
+
+
+@pytest.mark.asyncio
+async def test_planner_read_of_recovered_soc_discards_pending_recovery():
+    """A planner run that reads the recovered SoC drops the pending recovery replan."""
+    from backend.core.ev_live_state import (
+        ResolvedSoc,
+        consume_soc_recoveries,
+        discard_soc_recovery,
+        update_stale_soc_episode,
+    )
+    from backend.core.ha_client import get_initial_state
+
+    test_config = {
+        "system": {"has_ev_charger": True, "battery": {"capacity_kwh": 10.0}},
+        "ev_chargers": [{"id": "ev1", "enabled": True, "soc_sensor": "sensor.ev_soc"}],
+        "input_sensors": {"battery_soc": "sensor.battery_soc"},
+    }
+    update_stale_soc_episode("ev1", ResolvedSoc(None, "stale", 40.0))
+    with (
+        patch("backend.core.secrets.load_yaml", return_value=test_config),
+        patch(
+            "backend.core.ha_client.get_ha_sensor_float",
+            side_effect=lambda e: {"sensor.battery_soc": 50.0, "sensor.ev_soc": 62.0}.get(e),
+        ),
+        patch(
+            "backend.core.ha_client.get_ha_entity_state",
+            new_callable=AsyncMock,
+            return_value={"state": "50.0"},
+        ),
+        patch(
+            "backend.core.ha_client.discard_soc_recovery",
+            side_effect=discard_soc_recovery,
+        ) as spy,
+    ):
+        result = await get_initial_state()
+
+    state = result["ev_charger_states"][0]
+    assert state["soc_percent"] == 62.0
+    assert state["soc_status"] == "live"
+    spy.assert_called_once_with("ev1")
+    assert consume_soc_recoveries() == set()

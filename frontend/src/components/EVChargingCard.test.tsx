@@ -290,3 +290,25 @@ describe('EVChargingCard disabled charger', () => {
         expect(screen.queryByTestId('ev-disabled-reason')).not.toBeInTheDocument()
     })
 })
+
+describe('EVChargingCard stale SoC (ev-soc-staleness)', () => {
+    it('shows SOC UNAVAILABLE with the age of the last reading', () => {
+        renderCard(
+            baseCharger({ status: 'soc_unavailable', soc_percent: null, soc_status: 'stale', soc_age_minutes: 42.3 }),
+        )
+        expect(screen.getByText('SOC UNAVAILABLE')).toBeInTheDocument()
+        expect(screen.getByTestId('ev-soc-unavailable')).toHaveTextContent(
+            'No SoC reading for 42 min — goal charging paused',
+        )
+    })
+
+    it('handles no reading since startup', () => {
+        renderCard(baseCharger({ status: 'soc_unavailable', soc_percent: null, soc_age_minutes: null }))
+        expect(screen.getByTestId('ev-soc-unavailable')).toHaveTextContent('No SoC reading since startup')
+    })
+
+    it('shows no warning for a live SoC', () => {
+        renderCard(baseCharger({ soc_status: 'live' }))
+        expect(screen.queryByTestId('ev-soc-unavailable')).not.toBeInTheDocument()
+    })
+})

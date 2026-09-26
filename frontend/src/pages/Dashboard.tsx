@@ -829,6 +829,7 @@ export default function Dashboard() {
                         netCost={todayStats?.netCost ?? null}
                         importKwh={todayStats?.gridImport ?? null}
                         exportKwh={todayStats?.gridExport ?? null}
+                        hasEvCharger={systemFlags.hasEvCharger}
                     />
                 </motion.div>
 

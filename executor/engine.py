@@ -32,7 +32,12 @@ from typing import Any, cast
 import pytz
 
 # import yaml
-from backend.core.ev_live_state import EVPlugState, read_ev_live_state
+from backend.core.ev_live_state import (
+    EVPlugState,
+    consume_soc_recoveries,
+    read_ev_live_state,
+    stale_soc_episodes,
+)
 from backend.core.ev_plug import is_unreachable_state
 from backend.core.ha_timestamps import reading_timestamp
 
@@ -98,7 +103,6 @@ class EVChargerState:
     """Per-device EV charger runtime state."""
 
     charging_active: bool = False
-    charging_started_at: datetime | None = None
     charging_slot_end: datetime | None = None
 
     # universal-load-balancing: phases the car is actually drawing on this
@@ -414,6 +418,8 @@ class ExecutorEngine:
         self._background_tasks: set[asyncio.Task[Any]] = set()
         # ev-plug-in-reminder dedupe: charger_id -> start of the window reminded for
         self._plug_in_reminder_sent: dict[str, datetime] = {}
+        # ev-soc-staleness: chargers already notified in their current stale episode
+        self._soc_stale_notified: set[str] = set()
 
         # Config and profile mtime caching
         self._config_mtime: float | None = None
@@ -1630,6 +1636,8 @@ class ExecutorEngine:
                 plug_states = await self._read_ev_plug_states()
                 await self._check_plug_in_reminders(now, plug_states)
                 slot = self._gate_ev_plan_on_plug_state(slot, plug_states)
+            if self._has_ev_charger and self.config.ev_chargers:
+                await self._check_ev_soc_stale()
 
             # 4. Check for active Quick Action OR Water Boost
             quick_action = self._get_quick_action_status()
@@ -3530,6 +3538,56 @@ class ExecutorEngine:
             except Exception as e:
                 logger.warning("Failed to send plug-in reminder: %s", e)
 
+    async def _check_ev_soc_stale(self) -> None:
+        """Notify once per stale-SoC episode (ev-soc-staleness).
+
+        Episodes are tracked by the shared SoC resolver: a plugged charger whose
+        SoC sensor has had no valid reading for longer than its
+        ``soc_stale_after_minutes`` (goal charging suspended). The episode, and
+        with it the dedupe, ends on the next valid reading or unplug. Gated on
+        ``notifications.on_ev_soc_stale``; planning is suspended regardless.
+
+        When an episode ends with a valid reading (recovery), one immediate
+        replan is requested so the suspended goal resumes without waiting for
+        the next scheduled run.
+        """
+        self._request_soc_recovery_replan()
+        episodes = stale_soc_episodes()
+        self._soc_stale_notified &= set(episodes)
+        if not episodes or not self.dispatcher:
+            return
+        names = {c.id: c.name or c.id for c in self.config.ev_chargers}
+        for charger_id, age in episodes.items():
+            if charger_id in self._soc_stale_notified or charger_id not in names:
+                continue
+            self._soc_stale_notified.add(charger_id)
+            if not self.config.notifications.on_ev_soc_stale:
+                continue
+            since = f"for {age:.0f} min" if age is not None else "since startup"
+            message = (
+                f"{names[charger_id]}: SoC reading unavailable {since} - "
+                "goal charging suspended until it returns"
+            )
+            logger.info("Stale SoC notification: %s", message)
+            try:
+                await self.dispatcher.notify_ev_soc_stale(message)
+            except Exception as e:
+                logger.warning("Failed to send stale-SoC notification: %s", e)
+
+    def _request_soc_recovery_replan(self) -> None:
+        """Replan once per stale-SoC episode that ended with a valid reading."""
+        configured = {c.id for c in self.config.ev_chargers}
+        recovered = sorted(consume_soc_recoveries() & configured)
+        if not recovered:
+            return
+        logger.info("EV SoC reading recovered for %s - requesting replan", ", ".join(recovered))
+        try:
+            from backend.services.scheduler_service import ReplanReason, request_replan
+
+            request_replan(ReplanReason.SOC_RECOVERED, charger_ids=recovered)
+        except Exception as e:
+            logger.error("Failed to request SoC-recovery replan: %s", e)
+
     async def _read_ev_plug_states(self) -> dict[str, EVPlugState]:
         """Live plug state per configured charger (shared ``read_ev_live_state``).
 
@@ -3619,8 +3677,8 @@ class ExecutorEngine:
         """
         Control all configured EV charger switches per-device.
 
-        Each charger gets independent switch control and safety timeout based
-        on its per-device plan from slot.ev_charger_plans.
+        Each charger gets independent switch control based on its per-device
+        plan from slot.ev_charger_plans; stopping follows directly from the plan.
 
         force_stop: when True, commands all chargers off regardless of the plan.
         balancer_ev_targets: when the load balancer is enabled, the final capped
@@ -3683,17 +3741,6 @@ class ExecutorEngine:
                     current_state, enabled_value if should_charge else disabled_value
                 )
 
-                # Safety timeout: stop if plan expired
-                if is_currently_on and not should_charge and dev_state.charging_started_at:
-                    elapsed = (now - dev_state.charging_started_at).total_seconds() / 60
-                    if elapsed > 30:
-                        logger.warning(
-                            "EV charger %s safety timeout: Auto-stopping after %d minutes",
-                            charger_id,
-                            int(elapsed),
-                        )
-                        should_charge = False
-
                 desired_key = "on" if should_charge else "off"
                 if self._ev_backoff_active(charger_id, desired_key, now):
                     continue
@@ -3706,7 +3753,6 @@ class ExecutorEngine:
                     self._ev_record_write_outcome(charger_id, desired_key, result, now)
                     if result.success:
                         dev_state.charging_active = True
-                        dev_state.charging_started_at = now
                         dev_state.charging_slot_end = now + timedelta(minutes=15)
 
                 elif not should_charge and not is_at_desired_state:
@@ -3715,7 +3761,6 @@ class ExecutorEngine:
                     self._ev_record_write_outcome(charger_id, desired_key, result, now)
                     if result.success:
                         dev_state.charging_active = False
-                        dev_state.charging_started_at = None
                         dev_state.charging_slot_end = None
 
                 elif should_charge and is_currently_on:
@@ -4042,20 +4087,6 @@ class ExecutorEngine:
         if target_a is not None and target_a < charger_cfg.min_current_a:
             target_a = None
 
-        is_currently_active = dev_state.current_setpoint_a is not None
-
-        # Safety timeout: mirrors the binary path's 30-minute checkpoint. The
-        # stop itself is already implied by should_charge=False below; this is
-        # a log-only parity check with the existing binary behavior.
-        if is_currently_active and not should_charge and dev_state.charging_started_at:
-            elapsed = (now - dev_state.charging_started_at).total_seconds() / 60
-            if elapsed > 30:
-                logger.warning(
-                    "EV charger %s safety timeout: Auto-stopping after %d minutes",
-                    charger_id,
-                    int(elapsed),
-                )
-
         desired_key = "stop" if target_a is None else f"charge:{target_a}"
         if self._ev_backoff_active(charger_id, desired_key, now):
             return
@@ -4084,8 +4115,6 @@ class ExecutorEngine:
             self._ev_record_write_outcome(charger_id, desired_key, result, now)
             if not result.success:
                 return
-            if not dev_state.charging_active:
-                dev_state.charging_started_at = now
             dev_state.charging_active = True
             dev_state.charging_slot_end = now + timedelta(minutes=15)
 
@@ -4111,7 +4140,6 @@ class ExecutorEngine:
         if not result.success:
             return False
         dev_state.charging_active = False
-        dev_state.charging_started_at = None
         dev_state.charging_slot_end = None
         dev_state.current_setpoint_a = None
         dev_state.setpoint_changed_at = None

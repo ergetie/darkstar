@@ -81,6 +81,16 @@ def isolated_ev_state_file(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolated_ev_soc_memory():
+    """Clear the process-wide last-known SoC / stale-episode memory per test."""
+    from backend.core.ev_live_state import reset_soc_memory
+
+    reset_soc_memory()
+    yield
+    reset_soc_memory()
+
+
+@pytest.fixture(autouse=True)
 def no_background_replans(monkeypatch):
     """Keep goal/plug writes from dispatching real background planner runs.
 

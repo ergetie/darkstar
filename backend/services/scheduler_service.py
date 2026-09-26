@@ -39,6 +39,7 @@ class ReplanReason(StrEnum):
     UNPLUG = "unplug"
     GOAL_CHANGE = "goal_change"
     LOAD_BALANCER = "load_balancer"
+    SOC_RECOVERED = "ev_soc_recovered"
 
 
 @dataclass

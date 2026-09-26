@@ -40,6 +40,9 @@ def _base_row(
     grid_charge_cost=1.0,
     self_cons=0.5,
     slot_count=24,
+    ev_grid=0.0,
+    ev_solar=0.0,
+    ev_cost=0.0,
 ):
     return [
         grid_imp,
@@ -55,6 +58,9 @@ def _base_row(
         grid_charge_cost,
         self_cons,
         slot_count,
+        ev_grid,
+        ev_solar,
+        ev_cost,
     ]
 
 

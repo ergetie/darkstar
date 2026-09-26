@@ -215,7 +215,7 @@ async def test_enabled_balancer_caps_setpoint_below_planned(temp_schedule, temp_
 
     # Charger already mid-session at 16A when the stove spike hits
     engine._ev_charger_states["goe"] = EVChargerState(
-        charging_active=True, current_setpoint_a=16, charging_started_at=now
+        charging_active=True, current_setpoint_a=16
     )
 
     await engine.run_once()
@@ -250,7 +250,7 @@ async def test_balancer_intervention_is_logged_with_reason_and_phase_currents(
         json.dump(schedule, f)
 
     engine._ev_charger_states["goe"] = EVChargerState(
-        charging_active=True, current_setpoint_a=16, charging_started_at=now
+        charging_active=True, current_setpoint_a=16
     )
 
     await engine.run_once()
@@ -286,7 +286,7 @@ async def _run_charging_tick(engine) -> None:
     with Path(engine.config.schedule_path).open("w", encoding="utf-8") as f:
         json.dump(schedule, f)
     engine._ev_charger_states["goe"] = EVChargerState(
-        charging_active=True, current_setpoint_a=16, charging_started_at=now
+        charging_active=True, current_setpoint_a=16
     )
     engine.dispatcher.notify_balancer_intervention = AsyncMock()
     await engine.run_once()

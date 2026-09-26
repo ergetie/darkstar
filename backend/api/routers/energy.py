@@ -108,6 +108,10 @@ async def get_energy_today(
     batt_chg_kwh = range_data.get("battery_charge_kwh", 0.0)
     batt_dis_kwh = range_data.get("battery_discharge_kwh", 0.0)
     ev_kwh = range_data.get("ev_charging_kwh", 0.0)
+    ev_grid_kwh = range_data.get("ev_grid_kwh", 0.0)
+    ev_solar_kwh = range_data.get("ev_solar_kwh", 0.0)
+    ev_cost_sek = range_data.get("ev_cost_sek", 0.0)
+    ev_solar_share = range_data.get("ev_solar_share")
     water_kwh = range_data.get("water_heating_kwh", 0.0)
     net_cost = range_data.get("net_cost_sek", 0.0)
     battery_wear_cost = range_data.get("battery_wear_cost_sek", 0.0)
@@ -138,6 +142,10 @@ async def get_energy_today(
         "battery_charge_kwh": round(batt_chg_kwh, 2),
         "battery_discharge_kwh": round(batt_dis_kwh, 2),
         "ev_charging_kwh": round(ev_kwh, 2),
+        "ev_grid_kwh": round(ev_grid_kwh, 2),
+        "ev_solar_kwh": round(ev_solar_kwh, 2),
+        "ev_cost_sek": round(ev_cost_sek, 2),
+        "ev_solar_share": ev_solar_share,
         "water_heating_kwh": round(water_kwh, 2),
         "net_cost_sek": round(net_cost, 2),
         "battery_wear_cost_sek": round(battery_wear_cost, 2),
@@ -221,6 +229,12 @@ async def get_energy_range(
         start_iso = day_start.isoformat()
         end_iso = day_end_excl.isoformat()
 
+        # EV source attribution per slot, grid first (ev-cost-attribution):
+        # the EV takes the slot's grid import before any solar.
+        ev_slot = func.max(0, func.coalesce(SlotObservation.ev_charging_kwh, 0))
+        ev_grid_slot = func.min(ev_slot, func.max(0, func.coalesce(SlotObservation.import_kwh, 0)))
+        ev_solar_slot = ev_slot - ev_grid_slot
+
         async with store.AsyncSession() as session:
             stmt = select(
                 func.sum(func.coalesce(SlotObservation.import_kwh, 0)),
@@ -259,6 +273,11 @@ async def get_energy_range(
                     * func.coalesce(SlotObservation.import_price_sek_kwh, 0)
                 ),
                 func.count(),
+                # EV attribution (grid first). ev_cost_sek is the EV's grid import
+                # cost only, a subset of import_cost_sek; solar is not priced.
+                func.sum(ev_grid_slot),
+                func.sum(ev_solar_slot),
+                func.sum(ev_grid_slot * func.coalesce(SlotObservation.import_price_sek_kwh, 0)),
             ).where(SlotObservation.slot_start >= start_iso, SlotObservation.slot_start < end_iso)
             result = await session.execute(stmt)
             row = result.fetchone()
@@ -280,6 +299,13 @@ async def get_energy_range(
         grid_charge_cost = float(row[10] or 0.0)
         self_cons_savings = float(row[11] or 0.0)
         slot_count = int(row[12] or 0)
+        ev_grid_kwh = float(row[13] or 0.0)
+        ev_solar_kwh = float(row[14] or 0.0)
+        ev_cost_sek = float(row[15] or 0.0)
+        ev_attributed_kwh = ev_grid_kwh + ev_solar_kwh
+        ev_solar_share = (
+            round(ev_solar_kwh / ev_attributed_kwh, 3) if ev_attributed_kwh > 0 else None
+        )
 
         net_cost = import_cost - export_rev
 
@@ -304,6 +330,10 @@ async def get_energy_range(
             "pv_production_kwh": round(pv_kwh, 2),
             "load_consumption_kwh": round(load_kwh, 2),
             "ev_charging_kwh": round(ev_kwh, 2),
+            "ev_grid_kwh": round(ev_grid_kwh, 2),
+            "ev_solar_kwh": round(ev_solar_kwh, 2),
+            "ev_cost_sek": round(ev_cost_sek, 2),
+            "ev_solar_share": ev_solar_share,
             "import_cost_sek": round(import_cost, 2),
             "export_revenue_sek": round(export_rev, 2),
             "grid_charge_cost_sek": round(grid_charge_cost, 2),
@@ -327,6 +357,10 @@ async def get_energy_range(
             "pv_production_kwh": 0.0,
             "load_consumption_kwh": 0.0,
             "ev_charging_kwh": 0.0,
+            "ev_grid_kwh": 0.0,
+            "ev_solar_kwh": 0.0,
+            "ev_cost_sek": 0.0,
+            "ev_solar_share": None,
             "import_cost_sek": 0.0,
             "export_revenue_sek": 0.0,
             "grid_charge_cost_sek": 0.0,

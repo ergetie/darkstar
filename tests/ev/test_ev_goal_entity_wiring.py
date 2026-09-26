@@ -229,6 +229,10 @@ class TestMonitoredEntityReload:
 class TestIncompleteGoalIsReported:
     """Fix 3: a ready-by with no target SoC is announced, not dropped quietly."""
 
+    @pytest.fixture(autouse=True)
+    def _fresh_warning_memory(self, monkeypatch):
+        monkeypatch.setattr("planner.pipeline._warned_incomplete_goals", set())
+
     def _merge(self, charger_state):
         from planner.pipeline import merge_ev_goals_from_state
 
@@ -244,6 +248,15 @@ class TestIncompleteGoalIsReported:
         assert merged[0]["target_soc_percent"] is None
         assert merged[0]["ready_by"] is None  # still inert, but no longer silent
         assert "ready-by 06:00 is set but no target SoC" in caplog.text
+
+    def test_warning_logged_once_per_goal_state(self, caplog):
+        state = {"ready_by": "06:00", "repeat": "daily", "last_updated": "2026-09-26T08:00:00"}
+        with caplog.at_level(logging.WARNING, logger="darkstar.planner"):
+            for _ in range(3):
+                self._merge(state)
+            assert caplog.text.count("is set but no target SoC") == 1
+            self._merge({**state, "ready_by": "07:00", "last_updated": "2026-09-26T09:00:00"})
+        assert caplog.text.count("is set but no target SoC") == 2
 
     def test_no_goal_at_all_stays_quiet(self, caplog):
         with caplog.at_level(logging.WARNING, logger="darkstar.planner"):

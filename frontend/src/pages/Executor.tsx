@@ -42,6 +42,7 @@ type NotificationSettings = {
     on_soc_target_change: boolean
     on_override_activated: boolean
     on_error: boolean
+    on_ev_soc_stale?: boolean
 }
 
 // Types for executor API responses
@@ -1619,6 +1620,11 @@ export default function Executor() {
                                         desc: 'When emergency override triggers',
                                     },
                                     { key: 'on_error', label: 'Errors', desc: 'When execution fails' },
+                                    {
+                                        key: 'on_ev_soc_stale',
+                                        label: 'EV SoC Unavailable',
+                                        desc: 'When goal charging pauses for a stale SoC',
+                                    },
                                 ].map((item) => (
                                     <div
                                         key={item.key}

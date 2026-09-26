@@ -498,9 +498,7 @@ class TestPerDevicePlugSensorMapping:
         ):
             client._trigger_ev_replan(charger_id="charger_a", plugged_in=False)
 
-        mock_request.assert_called_once_with(
-            ReplanReason.UNPLUG, ev_overrides={"charger_a": False}
-        )
+        mock_request.assert_called_once_with(ReplanReason.UNPLUG, ev_overrides={"charger_a": False})
 
 
 if __name__ == "__main__":

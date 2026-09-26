@@ -95,35 +95,52 @@ def test_keep_on_off_no_flag():
         assert slot.ev_keep_on == {}
 
 
-def test_keep_on_target_below_100_no_flag():
-    """keep_on=true but target=80 → no flag (avoids overcharge)."""
+def _keep_on_case(target: int, soc: float | None, soc_status: str | None = "live") -> list[Any]:
     now = datetime(2026, 7, 10, 6, 0, tzinfo=UTC)
-    deadline = now + timedelta(hours=2)
-
+    deadline = now + timedelta(hours=1)
     slots = [
         _make_slot(now + timedelta(minutes=i * 15), now + timedelta(minutes=(i + 1) * 15))
-        for i in range(4)
+        for i in range(6)
     ]
-    result = _make_result(slots)
-
     ev_states = [
         {
             "id": "ev1",
-            "soc_percent": 80.0,
+            "soc_percent": soc,
+            "soc_status": soc_status,
             "deadline": deadline,
             "keep_on_after_target": True,
             "plugged_in": True,
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 80, "battery_capacity_kwh": 82.0}
+        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": target, "battery_capacity_kwh": 82.0}
     ]
+    _apply_keep_on_after_target(_make_result(slots), ev_states, ev_chargers_cfg, now)
+    return slots
 
-    _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
 
+def test_keep_on_target_below_100_flags_when_met():
+    """keep_on=true, target=80, SoC=81 → flagged up to the ready-by (any target)."""
+    slots = _keep_on_case(80, 81.0)
+    assert [bool(s.ev_keep_on) for s in slots] == [True, True, True, True, False, False]
     for slot in slots:
         assert slot.ev_charger_results["ev1"] == 0.0
-        assert slot.ev_keep_on == {}
+
+
+def test_keep_on_carried_soc_flags():
+    slots = _keep_on_case(80, 80.0, "carried")
+    assert slots[0].ev_keep_on == {"ev1": True}
+
+
+def test_keep_on_stale_soc_flags_none():
+    for soc in (None, 90.0):
+        slots = _keep_on_case(80, soc, "stale")
+        assert all(s.ev_keep_on == {} for s in slots)
+
+
+def test_keep_on_target_100_behaviour_unchanged():
+    assert _keep_on_case(100, 100.0)[0].ev_keep_on == {"ev1": True}
+    assert _keep_on_case(100, 99.0)[0].ev_keep_on == {}
 
 
 def test_keep_on_soc_below_100_no_flag():

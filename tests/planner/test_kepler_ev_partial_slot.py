@@ -81,7 +81,7 @@ def test_replan_7_min_into_slot_caps_ev_energy():
     assert energy_kwh <= MAX_KW * remaining_h + 1e-6
     # Reported kW is energy / remaining time, so it cannot exceed the charger max.
     assert kw == pytest.approx(MAX_KW, abs=1e-4)
-    assert result.slots[0].ev_shortfall_kwh["goe"] == pytest.approx(
+    assert result.ev_shortfall_kwh["goe"] == pytest.approx(
         3.0 - MAX_KW * remaining_h, abs=1e-3
     )
 
@@ -125,4 +125,64 @@ def test_boundary_replan_unchanged(remaining_h):
 
     kw = result.slots[0].ev_charger_results["goe"]
     assert kw == pytest.approx(MAX_KW, abs=1e-4)
-    assert result.slots[0].ev_shortfall_kwh["goe"] == pytest.approx(3.0 - MAX_KW * 0.25, abs=1e-3)
+    assert result.ev_shortfall_kwh["goe"] == pytest.approx(3.0 - MAX_KW * 0.25, abs=1e-3)
+
+
+def _surplus_solve(remaining_h: float | None) -> float:
+    """One surplus-eligible slot with 1.2 kWh net excess PV, no battery."""
+    from planner.solver.types import ExcessPVSinkEntry
+
+    start = SLOT_START
+    slots = [
+        KeplerInputSlot(
+            start_time=start,
+            end_time=start + timedelta(minutes=15),
+            load_kwh=0.0,
+            pv_kwh=1.2,
+            import_price_sek_kwh=1.0,
+            export_price_sek_kwh=0.0,
+        )
+    ]
+    ev = EVChargerInput(
+        id="goe",
+        max_power_kw=7.4,
+        min_power_kw=4.14,
+        battery_capacity_kwh=60.0,
+        current_soc_percent=50.0,
+        plugged_in=True,
+        deadline=None,
+        required_kwh=None,
+        control_type="current",
+    )
+    cfg = KeplerConfig(
+        capacity_kwh=0.0,
+        min_soc_percent=0.0,
+        max_soc_percent=100.0,
+        max_charge_power_kw=0.0,
+        max_discharge_power_kw=0.0,
+        charge_efficiency=1.0,
+        discharge_efficiency=1.0,
+        wear_cost_sek_per_kwh=0.0,
+        enable_export=True,
+        max_export_power_kw=10.0,
+        excess_pv_slots=[True],
+        excess_pv_priority=[
+            ExcessPVSinkEntry(type="ev", effective_reward_sek_per_kwh=2.0, charger_id="goe")
+        ],
+        ev_chargers=[ev],
+    )
+    result = _solve(slots, cfg, remaining_h)
+    return result.slots[0].ev_surplus_kw.get("goe", 0.0)
+
+
+def test_surplus_in_partial_first_slot_uses_remaining_time():
+    """7 min into the slot: surplus kWh = kW x 8/60, so the 1.2 kWh excess allows full 7.4 kW."""
+    remaining_h = 8 / 60
+    kw = _surplus_solve(remaining_h)
+    assert kw == pytest.approx(7.4, abs=1e-3)
+    assert kw * remaining_h <= 1.2 + 1e-6
+
+
+def test_surplus_at_slot_boundary_unchanged():
+    """Full slot: the 1.2 kWh excess caps surplus at 1.2 / 0.25 = 4.8 kW."""
+    assert _surplus_solve(None) == pytest.approx(4.8, abs=1e-3)

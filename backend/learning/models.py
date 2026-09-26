@@ -32,6 +32,17 @@ class SlotObservation(Base):
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
 
 
+class EvChargerObservation(Base):
+    """Per-charger recorded EV energy for one slot (sum over chargers = ev_charging_kwh)."""
+
+    __tablename__ = "ev_charger_observations"
+
+    slot_start: Mapped[str] = mapped_column(String, primary_key=True)
+    charger_id: Mapped[str] = mapped_column(String, primary_key=True)
+    energy_kwh: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
+
+
 class SlotForecast(Base):
     __tablename__ = "slot_forecasts"
 

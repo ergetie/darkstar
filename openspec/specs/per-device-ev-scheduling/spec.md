@@ -246,12 +246,12 @@ When Home Assistant is unreachable, the entity list is empty, or the selected en
 - **AND** it SHALL NOT be cleared or replaced by a fetched option
 
 ### Requirement: Per-device executor state tracking
-The executor SHALL maintain independent state per charger: charging active flag, start time, slot end time, zero-power tick count, and failure notification flag. Each charger's safety timeout (30-minute max overrun) SHALL operate independently.
+The executor SHALL maintain independent state per charger: charging active flag, slot end time, zero-power tick count, and failure notification flag. Stopping a charger when its plan ends SHALL follow directly from the plan for that charger, independently of other chargers. There SHALL be no separate time-based "safety timeout" overrun check.
 
-#### Scenario: One charger times out while another continues
-- **WHEN** charger A has been charging for 30 minutes past its scheduled slot end
+#### Scenario: One charger's plan ends while another continues
+- **WHEN** charger A's scheduled charging ends
 - **AND** charger B is still within its scheduled slot
-- **THEN** the executor SHALL force-stop charger A
+- **THEN** the executor SHALL stop charger A on that tick
 - **AND** charger B SHALL continue charging normally
 
 #### Scenario: Fresh state on config reload

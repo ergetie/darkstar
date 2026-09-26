@@ -39,7 +39,7 @@ GOAL = {"target_soc_percent": 80, "ready_by": "07:00", "repeat": "daily"}
 
 def test_unplugged_with_goal_and_live_soc_is_assumed_plugged():
     state = _resolve_ev_charger_plan_state(
-        _cfg(**GOAL), {"plugged_in": False, "soc_percent": 50.0}, {}, NOW, TZ, "", 1
+        _cfg(**GOAL), {"plugged_in": False, "soc_percent": 50.0}, {}, NOW, TZ, ""
     )
     assert state["assumed_plugged"] is True
     assert state["deadline"] == TZ.localize(datetime(2026, 9, 26, 7, 0))
@@ -54,7 +54,6 @@ def test_unplugged_uses_persisted_soc_when_live_missing():
         NOW,
         TZ,
         "",
-        1,
     )
     assert state["assumed_plugged"] is True
     assert abs(state["required_kwh"] - 6.0) < 1e-6
@@ -63,7 +62,7 @@ def test_unplugged_uses_persisted_soc_when_live_missing():
 
 def test_unplugged_without_known_soc_is_not_planned():
     state = _resolve_ev_charger_plan_state(
-        _cfg(**GOAL), {"plugged_in": False, "soc_percent": None}, {}, NOW, TZ, "", 1
+        _cfg(**GOAL), {"plugged_in": False, "soc_percent": None}, {}, NOW, TZ, ""
     )
     assert state["assumed_plugged"] is False
     assert state["deadline"] is None
@@ -72,7 +71,7 @@ def test_unplugged_without_known_soc_is_not_planned():
 
 def test_unplugged_without_goal_is_not_planned():
     state = _resolve_ev_charger_plan_state(
-        _cfg(target_soc_percent=None), {"plugged_in": False, "soc_percent": 50.0}, {}, NOW, TZ, "", 1
+        _cfg(target_soc_percent=None), {"plugged_in": False, "soc_percent": 50.0}, {}, NOW, TZ, ""
     )
     assert state["assumed_plugged"] is False
     assert state["deadline"] is None
@@ -80,7 +79,7 @@ def test_unplugged_without_goal_is_not_planned():
 
 def test_plugged_charger_unchanged():
     state = _resolve_ev_charger_plan_state(
-        _cfg(**GOAL), {"plugged_in": True, "soc_percent": 50.0}, {}, NOW, TZ, "", 1
+        _cfg(**GOAL), {"plugged_in": True, "soc_percent": 50.0}, {}, NOW, TZ, ""
     )
     assert state["assumed_plugged"] is False
     assert state["plugged_in"] is True

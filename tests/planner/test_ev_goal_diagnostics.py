@@ -30,7 +30,6 @@ def _slots(
     load_kw: float = 1.4,
     water_kw: float = 3.0,
     ev_kw: float = 0.0,
-    shortfall_kwh: float = 0.6,
 ) -> tuple[list[KeplerInputSlot], list[KeplerResultSlot]]:
     inputs, results = [], []
     for i in range(n):
@@ -57,15 +56,17 @@ def _slots(
                 cost_sek=0.0,
                 water_heat_kw=water_kw,
                 ev_charger_results={"goe": ev_kw},
-                ev_shortfall_kwh={"goe": shortfall_kwh},
             )
         )
     return inputs, results
 
 
 class _Result:
-    def __init__(self, slots):
+    """Solver result stand-in: shortfall is carried once per solve, not per slot."""
+
+    def __init__(self, slots, shortfall_kwh: float = 0.6):
         self.slots = slots
+        self.ev_shortfall_kwh = {"goe": shortfall_kwh}
 
 
 def _state(**overrides) -> dict:
@@ -106,8 +107,8 @@ def test_deadline_too_close_without_eligible_slots():
 
 
 def test_fully_scheduled_goal_has_no_shortfall():
-    inputs, results = _slots(3, water_kw=0.0, ev_kw=4.2, shortfall_kwh=0.0)
-    diag = compute_ev_goal_diagnostics(_Result(results), inputs, [_state()], [GOE_CFG], 8.0, NOW)
+    inputs, results = _slots(3, water_kw=0.0, ev_kw=4.2)
+    diag = compute_ev_goal_diagnostics(_Result(results, shortfall_kwh=0.0), inputs, [_state()], [GOE_CFG], 8.0, NOW)
     assert diag["goe"]["shortfall_kwh"] == 0.0
     assert diag["goe"]["reason"] is None
     assert diag["goe"]["scheduled_kwh"] == 3.15

@@ -81,7 +81,7 @@ def test_prod_2026_09_25_all_prices_known_cheaper_tomorrow_no_charging_today():
     assert _energy(result, lambda s: s.start_time < tomorrow) == pytest.approx(0.0, abs=0.01)
     assert _energy(result) == pytest.approx(22.2, abs=0.05)
     assert result.ev_deferred_kwh == {}
-    assert result.slots[0].ev_shortfall_kwh["ev1"] == pytest.approx(0.0, abs=0.01)
+    assert result.ev_shortfall_kwh["ev1"] == pytest.approx(0.0, abs=0.01)
 
 
 def test_forecast_cheaper_than_every_known_slot_defers_everything():
@@ -133,7 +133,7 @@ def test_tail_too_short_forces_in_horizon_minimum():
 
     assert sum(result.ev_deferred_kwh["ev1"]) == pytest.approx(13.8, abs=0.01)
     assert _energy(result) == pytest.approx(16.2, abs=0.05)
-    assert result.slots[0].ev_shortfall_kwh["ev1"] == pytest.approx(0.0, abs=0.01)
+    assert result.ev_shortfall_kwh["ev1"] == pytest.approx(0.0, abs=0.01)
 
 
 def test_unreachable_target_stays_feasible_with_shortfall():
@@ -144,4 +144,4 @@ def test_unreachable_target_stays_feasible_with_shortfall():
 
     assert _energy(result) == pytest.approx(13.8, abs=0.05)
     assert sum(result.ev_deferred_kwh["ev1"]) == pytest.approx(6.9, abs=0.01)
-    assert result.slots[0].ev_shortfall_kwh["ev1"] == pytest.approx(40.0 - 13.8 - 6.9, abs=0.05)
+    assert result.ev_shortfall_kwh["ev1"] == pytest.approx(40.0 - 13.8 - 6.9, abs=0.05)

@@ -47,6 +47,8 @@ export interface EVChargerEntity {
     missed_goal_grace_hours?: number
     /** Minutes before planned charging to notify if the car isn't plugged in; 0/absent = off */
     plug_in_reminder_minutes?: number
+    /** Minutes the last valid SoC is carried when the SoC sensor is unavailable (default 15) */
+    soc_stale_after_minutes?: number
     current_entity?: string
     min_current_a?: number
     max_current_a?: number
@@ -114,6 +116,7 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     replan_on_unplug: false,
     missed_goal_grace_hours: 4,
     plug_in_reminder_minutes: 0,
+    soc_stale_after_minutes: 15,
     current_entity: '',
     min_current_a: 6,
     phases: [1, 2, 3],
@@ -1018,6 +1021,31 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                 />
                                                 <p className="text-[10px] text-muted mt-1">
                                                     Keep charging toward a missed goal while still plugged in. 0 = off
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        {/* Stale SoC carry window (EV only) */}
+                                        {!isWaterHeater && (
+                                            <div>
+                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                    SoC Stale After (minutes)
+                                                </label>
+                                                <NumberInput
+                                                    value={(entity as EVChargerEntity).soc_stale_after_minutes ?? 15}
+                                                    onChange={(val) =>
+                                                        updateEntity(index, {
+                                                            soc_stale_after_minutes: Number(val),
+                                                        } as Partial<EVChargerEntity>)
+                                                    }
+                                                    disabled={disabled}
+                                                    step={5}
+                                                    min={0}
+                                                    max={240}
+                                                />
+                                                <p className="text-[10px] text-muted mt-1">
+                                                    Keep using the last SoC reading this long if the sensor drops out.
+                                                    After that, goal charging pauses until a reading returns
                                                 </p>
                                             </div>
                                         )}

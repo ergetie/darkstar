@@ -168,7 +168,7 @@ class TestControlEvChargerCurrentType:
         engine.dispatcher = make_dispatcher(current_skipped=True, switch_skipped=True)
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=16, charging_started_at=now
+            charging_active=True, current_setpoint_a=16
         )
 
         with patch.object(engine.history, "log_execution") as log_execution:
@@ -187,7 +187,7 @@ class TestControlEvChargerCurrentType:
         engine.dispatcher = make_dispatcher(switch_skipped=True)  # current not skipped
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=16, charging_started_at=now
+            charging_active=True, current_setpoint_a=16
         )
 
         await engine._control_ev_charger(make_slot(11.0), now)
@@ -203,7 +203,7 @@ class TestControlEvChargerCurrentType:
         engine.dispatcher = make_dispatcher()  # not skipped -> HA held a different value
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=16, charging_started_at=now
+            charging_active=True, current_setpoint_a=16
         )
 
         await engine._control_ev_charger(make_slot(11.0), now)
@@ -219,7 +219,7 @@ class TestControlEvChargerCurrentType:
         engine.dispatcher = make_dispatcher()
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=6, charging_started_at=now
+            charging_active=True, current_setpoint_a=6
         )
 
         # 1kW / 3-phase implies ~1.4A, well below the 6A floor
@@ -239,7 +239,7 @@ class TestControlEvChargerCurrentType:
         engine.dispatcher = make_dispatcher()
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=10, charging_started_at=now
+            charging_active=True, current_setpoint_a=10
         )
 
         await engine._control_ev_charger(make_slot(0.0), now)
@@ -252,7 +252,7 @@ class TestControlEvChargerCurrentType:
         engine.dispatcher = make_dispatcher()
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=10, charging_started_at=now
+            charging_active=True, current_setpoint_a=10
         )
 
         await engine._control_ev_charger(make_slot(11.0), now, balancer_ev_targets={"goe": None})
@@ -265,7 +265,7 @@ class TestControlEvChargerCurrentType:
         engine.dispatcher = make_dispatcher()
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=10, charging_started_at=now
+            charging_active=True, current_setpoint_a=10
         )
 
         await engine._control_ev_charger(make_slot(11.0), now, force_stop=True)
@@ -312,10 +312,10 @@ class TestControlEvChargerCurrentType:
 
 
 class TestEvCurrentSafetyTimeout:
-    """3.4: 30-minute safety timeout applies to current-type devices too."""
+    """Stopping a current-type charger follows directly from the plan (no safety timeout)."""
 
     @pytest.mark.asyncio
-    async def test_stale_session_past_30_minutes_is_stopped(
+    async def test_session_is_stopped_when_plan_ends(
         self, temp_schedule, temp_db, caplog
     ):
         engine = make_current_engine(temp_schedule, temp_db, goe_charger())
@@ -326,7 +326,6 @@ class TestEvCurrentSafetyTimeout:
         engine._ev_charger_states["goe"] = EVChargerState(
             charging_active=True,
             current_setpoint_a=10,
-            charging_started_at=now - timedelta(minutes=45),
         )
         engine.dispatcher = make_dispatcher()
 
@@ -335,7 +334,7 @@ class TestEvCurrentSafetyTimeout:
 
         engine.dispatcher.set_ev_charger_current.assert_not_called()
         assert switch_calls(engine.dispatcher) == [(GOE_SWITCH, False)]
-        assert any("safety timeout" in m for m in caplog.messages)
+        assert not any("safety timeout" in m for m in caplog.messages)
 
 
 class TestEvActivePhaseMeasurement:

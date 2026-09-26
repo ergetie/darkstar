@@ -212,7 +212,7 @@ def test_e2e_surplus_pv_charges_ev_and_meets_target(monkeypatch):
     assert exported < available_surplus, "not all surplus should be exported (some went to the EV)"
 
     # Target met by the deadline (shortfall ≈ 0).
-    shortfall = result.slots[-1].ev_shortfall_kwh.get("ev1", 0.0)
+    shortfall = result.ev_shortfall_kwh.get("ev1", 0.0)
     # Planned surplus counts toward the goal (ev-planning-model).
     total_ev = sum(s.ev_charge_kw + s.ev_surplus_kw.get("ev1", 0.0) for s in result.slots)
     assert total_ev >= required_kwh - 0.05, f"EV should reach target; got {total_ev}/{required_kwh}"
@@ -303,7 +303,7 @@ def test_e2e_multi_day_goal_defers_to_cheaper_forecast(monkeypatch):
     today_energy = sum(s.ev_charge_kw * 1.0 for s in result.slots)
     assert today_energy == pytest.approx(0.0, abs=0.01)
     assert sum(result.ev_deferred_kwh["ev1"]) == pytest.approx(required_kwh, abs=0.05)
-    assert result.slots[0].ev_shortfall_kwh["ev1"] == pytest.approx(0.0, abs=0.01)
+    assert result.ev_shortfall_kwh["ev1"] == pytest.approx(0.0, abs=0.01)
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +408,7 @@ def test_e2e_legacy_config_fields_ignored_state_file_goal_charges_correctly(
     # incentive-bucket path executed.
     total_ev = sum(s.ev_charge_kw for s in result.slots)
     assert total_ev > 0.0, "charger should schedule charging toward its target"
-    shortfall = result.slots[-1].ev_shortfall_kwh.get(ev.id, 0.0)
+    shortfall = result.ev_shortfall_kwh.get(ev.id, 0.0)
     assert shortfall == pytest.approx(0.0, abs=0.1)
     for s in result.slots:
         assert not hasattr(s, "ev_bucket_charged")

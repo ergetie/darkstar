@@ -158,7 +158,7 @@ def test_reaches_target_by_deadline_using_cheapest_slots():
     assert result.is_optimal
 
     total_ev = sum(s.ev_charge_kw for s in result.slots)
-    shortfall = result.slots[-1].ev_shortfall_kwh.get("ev1", 0.0)
+    shortfall = result.ev_shortfall_kwh.get("ev1", 0.0)
     assert total_ev >= 10.0 - 0.01
     assert shortfall == pytest.approx(0.0, abs=0.01)
     # Avoids the expensive slots entirely when the goal fits in the cheap ones.
@@ -180,7 +180,7 @@ def test_reports_shortfall_when_target_unreachable():
     assert result.is_optimal
 
     total_ev = sum(s.ev_charge_kw for s in result.slots)
-    shortfall = result.slots[-1].ev_shortfall_kwh.get("ev1", 0.0)
+    shortfall = result.ev_shortfall_kwh.get("ev1", 0.0)
     assert total_ev <= 14.8 + 0.01
     assert shortfall > 5.0
 
@@ -274,8 +274,8 @@ def test_shortfall_penalty_override_changes_solver_behaviour():
         f"got high={high_ev} low={low_ev}"
     )
 
-    low_shortfall = low.slots[-1].ev_shortfall_kwh.get("ev1", 0.0)
-    high_shortfall = high.slots[-1].ev_shortfall_kwh.get("ev1", 0.0)
+    low_shortfall = low.ev_shortfall_kwh.get("ev1", 0.0)
+    high_shortfall = high.ev_shortfall_kwh.get("ev1", 0.0)
     assert low_shortfall > high_shortfall
 
 

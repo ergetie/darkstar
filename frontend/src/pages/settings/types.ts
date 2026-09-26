@@ -789,6 +789,13 @@ export const uiSections: SettingsSection[] = [
                 type: 'boolean',
             },
             {
+                key: 'executor.notifications.on_ev_soc_stale',
+                label: 'On EV SoC unavailable',
+                helper: 'Once per episode when an EV SoC reading stays unavailable and goal charging is suspended.',
+                path: ['executor', 'notifications', 'on_ev_soc_stale'],
+                type: 'boolean',
+            },
+            {
                 key: 'load_balancing.notify_interventions',
                 label: 'Notify on load balancer interventions',
                 path: ['load_balancing', 'notify_interventions'],

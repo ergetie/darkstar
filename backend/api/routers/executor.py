@@ -471,6 +471,7 @@ async def get_notifications() -> dict[str, Any]:
             "on_soc_target_change": getattr(cfg, "on_soc_target_change", False),
             "on_override_activated": getattr(cfg, "on_override_activated", False),
             "on_error": cfg.on_error,
+            "on_ev_soc_stale": getattr(cfg, "on_ev_soc_stale", True),
         }
 
     # Fallback to config file
@@ -489,6 +490,7 @@ async def get_notifications() -> dict[str, Any]:
             "on_export_start": notify_cfg.get("on_export_start", False),
             "on_export_stop": notify_cfg.get("on_export_stop", False),
             "on_error": notify_cfg.get("on_error", False),
+            "on_ev_soc_stale": notify_cfg.get("on_ev_soc_stale", True),
         }
     except Exception:
         return {"service": None}

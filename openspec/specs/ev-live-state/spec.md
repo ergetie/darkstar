@@ -1,9 +1,7 @@
 ## Purpose
 
 A single shared reader for an EV charger's live state of charge and plug state, reporting unreadable values as unknown and feeding the last-known plug state.
-
 ## Requirements
-
 ### Requirement: One reader for a charger's live SoC and plug state
 The system SHALL provide one shared reader that returns a charger's live SoC (`float` or none) and plug state (`plugged`, `unplugged` or `unknown`). The manual-charge start API and the executor's manual-charge end check SHALL both obtain SoC and plug state only through this reader.
 
@@ -55,3 +53,16 @@ Every valid (`plugged` or `unplugged`) plug reading taken by the reader SHALL be
 - **GIVEN** the plug sensor reads `connected`
 - **WHEN** the reader runs
 - **THEN** the charger's last known plug state SHALL be plugged in
+
+### Requirement: Valid SoC readings feed a last-known SoC with age
+Every valid SoC reading taken through the shared reader SHALL update a per-charger last-known SoC, together with its reading time. The live reading SHALL still return none for unreadable values. The last-known SoC SHALL be exposed separately, and consumers SHALL decide whether to carry it (see `ev-soc-staleness`).
+
+#### Scenario: Last-known updated
+- **WHEN** the reader returns SoC 62.0 at 10:00
+- **THEN** the last-known SoC SHALL be 62.0 with reading time 10:00
+
+#### Scenario: Unreadable does not overwrite
+- **GIVEN** a last-known SoC of 62.0 at 10:00
+- **WHEN** the SoC sensor reads `unavailable` at 10:05
+- **THEN** the live reading SHALL be none
+- **AND** the last-known SoC SHALL remain 62.0 at 10:00

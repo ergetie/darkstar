@@ -1042,8 +1042,8 @@ class TestControlEvChargerPerDevice:
         eng.dispatcher.set_ev_charger_switch.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_safety_timeout_stops_charger(self, engine):
-        """Charger running without plan for >30 min triggers safety stop."""
+    async def test_plan_end_stops_charger(self, engine):
+        """A charger still on after its plan ended is stopped by the plan itself."""
         from datetime import timedelta
         from unittest.mock import AsyncMock, MagicMock
 
@@ -1069,10 +1069,9 @@ class TestControlEvChargerPerDevice:
         tz = pytz.timezone("Europe/Stockholm")
         now = datetime.now(tz)
 
-        # Simulate charger has been running for 45 minutes without a plan
+        # Charger still on from a slot that ended 30 minutes ago
         engine._ev_charger_states["ev1"] = EVChargerState(
             charging_active=True,
-            charging_started_at=now - timedelta(minutes=45),
             charging_slot_end=now - timedelta(minutes=30),
         )
 
@@ -1091,13 +1090,13 @@ class TestControlEvChargerPerDevice:
 
         await engine._control_ev_charger(slot, now)
 
-        # The charger should have been turned off due to safety timeout
+        # The plan ended, so the charger is stopped (no separate safety timeout)
         calls = engine.dispatcher.set_ev_charger_switch.call_args_list
         assert any(
             ("switch.ev1" in str(c) and "False" in str(c))
             or (c.args and c.args[0] == "switch.ev1" and c.kwargs.get("turn_on") is False)
             for c in calls
-        ), "Expected safety-timeout stop call for switch.ev1"
+        ), "Expected plan-driven stop call for switch.ev1"
 
 
 class TestGetStatusEvChargerPlans:

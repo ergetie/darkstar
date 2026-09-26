@@ -47,7 +47,14 @@ async def test_initial_state_uses_charger_specific_plug_mapping(tmp_path):
         result = await get_initial_state(config_path=str(config_path))
 
     assert result["ev_charger_states"] == [
-        {"id": "goe", "soc_percent": None, "plugged_in": True, "unreachable": False}
+        {
+            "id": "goe",
+            "soc_percent": None,
+            "soc_status": None,
+            "soc_age_minutes": None,
+            "plugged_in": True,
+            "unreachable": False,
+        }
     ]
 
 

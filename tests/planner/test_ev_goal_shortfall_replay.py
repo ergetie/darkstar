@@ -137,4 +137,4 @@ def test_missed_goal_recovers_in_cheapest_grace_slots():
     assert sum(energy.values()) == pytest.approx(1.2, abs=1e-3)
     assert energy[_at(12, 0)] + energy[_at(12, 15)] == pytest.approx(1.2, abs=1e-3)
     assert all(e == 0.0 for t, e in energy.items() if t >= _at(14, 30))
-    assert result.slots[0].ev_shortfall_kwh["goe"] == pytest.approx(0.0, abs=1e-3)
+    assert result.ev_shortfall_kwh["goe"] == pytest.approx(0.0, abs=1e-3)

@@ -204,9 +204,6 @@ class KeplerResultSlot:
     ev_surplus_kw: dict[str, float] = field(
         default_factory=lambda: {}
     )  # Per-charger: charger_id -> surplus-eligible kW this slot
-    ev_shortfall_kwh: dict[str, float] = field(
-        default_factory=lambda: {}
-    )  # Per-charger: shortfall vs required_kwh by deadline
     ev_keep_on: dict[str, bool] = field(
         default_factory=lambda: {}
     )  # Per-charger: charger_id -> switch held on past target (no planned energy)
@@ -228,3 +225,6 @@ class KeplerResult:
     # Per-charger solved deferred energy per tier (same order as
     # EVChargerInput.deferral_tiers). Empty for chargers without tiers.
     ev_deferred_kwh: dict[str, list[float]] = field(default_factory=lambda: {})
+    # Per-charger solved shortfall vs required_kwh by the deadline (once per
+    # solve). Only chargers with a goal requirement appear.
+    ev_shortfall_kwh: dict[str, float] = field(default_factory=lambda: {})

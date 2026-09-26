@@ -398,7 +398,8 @@ class KeplerSolver:
                         prob += var_t == 0
                     else:
                         prob += var_t <= charger.max_power_kw * soc_above_threshold[t]
-                        total_cost.append(-reward * var_t * h)
+                        # EV energy in a partial first slot uses the remaining time.
+                        total_cost.append(-reward * var_t * ev_slot_hours[t])
 
             # SoC threshold big-M constraint (after soc[t] is defined via battery dynamics)
             # Placed here so soc[t] is available, then linked to boost/custom_entity above.
@@ -457,7 +458,8 @@ class KeplerSolver:
             )
             ev_surplus_load_kwh: Any = (
                 pulp.lpSum(
-                    ev_surplus_kw[charger_id][t] * h for charger_id, _, _ in ev_surplus_items
+                    ev_surplus_kw[charger_id][t] * ev_slot_hours[t]
+                    for charger_id, _, _ in ev_surplus_items
                 )
                 if ev_surplus_enabled
                 else 0.0
@@ -480,7 +482,7 @@ class KeplerSolver:
                         sink_terms.append(custom_entity_active[rank_str][t] * entry.power_kw * h)
                 if ev_surplus_enabled:
                     for charger_id, _, _ in ev_surplus_items:
-                        sink_terms.append(ev_surplus_kw[charger_id][t] * h)
+                        sink_terms.append(ev_surplus_kw[charger_id][t] * ev_slot_hours[t])
 
                 if sink_terms:
                     prob += pulp.lpSum(sink_terms) + charge[t] <= net_excess_kwh
@@ -671,7 +673,7 @@ class KeplerSolver:
             delivered_terms: list[Any] = [ev_energy[d][t] for t in eligible_t]
             if surplus_kw_for_charger is not None:
                 delivered_terms.extend(
-                    surplus_kw_for_charger[t] * slot_hours[t] for t in eligible_t
+                    surplus_kw_for_charger[t] * ev_slot_hours[t] for t in eligible_t
                 )
 
             safe_d = d.replace("-", "_").replace(".", "_")
@@ -885,10 +887,10 @@ class KeplerSolver:
         result_slots: list[KeplerResultSlot] = []
         final_total_cost: float = 0.0
         ev_deferred_by_charger: dict[str, list[float]] = {}
+        ev_shortfall_by_charger: dict[str, float] = {}
 
         if is_optimal:
-            # Per-charger shortfall vs required_kwh (reported on every slot)
-            ev_shortfall_by_charger: dict[str, float] = {}
+            # Per-charger shortfall vs required_kwh (carried once on the result)
             for charger in plugged_chargers:
                 d = charger.id
                 if charger.required_kwh is not None and d in ev_shortfall:
@@ -997,7 +999,6 @@ class KeplerSolver:
                         ev_charge_kw=ev_kw,
                         ev_charger_results=ev_charger_results,
                         ev_surplus_kw=ev_surplus_result,
-                        ev_shortfall_kwh=ev_shortfall_by_charger,
                         is_optimal=True,
                     )
                 )
@@ -1021,4 +1022,5 @@ class KeplerSolver:
             status_msg=status,
             time_limit_hit=time_limit_hit,
             ev_deferred_kwh=ev_deferred_by_charger,
+            ev_shortfall_kwh=ev_shortfall_by_charger,
         )

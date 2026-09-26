@@ -259,6 +259,7 @@ class NotificationConfig:
     on_soc_target_change: bool = False
     on_override_activated: bool = True
     on_error: bool = True
+    on_ev_soc_stale: bool = True
 
 
 @dataclass
@@ -801,6 +802,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
             notif_data.get("on_override_activated", NotificationConfig.on_override_activated)
         ),
         on_error=bool(notif_data.get("on_error", NotificationConfig.on_error)),
+        on_ev_soc_stale=bool(notif_data.get("on_ev_soc_stale", NotificationConfig.on_ev_soc_stale)),
     )
 
     # Root battery config (New SSOT for REV F17)

@@ -1,9 +1,9 @@
 """Unit tests for planner.pipeline._calculate_required_kwh (double-count fix).
 
 A live SoC reading already reflects charging progress, so delivered-today
-must NOT be subtracted on top of it. The delivered-today fallback exists only
-for SoC-less chargers, and only when exactly one charger is enabled (the
-slot_observations.ev_charging_kwh column is an unattributable aggregate).
+must NOT be subtracted on top of it. A configured SoC sensor with no resolved
+SoC suspends the goal (None). The delivered-today subtraction exists only for
+chargers with no SoC sensor, using that charger's own recorded energy.
 """
 
 from __future__ import annotations
@@ -44,34 +44,41 @@ def test_live_soc_zero_is_not_treated_as_unavailable():
     mock_delivered.assert_not_called()
 
 
-def test_soc_unavailable_single_charger_subtracts_delivered():
+def test_no_soc_sensor_subtracts_per_charger_delivered():
     charger_cfg = {"id": "ev1", "target_soc_percent": 80, "battery_capacity_kwh": 60.0}
     ha_state = {"soc_percent": None}
 
-    with patch("planner.pipeline._ev_delivered_today_kwh", return_value=10.0):
-        required = _calculate_required_kwh(
-            charger_cfg, ha_state, "some.db", TZ, single_enabled_charger=True
-        )
+    with patch("planner.pipeline._ev_delivered_today_kwh", return_value=10.0) as mock_delivered:
+        required = _calculate_required_kwh(charger_cfg, ha_state, "some.db", TZ)
 
     # target/100*capacity - delivered = 0.8*60 - 10 = 38
     assert required == pytest.approx(38.0)
+    assert mock_delivered.call_args.args[1] == "ev1"
 
 
-def test_soc_unavailable_multi_charger_warns_and_does_not_subtract(caplog):
+def test_no_soc_sensor_unknown_delivered_is_not_subtracted():
     charger_cfg = {"id": "ev1", "target_soc_percent": 80, "battery_capacity_kwh": 60.0}
-    ha_state = {"soc_percent": None}
 
-    with (
-        patch("planner.pipeline._ev_delivered_today_kwh", return_value=10.0) as mock_delivered,
-        caplog.at_level("WARNING"),
-    ):
-        required = _calculate_required_kwh(
-            charger_cfg, ha_state, "some.db", TZ, single_enabled_charger=False
-        )
+    with patch("planner.pipeline._ev_delivered_today_kwh", return_value=None):
+        required = _calculate_required_kwh(charger_cfg, {"soc_percent": None}, "some.db", TZ)
 
-    assert required == pytest.approx(48.0)  # 0.8*60, no subtraction
+    assert required == pytest.approx(48.0)
+
+
+def test_soc_sensor_configured_but_unavailable_suspends_goal():
+    """No capacity-minus-delivered fallback for a charger with a SoC sensor."""
+    charger_cfg = {
+        "id": "ev1",
+        "soc_sensor": "sensor.car_soc",
+        "target_soc_percent": 80,
+        "battery_capacity_kwh": 60.0,
+    }
+
+    with patch("planner.pipeline._ev_delivered_today_kwh", return_value=10.0) as mock_delivered:
+        required = _calculate_required_kwh(charger_cfg, {"soc_percent": None}, "some.db", TZ)
+
+    assert required is None
     mock_delivered.assert_not_called()
-    assert any("unattributable" in r.getMessage() for r in caplog.records)
 
 
 def test_soc_unavailable_no_db_path_no_subtraction():

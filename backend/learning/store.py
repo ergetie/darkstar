@@ -11,6 +11,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.learning.models import (
+    EvChargerObservation,
     LearningDailyMetric,
     LearningRun,
     ReflexState,
@@ -247,7 +248,40 @@ class LearningStore:
                     },
                 )
                 await session.execute(stmt)
+
+                if authoritative and "ev_charger_energy" in record:
+                    await self._replace_ev_charger_observations(
+                        session,
+                        slot_start,  # type: ignore[reportUnknownArgumentType]
+                        record.get("ev_charger_energy"),
+                    )
             await session.commit()
+
+    @staticmethod
+    async def _replace_ev_charger_observations(
+        session: Any, slot_start: str, per_charger: Any
+    ) -> None:
+        """Replace a slot's per-charger EV energy rows (same transaction as the slot upsert).
+
+        Re-recording a slot replaces its rows rather than duplicating them.
+        """
+        from sqlalchemy import delete
+
+        await session.execute(
+            delete(EvChargerObservation).where(EvChargerObservation.slot_start == slot_start)
+        )
+        if not isinstance(per_charger, dict):
+            return
+        for charger_id, energy in type_cast("dict[Any, Any]", per_charger).items():
+            if not charger_id or energy is None or pd.isna(energy):
+                continue
+            session.add(
+                EvChargerObservation(
+                    slot_start=slot_start,
+                    charger_id=str(charger_id),
+                    energy_kwh=max(0.0, float(energy)),
+                )
+            )
 
     async def store_forecasts(self, forecasts: list[dict[str, Any]], forecast_version: str) -> None:
         """Store forecast data using Async SQLAlchemy."""

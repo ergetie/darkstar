@@ -238,7 +238,9 @@ def test_current_type_charger_planned_at_fractional_power():
     result = solver.solve(KeplerInput(slots=slots, initial_soc_kwh=0.0), config)
     assert result.is_optimal
 
-    active_kw = [kw for kw in (s.ev_charger_results.get("test_ev", 0.0) for s in result.slots) if kw > 0.01]
+    active_kw = [
+        kw for kw in (s.ev_charger_results.get("test_ev", 0.0) for s in result.slots) if kw > 0.01
+    ]
     total_kwh = sum(s.ev_charger_results.get("test_ev", 0.0) * 0.25 for s in result.slots)
 
     assert active_kw, "expected at least one slot with nonzero EV charging"
@@ -248,7 +250,9 @@ def test_current_type_charger_planned_at_fractional_power():
     # Delivered close to the requirement, not rounded up to a full-power block.
     assert total_kwh >= 2.6 - 0.01
     assert total_kwh < 2.75, "should not be forced into a full 11kW*0.25h block"
-    assert any(kw < 11.0 - 0.01 for kw in active_kw), "expected genuinely fractional (sub-max) power"
+    assert any(kw < 11.0 - 0.01 for kw in active_kw), (
+        "expected genuinely fractional (sub-max) power"
+    )
 
 
 def test_current_type_charger_never_below_min_amps():

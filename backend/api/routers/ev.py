@@ -23,7 +23,12 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.core.ev_goal import every_n_days_anchor, resolve_next_ready_by
-from backend.core.ev_live_state import read_ev_live_state
+from backend.core.ev_live_state import (
+    read_ev_live_state,
+    resolve_soc,
+    soc_stale_after_minutes,
+    update_stale_soc_episode,
+)
 from backend.core.ev_plug import (
     DEFAULT_EV_PLUGGED_IN_STATES,
     is_unreachable_state,
@@ -440,7 +445,10 @@ def _active_goal_shortfall(
     summary="Get EV Charger Status",
     description=(
         "Per-charger live HA sensor data merged with goal and progress from the "
-        "last pipeline run. ``status ∈ {on_track, at_risk, behind, complete, idle}``. "
+        "last pipeline run. ``status ∈ {on_track, at_risk, behind, complete, idle, "
+        "soc_unavailable}``. ``soc_unavailable`` means the SoC sensor has had no valid "
+        "reading for longer than ``soc_stale_after_minutes`` (see ``soc_age_minutes``), "
+        "so goal charging is suspended. "
         "``at_risk`` means the current plan will not deliver the goal; see "
         "``shortfall_kwh`` and ``shortfall_reason``."
     ),
@@ -519,6 +527,22 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             )
         unreachable = plug_unreachable or is_unreachable_state(raw_switch)
 
+        # ev-soc-staleness: resolved SoC (live / carried / stale). The live
+        # ``soc_percent`` stays none when unreadable; the status and age of the
+        # last valid reading are reported next to it.
+        soc_status: str | None = None
+        soc_age_minutes: float | None = None
+        resolved_soc: float | None = soc_percent
+        if ev.get("soc_sensor"):
+            resolved = resolve_soc(charger_id, soc_percent, soc_stale_after_minutes(ev))
+            soc_status = resolved.status
+            soc_age_minutes = (
+                round(resolved.age_minutes, 1) if resolved.age_minutes is not None else None
+            )
+            resolved_soc = resolved.soc_percent
+            update_stale_soc_episode(charger_id, resolved if plugged_in is True else None)
+        soc_fields = {"soc_status": soc_status, "soc_age_minutes": soc_age_minutes}
+
         entry = state_by_id.get(charger_id, {})
         # The persisted manual charge shares the entry; it is not a goal.
         manual_charge = _manual_charge_view(
@@ -561,6 +585,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 "plugged_in": plugged_in,
                 "unreachable": unreachable,
                 "soc_percent": round(soc_percent, 1) if soc_percent is not None else None,
+                **soc_fields,
                 "power_kw": round(power_kw, 3) if power_kw is not None else None,
                 "target_soc_percent": None,
                 "ready_by": None,
@@ -602,9 +627,14 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 required_kwh = None
 
         # Re-derive live status: if the live SoC already meets the target, mark complete.
-        live_soc = soc_percent if soc_percent is not None else persisted.get("current_soc_percent")
+        live_soc = (
+            resolved_soc if resolved_soc is not None else persisted.get("current_soc_percent")
+        )
         target_soc_cfg = persisted.get("target_soc_percent")
-        if (
+        if soc_status == "stale" and plugged_in is True and target_soc_cfg is not None:
+            # Goal charging is suspended until a valid SoC reading returns.
+            status = "soc_unavailable"
+        elif (
             live_soc is not None
             and target_soc_cfg is not None
             and float(live_soc) >= float(target_soc_cfg) - 1e-6
@@ -634,6 +664,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             "plugged_in": plugged_in,
             "unreachable": unreachable,
             "soc_percent": round(soc_percent, 1) if soc_percent is not None else None,
+            **soc_fields,
             "power_kw": round(power_kw, 3) if power_kw is not None else None,
             "target_soc_percent": persisted.get("target_soc_percent"),
             "ready_by": persisted.get("ready_by"),

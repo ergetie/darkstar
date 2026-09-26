@@ -1592,6 +1592,14 @@ class ActionDispatcher:
         """
         await self._send_notification(message, title="Darkstar EV")
 
+    async def notify_ev_soc_stale(self, message: str) -> None:
+        """Stale-SoC warning (ev-soc-staleness).
+
+        Toggle (``on_ev_soc_stale``) and once-per-episode dedupe are the
+        engine's job.
+        """
+        await self._send_notification(message, title="Darkstar EV")
+
     async def notify_override(self, override_type: str, reason: str) -> None:
         """Send notification about an override activation."""
         if self.config.notifications.on_override_activated:

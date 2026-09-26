@@ -624,6 +624,9 @@ async def record_observation_from_current_state(
     try:
         max_kwh = get_max_energy_per_slot(config)
         record = validate_energy_values(record, max_kwh)
+        # Keep per-charger energy consistent with a rejected (zeroed) aggregate.
+        if record.get("ev_charger_energy") and not record.get("ev_charging_kwh"):
+            record["ev_charger_energy"] = dict.fromkeys(record["ev_charger_energy"], 0.0)
     except ValueError as e:
         logger.warning(f"Could not validate energy values: {e}. Proceeding with raw values.")
 
