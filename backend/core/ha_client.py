@@ -675,6 +675,56 @@ async def get_initial_state(
     return initial_state
 
 
+_SLOT_SECONDS = 15 * 60
+
+
+def _distribute_interval_energy(
+    slot_sums: list[float],
+    interval_start: datetime,
+    interval_end: datetime,
+    energy_kwh: float,
+    local_tz: Any,
+    window_start: datetime,
+    window_end: datetime,
+) -> None:
+    """Spread ``energy_kwh`` consumed over [interval_start, interval_end)
+    uniformly in time across 96 local time-of-day slots, adding into ``slot_sums``.
+
+    The interval is walked in absolute (UTC) time in 15-minute steps, so it may
+    cross local midnight (wrapping from slot 95 to slot 0), span several days,
+    or cross a DST transition. Each piece is mapped to the local wall-clock slot
+    it falls in: on a 25 h day the repeated hour lands in its wall-clock slots
+    twice, on a 23 h day the skipped hour's slots receive nothing. All real UTC
+    offsets are multiples of 15 minutes, so UTC and local slot boundaries align.
+
+    Energy is apportioned over the full interval duration; only the part that
+    overlaps [window_start, window_end) is recorded, keeping the caller's
+    fixed 7-day averaging denominator honest.
+    """
+    total_seconds = (interval_end - interval_start).total_seconds()
+    if total_seconds <= 0 or energy_kwh <= 0:
+        return
+
+    start_utc = max(interval_start, window_start).astimezone(pytz.UTC)
+    end_utc = min(interval_end, window_end).astimezone(pytz.UTC)
+    if end_utc <= start_utc:
+        return
+
+    epoch_seconds = start_utc.timestamp()
+    cursor = start_utc
+    # First boundary strictly after cursor on the 15-minute UTC grid.
+    next_boundary = datetime.fromtimestamp(
+        (epoch_seconds // _SLOT_SECONDS + 1) * _SLOT_SECONDS, tz=pytz.UTC
+    )
+    while cursor < end_utc:
+        piece_end = min(next_boundary, end_utc)
+        local_cursor = cursor.astimezone(local_tz)
+        slot_idx = (local_cursor.hour * 60 + local_cursor.minute) // 15
+        slot_sums[slot_idx] += energy_kwh * (piece_end - cursor).total_seconds() / total_seconds
+        cursor = piece_end
+        next_boundary = next_boundary + timedelta(seconds=_SLOT_SECONDS)
+
+
 async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
     """Fetch actual load profile from Home Assistant historical data (Async)."""
     ha_config = secrets.load_home_assistant_config()
@@ -728,8 +778,8 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         # Convert to local timezone for processing
         local_tz = pytz.timezone("Europe/Stockholm")
 
-        # Calculate energy consumption between state changes
-        time_buckets = [0.0] * (96 * 7)  # 7 days * 96 slots per day
+        # Energy per local time-of-day slot, summed over the 7-day window
+        slot_sums = [0.0] * 96
         prev_state = None
         prev_time = None
         cached_unit: str | None = None
@@ -737,8 +787,6 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         max_meter_delta_kwh = float(config.get("recorder", {}).get("max_meter_delta_kwh", 50.0))
         skipped_delta_count = 0
         largest_skipped_delta = 0.0
-
-        start_time_local = start_time.astimezone(local_tz)
 
         for state in states:
             try:
@@ -782,36 +830,15 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
                     minutes_diff = time_diff.total_seconds() / 60
 
                     if minutes_diff > 0 and energy_delta > 0:
-                        # Calculate which 15-minute buckets this spans
-                        start_slot = int((prev_time.hour * 60 + prev_time.minute) // 15)
-                        end_slot = int((current_time.hour * 60 + current_time.minute) // 15)
-                        day_offset = int(
-                            (prev_time - start_time_local).total_seconds() / (24 * 3600)
+                        _distribute_interval_energy(
+                            slot_sums,
+                            prev_time,
+                            current_time,
+                            energy_delta,
+                            local_tz,
+                            window_start=start_time,
+                            window_end=end_time,
                         )
-
-                        # Calculate start and end times for each slot
-                        for slot_idx in range(max(0, start_slot), min(96, end_slot + 1)):
-                            # Calculate slot start time relative to the day start
-                            slot_start_minutes = slot_idx * 15
-                            day_start = prev_time.replace(hour=0, minute=0, second=0, microsecond=0)
-                            slot_start_time = day_start + timedelta(minutes=slot_start_minutes)
-                            slot_end_time = slot_start_time + timedelta(minutes=15)
-
-                            # Calculate overlap between this slot and the energy consumption period
-                            overlap_start = max(prev_time, slot_start_time)
-                            overlap_end = min(current_time, slot_end_time)
-                            overlap_minutes = max(
-                                0, (overlap_end - overlap_start).total_seconds() / 60
-                            )
-
-                            if overlap_minutes > 0:
-                                # Distribute energy proportionally to time overlap
-                                energy_fraction = overlap_minutes / minutes_diff
-                                energy_for_slot = energy_delta * energy_fraction
-
-                                bucket_idx = day_offset * 96 + slot_idx
-                                if 0 <= bucket_idx < len(time_buckets):
-                                    time_buckets[bucket_idx] += energy_for_slot
 
                 prev_state = current_value
                 prev_time = current_time
@@ -831,14 +858,7 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
             )
 
         # Create average daily profile from the 7 days of data (divide by 7 days)
-        daily_profile = [0.0] * 96
-        for slot in range(96):
-            slot_sum = 0.0
-            for day in range(7):
-                bucket_idx = day * 96 + slot
-                if 0 <= bucket_idx < len(time_buckets):
-                    slot_sum += time_buckets[bucket_idx]
-            daily_profile[slot] = slot_sum / 7.0
+        daily_profile = [slot_sum / 7.0 for slot_sum in slot_sums]
 
         # Validate and clean the profile
         total_daily = sum(daily_profile)
