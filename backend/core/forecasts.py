@@ -474,6 +474,9 @@ async def _get_forecast_data_async(
                     declination=tilt,
                     azimuth=azimuth,
                     dc_kwp=kwp,
+                    # Slots start at today 00:00 at the earliest; the library
+                    # default (92 days) only adds unused history.
+                    past_days=1,
                 ) as forecast:
                     estimate = await forecast.estimate()
                     for dt, watts in estimate.watts.items():
@@ -502,11 +505,9 @@ async def _get_forecast_data_async(
                 rounded_time = slot_time.replace(
                     minute=(slot_time.minute // 15) * 15, second=0, microsecond=0
                 )
-                power_watts = 0.0
-                for solar_time, solar_power in solar_data_dict.items():
-                    if solar_time == rounded_time:
-                        power_watts = solar_power
-                        break
+                # Aware datetimes hash/compare by UTC instant, so a direct lookup
+                # matches keys across fixed-offset and pytz zones.
+                power_watts = solar_data_dict.get(rounded_time, 0.0)
                 pv_kwh_forecast.append(power_watts * 0.25 / 1000.0)
 
         # REV F60 Phase 7: Clear forecast errors after successful forecast

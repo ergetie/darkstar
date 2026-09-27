@@ -75,6 +75,7 @@ class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
                 declination=35.0,
                 azimuth=0.0,  # South = 0 for Open-Meteo
                 dc_kwp=10.0,
+                past_days=1,
             )
             MockForecastClass.assert_any_call(
                 latitude=59.3,
@@ -82,6 +83,7 @@ class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
                 declination=35.0,
                 azimuth=-90.0,
                 dc_kwp=5.0,
+                past_days=1,
             )
             print("✅ Correct per-array calls passed to OpenMeteoSolarForecast")
 
