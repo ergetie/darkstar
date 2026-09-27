@@ -372,6 +372,79 @@ class TestPhaseModeController:
         assert d3.should_switch is True
         assert d3.commanded_mode == 3
 
+    @staticmethod
+    def _decide(ctrl: PhaseModeController, now: datetime, kw: float, skip_hold: bool = False):
+        return ctrl.decide(
+            now=now,
+            target_power_kw=kw,
+            three_phase_min_kw_value=4.14,
+            hysteresis_kw=0.5,
+            min_dwell_s=600,
+            enabled=True,
+            entity_configured=True,
+            is_binary=False,
+            skip_hold=skip_hold,
+        )
+
+    def test_planned_target_switches_immediately(self):
+        """ev-planned-phase-switching 1.2: skip_hold bypasses the target-hold window."""
+        ctrl = PhaseModeController()
+        ctrl.commanded_mode = 1
+        ctrl.last_switch_time = _tick(NOW, -3600)
+        d = self._decide(ctrl, NOW, 6.9, skip_hold=True)
+        assert d.should_switch is True
+        assert d.commanded_mode == 3
+
+    def test_planned_target_still_respects_since_last_switch_gate(self):
+        ctrl = PhaseModeController()
+        ctrl.commanded_mode = 1
+        ctrl.last_switch_time = _tick(NOW, -300)
+        d = self._decide(ctrl, NOW, 6.9, skip_hold=True)
+        assert d.should_switch is False
+        assert "last switch" in d.reason
+        d = self._decide(ctrl, _tick(NOW, 300), 6.9, skip_hold=True)
+        assert d.should_switch is True
+
+    def test_planned_target_keeps_hysteresis_threshold(self):
+        # Between the 3-phase minimum (4.14) and minimum + hysteresis (4.64):
+        # still below the threshold, so 1-phase does not switch up.
+        ctrl = PhaseModeController()
+        ctrl.commanded_mode = 1
+        d = self._decide(ctrl, NOW, 4.3, skip_hold=True)
+        assert d.should_switch is False
+        assert d.commanded_mode == 1
+
+    def test_planned_target_respects_relief_hold(self):
+        ctrl = PhaseModeController()
+        ctrl.on_switch_success(1, _tick(NOW, -3600), relief=True)
+        d = ctrl.decide(
+            now=NOW,
+            target_power_kw=6.9,
+            three_phase_min_kw_value=4.14,
+            hysteresis_kw=0.5,
+            min_dwell_s=600,
+            enabled=True,
+            entity_configured=True,
+            is_binary=False,
+            three_phase_fits=False,
+            skip_hold=True,
+        )
+        assert d.should_switch is False
+
+    def test_planned_target_respects_fail_safe(self):
+        ctrl = PhaseModeController()
+        ctrl.on_entity_unavailable()
+        d = self._decide(ctrl, NOW, 6.9, skip_hold=True)
+        assert d.should_switch is False
+
+    def test_default_keeps_target_hold_window(self):
+        ctrl = PhaseModeController()
+        ctrl.commanded_mode = 1
+        ctrl.last_switch_time = _tick(NOW, -3600)
+        d = self._decide(ctrl, NOW, 6.9)
+        assert d.should_switch is False
+        assert "dwell window" in d.reason
+
     def test_unavailable_entity_fail_safe(self):
         ctrl = PhaseModeController()
         ctrl.commanded_mode = 3

@@ -1,9 +1,7 @@
 ## Purpose
 
 Detect when an EV charger silently fails to deliver scheduled power — for example, when a wallbox rejects a charge command — and surface the failure through the error notification path so it does not go unnoticed.
-
 ## Requirements
-
 ### Requirement: Executor detects EV charge failure when actual power stays zero
 
 The executor SHALL track consecutive ticks where the executor's *commanded* EV charging level implies active charging (commanded switch ON for binary chargers, or a commanded ampere setpoint at or above the minimum current for current-type chargers) but actual EV power is below 0.1 kW. After 5 consecutive zero-power ticks under an active command, the executor SHALL raise an error through the existing "On Error" notification path and mark the execution record's success field as 0 (failed).
@@ -76,3 +74,21 @@ When EV charge failure is first detected in an EV charging period, and again whe
 #### Scenario: Independent of balancer rate limit
 - **WHEN** a balancer-triggered replan already ran within the current planner interval
 - **THEN** a failure/recovery replan SHALL still be requested, and SHALL NOT consume the balancer's replan slot
+
+### Requirement: Commanded phase switches get a 60 s grace window
+
+For 60 s after the executor commands a phase-mode change on a charger, zero-power ticks SHALL NOT increment the charge-failure counter. The counter SHALL NOT be reset by the grace window; counting resumes after it ends.
+
+#### Scenario: Switch-over pause is not a failure
+- **WHEN** the executor switches the charger to 3-phase at 12:00:50
+- **AND** actual EV power is below 0.1 kW from 12:00:55 to 12:01:15
+- **THEN** no failure notification SHALL be sent and no failure replan SHALL be requested
+
+#### Scenario: Real failure after a switch is still detected
+- **WHEN** the executor switches phase mode and actual EV power stays below 0.1 kW for 90 s
+- **THEN** the failure SHALL be reported once 5 zero-power ticks have been counted after the 60 s window
+
+#### Scenario: Counter is paused, not reset
+- **WHEN** 3 zero-power ticks were counted and then a phase switch is commanded
+- **AND** power stays at zero through and after the 60 s window
+- **THEN** the failure SHALL fire after 2 more zero-power ticks following the window

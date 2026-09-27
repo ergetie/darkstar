@@ -640,3 +640,89 @@ class TestInterleavedGiveWayOrder:
         status1 = lb.tick(t1, grid_deep, fresh_ts(1, 2, 3, at=t1), [ev_10, wh])
         assert status1.ev_outputs[0].target_a is None
         assert [o.load_id for o in status1.shed_outputs if o.shed] == ["wh"]
+
+
+class TestRampUpHoldOffAfterReduction:
+    """ev-planned-phase-switching 5.3: no raise for ramp_up_window_s after a
+    setpoint reduction, so the averaged window first flushes the pre-spike
+    samples (2026-09-27 12:39–12:40 sawtooth)."""
+
+    REDUCED_AT = datetime(2026, 9, 27, 12, 39, 20)
+
+    @staticmethod
+    def _lb() -> LoadBalancer:
+        return make_lb(ramp_up_window_s=60, pause_debounce_s=30)
+
+    @staticmethod
+    def _tick(lb, t, setpoint, house_l3, target=16):
+        ev = EVBalancerInput("goe", [1, 2, 3], setpoint, target, min_current_a=6, max_current_a=16)
+        grid = {1: 2.0 + setpoint, 2: 2.0 + setpoint, 3: house_l3 + setpoint}
+        return lb.tick(t, grid, fresh_ts(1, 2, 3, at=t), [ev]).ev_outputs[0]
+
+    def _reduce(self, lb) -> None:
+        """60 s at 10 A with a 2 A house, then a 10 A water heater on L3."""
+        for sec in range(-65, 0, 5):
+            # Plan at 10 A during the warm-up so it holds (no ramp yet).
+            out = self._tick(lb, self.REDUCED_AT + timedelta(seconds=sec), 10, 2.0, target=10)
+            assert out.target_a == 10
+        out = self._tick(lb, self.REDUCED_AT, 10, 12.0)
+        assert out.target_a == 8
+        assert out.reason.startswith("Reduced 10A -> 8A")
+
+    def test_new_house_load_does_not_cause_sawtooth(self):
+        lb = self._lb()
+        self._reduce(lb)
+        # House settles at 10 A on L3: 2 A of momentary headroom, and the
+        # average still holds pre-spike samples — the old code ramped here.
+        for sec in range(5, 60, 5):
+            out = self._tick(lb, self.REDUCED_AT + timedelta(seconds=sec), 8, 10.0)
+            assert out.target_a == 8, sec
+            assert out.reason.startswith("Holding 8A")
+        # After the hold-off the window is all post-reduction: 10 + 8 = 18 A
+        # already at the 90 % target, so still no raise.
+        out = self._tick(lb, self.REDUCED_AT + timedelta(seconds=60), 8, 10.0)
+        assert out.target_a == 8
+
+    def test_ramp_resumes_after_hold_off(self):
+        lb = self._lb()
+        self._reduce(lb)
+        for sec in range(5, 60, 5):
+            out = self._tick(lb, self.REDUCED_AT + timedelta(seconds=sec), 8, 2.0)
+            assert out.target_a == 8
+        out = self._tick(lb, self.REDUCED_AT + timedelta(seconds=60), 8, 2.0)
+        assert out.target_a == 9  # at most increase_step_a per tick
+        assert out.reason.startswith("Ramping 8A -> 9A")
+
+    def test_further_reduction_restarts_hold_off(self):
+        lb = self._lb()
+        self._reduce(lb)
+        second = self.REDUCED_AT + timedelta(seconds=30)
+        out = self._tick(lb, second, 8, 14.0)  # L3 = 22 A -> headroom -2
+        assert out.target_a == 6
+        for sec in range(35, 90, 5):
+            out = self._tick(lb, self.REDUCED_AT + timedelta(seconds=sec), 6, 2.0)
+            assert out.target_a == 6, sec
+        out = self._tick(lb, second + timedelta(seconds=60), 6, 2.0)
+        assert out.target_a == 7
+
+    def test_reductions_are_never_held(self):
+        lb = self._lb()
+        self._reduce(lb)
+        out = self._tick(lb, self.REDUCED_AT + timedelta(seconds=5), 8, 13.0)  # L3 = 21 A
+        assert out.target_a == 7
+
+    def test_plan_end_clears_hold_off(self):
+        lb = self._lb()
+        self._reduce(lb)
+        ev = EVBalancerInput("goe", [1, 2, 3], 8, None, min_current_a=6, max_current_a=16)
+        t = self.REDUCED_AT + timedelta(seconds=5)
+        lb.tick(t, {1: 10.0, 2: 10.0, 3: 10.0}, fresh_ts(1, 2, 3, at=t), [ev])
+        assert "goe" not in lb._ev_reduced_at
+
+    def test_pause_clears_hold_off(self):
+        lb = self._lb()
+        self._reduce(lb)
+        t = self.REDUCED_AT + timedelta(seconds=5)
+        out = self._tick(lb, t, 8, 20.0)  # L3 = 28 A, above the severe line
+        assert out.state == "paused"
+        assert "goe" not in lb._ev_reduced_at

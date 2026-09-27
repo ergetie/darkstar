@@ -230,6 +230,11 @@ class LoadBalancer:
         self._ev_fit_1p_since: dict[str, datetime] = {}
         self._ev_last_refit_at: dict[str, datetime] = {}
         self._ev_refit_level: dict[str, int] = {}
+        # Ramp-up hold-off: when each charger's setpoint was last reduced
+        # (throttle, floor degrade, 1-phase relief). No raise for
+        # ramp_up_window_s after it, so the averaged window first flushes
+        # the pre-reduction samples. Cleared on plan end and pause.
+        self._ev_reduced_at: dict[str, datetime] = {}
 
     # --- Quick re-fit (D17) -----------------------------------------------
 
@@ -347,6 +352,46 @@ class LoadBalancer:
         return (now - updated_at).total_seconds() > self.config.sensor_stale_after_s
 
     def _resolve_ev(
+        self,
+        ev: EVBalancerInput,
+        binding_phases: list[int],
+        now: datetime,
+        phase_current: dict[int, float],
+        updated_at: dict[int, datetime],
+        pool_headroom: dict[int, float],
+        main_fuse_a: int,
+        avg_ok: Callable[[list[int], float], bool],
+        resume_blocked: bool = False,
+        hold_for_relief: bool = False,
+    ) -> tuple[EVBalancerOutput, bool, bool, bool]:
+        """Resolve one EV charger's decision and maintain its ramp-up
+        hold-off timestamp (see _resolve_ev_decision for the decision)."""
+        result = self._resolve_ev_decision(
+            ev,
+            binding_phases,
+            now,
+            phase_current,
+            updated_at,
+            pool_headroom,
+            main_fuse_a,
+            avg_ok,
+            resume_blocked,
+            hold_for_relief,
+        )
+        output = result[0]
+        if output.target_a is None:
+            # Paused, idle or plan ended: the hold-off does not carry over.
+            self._ev_reduced_at.pop(ev.charger_id, None)
+        elif (
+            output.state == "throttling"
+            and ev.current_setpoint_a is not None
+            and not output.refit_from_pause
+            and (output.target_a < ev.current_setpoint_a or output.relief_1p_requested)
+        ):
+            self._ev_reduced_at[ev.charger_id] = now
+        return result
+
+    def _resolve_ev_decision(
         self,
         ev: EVBalancerInput,
         binding_phases: list[int],
@@ -558,6 +603,28 @@ class LoadBalancer:
                 False,
                 False,
                 False,
+            )
+
+        reduced_at = self._ev_reduced_at.get(ev.charger_id)
+        if (
+            reduced_at is not None
+            and (now - reduced_at).total_seconds() < self.config.ramp_up_window_s
+        ):
+            # Ramp-up hold-off: the averaged window still holds samples from
+            # before the reduction, so it would under-read the new load.
+            return (
+                EVBalancerOutput(
+                    ev.charger_id,
+                    setpoint,
+                    "throttling",
+                    f"Holding {setpoint}A — reduced "
+                    f"{(now - reduced_at).total_seconds():.0f}s ago, waiting "
+                    f"{self.config.ramp_up_window_s}s before ramping toward "
+                    f"{ev.planner_target_a}A",
+                ),
+                False,
+                False,
+                True,
             )
 
         # An increase must fit both paths: the averaged target gate below and

@@ -65,10 +65,13 @@ class PhaseModeController:
         entity_configured: bool,
         is_binary: bool,
         three_phase_fits: bool = True,
+        skip_hold: bool = False,
     ) -> PhaseModeDecision:
         """Target-power state machine. three_phase_fits: the balancer's
         averaged verdict that every 3-phase line has room for the minimum
         current within the target margin; only consulted while relief_hold.
+        skip_hold: the target is planned (stable across a slot), so the
+        target-hold window is bypassed; the since-last-switch gate still applies.
         """
         if is_binary or not enabled or not entity_configured or self.failed:
             self._below_since = None
@@ -101,7 +104,7 @@ class PhaseModeController:
                 "holding 1-phase for overload relief — 3-phase does not fit the target margin yet",
             )
 
-        if condition_elapsed < min_dwell_s:
+        if not skip_hold and condition_elapsed < min_dwell_s:
             return PhaseModeDecision(
                 self.commanded_mode,
                 False,

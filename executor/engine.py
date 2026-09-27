@@ -338,6 +338,9 @@ class ExecutorEngine:
         # D3: Stale-schedule alert pending (set by _load_current_slot, consumed in _tick)
         self._stale_schedule_warning: str | None = None
         self._stale_schedule_alerted: bool = False  # dedup: fire once per fresh→stale transition
+        # Slot immediately after the current one (set by _load_current_slot);
+        # drives the idle phase-mode look-ahead. None if absent or stale.
+        self._next_slot: SlotPlan | None = None
 
         # Cached system state for get_status() mode_intent computation
         self._last_system_state: SystemState | None = None
@@ -2303,7 +2306,10 @@ class ExecutorEngine:
         Load the current slot from schedule.json.
 
         Returns (SlotPlan, slot_start_iso) or (None, None) if not found.
+        Also sets self._next_slot to the slot starting where the current one
+        ends (None if absent, no current slot, or the schedule is stale).
         """
+        self._next_slot = None
         schedule_path = self.config.schedule_path
         if not Path(schedule_path).exists():
             logger.warning("Schedule file not found: %s", schedule_path)
@@ -2363,7 +2369,7 @@ class ExecutorEngine:
             return None, None
 
         # Find the slot that contains the current time
-        for slot_data in schedule:
+        for index, slot_data in enumerate(schedule):
             start_str = slot_data.get("start_time")
             # Prefer end_time_kepler (correct) over end_time (sometimes has wrong TZ offset)
             end_str = slot_data.get("end_time_kepler") or slot_data.get("end_time")
@@ -2392,6 +2398,7 @@ class ExecutorEngine:
                 # Check if current time is within this slot
                 if start <= now < end:
                     slot = self._parse_slot_plan(slot_data)
+                    self._next_slot = self._find_next_slot(schedule, index, end, tz)
                     return slot, start.isoformat()
 
             except Exception as e:
@@ -2400,6 +2407,31 @@ class ExecutorEngine:
 
         # No matching slot found
         return None, None
+
+    def _find_next_slot(
+        self,
+        schedule: list[dict[str, Any]],
+        current_index: int,
+        current_end: datetime,
+        tz: Any,
+    ) -> SlotPlan | None:
+        """Return the schedule entry following current_index if it starts
+        exactly where the current slot ends, parsed as a SlotPlan."""
+        if current_index + 1 >= len(schedule):
+            return None
+        next_data = schedule[current_index + 1]
+        start_str = next_data.get("start_time")
+        if not start_str:
+            return None
+        try:
+            start = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            start = tz.localize(start) if start.tzinfo is None else start.astimezone(tz)
+            if start != current_end:
+                return None
+            return self._parse_slot_plan(next_data)
+        except Exception as e:
+            logger.warning("Failed to parse next slot: %s", e)
+            return None
 
     def _parse_slot_plan(self, slot_data: dict[str, Any]) -> SlotPlan:
         """Parse a schedule slot into a SlotPlan object."""
@@ -2877,10 +2909,12 @@ class ExecutorEngine:
         phase_ctrl: PhaseModeController,
         target_power_kw: float,
         now: datetime,
+        skip_hold: bool = False,
     ) -> ActionResult | None:
         """Run the phase-mode state machine for one charger and dispatch a
         switch if warranted (design D5, task 3.5). Returns the write's
-        ActionResult when a switch was attempted, else None.
+        ActionResult when a switch was attempted, else None. skip_hold: the
+        target is planned, so the target-hold window is bypassed.
         """
         entity = charger_cfg.phase_mode_entity
         if not charger_cfg.phase_switching_enabled or not entity or not self.dispatcher:
@@ -2918,6 +2952,7 @@ class ExecutorEngine:
             entity_configured=True,
             is_binary=False,
             three_phase_fits=three_phase_fits,
+            skip_hold=skip_hold,
         )
         if not decision.should_switch or decision.commanded_mode is None:
             return None
@@ -3004,6 +3039,7 @@ class ExecutorEngine:
                 and charger_plan_kw <= 0.1
                 and self._charger_should_be_on(slot, charger_id)
             )
+            planned_target = False
             if manual_target_a is not None:
                 target_power_kw = (
                     manual_target_a
@@ -3022,10 +3058,21 @@ class ExecutorEngine:
                     charger_cfg.min_current_a, self.config.ev_nominal_voltage_v
                 )
             else:
+                # ev-planned-phase-switching D1/D2: planned kW is stable across
+                # the slot, so it bypasses the target-hold window. An idle
+                # charger looks one slot ahead and pre-switches for it; only
+                # the phase target changes — the balancer still reads the
+                # current slot, so no charging current is commanded early.
                 target_power_kw = charger_plan_kw
+                planned_target = charger_plan_kw > 0.1
+                if not planned_target and self._next_slot is not None:
+                    next_plan_kw = self._next_slot.ev_charger_plans.get(charger_id, 0.0)
+                    if next_plan_kw > 0.1:
+                        target_power_kw = next_plan_kw
+                        planned_target = True
 
             phase_result = await self._apply_phase_mode_decision(
-                charger_cfg, phase_ctrl, target_power_kw, now
+                charger_cfg, phase_ctrl, target_power_kw, now, skip_hold=planned_target
             )
             if phase_result is not None:
                 action_results.append(phase_result)
@@ -3616,7 +3663,11 @@ class ExecutorEngine:
             now = datetime.now(pytz.timezone(self.config.timezone))
 
         if actual_ev_power_kw < 0.1 and not self._ev_power_fetch_failed:
-            self._ev_zero_power_ticks += 1
+            # ev-planned-phase-switching D3: the charger pauses while it
+            # changes phase mode; the counter is paused (not reset) for
+            # PHASE_SWITCH_SETTLE_S after a commanded switch.
+            if not self._ev_phase_switch_settling(now):
+                self._ev_zero_power_ticks += 1
         else:
             self._ev_zero_power_ticks = 0
             # Stays pending until the replan actually fires, so a recovery
@@ -3644,6 +3695,21 @@ class ExecutorEngine:
             self._request_ev_failure_replan(now, "EV charge failure detected")
             return True
 
+        return False
+
+    def _ev_phase_switch_settling(self, now: datetime) -> bool:
+        """True while any commanded charger is within PHASE_SWITCH_SETTLE_S
+        of its last commanded phase-mode switch."""
+        for charger_id, dev_state in self._ev_charger_states.items():
+            if not dev_state.charging_active:
+                continue
+            phase_ctrl = self._ev_phase_controllers.get(charger_id)
+            if (
+                phase_ctrl is not None
+                and phase_ctrl.last_switch_time is not None
+                and (now - phase_ctrl.last_switch_time).total_seconds() < PHASE_SWITCH_SETTLE_S
+            ):
+                return True
         return False
 
     def _request_ev_failure_replan(self, now: datetime, reason: str) -> bool:

@@ -305,3 +305,70 @@ class TestFailureRecoveryReplan:
         await engine._check_ev_charge_failure(False, 0.0, now=T0 + timedelta(minutes=30))
         await engine._check_ev_charge_failure(True, 4.1, now=T0 + timedelta(minutes=90))
         engine._request_balancer_replan.assert_called_once()
+
+
+class TestPhaseSwitchGraceWindow:
+    """ev-planned-phase-switching 4.2: 60 s grace after a commanded phase switch."""
+
+    SWITCH_AT = datetime(2026, 9, 27, 12, 0, 50)
+
+    @staticmethod
+    def _arm(engine, last_switch: datetime) -> None:
+        from executor.engine import EVChargerState
+        from executor.ev_surplus import PhaseModeController
+
+        engine._ev_charger_states = {"goe": EVChargerState(charging_active=True)}
+        ctrl = PhaseModeController()
+        ctrl.on_switch_success(3, last_switch)
+        engine._ev_phase_controllers = {"goe": ctrl}
+
+    async def _ticks(self, engine, start: datetime, count: int) -> list[bool]:
+        return [
+            await engine._check_ev_charge_failure(True, 0.0, now=start + timedelta(seconds=5 * i))
+            for i in range(count)
+        ]
+
+    @pytest.mark.asyncio
+    async def test_switch_over_pause_is_not_a_failure(self, engine):
+        self._arm(engine, self.SWITCH_AT)
+        # 12:00:55 .. 12:01:15 at zero power.
+        fired = await self._ticks(engine, self.SWITCH_AT + timedelta(seconds=5), 5)
+        assert fired == [False] * 5
+        assert engine._ev_zero_power_ticks == 0
+        engine.dispatcher.notify_error.assert_not_called()
+        engine._request_balancer_replan.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_real_failure_after_switch_is_still_detected(self, engine):
+        self._arm(engine, self.SWITCH_AT)
+        # 90 s of zero power, one tick every 5 s from the switch.
+        fired = await self._ticks(engine, self.SWITCH_AT + timedelta(seconds=5), 18)
+        # Ticks within 60 s (5..55 s: 11 ticks) are not counted; the 5th
+        # counted tick is at 60+20 = 80 s -> index 15.
+        assert fired.index(True) == 15
+        assert fired.count(True) == 1
+        engine.dispatcher.notify_error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_counter_is_paused_not_reset(self, engine):
+        before = self.SWITCH_AT - timedelta(seconds=15)
+        self._arm(engine, before - timedelta(hours=1))
+        await self._ticks(engine, before, 3)
+        assert engine._ev_zero_power_ticks == 3
+
+        self._arm(engine, self.SWITCH_AT)
+        in_window = await self._ticks(engine, self.SWITCH_AT, 12)
+        assert in_window == [False] * 12
+        assert engine._ev_zero_power_ticks == 3
+
+        after = await self._ticks(engine, self.SWITCH_AT + timedelta(seconds=60), 2)
+        assert after == [False, True]
+
+    @pytest.mark.asyncio
+    async def test_uncommanded_charger_switch_does_not_pause(self, engine):
+        from executor.engine import EVChargerState
+
+        self._arm(engine, self.SWITCH_AT)
+        engine._ev_charger_states["goe"] = EVChargerState(charging_active=False)
+        fired = await self._ticks(engine, self.SWITCH_AT + timedelta(seconds=5), 5)
+        assert fired[-1] is True
