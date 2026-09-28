@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 
 import lightgbm as lgb
+import numpy as np
 import pandas as pd
 
 from backend.health import clear_load_forecast_status, set_load_forecast_status
@@ -108,6 +109,63 @@ async def _pv_personalization_weight(engine: LearningEngine) -> tuple[float, int
         logger.warning("Could not count paired PV personalization days: %s", exc)
         days = 0
     return min(1.0, max(0.0, days / ramp_days)), days, ramp_days
+
+
+def _sun_up_flags(slot_starts: pd.Series, sun_calc: Any | None) -> np.ndarray:
+    """Per-slot sun-up flags (30-minute buffer), or a 05-22 hour window without astro."""
+    if sun_calc is not None:
+        flags = [bool(sun_calc.is_sun_up(ts, buffer_minutes=30)) for ts in slot_starts]
+    else:
+        flags = [5 <= ts.hour < 22 for ts in slot_starts]
+    return np.asarray(flags, dtype=bool)
+
+
+def _scalar_min(a: Any, b: Any) -> np.ndarray:
+    """Element-wise builtin ``min(a, b)``: ``a`` unless ``b < a``.
+
+    Unlike ``np.minimum`` this does not propagate NaN; it keeps the builtin's
+    argument-order NaN handling so results match the former per-slot loop.
+    """
+    a_arr = np.asarray(a, dtype="float64")
+    b_arr = np.asarray(b, dtype="float64")
+    return np.where(b_arr < a_arr, b_arr, a_arr)
+
+
+def _scalar_max(a: Any, b: Any) -> np.ndarray:
+    """Element-wise builtin ``max(a, b)``: ``a`` unless ``b > a`` (see ``_scalar_min``)."""
+    a_arr = np.asarray(a, dtype="float64")
+    b_arr = np.asarray(b, dtype="float64")
+    return np.where(b_arr > a_arr, b_arr, a_arr)
+
+
+def _hybrid_pv_values(
+    raw_pred: Any,
+    baseline: np.ndarray,
+    sun_up: np.ndarray,
+    radiation: np.ndarray | None,
+    bound_fraction: float,
+    personalization_weight: float,
+    physical_ceiling_kwh: float,
+) -> np.ndarray:
+    """Hybrid PV per slot before smoothing: baseline plus bounded, weighted ML residual.
+
+    Zeroed when the sun is down or radiation is below 1.0 W/m² (NaN radiation does
+    not clamp), floored at 0 and capped at the physical ceiling when one is set.
+    NaN inputs follow the builtin ``min``/``max`` semantics of the former loop: a NaN
+    residual bounds to ``-max_residual`` and a NaN value floors to 0.0.
+    """
+    residual = np.asarray(raw_pred, dtype="float64")
+    max_residual = baseline * bound_fraction
+    # max(-m, min(r, m)) in this order, matching the scalar bound for any sign of m.
+    residual = _scalar_max(-max_residual, _scalar_min(residual, max_residual))
+    values = baseline + residual * personalization_weight
+    values = np.where(sun_up, values, 0.0)
+    if radiation is not None:
+        values = np.where(radiation < 1.0, 0.0, values)
+    values = _scalar_max(0.0, values)
+    if physical_ceiling_kwh > 0.0:
+        values = _scalar_min(values, physical_ceiling_kwh)
+    return values
 
 
 async def _fetch_openmeteo_baseline_series(
@@ -450,6 +508,8 @@ async def generate_forward_slots(
     personalization_weight, paired_days, ramp_days = await _pv_personalization_weight(engine)
     if physical_ceiling_kwh > 0.0:
         baseline_series = baseline_series.clip(lower=0.0, upper=physical_ceiling_kwh)
+    # Computed once and shared by every quantile.
+    sun_up_flags = _sun_up_flags(df["slot_start"], sun_calc)
 
     # Store physics for output
     predictions["physics_kwh"] = physics_series
@@ -465,53 +525,42 @@ async def generate_forward_slots(
             pv_feature_cols.append("physics_forecast_kwh")
 
         X_pv = df[pv_feature_cols]
+        bound_fraction = _pv_tuning_config(engine.config)[0]
+        baseline_values = baseline_series.to_numpy(dtype="float64")
+        radiation_values = (
+            pd.to_numeric(df["shortwave_radiation_w_m2"], errors="coerce").to_numpy(dtype="float64")
+            if "shortwave_radiation_w_m2" in df.columns
+            else None
+        )
 
         for q in quantiles:
             model_key = f"pv_{q}"
             if model_key in models:
                 raw_pred: Any = models[model_key].predict(X_pv)  # type: ignore[reportUnknownMemberType]
 
-                series: pd.Series = pd.Series(0.0, index=df.index)
-                for pos_idx, (idx, row) in enumerate(df.iterrows()):
-                    # ML predicts residual (could be negative)
-                    ml_residual = float(raw_pred[pos_idx])
-                    baseline = float(baseline_series.iloc[pos_idx])
-                    max_residual = baseline * _pv_tuning_config(engine.config)[0]
-                    ml_residual = max(-max_residual, min(ml_residual, max_residual))
-                    ml_residual *= personalization_weight
+                # ML predicts a (possibly negative) residual on top of the baseline;
+                # astro and radiation clamps, floor and ceiling applied horizon-wide.
+                series = pd.Series(
+                    _hybrid_pv_values(
+                        raw_pred,
+                        baseline_values,
+                        sun_up_flags,
+                        radiation_values,
+                        bound_fraction,
+                        personalization_weight,
+                        physical_ceiling_kwh,
+                    ),
+                    index=df.index,
+                    dtype="float64",
+                )
 
-                    val = baseline + ml_residual
-
-                    # 1. Astro Clamp
-                    is_sun_up = False
-                    if sun_calc:
-                        is_sun_up = sun_calc.is_sun_up(row["slot_start"], buffer_minutes=30)
-                    else:
-                        h = row["slot_start"].hour
-                        is_sun_up = 5 <= h < 22
-
-                    if not is_sun_up:
-                        val = 0.0
-
-                    # 2. Radiation Clamp
-                    rad = row.get("shortwave_radiation_w_m2")
-                    if rad is not None and rad < 1.0:
-                        val = 0.0
-
-                    # Floor at 0
-                    val = max(0.0, val)
-                    if physical_ceiling_kwh > 0.0:
-                        val = min(val, physical_ceiling_kwh)
-                    series.loc[idx] = val  # type: ignore[reportIndexIssue]
-
-                # 3. Smoothing
+                # Smoothing
                 predictions[model_key] = (
                     series.rolling(window=3, center=True, min_periods=1).mean().fillna(0.0)
                 )
 
                 # Store bounded ML residual for transparency
                 residual_series = pd.Series(raw_pred, index=df.index, dtype="float64")
-                bound_fraction = _pv_tuning_config(engine.config)[0]
                 residual_bound = pd.Series(
                     [float(value) * bound_fraction for value in baseline_series],
                     index=df.index,
@@ -558,15 +607,7 @@ async def generate_forward_slots(
             )
 
             # Zero out nighttime
-            for idx, row in df.iterrows():
-                is_sun_up = False
-                if sun_calc:
-                    is_sun_up = sun_calc.is_sun_up(row["slot_start"], buffer_minutes=30)
-                else:
-                    h = row["slot_start"].hour
-                    is_sun_up = 5 <= h < 22
-                if not is_sun_up:
-                    predictions[f"pv_{q}"].loc[idx] = 0.0  # type: ignore[reportIndexIssue]
+            predictions[f"pv_{q}"] = predictions[f"pv_{q}"].where(sun_up_flags, 0.0)
 
             predictions[f"ml_residual_{q}"] = pd.Series(0.0, index=df.index)
 

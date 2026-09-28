@@ -288,56 +288,64 @@ class LearningStore:
         if not forecasts:
             return
 
-        async with self.AsyncSession() as session:
-            for forecast in forecasts:
-                slot_start_value: Any = forecast.get("slot_start") or forecast.get("start_time")
-                if slot_start_value is None:
-                    continue
-                if isinstance(slot_start_value, datetime | pd.Timestamp):
-                    slot_start = slot_start_value.astimezone(self.timezone).isoformat()
-                else:
-                    slot_start_ts = type_cast("pd.Timestamp", pd.to_datetime(slot_start_value))
-                    slot_start = slot_start_ts.astimezone(self.timezone).isoformat()
+        rows: list[dict[str, Any]] = []
+        for forecast in forecasts:
+            slot_start_value: Any = forecast.get("slot_start") or forecast.get("start_time")
+            if slot_start_value is None:
+                continue
+            if isinstance(slot_start_value, datetime | pd.Timestamp):
+                slot_start = slot_start_value.astimezone(self.timezone).isoformat()
+            else:
+                slot_start_ts = type_cast("pd.Timestamp", pd.to_datetime(slot_start_value))
+                slot_start = slot_start_ts.astimezone(self.timezone).isoformat()
 
-                stmt = sqlite_insert(SlotForecast).values(
-                    slot_start=slot_start,
-                    pv_forecast_kwh=float(forecast.get("pv_forecast_kwh", 0.0) or 0.0),
-                    openmeteo_pv_forecast_kwh=forecast.get("openmeteo_pv_forecast_kwh"),
-                    load_forecast_kwh=float(forecast.get("load_forecast_kwh", 0.0) or 0.0),
-                    pv_p10=forecast.get("pv_p10"),
-                    pv_p90=forecast.get("pv_p90"),
-                    load_p10=forecast.get("load_p10"),
-                    load_p90=forecast.get("load_p90"),
-                    base_load_forecast_kwh=float(
+            rows.append(
+                {
+                    "slot_start": slot_start,
+                    "pv_forecast_kwh": float(forecast.get("pv_forecast_kwh", 0.0) or 0.0),
+                    "openmeteo_pv_forecast_kwh": forecast.get("openmeteo_pv_forecast_kwh"),
+                    "load_forecast_kwh": float(forecast.get("load_forecast_kwh", 0.0) or 0.0),
+                    "pv_p10": forecast.get("pv_p10"),
+                    "pv_p90": forecast.get("pv_p90"),
+                    "load_p10": forecast.get("load_p10"),
+                    "load_p90": forecast.get("load_p90"),
+                    "base_load_forecast_kwh": float(
                         forecast.get("base_load_forecast_kwh", 0.0) or 0.0
                     ),
-                    base_load_p10=forecast.get("base_load_p10"),
-                    base_load_p90=forecast.get("base_load_p90"),
-                    temp_c=forecast.get("temp_c"),
-                    forecast_version=forecast_version,
-                )
-                # UPSERT: Update existing forecasts with new values
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["slot_start", "forecast_version"],
-                    set_={
-                        "pv_forecast_kwh": stmt.excluded.pv_forecast_kwh,
-                        "openmeteo_pv_forecast_kwh": func.coalesce(
-                            stmt.excluded.openmeteo_pv_forecast_kwh,
-                            SlotForecast.openmeteo_pv_forecast_kwh,
-                        ),
-                        "load_forecast_kwh": stmt.excluded.load_forecast_kwh,
-                        "pv_p10": stmt.excluded.pv_p10,
-                        "pv_p90": stmt.excluded.pv_p90,
-                        "load_p10": stmt.excluded.load_p10,
-                        "load_p90": stmt.excluded.load_p90,
-                        "base_load_forecast_kwh": stmt.excluded.base_load_forecast_kwh,
-                        "base_load_p10": stmt.excluded.base_load_p10,
-                        "base_load_p90": stmt.excluded.base_load_p90,
-                        "temp_c": stmt.excluded.temp_c,
-                    },
-                )
+                    "base_load_p10": forecast.get("base_load_p10"),
+                    "base_load_p90": forecast.get("base_load_p90"),
+                    "temp_c": forecast.get("temp_c"),
+                    "forecast_version": forecast_version,
+                }
+            )
+        if not rows:
+            return
 
-                await session.execute(stmt)
+        # One executemany upsert: rows apply in input order, so a later duplicate
+        # slot still overwrites an earlier one (same as per-row execution).
+        stmt = sqlite_insert(SlotForecast)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["slot_start", "forecast_version"],
+            set_={
+                "pv_forecast_kwh": stmt.excluded.pv_forecast_kwh,
+                "openmeteo_pv_forecast_kwh": func.coalesce(
+                    stmt.excluded.openmeteo_pv_forecast_kwh,
+                    SlotForecast.openmeteo_pv_forecast_kwh,
+                ),
+                "load_forecast_kwh": stmt.excluded.load_forecast_kwh,
+                "pv_p10": stmt.excluded.pv_p10,
+                "pv_p90": stmt.excluded.pv_p90,
+                "load_p10": stmt.excluded.load_p10,
+                "load_p90": stmt.excluded.load_p90,
+                "base_load_forecast_kwh": stmt.excluded.base_load_forecast_kwh,
+                "base_load_p10": stmt.excluded.base_load_p10,
+                "base_load_p90": stmt.excluded.base_load_p90,
+                "temp_c": stmt.excluded.temp_c,
+            },
+        )
+
+        async with self.AsyncSession() as session:
+            await session.execute(stmt, rows)
             await session.commit()
 
     def _to_local_datetime(self, value: Any) -> datetime:
@@ -351,78 +359,86 @@ class LearningStore:
         if plan_df.empty:
             return
 
-        async with self.AsyncSession() as session:
-            records = plan_df.to_dict("records")
-            for row in records:
-                slot_start_raw = row.get("start_time") or row.get("slot_start")
-                if not slot_start_raw:
-                    continue
+        rows: list[dict[str, Any]] = []
+        for row in plan_df.to_dict("records"):
+            slot_start_raw = row.get("start_time") or row.get("slot_start")
+            if not slot_start_raw:
+                continue
 
-                # slot_start is local ISO with offset (self.timezone), unlike
-                # created_at below (naive UTC) — compare only after converting to a common tz.
-                start_dt = self._to_local_datetime(slot_start_raw)
-                slot_start = start_dt.isoformat()
+            # slot_start is local ISO with offset (self.timezone), unlike
+            # created_at below (naive UTC) — compare only after converting to a common tz.
+            start_dt = self._to_local_datetime(slot_start_raw)
+            slot_start = start_dt.isoformat()
 
-                # Real slot length (resolution_minutes may be 15, 30 or 60).
-                slot_end: str | None = None
-                duration_h = 0.25
-                slot_end_raw = row.get("end_time") or row.get("slot_end")
-                end_dt = self._to_local_datetime(slot_end_raw) if slot_end_raw else None
-                if end_dt is not None and end_dt > start_dt:
-                    slot_end = end_dt.isoformat()
-                    duration_h = (end_dt - start_dt).total_seconds() / 3600.0
-                else:
-                    logger.warning(
-                        "store_plan: slot %s has missing or invalid end %r; "
-                        "storing slot_end NULL and assuming 15 minutes",
-                        slot_start,
-                        slot_end_raw,
-                    )
+            # Real slot length (resolution_minutes may be 15, 30 or 60).
+            slot_end: str | None = None
+            duration_h = 0.25
+            slot_end_raw = row.get("end_time") or row.get("slot_end")
+            end_dt = self._to_local_datetime(slot_end_raw) if slot_end_raw else None
+            if end_dt is not None and end_dt > start_dt:
+                slot_end = end_dt.isoformat()
+                duration_h = (end_dt - start_dt).total_seconds() / 3600.0
+            else:
+                logger.warning(
+                    "store_plan: slot %s has missing or invalid end %r; "
+                    "storing slot_end NULL and assuming 15 minutes",
+                    slot_start,
+                    slot_end_raw,
+                )
 
-                stmt = sqlite_insert(SlotPlan).values(
-                    slot_start=slot_start,
-                    slot_end=slot_end,
-                    planned_charge_kwh=float(row.get("kepler_charge_kwh", 0.0) or 0.0),
-                    planned_discharge_kwh=float(row.get("kepler_discharge_kwh", 0.0) or 0.0),
-                    planned_soc_percent=float(
+            rows.append(
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_end,
+                    "planned_charge_kwh": float(row.get("kepler_charge_kwh", 0.0) or 0.0),
+                    "planned_discharge_kwh": float(row.get("kepler_discharge_kwh", 0.0) or 0.0),
+                    "planned_soc_percent": float(
                         row.get("soc_target_percent", row.get("kepler_soc_percent", 0.0)) or 0.0
                     ),
-                    projected_soc_percent=float(
+                    "projected_soc_percent": float(
                         row.get(
                             "projected_soc_percent", row.get("kepler_projected_soc_percent", 0.0)
                         )
                         or 0.0
                     ),
-                    planned_import_kwh=float(row.get("kepler_import_kwh", 0.0) or 0.0),
-                    planned_export_kwh=float(row.get("kepler_export_kwh", 0.0) or 0.0),
-                    planned_water_heating_kwh=float(row.get("water_heating_kw", 0.0) or 0.0)
+                    "planned_import_kwh": float(row.get("kepler_import_kwh", 0.0) or 0.0),
+                    "planned_export_kwh": float(row.get("kepler_export_kwh", 0.0) or 0.0),
+                    "planned_water_heating_kwh": float(row.get("water_heating_kw", 0.0) or 0.0)
                     * duration_h,
-                    planned_ev_charging_kwh=float(row.get("ev_charging_kw", 0.0) or 0.0)
+                    "planned_ev_charging_kwh": float(row.get("ev_charging_kw", 0.0) or 0.0)
                     * duration_h,
-                    planned_cost_sek=float(
+                    "planned_cost_sek": float(
                         row.get("planned_cost_sek", row.get("kepler_cost_sek", 0.0)) or 0.0
                     ),
-                )
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["slot_start"],
-                    set_={
-                        "slot_end": stmt.excluded.slot_end,
-                        "planned_charge_kwh": stmt.excluded.planned_charge_kwh,
-                        "planned_discharge_kwh": stmt.excluded.planned_discharge_kwh,
-                        "planned_soc_percent": stmt.excluded.planned_soc_percent,
-                        "projected_soc_percent": stmt.excluded.projected_soc_percent,
-                        "planned_import_kwh": stmt.excluded.planned_import_kwh,
-                        "planned_export_kwh": stmt.excluded.planned_export_kwh,
-                        "planned_water_heating_kwh": stmt.excluded.planned_water_heating_kwh,
-                        "planned_ev_charging_kwh": stmt.excluded.planned_ev_charging_kwh,
-                        "planned_cost_sek": stmt.excluded.planned_cost_sek,
-                        # created_at is naive UTC (SQLite CURRENT_TIMESTAMP), unlike
-                        # slot_start above (local ISO with offset) — compare only after
-                        # converting to a common tz.
-                        "created_at": func.current_timestamp(),
-                    },
-                )
-                await session.execute(stmt)
+                }
+            )
+        if not rows:
+            return
+
+        # One executemany upsert (rows apply in input order, last duplicate wins).
+        stmt = sqlite_insert(SlotPlan)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["slot_start"],
+            set_={
+                "slot_end": stmt.excluded.slot_end,
+                "planned_charge_kwh": stmt.excluded.planned_charge_kwh,
+                "planned_discharge_kwh": stmt.excluded.planned_discharge_kwh,
+                "planned_soc_percent": stmt.excluded.planned_soc_percent,
+                "projected_soc_percent": stmt.excluded.projected_soc_percent,
+                "planned_import_kwh": stmt.excluded.planned_import_kwh,
+                "planned_export_kwh": stmt.excluded.planned_export_kwh,
+                "planned_water_heating_kwh": stmt.excluded.planned_water_heating_kwh,
+                "planned_ev_charging_kwh": stmt.excluded.planned_ev_charging_kwh,
+                "planned_cost_sek": stmt.excluded.planned_cost_sek,
+                # created_at is naive UTC (SQLite CURRENT_TIMESTAMP), unlike
+                # slot_start above (local ISO with offset) — compare only after
+                # converting to a common tz.
+                "created_at": func.current_timestamp(),
+            },
+        )
+
+        async with self.AsyncSession() as session:
+            await session.execute(stmt, rows)
             await session.commit()
 
     async def get_last_observation_time(self) -> datetime | None:

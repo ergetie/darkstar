@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytz
 from astral import LocationInfo
@@ -17,20 +17,28 @@ class SunCalculator:
             latitude=latitude,
             longitude=longitude,
         )
+        # Sun times per calendar date for this instance's lifetime; None (failed
+        # calculation, e.g. polar day/night) is cached too.
+        self._sun_times_cache: dict[date, tuple[datetime, datetime] | None] = {}
 
     def get_sun_times(self, date: datetime) -> tuple[datetime, datetime] | None:
         """
         Get sunrise and sunset for a specific date.
         Returns (sunrise, sunset) tuple or None if sun doesn't rise/set (polar day/night).
         """
+        # astral reduces a datetime to its own calendar date, so that is the cache key.
+        key = date.date()
+        if key in self._sun_times_cache:
+            return self._sun_times_cache[key]
+        times: tuple[datetime, datetime] | None
         try:
-            # astral expects a date object or datetime
-            s = sun(self.location.observer, date=date, tzinfo=pytz.timezone(self.timezone))
-            return s["sunrise"], s["sunset"]
+            s = sun(self.location.observer, date=key, tzinfo=pytz.timezone(self.timezone))
+            times = (s["sunrise"], s["sunset"])
         except Exception:
             # Handle edge cases like polar night/day if astral raises exceptions
-            # (Though astral usually handles this, good to be safe)
-            return None
+            times = None
+        self._sun_times_cache[key] = times
+        return times
 
     def is_sun_up(self, dt: datetime, buffer_minutes: int = 30) -> bool:
         """
