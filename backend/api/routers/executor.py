@@ -625,75 +625,37 @@ async def get_health(executor: ExecutorDep) -> dict[str, Any]:
     description="Returns suggested configuration values for a specific inverter profile.",
 )
 async def get_profile_suggestions(name: str) -> dict[str, Any]:
-    """Return suggested configuration for a profile.
-
-    This helps users set up their inverter by providing recommended entities
-    and parameters for their selected profile. Returns one suggestion per entity
-    in the profile's entity registry using the profile's default_entity values.
-    """
-    # Deferred imports to avoid circular dependencies
+    """Rank discovered entities and return an explicit, nested config patch."""
+    from backend.core.entity_matcher import build_suggestions
+    from backend.core.ha_registry import discover_entities
     from backend.core.secrets import load_yaml
+    from executor.actions import _STANDARD_INVERTER_KEYS  # type: ignore[import-private]
     from executor.profiles import load_profile
 
     try:
         profile = load_profile(name)
-
-        # Build suggestions from the v2 entity registry:
-        # Each entity's default_entity is the recommended HA entity ID.
-        # Keys are flat config paths like "executor.inverter.work_mode".
-        suggestions: dict[str, str | None] = {}
-        for key, entity_def in profile.entities.items():
-            # Standard keys live directly in executor.inverter.*
-            # Custom/composite keys go into executor.inverter.custom_entities.*
-            from executor.actions import _STANDARD_INVERTER_KEYS  # type: ignore[import-private]
-
-            if key in _STANDARD_INVERTER_KEYS:  # type: ignore[used-before-def]
-                config_path = f"executor.inverter.{key}"
-            else:
-                config_path = f"executor.inverter.custom_entities.{key}"
-            suggestions[config_path] = entity_def.default_entity
-
-        # Calculate missing entities against current config
-        config = load_yaml("config.yaml")
-        missing = profile.get_missing_entities(config)
-
-        # Build diff to show what's already set and what's suggested
-        diff: list[dict[str, Any]] = []
-        for config_key, suggested_value in suggestions.items():
-            parts = config_key.split(".")
-            section: dict[str, Any] | None = config
-            for part in parts:
-                if isinstance(section, dict):
-                    section = section.get(part)
-                else:
-                    section = None
-                    break
-            current_value: Any = section
-            short_key = parts[-1]
-
-            diff.append(
-                {
-                    "key": config_key,
-                    "short_key": short_key,
-                    "suggested": suggested_value,
-                    "current": current_value,
-                    "is_missing": current_value is None or current_value == "",
-                    "is_different": current_value != suggested_value,
-                }
-            )
-
-        return {
-            "profile_name": name,
-            "profile_description": profile.metadata.description,
-            "suggestions": suggestions,
-            "missing_entities": missing,
-            "diff": diff,
+    except FileNotFoundError as exc:
+        raise HTTPException(404, f"Profile '{name}' not found") from exc
+    definitions: dict[str, dict[str, Any]] = {}
+    for key, entity in profile.entities.items():
+        path = (
+            f"executor.inverter.{key}"
+            if key in _STANDARD_INVERTER_KEYS
+            else f"executor.inverter.custom_entities.{key}"
+        )
+        definitions[path] = {
+            "rules": {"domain": [entity.domain], **entity.match},
+            "required": entity.required,
+            "default_entity": entity.default_entity,
         }
-    except FileNotFoundError:
-        raise HTTPException(404, f"Profile '{name}' not found") from None
-    except Exception as e:
-        logger.exception("Error getting suggestions for profile %s", name)
-        raise HTTPException(500, str(e)) from e
+    try:
+        discovery = await discover_entities()
+    except Exception as exc:
+        raise HTTPException(502, "Could not discover Home Assistant entities") from exc
+    return {
+        "profile_name": name,
+        **build_suggestions(load_yaml("config.yaml"), discovery["entities"], definitions),
+    }
 
 
 @router.get(

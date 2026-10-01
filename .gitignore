@@ -132,3 +132,6 @@ data/ev_multi_day_state.json.lock
 
 # Agent skills (auto-generated scaffolding, per-client like .agent/, .opencode/, .gemini/)
 .agents/
+
+# Onboarding progress is local runtime state
+data/onboarding_state.json

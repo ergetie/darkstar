@@ -7,10 +7,12 @@ list of entity+value actions. The executor is a generic loop.
 Schema Version: 2
 """
 
+import contextlib
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -47,6 +49,10 @@ class EntityDefinition:
     category: str
     description: str
     required: bool = True
+    match: dict[str, Any] = field(default_factory=dict[str, Any])
+    compiled_regexes: dict[str, re.Pattern[str]] = field(
+        default_factory=dict[str, re.Pattern[str]], repr=False
+    )
 
 
 @dataclass
@@ -77,6 +83,7 @@ class ProfileBehavior:
     round_step_w: float = 100.0
     grid_charge_round_step_w: float | None = None
     write_threshold_w: float = 100.0
+    write_threshold_a: float = 1.0
     mode_settling_ms: int = 100
     requires_mode_settling: bool = False
 
@@ -90,6 +97,8 @@ class ProfileMetadata:
     schema_version: int = 1
     description: str = ""
     supported_brands: list[str] = field(default_factory=list[str])
+    detect: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
+    role_overrides: dict[str, dict[str, Any]] = field(default_factory=dict[str, dict[str, Any]])
 
 
 @dataclass
@@ -175,7 +184,39 @@ class InverterProfile:
             elif not self.modes[mode_name].actions:
                 errors.append(f"Mode '{mode_name}' has no actions defined")
 
+        detect: Any = self.metadata.detect
+        if not isinstance(detect, dict):
+            errors.append("metadata.detect must be a mapping")
+        else:
+            detect = cast("dict[str, Any]", detect)
+            if set(detect) - {"integrations", "manufacturers"}:
+                errors.append("Invalid metadata.detect keys")
+            for value in detect.values():
+                if not isinstance(value, list) or not all(
+                    isinstance(x, str) for x in cast("list[Any]", value)
+                ):
+                    errors.append("metadata.detect values must be lists of strings")
+        from backend.core.entity_roles import ROLE_RULES
+
+        overrides: Any = self.metadata.role_overrides
+        if not isinstance(overrides, dict):
+            errors.append("metadata.role_overrides must be a mapping")
+        else:
+            for role, rules in cast("dict[str, Any]", overrides).items():
+                if role not in ROLE_RULES:
+                    errors.append(f"Unknown role override: {role}")
+                errors.extend(validate_match_rules(rules, f"role '{role}'"))
+
         for key, entity_def in self.entities.items():
+            errors.extend(validate_match_rules(entity_def.match, f"Entity '{key}'"))
+            if isinstance(cast("Any", entity_def.match), dict):
+                for regex_key in ("entity_id_regex", "name_regex"):
+                    pattern = entity_def.match.get(regex_key)
+                    if isinstance(pattern, str):
+                        with contextlib.suppress(re.error):
+                            entity_def.compiled_regexes[regex_key] = re.compile(
+                                pattern, re.IGNORECASE
+                            )
             if entity_def.domain not in VALID_DOMAINS:
                 errors.append(f"Entity '{key}' has invalid domain: {entity_def.domain}")
             if entity_def.category not in VALID_CATEGORIES:
@@ -196,6 +237,30 @@ class InverterProfile:
                         )
 
         return len(errors) == 0, errors
+
+
+def validate_match_rules(rules: Any, context: str) -> list[str]:
+    """Validate declarative rules before they can reach the matcher."""
+    if not isinstance(rules, dict):
+        return [f"{context}: match must be a mapping"]
+    rules = cast("dict[str, Any]", rules)
+    allowed = {"integration", "domain", "device_class", "unit", "entity_id_regex", "name_regex"}
+    errors = [f"{context}: unknown match key '{key}'" for key in rules.keys() - allowed]
+    for key, value in rules.items():
+        if key in {"integration", "domain", "device_class", "unit"}:
+            if not isinstance(value, list) or not all(
+                isinstance(x, str) for x in cast("list[Any]", value)
+            ):
+                errors.append(f"{context}: {key} must be a list of strings")
+        elif key in {"entity_id_regex", "name_regex"}:
+            if not isinstance(value, str):
+                errors.append(f"{context}: {key} must be a regex string")
+            else:
+                try:
+                    re.compile(value, re.IGNORECASE)
+                except re.error as exc:
+                    errors.append(f"{context}: invalid {key}: {exc}")
+    return errors
 
 
 def _resolve_entity_id_from_config(key: str, config: dict[str, Any]) -> str | None:
@@ -256,6 +321,7 @@ def _parse_entity(key: str, data: dict[str, Any]) -> EntityDefinition:
         category=data.get("category", "system"),
         description=data.get("description", ""),
         required=data.get("required", True),
+        match=data.get("match", {}),
     )
 
 
@@ -306,6 +372,8 @@ def parse_profile(data: dict[str, Any]) -> InverterProfile:
         schema_version=metadata_data.get("schema_version", 1),
         description=metadata_data.get("description", ""),
         supported_brands=metadata_data.get("supported_brands", []),
+        detect=metadata_data.get("detect", {}),
+        role_overrides=metadata_data.get("role_overrides", {}),
     )
 
     entities: dict[str, EntityDefinition] = {}
@@ -327,6 +395,8 @@ def parse_profile(data: dict[str, Any]) -> InverterProfile:
         round_step_w=behavior_data.get("round_step_w", 100.0),
         grid_charge_round_step_w=behavior_data.get("grid_charge_round_step_w"),
         write_threshold_w=behavior_data.get("write_threshold_w", 100.0),
+        write_threshold_a=behavior_data.get("write_threshold_a", 1.0),
+        requires_mode_settling=behavior_data.get("requires_mode_settling", False),
         mode_settling_ms=behavior_data.get("mode_settling_ms", 100),
     )
 

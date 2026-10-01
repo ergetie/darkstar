@@ -62,10 +62,9 @@ class HAWebSocketClient:
                 self.token = None
                 return
 
-            if base_url.startswith("https"):
-                self.url = base_url.replace("https", "wss") + "/api/websocket"
-            else:
-                self.url = base_url.replace("http", "ws") + "/api/websocket"
+            from backend.core.ha_registry import websocket_url
+
+            self.url = websocket_url(base_url)
 
             self.token = self.config.get("token")
 

@@ -12,7 +12,7 @@ timezone: "Europe/Stockholm"          # IANA timezone for all schedule calculati
 # System Parameters
 system:
   system_id: prod
-  inverter_profile: null           # Profile: generic | deye | fronius | victron
+  inverter_profile: null           # Profile: generic | deye | fronius | sungrow
 
   # System Profile Toggles (what hardware do you have?)
   has_solar: true         # Enable PV forecasting & solar-related features
@@ -387,6 +387,7 @@ input_sensors:
   total_battery_discharge: "" # Cumulative battery discharge (kWh)
   total_grid_export: ""          # Cumulative grid export (kWh)
   total_grid_import: ""          # Cumulative grid import (kWh)
+  synthetic_daily_load_kwh: null  # Estimated daily load when no cumulative sensor is configured
   total_load_consumption: ""  # Cumulative load (kWh)
   total_pv_production: ""           # Cumulative PV production (kWh)
 

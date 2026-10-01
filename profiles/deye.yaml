@@ -14,8 +14,17 @@ metadata:
     - "Sol-Ark"
     - "Turbo Energy"
 
+  detect:
+    integrations: ['solarman', 'sunsynk', 'deye']
+    manufacturers: ['Deye', 'SunSynk']
+
 entities:
   work_mode:
+    match:
+      domain: [select]
+      integration: ['solarman', 'sunsynk', 'deye']
+      entity_id_regex: "work[ _]mode"
+      name_regex: "work[ _]mode"
     default_entity: "select.inverter_work_mode"
     domain: "select"
     category: "system"
@@ -23,6 +32,11 @@ entities:
     required: true
 
   grid_charging_enable:
+    match:
+      domain: [switch]
+      integration: ['solarman', 'sunsynk', 'deye']
+      entity_id_regex: "grid[ _]charging[ _]enable"
+      name_regex: "grid[ _]charging[ _]enable"
     default_entity: "switch.inverter_battery_grid_charging"
     domain: "switch"
     category: "system"
@@ -30,6 +44,12 @@ entities:
     required: true
 
   soc_target:
+    match:
+      domain: [input_number]
+      integration: ['solarman', 'sunsynk', 'deye']
+      entity_id_regex: "soc[ _]target"
+      name_regex: "soc[ _]target"
+      unit: ["%"]
     default_entity: "input_number.master_soc_target"
     domain: "input_number"
     category: "battery"
@@ -37,6 +57,12 @@ entities:
     required: true
 
   max_charge_current:
+    match:
+      domain: [number]
+      integration: ['solarman', 'sunsynk', 'deye']
+      entity_id_regex: "max[ _]charge[ _]current"
+      name_regex: "max[ _]charge[ _]current"
+      unit: [A]
     default_entity: "number.inverter_battery_max_charging_current"
     domain: "number"
     category: "battery"
@@ -44,6 +70,12 @@ entities:
     required: true
 
   max_discharge_current:
+    match:
+      domain: [number]
+      integration: ['solarman', 'sunsynk', 'deye']
+      entity_id_regex: "max[ _]discharge[ _]current"
+      name_regex: "max[ _]discharge[ _]current"
+      unit: [A]
     default_entity: "number.inverter_battery_max_discharging_current"
     domain: "number"
     category: "battery"
@@ -51,6 +83,12 @@ entities:
     required: true
 
   grid_max_export_power:
+    match:
+      domain: [number]
+      integration: ['solarman', 'sunsynk', 'deye']
+      entity_id_regex: "grid[ _]max[ _]export[ _]power"
+      name_regex: "grid[ _]max[ _]export[ _]power"
+      unit: [W, kW]
     default_entity: "number.inverter_export_surplus_power"
     domain: "number"
     category: "battery"

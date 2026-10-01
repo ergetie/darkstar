@@ -1,0 +1,62 @@
+[
+  {
+    "entity_id": "select.ems_mode",
+    "domain": "select",
+    "friendly_name": "ems mode",
+    "platform": "sungrow",
+    "manufacturer": "Sungrow",
+    "model": "SUNGROW",
+    "state": "50",
+    "unit_of_measurement": null,
+    "device_class": null,
+    "role_key": "work_mode"
+  },
+  {
+    "entity_id": "select.battery_forced_charge_discharge",
+    "domain": "select",
+    "friendly_name": "battery forced charge discharge",
+    "platform": "sungrow",
+    "manufacturer": "Sungrow",
+    "model": "SUNGROW",
+    "state": "50",
+    "unit_of_measurement": null,
+    "device_class": null,
+    "role_key": "forced_charge_discharge_cmd"
+  },
+  {
+    "entity_id": "number.battery_max_charge_power",
+    "domain": "number",
+    "friendly_name": "battery max charge power",
+    "platform": "sungrow",
+    "manufacturer": "Sungrow",
+    "model": "SUNGROW",
+    "state": "50",
+    "unit_of_measurement": "W",
+    "device_class": null,
+    "role_key": "max_charge_power"
+  },
+  {
+    "entity_id": "number.battery_max_discharge_power",
+    "domain": "number",
+    "friendly_name": "battery max discharge power",
+    "platform": "sungrow",
+    "manufacturer": "Sungrow",
+    "model": "SUNGROW",
+    "state": "50",
+    "unit_of_measurement": "W",
+    "device_class": null,
+    "role_key": "max_discharge_power"
+  },
+  {
+    "entity_id": "number.battery_forced_charge_discharge_power",
+    "domain": "number",
+    "friendly_name": "battery forced charge discharge power",
+    "platform": "sungrow",
+    "manufacturer": "Sungrow",
+    "model": "SUNGROW",
+    "state": "50",
+    "unit_of_measurement": "W",
+    "device_class": null,
+    "role_key": "forced_charge_discharge_power"
+  }
+]

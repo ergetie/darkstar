@@ -14,6 +14,10 @@ metadata:
 
 entities:
   work_mode:
+    match:
+      domain: [select]
+      entity_id_regex: "work[ _]mode"
+      name_regex: "work[ _]mode"
     default_entity: null
     domain: "select"
     category: "system"
@@ -21,6 +25,10 @@ entities:
     required: true
 
   grid_charging_enable:
+    match:
+      domain: [switch]
+      entity_id_regex: "grid[ _]charging[ _]enable"
+      name_regex: "grid[ _]charging[ _]enable"
     default_entity: null
     domain: "switch"
     category: "system"
@@ -28,6 +36,11 @@ entities:
     required: true
 
   soc_target:
+    match:
+      domain: [number]
+      entity_id_regex: "soc[ _]target"
+      name_regex: "soc[ _]target"
+      unit: ["%"]
     default_entity: null
     domain: "number"
     category: "battery"
@@ -35,6 +48,11 @@ entities:
     required: false
 
   max_charge_current:
+    match:
+      domain: [number]
+      entity_id_regex: "max[ _]charge[ _]current"
+      name_regex: "max[ _]charge[ _]current"
+      unit: [A]
     default_entity: null
     domain: "number"
     category: "battery"
@@ -42,6 +60,11 @@ entities:
     required: true
 
   max_discharge_current:
+    match:
+      domain: [number]
+      entity_id_regex: "max[ _]discharge[ _]current"
+      name_regex: "max[ _]discharge[ _]current"
+      unit: [A]
     default_entity: null
     domain: "number"
     category: "battery"
@@ -49,6 +72,11 @@ entities:
     required: true
 
   max_charge_power:
+    match:
+      domain: [number]
+      entity_id_regex: "max[ _]charge[ _]power"
+      name_regex: "max[ _]charge[ _]power"
+      unit: [W, kW]
     default_entity: null
     domain: "number"
     category: "battery"
@@ -56,6 +84,11 @@ entities:
     required: false
 
   max_discharge_power:
+    match:
+      domain: [number]
+      entity_id_regex: "max[ _]discharge[ _]power"
+      name_regex: "max[ _]discharge[ _]power"
+      unit: [W, kW]
     default_entity: null
     domain: "number"
     category: "battery"
@@ -63,6 +96,11 @@ entities:
     required: false
 
   export_power_limit:
+    match:
+      domain: [number]
+      entity_id_regex: "export[ _]power[ _]limit"
+      name_regex: "export[ _]power[ _]limit"
+      unit: [W, kW]
     default_entity: null
     domain: "number"
     category: "battery"

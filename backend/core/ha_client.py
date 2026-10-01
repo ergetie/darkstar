@@ -906,7 +906,7 @@ def get_dummy_load_profile(
 ) -> list[float]:
     """Create a dummy load profile or a synthetic scaled profile.
 
-    If config.input_sensors.total_load_consumption is a number (estimated daily kWh),
+    If config.input_sensors.synthetic_daily_load_kwh is a positive daily estimate,
     we generate a synthetic winter heat-pump curve scaled to that daily total.
     Otherwise, we fall back to a 0.5 kWh flat dummy profile.
 
@@ -920,12 +920,11 @@ def get_dummy_load_profile(
 
     logger = logging.getLogger(__name__)
 
-    # Check if the user provided an estimated daily kWh (from Startup Wizard)
-    # The wizard stores this as a string, e.g. "20", in the total_load_consumption field
-    # if they selected 'synthetic' mode.
     estimated_daily_kwh = None
     sensors = config.get("input_sensors", {})
-    raw_val = sensors.get("total_load_consumption")
+    # A configured cumulative sensor always takes precedence, even when its data is degraded.
+    sensor = sensors.get("total_load_consumption")
+    raw_val = sensors.get("synthetic_daily_load_kwh") if not sensor else None
 
     if raw_val is not None:
         try:

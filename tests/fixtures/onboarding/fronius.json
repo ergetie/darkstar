@@ -1,0 +1,38 @@
+[
+  {
+    "entity_id": "select.byd_battery_box_premium_hv_storage_control_mode",
+    "domain": "select",
+    "friendly_name": "byd battery box premium hv storage control mode",
+    "platform": "fronius",
+    "manufacturer": "Fronius",
+    "model": "FRONIUS",
+    "state": "50",
+    "unit_of_measurement": null,
+    "device_class": null,
+    "role_key": "work_mode"
+  },
+  {
+    "entity_id": "number.byd_battery_box_premium_hv_grid_charge_power",
+    "domain": "number",
+    "friendly_name": "byd battery box premium hv grid charge power",
+    "platform": "fronius",
+    "manufacturer": "Fronius",
+    "model": "FRONIUS",
+    "state": "50",
+    "unit_of_measurement": "W",
+    "device_class": null,
+    "role_key": "grid_charge_power"
+  },
+  {
+    "entity_id": "number.byd_battery_box_premium_hv_grid_discharge_power",
+    "domain": "number",
+    "friendly_name": "byd battery box premium hv grid discharge power",
+    "platform": "fronius",
+    "manufacturer": "Fronius",
+    "model": "FRONIUS",
+    "state": "50",
+    "unit_of_measurement": "W",
+    "device_class": null,
+    "role_key": "grid_discharge_power"
+  }
+]

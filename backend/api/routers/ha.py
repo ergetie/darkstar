@@ -1,9 +1,11 @@
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Any, cast
 
 import pytz
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.core.ha_client import get_ha_entity_state, make_ha_headers
 from backend.core.secrets import load_home_assistant_config, load_yaml
@@ -12,6 +14,12 @@ logger = logging.getLogger("darkstar.api.ha")
 
 router = APIRouter(prefix="/api/ha", tags=["ha"])
 router_misc = APIRouter(prefix="/api", tags=["ha"])
+
+
+class HACredentials(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=1)
+    token: str = Field(min_length=1)
 
 
 # --- Helper ---
@@ -287,27 +295,74 @@ async def get_ha_services() -> dict[str, list[str]]:
     summary="Test HA Connection",
     description="Test connection to Home Assistant API.",
 )
-async def test_ha_connection() -> dict[str, str]:
-    """Test connection to Home Assistant."""
-    config = load_home_assistant_config()
-    url = config.get("url")
-    token = config.get("token")
+async def test_ha_connection(body: "HACredentials | None" = None) -> dict[str, Any]:
+    """Test credentials without saving them; the add-on always uses Supervisor auth."""
+    from backend.core.ha_client import get_ha_http_client
+    from backend.core.ha_registry import get_registry
 
+    config = load_home_assistant_config()
+    if body is not None and not os.environ.get("SUPERVISOR_TOKEN"):
+        config = body.model_dump()
+    url, token = config.get("url"), config.get("token")
     if not url or not token:
         return {"status": "error", "message": "HA not configured"}
+    try:
+        client = get_ha_http_client()
+        headers = make_ha_headers(token)
+        response = await client.get(f"{url.rstrip('/')}/api/", headers=headers, timeout=5)
+        if response.status_code != 200:
+            message = (
+                "Authentication failed"
+                if response.status_code in (401, 403)
+                else f"HTTP {response.status_code}"
+            )
+            return {"status": "error", "message": message}
+        core = await client.get(f"{url.rstrip('/')}/api/config", headers=headers, timeout=5)
+        version = core.json().get("version") if core.status_code == 200 else None
+        _, available = await get_registry(url, token)
+        return {
+            "status": "success",
+            "message": "Connected to Home Assistant",
+            "ha_version": version,
+            "registry_available": available,
+        }
+    except Exception:
+        return {"status": "error", "message": "Could not connect to Home Assistant"}
+
+
+@router.get("/discovery")
+async def get_ha_discovery() -> dict[str, Any]:
+    from backend.core.ha_registry import discover_entities
 
     try:
-        headers = make_ha_headers(token)
-        from backend.core.ha_client import get_ha_http_client
+        return await discover_entities()
+    except Exception as exc:
+        raise HTTPException(502, "Could not discover Home Assistant entities") from exc
 
-        client = get_ha_http_client()
-        resp = await client.get(f"{url.rstrip('/')}/api/", headers=headers, timeout=5.0)
-        if resp.status_code == 200:
-            return {"status": "success", "message": "Connected to Home Assistant"}
-        else:
-            return {"status": "error", "message": f"HTTP {resp.status_code}"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+
+@router.get("/core-config")
+async def get_ha_core_config() -> dict[str, Any]:
+    from backend.core.ha_client import get_ha_http_client
+
+    config = load_home_assistant_config()
+    url, token = config.get("url"), config.get("token")
+    if not url or not token:
+        raise HTTPException(502, "HA not configured")
+    try:
+        response = await get_ha_http_client().get(
+            f"{url.rstrip('/')}/api/config", headers=make_ha_headers(token), timeout=5
+        )
+        response.raise_for_status()
+        data = response.json()
+        result = {
+            key: data.get(key)
+            for key in ("latitude", "longitude", "time_zone", "currency", "country", "unit_system")
+        }
+        if not result["currency"] and result["country"] == "SE":
+            result["currency"] = "SEK"
+        return result
+    except Exception as exc:
+        raise HTTPException(502, "Could not read Home Assistant configuration") from exc
 
 
 @router_misc.get(

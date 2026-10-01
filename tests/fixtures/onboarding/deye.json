@@ -1,0 +1,62 @@
+[
+  {
+    "entity_id": "select.inverter_work_mode",
+    "domain": "select",
+    "friendly_name": "inverter work mode",
+    "platform": "solarman",
+    "manufacturer": "Deye",
+    "model": "DEYE",
+    "state": "50",
+    "unit_of_measurement": null,
+    "device_class": null,
+    "role_key": "work_mode"
+  },
+  {
+    "entity_id": "switch.inverter_battery_grid_charging",
+    "domain": "switch",
+    "friendly_name": "inverter battery grid charging",
+    "platform": "solarman",
+    "manufacturer": "Deye",
+    "model": "DEYE",
+    "state": "50",
+    "unit_of_measurement": null,
+    "device_class": null,
+    "role_key": "grid_charging_enable"
+  },
+  {
+    "entity_id": "input_number.master_soc_target",
+    "domain": "input_number",
+    "friendly_name": "master soc target",
+    "platform": "solarman",
+    "manufacturer": "Deye",
+    "model": "DEYE",
+    "state": "50",
+    "unit_of_measurement": "%",
+    "device_class": null,
+    "role_key": "soc_target"
+  },
+  {
+    "entity_id": "number.inverter_battery_max_charging_current",
+    "domain": "number",
+    "friendly_name": "inverter battery max charging current",
+    "platform": "solarman",
+    "manufacturer": "Deye",
+    "model": "DEYE",
+    "state": "50",
+    "unit_of_measurement": "A",
+    "device_class": null,
+    "role_key": "max_charge_current"
+  },
+  {
+    "entity_id": "number.inverter_battery_max_discharging_current",
+    "domain": "number",
+    "friendly_name": "inverter battery max discharging current",
+    "platform": "solarman",
+    "manufacturer": "Deye",
+    "model": "DEYE",
+    "state": "50",
+    "unit_of_measurement": "A",
+    "device_class": null,
+    "role_key": "max_discharge_current"
+  }
+]

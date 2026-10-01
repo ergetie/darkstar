@@ -1307,6 +1307,7 @@ class PlannerPipeline:
         record_training_episode: bool = False,
         now_override: datetime | None = None,
         ev_plug_override_charger_id: str | None = None,
+        publish_state: bool = True,
     ) -> pd.DataFrame:
         """
         Generate an optimal battery schedule.
@@ -1316,6 +1317,7 @@ class PlannerPipeline:
             overrides: Optional configuration overrides
             mode: "full" (Aurora + Kepler) or "baseline" (Kepler only)
             save_to_file: Whether to save schedule.json
+            publish_state: Whether to publish EV progress and anti-legionella state
             record_training_episode: Whether to log training episode (RL)
             now_override: Override current time for simulation/replay
 
@@ -1734,7 +1736,8 @@ class PlannerPipeline:
                     "Setting last_anti_legionella_at to today.",
                     ha_water_today_total,
                 )
-                save_last_anti_legionella(sqlite_path, now_slot.to_pydatetime())
+                if publish_state:
+                    save_last_anti_legionella(sqlite_path, now_slot.to_pydatetime())
                 last_al = now_slot.to_pydatetime()
 
             days_since = (
@@ -1845,15 +1848,16 @@ class PlannerPipeline:
             # Persist EV goal/progress state for the read-only API. Best-effort;
             # never fatal.
             try:
-                _persist_ev_multi_day_state(
-                    ev_charger_states_with_goal,
-                    ev_chargers_cfg,
-                    sqlite_path_ev,
-                    tz,
-                    now_dt,
-                    ev_voltage,
-                    goals_read_at=goals_read_at,
-                )
+                if publish_state:
+                    _persist_ev_multi_day_state(
+                        ev_charger_states_with_goal,
+                        ev_chargers_cfg,
+                        sqlite_path_ev,
+                        tz,
+                        now_dt,
+                        ev_voltage,
+                        goals_read_at=goals_read_at,
+                    )
             except Exception as exc:
                 logger.warning("EV multi-day state persistence failed: %s", exc)
 
@@ -1865,7 +1869,7 @@ class PlannerPipeline:
             )
 
             # Rev K19: Save anti-legionella timestamp if scheduled
-            if schedule_anti_legionella:
+            if schedule_anti_legionella and publish_state:
                 # Check if water heating was actually planned
                 water_slots = [s for s in result.slots if s.water_heat_kw > 0]
                 if water_slots:
@@ -2001,6 +2005,7 @@ async def generate_schedule(
     mode: str = "full",
     save_to_file: bool = True,
     ev_plug_override_charger_id: str | None = None,
+    publish_state: bool = True,
 ) -> pd.DataFrame:
     """
     Convenience function to generate a schedule.
@@ -2026,5 +2031,6 @@ async def generate_schedule(
         input_data,
         mode=mode,
         save_to_file=save_to_file,
+        publish_state=publish_state,
         ev_plug_override_charger_id=ev_plug_override_charger_id,
     )

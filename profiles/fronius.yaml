@@ -11,9 +11,18 @@ metadata:
   supported_brands:
     - "Fronius"
 
+  detect:
+    integrations: ['fronius', 'modbus']
+    manufacturers: ['Fronius', 'BYD']
+
 entities:
   work_mode:
-    default_entity: "select.byd_battery_box_premium_hv_storage_control_mode"
+    match:
+      domain: [select]
+      integration: ['fronius', 'modbus']
+      entity_id_regex: "storage[ _]control[ _]mode|work[ _]mode"
+      name_regex: "storage[ _]control[ _]mode|work[ _]mode"
+    default_entity: null
     domain: "select"
     category: "system"
     description: "Storage control mode selector"
@@ -23,35 +32,64 @@ entities:
   # It should be configured manually in HAand NEVER written by Darkstar.
   # Modifying this could cause dangerous battery behavior.
   minimum_reserve:
-    default_entity: "number.byd_battery_box_premium_hv_minimum_reserve"
+    match:
+      domain: [number]
+      integration: ['fronius', 'modbus']
+      entity_id_regex: "minimum[ _]reserve"
+      name_regex: "minimum[ _]reserve"
+      unit: ["%"]
+    default_entity: null
     domain: "number"
     category: "system"
     description: "Minimum battery reserve percentage (safety floor) - NEVER WRITE THIS"
     required: false
 
   grid_charge_power:
-    default_entity: "number.byd_battery_box_premium_hv_grid_charge_power"
+    match:
+      domain: [number]
+      integration: ['fronius', 'modbus']
+      entity_id_regex: "grid[ _]charge[ _]power"
+      name_regex: "grid[ _]charge[ _]power"
+      unit: [W, kW]
+    default_entity: null
     domain: "number"
     category: "battery"
     description: "Grid charging power (Watts) - used in Charge from Grid mode"
     required: true
 
   grid_discharge_power:
-    default_entity: "number.byd_battery_box_premium_hv_grid_discharge_power"
+    match:
+      domain: [number]
+      integration: ['fronius', 'modbus']
+      entity_id_regex: "grid[ _]discharge[ _]power"
+      name_regex: "grid[ _]discharge[ _]power"
+      unit: [W, kW]
+    default_entity: null
     domain: "number"
     category: "battery"
     description: "Grid discharge power (Watts) - used in Discharge to Grid mode"
     required: true
 
   export_power_limit_enable:
-    default_entity: "select.fronius_symo_gen24_10_0_export_limit_enable"
+    match:
+      domain: [select]
+      integration: ['fronius', 'modbus']
+      entity_id_regex: "export[ _]limit[ _]enable"
+      name_regex: "export[ _]limit[ _]enable"
+    default_entity: null
     domain: "select"
     category: "battery"
     description: "Export limit enable select"
     required: false
 
   export_power_limit:
-    default_entity: "number.fronius_symo_gen24_10_0_export_limit_rate"
+    match:
+      domain: [number]
+      integration: ['fronius', 'modbus']
+      entity_id_regex: "export[ _]limit[ _](rate|power)|export[ _]power[ _]limit"
+      name_regex: "export[ _]limit[ _](rate|power)|export[ _]power[ _]limit"
+      unit: [W, kW]
+    default_entity: null
     domain: "number"
     category: "battery"
     description: "Max solar export power (Watts)"

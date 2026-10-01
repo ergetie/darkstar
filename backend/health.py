@@ -533,14 +533,18 @@ class HealthChecker:
 
         return issues
 
-    async def check_ha_connection(self) -> list[HealthIssue]:
+    async def check_ha_connection(
+        self, connection: dict[str, Any] | None = None
+    ) -> list[HealthIssue]:
         """Check if Home Assistant is reachable."""
         issues: list[HealthIssue] = []
 
-        if not self._secrets:
+        if connection is None and not self._secrets:
             return issues  # Already reported in config check
 
-        ha_config = self._secrets.get("home_assistant", {})
+        ha_config = (
+            connection if connection is not None else self._secrets.get("home_assistant", {})
+        )
         url = ha_config.get("url", "").rstrip("/")
         token = ha_config.get("token", "")
 

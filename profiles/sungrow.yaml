@@ -11,8 +11,17 @@ metadata:
   supported_brands:
     - "Sungrow"
 
+  detect:
+    integrations: ['sungrow', 'modbus']
+    manufacturers: ['Sungrow']
+
 entities:
   work_mode:
+    match:
+      domain: [select]
+      integration: ['sungrow', 'modbus']
+      entity_id_regex: "ems[ _]mode|work[ _]mode"
+      name_regex: "ems[ _]mode|work[ _]mode"
     default_entity: "select.ems_mode"
     domain: "select"
     category: "system"
@@ -20,6 +29,11 @@ entities:
     required: true
 
   forced_charge_discharge_cmd:
+    match:
+      domain: [select]
+      integration: ['sungrow', 'modbus']
+      entity_id_regex: "forced[ _]charge[ _]discharge"
+      name_regex: "forced[ _]charge[ _]discharge"
     default_entity: "select.battery_forced_charge_discharge"
     domain: "select"
     category: "system"
@@ -27,6 +41,12 @@ entities:
     required: true
 
   max_charge_power:
+    match:
+      domain: [number]
+      integration: ['sungrow', 'modbus']
+      entity_id_regex: "max[ _]charge[ _]power"
+      name_regex: "max[ _]charge[ _]power"
+      unit: [W, kW]
     default_entity: "number.battery_max_charge_power"
     domain: "number"
     category: "battery"
@@ -34,6 +54,12 @@ entities:
     required: true
 
   max_discharge_power:
+    match:
+      domain: [number]
+      integration: ['sungrow', 'modbus']
+      entity_id_regex: "max[ _]discharge[ _]power"
+      name_regex: "max[ _]discharge[ _]power"
+      unit: [W, kW]
     default_entity: "number.battery_max_discharge_power"
     domain: "number"
     category: "battery"
@@ -41,6 +67,12 @@ entities:
     required: true
 
   export_power_limit:
+    match:
+      domain: [number]
+      integration: ['sungrow', 'modbus']
+      entity_id_regex: "export[ _]power[ _]limit"
+      name_regex: "export[ _]power[ _]limit"
+      unit: [W, kW]
     default_entity: "number.export_power_limit"
     domain: "number"
     category: "battery"
@@ -48,6 +80,11 @@ entities:
     required: false
 
   export_power_limit_switch:
+    match:
+      domain: [switch]
+      integration: ['sungrow', 'modbus']
+      entity_id_regex: "export[ _]power[ _]limit[ _]switch"
+      name_regex: "export[ _]power[ _]limit[ _]switch"
     default_entity: "switch.export_power_limit"
     domain: "switch"
     category: "battery"
@@ -55,6 +92,12 @@ entities:
     required: false
 
   forced_charge_discharge_power:
+    match:
+      domain: [number]
+      integration: ['sungrow', 'modbus']
+      entity_id_regex: "forced[ _]charge[ _]discharge[ _]power"
+      name_regex: "forced[ _]charge[ _]discharge[ _]power"
+      unit: [W, kW]
     default_entity: "number.battery_forced_charge_discharge_power"
     domain: "number"
     category: "battery"

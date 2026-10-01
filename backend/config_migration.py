@@ -8,6 +8,7 @@ import contextlib
 import errno
 import io
 import logging
+import math
 import os
 import shutil
 import threading
@@ -187,6 +188,24 @@ def remove_deprecated_keys(config: dict[str, Any]) -> tuple[dict[str, Any], bool
                         changed = True
 
     return config, changed
+
+
+def _migrate_synthetic_load(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Move the legacy overloaded numeric load estimate into its dedicated key."""
+    sensors = config.get("input_sensors", {})
+    value = sensors.get("total_load_consumption")
+    if isinstance(value, bool) or value is None or value == "":
+        return config, False
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return config, False
+    if not math.isfinite(number):
+        return config, False
+    if sensors.get("synthetic_daily_load_kwh") is None:
+        sensors["synthetic_daily_load_kwh"] = number
+    sensors["total_load_consumption"] = ""
+    return config, True
 
 
 def _migrate_water_heater_fields(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
@@ -1260,6 +1279,8 @@ def _migrate_config(config_path: str, default_path: str, strict_validation: bool
     # 2.1 Migrate global EV charger fields into per-device ev_chargers[] entries
     user_config, ev_migration_changes = _migrate_ev_charger_fields(user_config)
     pre_merge_changes = ev_migration_changes
+    user_config, synthetic_changes = _migrate_synthetic_load(user_config)
+    pre_merge_changes = pre_merge_changes or synthetic_changes
 
     # 2.1a Strip deprecated EV goal fields from ev_chargers[] entries
     user_config, ev_goal_field_changes = _remove_ev_goal_fields(user_config)

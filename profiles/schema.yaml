@@ -158,3 +158,15 @@ behavior:
 # 1. User override: Check executor.inverter.custom_entities[key] in config
 # 2. Standard config: Check executor.inverter[key] (for standard entities)
 # 3. Profile default: Use entities[key].default_entity from the profile
+
+# Optional onboarding discovery keys (schema_version remains 2):
+# metadata.detect: {integrations: [integration_name], manufacturers: [Brand]}
+# metadata.role_overrides: {battery_soc: {entity_id_regex: "battery.*soc"}}
+# entities.<key>.match:
+#   integration: [integration_name]
+#   domain: [sensor]  # hard filter; defaults to entity's declared domain
+#   device_class: [battery]
+#   unit: ["%"]
+#   entity_id_regex: "battery.*soc"  # case-insensitive
+#   name_regex: "state.of.charge"   # case-insensitive
+# Other rules score independently; unknown keys and invalid regexes are rejected.
