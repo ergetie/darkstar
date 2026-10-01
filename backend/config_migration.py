@@ -3,12 +3,14 @@
 Startup validation and migration: deprecated-key sweep, template merge, atomic write with backup.
 """
 
+import asyncio
 import contextlib
 import errno
 import io
 import logging
 import os
 import shutil
+import threading
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -27,13 +29,17 @@ logger = logging.getLogger("darkstar.config_migration")
 BACKUP_DIR_ENV = "BACKUP_DIR"
 HOST_BACKUP_DIR = Path("/host_backups")
 CURRENT_CONFIG_VERSION = 2
+PERSISTENT_CONFIG_ROOT = Path("/config/darkstar")
+HA_BACKUP_DIR = Path("/share/darkstar/backups")
+CONFIG_WRITE_LOCK = threading.RLock()
 
 
 def _get_persistent_backup_dir(config_path: Path) -> Path:
     """Return the backup directory to use for the given config path."""
     # Detect HA add-on deployment: config lives at /config/darkstar/
-    if str(config_path).startswith("/config/darkstar/"):
-        ha_backup_dir = Path("/share/darkstar/backups")
+    config_path = config_path.resolve()
+    if config_path.is_relative_to(PERSISTENT_CONFIG_ROOT):
+        ha_backup_dir = HA_BACKUP_DIR
         logger.debug("Detected HA add-on deployment, using: %s", ha_backup_dir)
         return ha_backup_dir
 
@@ -1203,6 +1209,15 @@ async def migrate_config(
         strict_validation: If True, requires full production config structure.
                           If False, allows minimal configs (for tests).
     """
+    await asyncio.to_thread(_migrate_config_locked, config_path, default_path, strict_validation)
+
+
+def _migrate_config_locked(config_path: str, default_path: str, strict_validation: bool) -> None:
+    with CONFIG_WRITE_LOCK:
+        _migrate_config(config_path, default_path, strict_validation)
+
+
+def _migrate_config(config_path: str, default_path: str, strict_validation: bool) -> None:
     path = Path(config_path)
     if not path.exists():
         logger.debug(f"Config file {config_path} not found, skipping migration")
@@ -1398,7 +1413,7 @@ def create_timestamped_backup(path: Path, max_backups: int = 30) -> Path | None:
         backup_dir = _get_persistent_backup_dir(path)
         backup_dir.mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         backup_path = backup_dir / f"{path.name}_{timestamp}.bak"
 
         shutil.copy2(path, backup_path)
@@ -1426,7 +1441,51 @@ def write_config(
     path: Path, config: Any, yaml_instance: Any, strict_validation: bool = True
 ) -> bool:
     """Public wrapper for the shared config writer."""
-    return _write_config(path, config, yaml_instance, strict_validation=strict_validation)
+    with CONFIG_WRITE_LOCK:
+        return _write_config(path, config, yaml_instance, strict_validation=strict_validation)
+
+
+def update_config(
+    path: Path,
+    mutator: Callable[[dict[str, Any]], dict[str, Any] | None],
+    strict_validation: bool = True,
+) -> bool:
+    """Serialize a complete read-modify-write, preserving YAML comments.
+
+    The process-wide lock assumes deployment with a single uvicorn worker.
+    Async callers must run this helper in asyncio.to_thread.
+    A mutator may return a replacement mapping or mutate the loaded mapping.
+    """
+    with CONFIG_WRITE_LOCK:
+        if YAML is None:
+            raise RuntimeError("ruamel.yaml is required to save configuration")
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        yaml.indent(mapping=2, sequence=4, offset=2)
+        yaml.width = 4096
+        with path.open(encoding="utf-8") as handle:
+            loaded: Any = yaml.load(handle)  # type: ignore[reportUnknownMemberType]
+        if not isinstance(loaded, dict):
+            raise ValueError("Config must contain a YAML mapping")
+        data = cast("dict[str, Any]", loaded)
+        replacement = mutator(data)
+        return _write_config(
+            path,
+            data if replacement is None else replacement,
+            yaml,
+            strict_validation=strict_validation,
+        )
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        logger.debug("Directory fsync unsupported for %s: %s", path, exc)
 
 
 def _write_config(
@@ -1436,6 +1495,14 @@ def _write_config(
 
     Returns True if the write succeeded, False if aborted or failed.
     """
+    path = path.resolve()
+    if os.environ.get("SUPERVISOR_TOKEN") and not path.is_relative_to(PERSISTENT_CONFIG_ROOT):
+        logger.error(
+            "Refusing config save: %s is not on persistent storage under %s",
+            path,
+            PERSISTENT_CONFIG_ROOT,
+        )
+        return False
     if not validate_config_for_write(config, strict=strict_validation):
         logger.error(f"Aborting write to {path} - validation failed.")
         return False
@@ -1444,60 +1511,66 @@ def _write_config(
     legacy_backup_path = path.with_name(path.name + ".bak")
     log_prefix = "[CONTAINER]" if Path("/.dockerenv").exists() else "[HOST]"
     success = False
+    target_modified = False
+    backup_created = False
 
     try:
         if path.exists():
-            create_timestamped_backup(path)
+            if create_timestamped_backup(path) is None:
+                raise OSError("Unable to create config backup")
             shutil.copy2(path, legacy_backup_path)
+            backup_created = True
 
         logger.info(f"{log_prefix} Writing updated config to {temp_path}")
         with temp_path.open("w", encoding="utf-8") as f:
             yaml_instance.dump(config, f)
+            f.flush()
+            os.fsync(f.fileno())
 
         # Atomic Replace
         try:
             temp_path.replace(path)
+            target_modified = True
             logger.info(f"✅ {log_prefix} Successfully updated {path} (Atomic)")
 
             # Post-write validation - verify written file is valid
-            success = _verify_written_config(path, yaml_instance)
+            success = _verify_written_config(
+                path, yaml_instance, strict_validation=strict_validation
+            )
 
         except OSError as e:
             # Fallback for bind mounts (EBUSY/EXDEV/ETXTBSY).
-            # temp_path is already in path's directory (path.with_name), so retry
-            # os.replace within the same mount first — keeps the rename atomic.
+            # The temp file already shares the target directory. Repeating the
+            # same rename cannot overcome a single-file bind mount.
             if e.errno in (errno.EBUSY, errno.EXDEV, errno.ETXTBSY):
-                logger.info(
-                    f"{log_prefix} Bind mount detected, retrying atomic replace within directory."
+                logger.warning(
+                    "%s Atomic replace unavailable; using guarded direct copy", log_prefix
                 )
-                try:
-                    temp_path.replace(path)
-                    logger.info(f"✅ {log_prefix} Successfully updated {path} (Atomic retry)")
-                    success = _verify_written_config(path, yaml_instance)
-                except OSError:
-                    # Last resort: fsync before and after the streaming copy so a
-                    # partial copy is at least durable if the process dies mid-copy.
-                    logger.warning(
-                        f"{log_prefix} Atomic replace not possible on this mount, "
-                        f"falling back to direct copy (last resort)."
-                    )
-                    with temp_path.open("rb") as _f:
-                        os.fsync(_f.fileno())
-                    shutil.copy2(temp_path, path)
-                    with path.open("rb") as _f:
-                        os.fsync(_f.fileno())
-                    logger.info(
-                        f"✅ {log_prefix} Successfully updated {path} (Direct Copy, fsynced)"
-                    )
-                    success = _verify_written_config(path, yaml_instance)
+                target_modified = True
+                shutil.copy2(temp_path, path)
+                with path.open("rb") as handle:
+                    os.fsync(handle.fileno())
+                success = _verify_written_config(
+                    path, yaml_instance, strict_validation=strict_validation
+                )
             else:
                 raise
 
+        _fsync_directory(path.parent)
+        if not success:
+            raise OSError("Post-write config verification failed")
+
     except Exception as e:
         logger.error(f"Write failed: {e}")
-        if legacy_backup_path.exists():
-            logger.warning(f"Restoring {path} from legacy backup...")
-            shutil.copy2(legacy_backup_path, path)
+        if target_modified and backup_created:
+            try:
+                logger.warning(f"Restoring {path} from legacy backup...")
+                shutil.copy2(legacy_backup_path, path)
+                with path.open("rb") as handle:
+                    os.fsync(handle.fileno())
+                _fsync_directory(path.parent)
+            except OSError:
+                logger.exception("Unable to restore config from %s", legacy_backup_path)
     finally:
         with contextlib.suppress(Exception):
             if temp_path.exists():
@@ -1506,7 +1579,7 @@ def _write_config(
     return success
 
 
-def _verify_written_config(path: Path, yaml_instance: Any) -> bool:
+def _verify_written_config(path: Path, yaml_instance: Any, strict_validation: bool = True) -> bool:
     """Read back the written config and verify it is valid. Returns True if valid."""
     try:
         with path.open("r", encoding="utf-8") as f:
@@ -1516,6 +1589,9 @@ def _verify_written_config(path: Path, yaml_instance: Any) -> bool:
             logger.error("Post-write validation failed: config is empty or not a dict")
             return False
         loaded_dict: dict[str, Any] = cast("dict[str, Any]", loaded)
+
+        if not strict_validation:
+            return bool(loaded_dict) and validate_config_for_write(loaded_dict, strict=False)
 
         # Check for basic expected structure
         if "system" not in loaded_dict:

@@ -441,7 +441,13 @@ class ExecutorEngine:
 
         # Config and profile mtime caching
         self._config_mtime: float | None = None
-        self._profile_mtime: float | None = None
+        self._profile_name: str = (
+            self._full_config.get("system", {}).get("inverter_profile") or "generic"
+        )
+        initial_profile_path = Path("profiles") / f"{self._profile_name}.yaml"
+        self._profile_mtime: float | None = (
+            initial_profile_path.stat().st_mtime if initial_profile_path.exists() else None
+        )
 
     def _get_db_path(self) -> str:
         """Get the path to the learning database."""
@@ -481,7 +487,13 @@ class ExecutorEngine:
     def reload_config(self) -> None:
         """Reload configuration from config.yaml with mtime-based caching."""
         current_config_mtime = Path(self.config_path).stat().st_mtime
-        if self._config_mtime is not None and current_config_mtime == self._config_mtime:
+        profile_path = Path("profiles") / f"{self._profile_name}.yaml"
+        profile_mtime = profile_path.stat().st_mtime if profile_path.exists() else None
+        if (
+            self._config_mtime is not None
+            and current_config_mtime == self._config_mtime
+            and profile_mtime == self._profile_mtime
+        ):
             return
 
         with self._lock:
@@ -502,41 +514,34 @@ class ExecutorEngine:
             from .profiles import get_profile_from_config
 
             try:
-                profile_name = self._full_config.get("system", {}).get(
-                    "inverter_profile", "generic"
+                profile_name = (
+                    self._full_config.get("system", {}).get("inverter_profile") or "generic"
                 )
                 profile_path = Path("profiles") / f"{profile_name}.yaml"
 
-                # Check profile mtime
-                should_reload_profile = True
-                if profile_path.exists():
-                    current_profile_mtime = profile_path.stat().st_mtime
-                    if (
-                        self._profile_mtime is not None
-                        and current_profile_mtime == self._profile_mtime
-                    ):
-                        should_reload_profile = False
-                    else:
-                        self._profile_mtime = current_profile_mtime
-
+                current_profile_mtime = (
+                    profile_path.stat().st_mtime if profile_path.exists() else None
+                )
+                should_reload_profile = (
+                    profile_name != self._profile_name
+                    or current_profile_mtime != self._profile_mtime
+                    or self.inverter_profile is None
+                )
                 if should_reload_profile:
                     new_profile = get_profile_from_config(self._full_config)
-                    if (
-                        new_profile.metadata.name != self.inverter_profile.metadata.name
-                        if self.inverter_profile
-                        else True
-                    ):
-                        self.inverter_profile = new_profile
-                        self.status.profile_name = new_profile.metadata.name
-                        self.status.profile_error = None
-                        if self.dispatcher:
-                            self.dispatcher.profile = new_profile
-                        logger.info(
-                            "Inverter profile reloaded: %s v%s (%s)",
-                            new_profile.metadata.name,
-                            new_profile.metadata.version,
-                            ", ".join(new_profile.metadata.supported_brands),
-                        )
+                    self.inverter_profile = new_profile
+                    self._profile_name = profile_name
+                    self._profile_mtime = current_profile_mtime
+                    self.status.profile_name = new_profile.metadata.name
+                    missing = new_profile.get_missing_entities(self._full_config)
+                    self.status.profile_error = (
+                        f"Profile incomplete. Missing sensors: {', '.join(missing)}"
+                        if missing
+                        else None
+                    )
+                    if self.dispatcher:
+                        self.dispatcher.profile = new_profile
+                    logger.info("Inverter profile reloaded: %s", new_profile.metadata.name)
             except Exception as e:
                 logger.error("Failed to reload inverter profile during config reload: %s", e)
                 self.status.profile_error = str(e)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
     createBrowserRouter,
     RouterProvider,
@@ -36,40 +36,35 @@ function RootLayout() {
         getSocket()
     }, [])
 
-    // Check config validation on mount and detect if wizard is needed
-    useEffect(() => {
-        const checkConfig = async () => {
-            try {
-                const config = await Api.config()
-                const isProfileMissing = config.system?.inverter_profile === null
-                setMissingProfile(isProfileMissing)
-
-                const isForced = new URLSearchParams(window.location.search).get('setup_wizard') === 'true'
-                if (isProfileMissing || isForced) {
-                    setShowWizard(true)
-                }
-
-                const warnings = await Api.configValidate()
-                setConfigWarnings(warnings)
-            } catch (err) {
-                console.error('Failed to load config', err)
-            } finally {
-                setConfigLoaded(true)
-            }
+    const refreshConfigState = useCallback(async () => {
+        try {
+            const config = await Api.config()
+            const isProfileMissing = config.system?.inverter_profile == null
+            setMissingProfile(isProfileMissing)
+            const warnings = await Api.configValidate()
+            setConfigWarnings(warnings)
+            return isProfileMissing
+        } catch (err) {
+            console.error('Failed to load config', err)
+            return false
+        } finally {
+            setConfigLoaded(true)
         }
-        checkConfig()
     }, [])
 
-    // REV UI23: Re-check config validation when config changes (after save)
     useEffect(() => {
+        const initializeConfig = async () => {
+            const isProfileMissing = await refreshConfigState()
+            const isForced = new URLSearchParams(window.location.search).get('setup_wizard') === 'true'
+            if (isProfileMissing || isForced) setShowWizard(true)
+        }
+        void initializeConfig()
         const handleConfigChanged = () => {
-            Api.configValidate()
-                .then(setConfigWarnings)
-                .catch(() => setConfigWarnings(null))
+            void refreshConfigState()
         }
         window.addEventListener('config-changed', handleConfigChanged)
         return () => window.removeEventListener('config-changed', handleConfigChanged)
-    }, [])
+    }, [refreshConfigState])
 
     useEffect(() => {
         let cancelled = false
@@ -163,7 +158,16 @@ function RootLayout() {
                 )}
 
                 {/* REV UI25: Show Startup Wizard if forced or needed */}
-                {configLoaded && showWizard ? <StartupWizard onComplete={() => setShowWizard(false)} /> : <Outlet />}
+                {configLoaded && showWizard ? (
+                    <StartupWizard
+                        onComplete={() => {
+                            setShowWizard(false)
+                            void refreshConfigState()
+                        }}
+                    />
+                ) : (
+                    <Outlet />
+                )}
             </div>
         </>
     )

@@ -1,10 +1,4 @@
-# Spec: Durable Config Write
-
-## Purpose
-
-Defines durable write behavior for `config.yaml` so startup migration and UI saves cannot leave the live config truncated, partially written, or falsely reported as saved.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: All config writers persist atomically
 Every code path that writes `config.yaml` at runtime SHALL persist the file through the single shared config writer, which writes to a temporary file in the same directory as the resolved target and then atomically replaces the target. This covers startup migration, the UI/wizard save endpoint, config reset, the Reflex toggle, executor endpoints, theme selection, and the Reflex learning engine. No writer SHALL open the live config file in truncating write mode (`"w"`), stream content directly into it, or copy over it outside the shared writer.
@@ -63,6 +57,8 @@ If a config write is aborted (validation failure, persistence-guard failure or w
 #### Scenario: Aborted save surfaces an error
 - **WHEN** the UI save's underlying write is aborted and the file is not updated
 - **THEN** the `POST /api/config/save` endpoint SHALL return an error rather than a success status
+
+## ADDED Requirements
 
 ### Requirement: Writes through a symlink update the real file
 When `config.yaml` is a symlink, the writer SHALL resolve it and write to the link's real target. The symlink SHALL remain a symlink pointing to the same target after the write.

@@ -1608,6 +1608,7 @@ executor:
         engine.config.has_battery = True
         return engine
 
+
 @pytest.mark.asyncio
 class TestWaterBoostCancellationNotification:
     """Test that the boost-cancellation notification is awaited (#24)."""
@@ -1789,3 +1790,75 @@ class TestCreateExecutionRecordErrorMessage:
         persisted = engine.history.get_history(limit=1)[0]
 
         assert persisted["error_message"] is None
+
+
+@pytest.mark.parametrize("next_name", ["deye", None, ""])
+def test_profile_switch_ignores_equal_mtimes_and_resolves_empty(tmp_path, monkeypatch, next_name):
+    import os
+
+    from executor.profiles import get_profile_from_config
+
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    for name in ("generic", "deye"):
+        (profiles / f"{name}.yaml").write_text("profile placeholder")
+        os.utime(profiles / f"{name}.yaml", (1000, 1000))
+    config_path = tmp_path / "config.yaml"
+    secrets_path = tmp_path / "secrets.yaml"
+    initial_name = "generic" if next_name == "deye" else "deye"
+    config_path.write_text(f"system:\n  inverter_profile: {initial_name}\nexecutor: {{}}\n")
+    secrets_path.write_text("home_assistant:\n  url: http://test\n  token: test\n")
+    real_profiles = {
+        name: get_profile_from_config({"system": {"inverter_profile": name}})
+        for name in ("generic", "deye")
+    }
+    loader = MagicMock(
+        side_effect=lambda data: real_profiles[data["system"].get("inverter_profile") or "generic"]
+    )
+    monkeypatch.setattr("executor.profiles.get_profile_from_config", loader)
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.chdir(tmp_path)
+    engine = ExecutorEngine(str(config_path), str(secrets_path))
+    engine.dispatcher = MagicMock()
+    assert engine._profile_name == initial_name
+    assert engine._profile_mtime == 1000
+    config_path.write_text(f"system:\n  inverter_profile: {next_name or 'null'}\nexecutor: {{}}\n")
+    engine.reload_config()
+    expected = next_name or "generic"
+    assert engine.inverter_profile is real_profiles[expected]
+    assert engine.dispatcher.profile is real_profiles[expected]
+    assert engine._profile_name == expected
+    assert engine._profile_mtime == 1000
+    assert not (profiles / "None.yaml").exists()
+
+
+def test_same_profile_mtime_change_applies_without_config_change(tmp_path, monkeypatch):
+    import os
+
+    from executor.profiles import get_profile_from_config
+
+    profile = get_profile_from_config({"system": {"inverter_profile": "generic"}})
+    replacement = get_profile_from_config({"system": {"inverter_profile": "generic"}})
+    profile_dir = tmp_path / "profiles"
+    profile_dir.mkdir()
+    profile_path = profile_dir / "generic.yaml"
+    profile_path.write_text("placeholder")
+    os.utime(profile_path, (1000, 1000))
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("system:\n  inverter_profile: generic\nexecutor: {}\n")
+    secrets_path = tmp_path / "secrets.yaml"
+    secrets_path.write_text("home_assistant:\n  url: http://test\n  token: test\n")
+    loader = MagicMock(side_effect=[profile, replacement])
+    monkeypatch.setattr("executor.profiles.get_profile_from_config", loader)
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.chdir(tmp_path)
+    engine = ExecutorEngine(str(config_path), str(secrets_path))
+    engine.dispatcher = MagicMock()
+    engine.reload_config()
+    loader.assert_called_once()
+    os.utime(profile_path, (2000, 2000))
+    engine.reload_config()
+    assert engine.inverter_profile is replacement
+    assert engine.dispatcher.profile is replacement
+    assert engine._profile_mtime == 2000
+    assert loader.call_count == 2

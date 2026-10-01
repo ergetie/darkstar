@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from ruamel.yaml import YAML
 
+from backend.config_migration import update_config
+
 if TYPE_CHECKING:
     from executor import ExecutorEngine
 
@@ -114,24 +116,18 @@ async def get_load_balancer_status(executor: ExecutorDep) -> dict[str, Any]:
 )
 async def toggle_executor(payload: ToggleRequest) -> dict[str, Any]:
     """Enable or disable the executor."""
-    yaml_handler = YAML()
-    yaml_handler.preserve_quotes = True
+    executor_cfg: dict[str, Any] = {}
 
-    config_path = Path("config.yaml")
-    try:
-        with config_path.open(encoding="utf-8") as f:
-            config = cast("dict[str, Any]", yaml_handler.load(f) or {})  # type: ignore
-    except Exception:
-        config = {}
+    def mutate(config: dict[str, Any]) -> None:
+        nonlocal executor_cfg
+        executor_cfg = config.setdefault("executor", {})
+        if payload.enabled is not None:
+            executor_cfg["enabled"] = payload.enabled
+        if payload.shadow_mode is not None:
+            executor_cfg["shadow_mode"] = payload.shadow_mode
 
-    executor_cfg = config.setdefault("executor", {})
-    if payload.enabled is not None:
-        executor_cfg["enabled"] = payload.enabled
-    if payload.shadow_mode is not None:
-        executor_cfg["shadow_mode"] = payload.shadow_mode
-
-    with config_path.open("w", encoding="utf-8") as f:
-        yaml_handler.dump(config, f)  # type: ignore
+    if not await asyncio.to_thread(update_config, Path("config.yaml"), mutate):
+        raise HTTPException(500, "Config save failed; verify persistent storage and server logs")
 
     # Reload executor
     executor = get_executor_instance()
@@ -391,16 +387,10 @@ async def get_executor_config() -> dict[str, Any]:
 )
 async def update_executor_config(request: Request) -> dict[str, str]:
     """Update executor entity configuration."""
-    yaml_handler = YAML()
-    yaml_handler.preserve_quotes = True
-
     payload = await request.json()
     config_path = Path("config.yaml")
 
-    try:
-        with config_path.open(encoding="utf-8") as f:
-            config = cast("dict[str, Any]", yaml_handler.load(f) or {})  # type: ignore
-
+    def mutate(config: dict[str, Any]) -> None:
         if "executor" not in config:
             config["executor"] = {}
 
@@ -435,8 +425,11 @@ async def update_executor_config(request: Request) -> dict[str, str]:
             for key, value in payload["water_heater"].items():
                 executor_cfg["water_heater"][key] = value
 
-        with config_path.open("w", encoding="utf-8") as f:
-            yaml_handler.dump(config, f)  # type: ignore
+    try:
+        if not await asyncio.to_thread(update_config, config_path, mutate):
+            raise HTTPException(
+                500, "Config save failed; verify persistent storage and server logs"
+            )
 
         # Reload executor config
         executor = get_executor_instance()
@@ -507,16 +500,10 @@ async def get_notifications() -> dict[str, Any]:
 )
 async def update_notifications(request: Request) -> dict[str, str]:
     """Update notification settings."""
-    yaml_handler = YAML()
-    yaml_handler.preserve_quotes = True
-
     payload = await request.json()
     config_path = Path("config.yaml")
 
-    try:
-        with config_path.open(encoding="utf-8") as f:
-            config = cast("dict[str, Any]", yaml_handler.load(f))  # type: ignore
-
+    def mutate(config: dict[str, Any]) -> None:
         if "executor" not in config:
             config["executor"] = {}
 
@@ -528,8 +515,11 @@ async def update_notifications(request: Request) -> dict[str, str]:
         for key, value in payload.items():
             notify_cfg[key] = value
 
-        with config_path.open("w", encoding="utf-8") as f:
-            yaml_handler.dump(config, f)  # type: ignore
+    try:
+        if not await asyncio.to_thread(update_config, config_path, mutate):
+            raise HTTPException(
+                500, "Config save failed; verify persistent storage and server logs"
+            )
 
         # Reload executor config
         executor = get_executor_instance()

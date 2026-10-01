@@ -724,12 +724,12 @@ class TestMigrateLegacyEvChargerCurrentStub:
 
 
 # ===========================================================================
-# Tests 4.1 – 4.7: config-migration-hardening
+# Tests 4.1 - 4.7: config-migration-hardening
 # ===========================================================================
 
 
 class TestUISaveRoutesAtomicWriter:
-    """4.1 – UI save uses _write_config; never opens config.yaml in truncating 'w' mode."""
+    """4.1 - UI save uses _write_config; never opens config.yaml in truncating 'w' mode."""
 
     @pytest.mark.asyncio
     async def test_save_calls_write_config_not_open_w(self, tmp_path, monkeypatch):
@@ -772,16 +772,14 @@ class TestUISaveRoutesAtomicWriter:
 
         def spy_open(self, mode="r", **kwargs):
             # Flag any "w" mode open on the config file that is NOT from our mock.
-            if mode == "w" and self == config_file:
-                # Check call stack: if _write_config mock hasn't been called yet but a "w"
-                # open happens, that means the old direct-write path is being used.
-                if not write_config_calls:
-                    raw_open_w_calls.append(self)
+            if mode == "w" and self == config_file and not write_config_calls:
+                raw_open_w_calls.append(self)
             return real_open(self, mode, **kwargs)
 
         monkeypatch.setattr(_Path, "open", spy_open)
 
-        def mock_write_config(path, data, yaml_instance, **kwargs):
+        def mock_write_config(path, mutator, **kwargs):
+            data = mutator(yaml_loader.load(config_file.read_text()))
             write_config_calls.append((path, data))
             return True
 
@@ -790,7 +788,7 @@ class TestUISaveRoutesAtomicWriter:
             "Path",
             lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
         )
-        monkeypatch.setattr(config_router, "write_config", mock_write_config)
+        monkeypatch.setattr(config_router, "update_config", mock_write_config)
         monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
         monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x, *_: [])
 
@@ -803,7 +801,7 @@ class TestUISaveRoutesAtomicWriter:
 
 
 class TestUISaveCreatesBackup:
-    """4.2 – UI save triggers a timestamped backup before writing."""
+    """4.2 - UI save triggers a timestamped backup before writing."""
 
     @pytest.mark.asyncio
     async def test_save_calls_create_timestamped_backup(self, tmp_path, monkeypatch):
@@ -864,7 +862,7 @@ class TestUISaveCreatesBackup:
 
 
 class TestUISaveAbortedReturns500:
-    """4.3 – If _write_config returns False (aborted), HTTP 500 is returned.
+    """4.3 - If _write_config returns False (aborted), HTTP 500 is returned.
 
     The critical scenario: _write_config aborts silently (validation failure),
     the old non-empty config.yaml stays on disk unchanged, but the endpoint must
@@ -905,7 +903,7 @@ class TestUISaveAbortedReturns500:
         with default_file.open("w") as f:
             yaml_loader.dump(base_config, f)
 
-        def aborted_write_config(path, data, yaml_instance, **kwargs):
+        def aborted_write_config(path, mutator, **kwargs):
             # Simulate _write_config aborting (e.g. internal validation failure):
             # the file is NOT updated and the old non-empty file remains in place.
             # Return False so the caller detects the abort via the return value.
@@ -916,7 +914,7 @@ class TestUISaveAbortedReturns500:
             "Path",
             lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
         )
-        monkeypatch.setattr(config_router, "write_config", aborted_write_config)
+        monkeypatch.setattr(config_router, "update_config", aborted_write_config)
         monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
         monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x, *_: [])
 
@@ -929,9 +927,9 @@ class TestUISaveAbortedReturns500:
 
 
 class TestBindMountExdevPath:
-    """4.4 – EXDEV on first replace is retried atomically; shutil.copy2 is NOT called."""
+    """4.4 - EXDEV falls back directly to a guarded copy without retry."""
 
-    def test_exdev_retry_does_not_call_copy2(self, tmp_path, monkeypatch):
+    def test_exdev_copies_without_duplicate_retry(self, tmp_path, monkeypatch):
         import errno as _errno
         import shutil as _shutil
 
@@ -982,16 +980,14 @@ class TestBindMountExdevPath:
 
         _write_config(config_file, config_data, yaml_instance, strict_validation=False)
 
-        # The retry should have succeeded atomically — copy2 must NOT have been called
-        # for the config itself (it may be called for the .bak backup, so filter by target).
         config_copy2_calls = [call for call in copy2_calls if str(call[1]) == str(config_file)]
-        assert len(config_copy2_calls) == 0, (
-            "shutil.copy2 should not be used when atomic replace succeeds on retry"
-        )
+        assert replace_call_count[0] == 1
+        assert len(config_copy2_calls) == 1
+        assert config_file.with_suffix(".yaml.bak").exists()
 
 
 class TestMigrateConfigVersionSet:
-    """4.5 – migrate_config() sets config_version: 2 when the key is absent, even without template."""
+    """4.5 - migrate_config() sets config_version: 2 when the key is absent, even without template."""
 
     @pytest.mark.asyncio
     async def test_config_version_set_when_missing_no_template(self, tmp_path, monkeypatch):
@@ -1040,7 +1036,7 @@ class TestMigrateConfigVersionSet:
 
 
 class TestConfigVersionNotDowngraded:
-    """4.6 – migrate_config() never downgrades a config_version that is already higher."""
+    """4.6 - migrate_config() never downgrades a config_version that is already higher."""
 
     @pytest.mark.asyncio
     async def test_higher_version_preserved(self, tmp_path, monkeypatch):
@@ -1105,7 +1101,7 @@ class TestConfigVersionNotDowngraded:
 
 
 class TestMigrateConfigIdempotentV2:
-    """4.7 – A clean v2 config produces no file write (idempotency)."""
+    """4.7 - A clean v2 config produces no file write (idempotency)."""
 
     @pytest.mark.asyncio
     async def test_clean_v2_no_write(self, tmp_path, monkeypatch):
@@ -1192,16 +1188,19 @@ class TestPostWriteVerificationFailureReturns500:
         with config_file.open("w") as f:
             yaml_loader.dump(base_config, f)
 
-        def failing_write_config(path, data, yaml_instance, **kwargs):
-            # Simulate _write_config returning False because post-write verification failed.
-            return False
+        with (tmp_path / "config.default.yaml").open("w") as handle:
+            yaml_loader.dump(base_config, handle)
+        before = config_file.read_bytes()
+
+        import backend.config_migration as cm
+
+        monkeypatch.setattr(cm, "_verify_written_config", lambda *_, **__: False)
 
         monkeypatch.setattr(
             config_router,
             "Path",
             lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
         )
-        monkeypatch.setattr(config_router, "write_config", failing_write_config)
         monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
         monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x, *_: [])
 
@@ -1209,6 +1208,7 @@ class TestPostWriteVerificationFailureReturns500:
             await config_router.save_config({"timezone": "Europe/Stockholm"})
 
         assert exc_info.value.status_code == 500
+        assert config_file.read_bytes() == before
 
 
 class TestBackupRetentionPruning:
@@ -1216,7 +1216,6 @@ class TestBackupRetentionPruning:
 
     def test_old_backups_pruned(self, tmp_path):
         """create_timestamped_backup prunes files beyond max_backups, keeping the newest."""
-        import time
 
         from backend.config_migration import create_timestamped_backup
 
@@ -1240,7 +1239,6 @@ class TestBackupRetentionPruning:
         import backend.config_migration as cm
 
         # Patch _get_persistent_backup_dir to return our tmp backup_dir.
-        monkeypatch = None  # use direct patch via attribute swap
         original_fn = cm._get_persistent_backup_dir
         cm._get_persistent_backup_dir = lambda _path: backup_dir
         try:
@@ -1418,7 +1416,13 @@ class TestMigrateEvChargerPower:
 
         config = {
             "ev_chargers": [
-                {"id": "goe", "type": "current", "max_power_kw": 11, "max_current_a": 12, "phases": [1, 2, 3]},
+                {
+                    "id": "goe",
+                    "type": "current",
+                    "max_power_kw": 11,
+                    "max_current_a": 12,
+                    "phases": [1, 2, 3],
+                },
                 {"id": "wb", "type": "binary", "max_power_kw": 3.7},
             ]
         }

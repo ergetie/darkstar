@@ -5,6 +5,7 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
+from backend.config_migration import update_config as persist_config_update
 from backend.learning.engine import LearningEngine
 from backend.strategy.history import append_strategy_event
 from backend.validation import get_max_energy_per_slot
@@ -362,12 +363,9 @@ class AuroraReflex:
         """
         import asyncio
 
-        def _apply_updates() -> tuple[Any, list[dict[str, Any]]]:
-            # Reload config to ensure we have the latest comment structure
-            with self.config_path.open(encoding="utf-8") as f:
-                data: Any = self.yaml.load(f)  # type: ignore[reportUnknownMemberType]
+        changes_made: list[dict[str, Any]] = []
 
-            changes_made: list[dict[str, Any]] = []
+        def _apply_updates(data: dict[str, Any]) -> None:
 
             for key_path, new_value in updates.items():
                 keys = key_path.split(".")
@@ -393,23 +391,28 @@ class AuroraReflex:
                     # Try to add comment with previous value
                     try:
                         comment = f" Reflex: was {old_value}"
-                        target.yaml_add_eol_comment(comment, last_key)
+                        comment_target: Any = target
+                        comment_target.yaml_add_eol_comment(comment, last_key)
                     except Exception as e:
                         logger.debug(f"Could not add YAML comment: {e}")
-            return data, changes_made
 
-        data, changes_made = await asyncio.to_thread(_apply_updates)
+        def apply() -> None:
+            if dry_run:
+                with self.config_path.open(encoding="utf-8") as handle:
+                    data: Any = self.yaml.load(handle)  # type: ignore[reportUnknownMemberType]
+                _apply_updates(data)
+            elif not persist_config_update(self.config_path, _apply_updates):
+                raise RuntimeError(
+                    "Reflex config save failed; verify persistent storage and server logs"
+                )
+
+        await asyncio.to_thread(apply)
 
         if not dry_run:
             # Update reflex state in DB for each change
             for change in changes_made:
                 await self.store.update_reflex_state(change["param"], float(change["new"]))
 
-            def _write_config():
-                with self.config_path.open("w", encoding="utf-8") as f:
-                    self.yaml.dump(data, f)  # type: ignore[reportUnknownMemberType]
-
-            await asyncio.to_thread(_write_config)
             logger.info("Config saved.")
 
             # Log to strategy history

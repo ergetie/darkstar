@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from pathlib import Path
@@ -10,6 +11,7 @@ from backend.api.routers.executor import get_executor_instance
 from backend.config_migration import (
     remove_deprecated_keys,
     template_aware_merge,
+    update_config,
     write_config,
 )
 from backend.core.ha_client import get_ha_entity_state
@@ -271,64 +273,74 @@ async def save_config(
         config_path = Path("config.yaml")
         default_path = Path("config.default.yaml")
 
-        # REV F57: ALWAYS start with fresh template (preserves structure/comments)
-        if not default_path.exists():
-            raise HTTPException(500, "config.default.yaml not found")
+        # Fetch live sensor metadata before entering the synchronous write transaction.
+        def validation_snapshot() -> dict[str, Any]:
+            with config_path.open(encoding="utf-8") as handle:
+                current: dict[str, Any] = yaml_handler.load(handle) or {}  # type: ignore[reportUnknownMemberType]
+            return deep_update(current, payload)
 
-        # Load template as base (has all comments and structure)
-        with default_path.open(encoding="utf-8") as df:
-            template_config: dict[str, Any] = yaml_handler.load(df) or {}  # type: ignore[no-untyped-call]
+        snapshot = await asyncio.to_thread(validation_snapshot)
+        phase_sensor_units = await _phase_sensor_units_for_config(snapshot)
+        previous_pricing: Any = None
+        data: dict[str, Any] = {}
+        warnings: list[dict[str, Any]] = []
 
-        # Load user config for current values
-        with config_path.open(encoding="utf-8") as f:
-            user_data: dict[str, Any] = yaml_handler.load(f) or {}  # type: ignore[no-untyped-call]
+        def mutate(user_data: dict[str, Any]) -> dict[str, Any]:
+            nonlocal previous_pricing, data, warnings
+            # REV F57: ALWAYS start with fresh template (preserves structure/comments)
+            if not default_path.exists():
+                raise HTTPException(500, "config.default.yaml not found")
 
-        # Snapshot pricing so the processed Nordpool price cache can be
-        # invalidated when fees/tariff rules change (prices embed them).
-        previous_pricing = _plain(user_data.get("pricing"))
+            # Load template as base (has all comments and structure)
+            with default_path.open(encoding="utf-8") as df:
+                template_config: dict[str, Any] = yaml_handler.load(df) or {}  # type: ignore[no-untyped-call]
 
-        # Filter secrets before merging
-        filter_secrets(payload, SECRET_KEYS)
+            # Snapshot pricing so the processed Nordpool price cache can be
+            # invalidated when fees/tariff rules change (prices embed them).
+            previous_pricing = _plain(user_data.get("pricing"))
 
-        # Merge payload into user data first
-        # We use template_config as schema for type coercion
-        deep_update(user_data, payload, template_config)
+            # Filter secrets before merging
+            filter_secrets(payload, SECRET_KEYS)
 
-        # Then merge user values into fresh template (preserves template structure)
-        template_aware_merge(template_config, user_data)
+            # Merge payload into user data first
+            # We use template_config as schema for type coercion
+            deep_update(user_data, payload, template_config)
 
-        # Clean deprecated keys
-        template_config, cleanup_changed = remove_deprecated_keys(template_config)
-        if cleanup_changed:
-            logger.info("Backend save: Removed deprecated keys")
+            # Then merge user values into fresh template (preserves template structure)
+            template_aware_merge(template_config, user_data)
 
-        # template_config now has: template structure + comments + user values
-        data = template_config
+            # Clean deprecated keys
+            template_config, cleanup_changed = remove_deprecated_keys(template_config)
+            if cleanup_changed:
+                logger.info("Backend save: Removed deprecated keys")
 
-        # REV LCL01: Validate config before saving and collect warnings/errors
-        phase_sensor_units = await _phase_sensor_units_for_config(data)
-        validation_issues = _validate_config_for_save(data, phase_sensor_units)
-        errors = [i for i in validation_issues if i["severity"] == "error"]
-        warnings = [i for i in validation_issues if i["severity"] == "warning"]
+            # template_config now has: template structure + comments + user values
+            data = template_config
 
-        # If there are critical errors, reject the save
-        if errors:
-            raise HTTPException(
-                400,
-                detail={
-                    "message": "Configuration has critical errors",
-                    "errors": errors,
-                    "warnings": warnings,
-                },
-            )
+            # REV LCL01: Validate config before saving and collect warnings/errors
+            validation_issues = _validate_config_for_save(data, phase_sensor_units)
+            errors = [i for i in validation_issues if i["severity"] == "error"]
+            warnings = [i for i in validation_issues if i["severity"] == "warning"]
 
-        # Save the config through the atomic writer (even if warnings exist).
-        # write_config writes to a .tmp sibling then atomically replaces the target,
-        # creating a timestamped backup first. Returns False if aborted or failed.
-        if not write_config(config_path, data, yaml_handler):
+            # If there are critical errors, reject the save
+            if errors:
+                raise HTTPException(
+                    400,
+                    detail={
+                        "message": "Configuration has critical errors",
+                        "errors": errors,
+                        "warnings": warnings,
+                    },
+                )
+
+            return data
+
+        if not await asyncio.to_thread(update_config, config_path, mutate):
             raise HTTPException(
                 500,
-                detail={"message": "Config save aborted - post-write validation failed"},
+                detail={
+                    "message": "Config save failed; ensure config targets persistent storage and check server logs"
+                },
             )
 
         if _plain(data.get("pricing")) != previous_pricing:
@@ -1714,8 +1726,16 @@ async def reset_config() -> dict[str, str]:
     """Reset to default config."""
     default_cfg = Path("config.default.yaml")
     if default_cfg.exists():
-        import shutil
 
-        shutil.copy(str(default_cfg), "config.yaml")
+        def reset() -> bool:
+            yaml = YAML()
+            with default_cfg.open(encoding="utf-8") as handle:
+                defaults: Any = yaml.load(handle)  # type: ignore[reportUnknownMemberType]
+            return write_config(Path("config.yaml"), defaults, yaml)
+
+        if not await asyncio.to_thread(reset):
+            raise HTTPException(
+                500, "Config reset failed; verify persistent storage and server logs"
+            )
         return {"status": "success"}
     return {"status": "error", "message": "Default config not found"}

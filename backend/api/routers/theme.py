@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -6,6 +7,8 @@ from typing import Any, cast
 import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+from backend.config_migration import update_config
 
 logger = logging.getLogger("darkstar.api.theme")
 router = APIRouter(tags=["theme"])
@@ -169,32 +172,14 @@ async def select_theme(payload: ThemeSelectRequest) -> dict[str, Any]:
     if payload.accent_index is not None and not (0 <= payload.accent_index <= 15):
         raise HTTPException(status_code=400, detail="accent_index must be between 0 and 15")
 
-    from ruamel.yaml import YAML
+    def mutate(config: dict[str, Any]) -> None:
+        ui_section = config.setdefault("ui", {})
+        ui_section["theme"] = payload.theme
+        if payload.accent_index is not None:
+            ui_section["theme_accent_index"] = payload.accent_index
 
-    yaml_handler = YAML()
-    yaml_handler.preserve_quotes = True  # type: ignore
-    config_path = Path("config.yaml")
-
-    try:
-        if config_path.exists():
-            with config_path.open(encoding="utf-8") as handle:
-                loaded = yaml_handler.load(handle)  # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
-                config: dict[str, Any] = (
-                    cast("dict[str, Any]", loaded) if isinstance(loaded, dict) else {}
-                )
-        else:
-            config = {}
-    except Exception as exc:
-        logger.error("Failed to load config.yaml for theme update: %s", exc)
-        config = {}
-
-    ui_section = config.setdefault("ui", {})
-    ui_section["theme"] = payload.theme
-    if payload.accent_index is not None:
-        ui_section["theme_accent_index"] = payload.accent_index
-
-    with config_path.open("w", encoding="utf-8") as handle:
-        yaml_handler.dump(config, handle)  # pyright: ignore [reportUnknownMemberType]
+    if not await asyncio.to_thread(update_config, Path("config.yaml"), mutate):
+        raise HTTPException(500, "Config save failed; verify persistent storage and server logs")
 
     return {
         "status": "success",
