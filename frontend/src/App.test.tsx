@@ -1,11 +1,21 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const state = vi.hoisted(() => ({ profile: null as string | null }))
+const state = vi.hoisted(() => ({
+    profile: null as string | null,
+    onboardingStatus: 'not_started' as 'not_started' | 'in_progress' | 'dismissed' | 'completed',
+}))
 vi.mock('./lib/api', () => ({
     Api: {
         config: vi.fn(async () => ({ system: { inverter_profile: state.profile } })),
         configValidate: vi.fn(async () => ({ warnings: [] })),
+        setup: {
+            onboarding: vi.fn(async () => ({
+                status: state.onboardingStatus,
+                current_step: null,
+                completed_steps: [],
+            })),
+        },
         status: vi.fn(async () => ({})),
         health: vi.fn(async () => ({ issues: [] })),
     },
@@ -13,14 +23,14 @@ vi.mock('./lib/api', () => ({
 vi.mock('./lib/socket', () => ({ getSocket: vi.fn() }))
 vi.mock('./components/Sidebar', () => ({ default: () => null }))
 vi.mock('./pages/Dashboard', () => ({ default: () => <div>Dashboard content</div> }))
-vi.mock('./components/startup/StartupWizard', () => ({
-    StartupWizard: ({ onComplete }: { onComplete: () => void }) => (
+vi.mock('./components/onboarding/OnboardingWizard', () => ({
+    OnboardingWizard: ({ onClose }: { onClose: () => void }) => (
         <>
-            <button onClick={onComplete}>Skip wizard</button>
+            <button onClick={onClose}>Skip wizard</button>
             <button
                 onClick={() => {
                     state.profile = 'deye'
-                    onComplete()
+                    onClose()
                 }}
             >
                 Save wizard
@@ -33,6 +43,7 @@ import App from './App'
 describe('saved inverter profile state', () => {
     beforeEach(() => {
         state.profile = null
+        state.onboardingStatus = 'not_started'
     })
 
     it('clears the warning after a wizard save without reloading', async () => {
@@ -52,5 +63,18 @@ describe('saved inverter profile state', () => {
         })
         await waitFor(() => expect(screen.queryByText(/Missing Hardware Profile/)).not.toBeInTheDocument())
         expect(screen.getByText('Dashboard content')).toBeInTheDocument()
+    })
+
+    it('keeps dismissed onboarding closed on load and supports manual relaunch', async () => {
+        state.onboardingStatus = 'dismissed'
+        render(<App />)
+
+        expect(await screen.findByText('Dashboard content')).toBeInTheDocument()
+        expect(screen.queryByText('Skip wizard')).not.toBeInTheDocument()
+
+        await act(async () => {
+            window.dispatchEvent(new Event('open-onboarding'))
+        })
+        expect(await screen.findByText('Skip wizard')).toBeInTheDocument()
     })
 })

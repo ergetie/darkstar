@@ -178,6 +178,77 @@ export type ConfigSaveResponse = {
     errors?: ConfigSaveError[]
     warnings?: ConfigSaveWarning[]
 }
+export type HaCoreConfigResponse = {
+    latitude?: number | null
+    longitude?: number | null
+    time_zone?: string | null
+    currency?: string | null
+    country?: string | null
+    unit_system?: Record<string, unknown>
+}
+export type HaDiscoveryEntity = {
+    entity_id: string
+    friendly_name: string
+    domain: string
+    state?: string
+    unit_of_measurement?: string
+    device_class?: string
+    state_class?: string
+    platform?: string
+    manufacturer?: string
+    model?: string
+}
+export type HaDiscoveryResponse = { entities: HaDiscoveryEntity[]; registry_available: boolean }
+export type EntityCandidate = {
+    entity_id: string
+    score: number
+    confidence: 'high' | 'medium' | 'low'
+    reasons: string[]
+}
+export type SetupSuggestionsResponse = {
+    patch: Record<string, unknown>
+    candidates: Record<string, EntityCandidate[]>
+    current: Record<string, unknown>
+    missing_required: string[]
+    brands: { name: string; score: number; confidence: 'high' | 'medium' | 'low'; reasons: string[] }[]
+    suggested_profile: string | null
+    fallback_profile: string
+    registry_available: boolean
+}
+export type ProfileSuggestionsResponse = {
+    profile_name: string
+    patch: Record<string, unknown>
+    candidates: Record<string, EntityCandidate[]>
+    current: Record<string, unknown>
+    missing_required: string[]
+}
+export type ReadinessCheck = {
+    id: string
+    group: string
+    status: 'pass' | 'warn' | 'fail' | 'skipped'
+    message: string
+    fix_hint: string
+    settings_path: string
+}
+export type ReadinessResponse = { ready: boolean; checks: ReadinessCheck[] }
+export type OnboardingProgress = {
+    status: 'not_started' | 'in_progress' | 'dismissed' | 'completed'
+    current_step: string | null
+    completed_steps: string[]
+    version?: number
+    updated_at?: string | null
+}
+
+export class ApiError extends Error {
+    constructor(
+        message: string,
+        readonly status: number,
+        readonly detail?: unknown,
+    ) {
+        super(message)
+        this.name = 'ApiError'
+    }
+}
 
 export type HaAverageResponse = {
     average_load_kw?: number
@@ -789,7 +860,7 @@ export type EVManualChargeUpdatedEvent = {
 
 export type EVChargersResponse = EVChargerState[]
 
-async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
+async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
     // Strip leading slash to make paths relative - works with base href for HA Ingress
     const relativePath = path.startsWith('/') ? path.slice(1) : path
 
@@ -797,15 +868,20 @@ async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET
         method,
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     }
-    if (body && (method === 'POST' || method === 'DELETE')) {
+    if (body !== undefined && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
         options.body = JSON.stringify(body)
     }
     const r = await fetch(relativePath, options)
     if (!r.ok) {
-        // Surface a backend rejection message (FastAPI `detail` string) when present.
         const data = await r.json().catch(() => null)
-        const detail = data && typeof data.detail === 'string' ? data.detail : null
-        throw new Error(detail ?? `${path} -> ${r.status}`)
+        const rawDetail = data?.detail
+        const detailMessage =
+            typeof rawDetail === 'string'
+                ? rawDetail
+                : typeof rawDetail?.message === 'string'
+                  ? rawDetail.message
+                  : null
+        throw new ApiError(detailMessage ?? `${path} -> ${r.status}`, r.status, rawDetail)
     }
     return r.json() as Promise<T>
 }
@@ -830,17 +906,18 @@ export const Api = {
         })
         const data = await r.json()
         if (!r.ok) {
-            // For 400 errors, include the error details in the thrown error
-            if (r.status === 400 && data.detail) {
-                const detail = data.detail
-                const errors = detail.errors || []
-                const firstError = errors[0]
-                if (firstError) {
-                    throw new Error(firstError.message + ': ' + firstError.guidance)
-                }
-                throw new Error(detail.message || 'Configuration error')
+            const detail = data?.detail
+            if (r.status === 400 && typeof detail === 'object' && detail) {
+                const errors = Array.isArray(detail.errors) ? detail.errors : []
+                const firstError = errors[0] as { message?: string; guidance?: string } | undefined
+                const message = firstError
+                    ? [firstError.message, firstError.guidance].filter(Boolean).join(': ')
+                    : typeof detail.message === 'string'
+                      ? detail.message
+                      : 'Configuration error'
+                throw new ApiError(message, r.status, detail)
             }
-            throw new Error(`/api/config/save -> ${r.status}`)
+            throw new ApiError(`/api/config/save -> ${r.status}`, r.status, detail)
         }
         return data as ConfigSaveResponse
     },
@@ -850,6 +927,10 @@ export const Api = {
     haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
     haTest: (payload: { url: string; token: string }) =>
         getJSON<{ status?: string; success?: boolean; message: string }>('/api/ha/test', 'POST', payload),
+    haSaveConnection: (payload: { url: string; token: string }) =>
+        getJSON<{ status: string; message: string }>('/api/ha/config', 'PUT', payload),
+    haDiscovery: () => getJSON<HaDiscoveryResponse>('/api/ha/discovery'),
+    haCoreConfig: () => getJSON<HaCoreConfigResponse>('/api/ha/core-config'),
     haEntities: () =>
         getJSON<{
             entities: {
@@ -984,6 +1065,22 @@ export const Api = {
     loadsDebug: () => getJSON<LoadsDebugResponse>('/api/loads/debug'),
     // Profile Management (Rev IP4)
     listProfiles: () => getJSON<import('../pages/settings/types').InverterProfile[]>('/api/profiles'),
+    profileSuggestions: (profile: string) =>
+        getJSON<ProfileSuggestionsResponse>(`/api/profiles/${encodeURIComponent(profile)}/suggestions`),
+    setup: {
+        suggestions: (roles?: string[]) => {
+            const query = roles?.length ? `?roles=${encodeURIComponent(roles.join(','))}` : ''
+            return getJSON<SetupSuggestionsResponse>(`/api/setup/suggestions${query}`)
+        },
+        readiness: () => getJSON<ReadinessResponse>('/api/setup/readiness'),
+        onboarding: () => getJSON<OnboardingProgress>('/api/setup/onboarding'),
+        saveOnboarding: (progress: OnboardingProgress) =>
+            getJSON<OnboardingProgress>('/api/setup/onboarding', 'PUT', {
+                status: progress.status,
+                current_step: progress.current_step,
+                completed_steps: progress.completed_steps,
+            }),
+    },
     // Price Forecast (Tasks 3.2)
     priceForecast: {
         outlook: () => getJSON<PriceOutlookResponse>('/api/price-forecast/outlook'),

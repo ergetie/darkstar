@@ -217,22 +217,24 @@ export default function Settings() {
                             ))}
                         </div>
 
-                        <button
-                            onClick={() => setAdvancedMode(!advancedMode)}
-                            title={
-                                advancedMode
-                                    ? 'Advanced Mode (click to switch to Standard)'
-                                    : 'Standard Mode (click to switch to Advanced)'
-                            }
-                            aria-label={advancedMode ? 'Advanced Mode' : 'Standard Mode'}
-                            className={`flex items-center justify-center rounded-xl p-2.5 transition duration-300 self-end sm:self-auto ${
-                                advancedMode
-                                    ? 'bg-bad text-white shadow-[0_0_20px_rgba(var(--color-bad-rgb),0.3)]'
-                                    : 'bg-good text-white shadow-[0_0_20px_rgba(var(--color-good-rgb),0.3)]'
-                            }`}
-                        >
-                            {advancedMode ? <ShieldAlert size={16} /> : <Zap size={16} />}
-                        </button>
+                        <div className="flex items-center gap-2 self-end sm:self-auto">
+                            <button
+                                onClick={() => setAdvancedMode(!advancedMode)}
+                                title={
+                                    advancedMode
+                                        ? 'Advanced Mode (click to switch to Standard)'
+                                        : 'Standard Mode (click to switch to Advanced)'
+                                }
+                                aria-label={advancedMode ? 'Advanced Mode' : 'Standard Mode'}
+                                className={`flex items-center justify-center rounded-xl p-2.5 transition duration-300 ${
+                                    advancedMode
+                                        ? 'bg-bad text-white shadow-[0_0_20px_rgba(var(--color-bad-rgb),0.3)]'
+                                        : 'bg-good text-white shadow-[0_0_20px_rgba(var(--color-good-rgb),0.3)]'
+                                }`}
+                            >
+                                {advancedMode ? <ShieldAlert size={16} /> : <Zap size={16} />}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">{renderTabContent()}</div>

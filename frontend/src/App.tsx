@@ -20,7 +20,7 @@ import ChartExamples from './pages/ChartExamples'
 import { Api, HealthResponse, ConfigSaveResponse } from './lib/api'
 import { SystemAlert } from './components/SystemAlert'
 import { ToastProvider } from './components/ui/Toast'
-import { StartupWizard } from './components/startup/StartupWizard'
+import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
 import { getSocket } from './lib/socket'
 
 function RootLayout() {
@@ -38,15 +38,15 @@ function RootLayout() {
 
     const refreshConfigState = useCallback(async () => {
         try {
-            const config = await Api.config()
+            const [config, onboarding] = await Promise.all([Api.config(), Api.setup.onboarding()])
             const isProfileMissing = config.system?.inverter_profile == null
             setMissingProfile(isProfileMissing)
             const warnings = await Api.configValidate()
             setConfigWarnings(warnings)
-            return isProfileMissing
+            return { isProfileMissing, onboardingStatus: onboarding.status }
         } catch (err) {
             console.error('Failed to load config', err)
-            return false
+            return { isProfileMissing: false, onboardingStatus: 'not_started' as const }
         } finally {
             setConfigLoaded(true)
         }
@@ -54,9 +54,10 @@ function RootLayout() {
 
     useEffect(() => {
         const initializeConfig = async () => {
-            const isProfileMissing = await refreshConfigState()
+            const { isProfileMissing, onboardingStatus: status } = await refreshConfigState()
             const isForced = new URLSearchParams(window.location.search).get('setup_wizard') === 'true'
-            if (isProfileMissing || isForced) setShowWizard(true)
+            if ((isProfileMissing && (status === 'not_started' || status === 'in_progress')) || isForced)
+                setShowWizard(true)
         }
         void initializeConfig()
         const handleConfigChanged = () => {
@@ -65,6 +66,12 @@ function RootLayout() {
         window.addEventListener('config-changed', handleConfigChanged)
         return () => window.removeEventListener('config-changed', handleConfigChanged)
     }, [refreshConfigState])
+
+    useEffect(() => {
+        const openOnboarding = () => setShowWizard(true)
+        window.addEventListener('open-onboarding', openOnboarding)
+        return () => window.removeEventListener('open-onboarding', openOnboarding)
+    }, [])
 
     useEffect(() => {
         let cancelled = false
@@ -157,10 +164,10 @@ function RootLayout() {
                     </div>
                 )}
 
-                {/* REV UI25: Show Startup Wizard if forced or needed */}
+                {/* Open setup automatically only while a fresh or in-progress install has no profile. */}
                 {configLoaded && showWizard ? (
-                    <StartupWizard
-                        onComplete={() => {
+                    <OnboardingWizard
+                        onClose={() => {
                             setShowWizard(false)
                             void refreshConfigState()
                         }}

@@ -40,6 +40,7 @@ def test_route_snapshot(app_client):
         "GET /api/setup/suggestions",
         "GET /api/setup/readiness",
         "POST /api/ha/test",
+        "PUT /api/ha/config",
         "GET /api/water/boost",
         "POST /api/water/boost",
         "DELETE /api/water/boost",

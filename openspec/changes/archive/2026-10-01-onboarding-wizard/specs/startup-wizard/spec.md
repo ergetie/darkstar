@@ -1,9 +1,4 @@
-# Capability: Startup Wizard
-
-## Purpose
-The Startup Wizard guides users through connecting Darkstar and configuring their energy system, then provides a readiness review. Users can skip or dismiss setup and return to it from Settings.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Triggering the Setup Wizard
 
@@ -40,17 +35,25 @@ The system MUST open the onboarding wizard automatically on a fresh installation
 - **AND** it resumes at the saved `current_step` when one exists
 - **AND** the onboarding status changes to `in_progress`
 
-### Requirement: Missing-profile state reflects the saved config
-The UI's missing-inverter-profile state (wizard trigger and "inverter profile not set" banner) SHALL be re-evaluated from freshly fetched config after the wizard completes and after any successful settings save, not only on initial page load.
+## REMOVED Requirements
 
-#### Scenario: Banner clears after wizard completes
-- **WHEN** a fresh install completes the wizard with profile `deye`
-- **THEN** the "inverter profile not set" banner SHALL NOT be shown
-- **AND** no page reload SHALL be required
+### Requirement: Step 1 - Equipment Profile Selection
+**Reason**: Replaced by the Inverter step with dynamic profile list, brand suggestion and entity matching.
+**Migration**: See "Inverter step" requirement.
 
-#### Scenario: Banner clears after profile set in Settings
-- **WHEN** the banner is shown and the user saves a non-null inverter profile in Settings
-- **THEN** the banner SHALL disappear after the save succeeds
+### Requirement: Step 2 - Equipment Specifications
+**Reason**: Split into dedicated Solar and Battery steps covering all required parameters.
+**Migration**: See "Solar and battery steps" requirement.
+
+### Requirement: Step 3 - Baseline Consumption
+**Reason**: Moved into the Core sensors step; synthetic estimate now saved to `input_sensors.synthetic_daily_load_kwh`.
+**Migration**: See "Core sensors step" requirement.
+
+### Requirement: Finalizing Configuration
+**Reason**: Single final save with live executor run replaced by per-step saves and a shadow-mode finish with readiness.
+**Migration**: See "Per-step save", "Readiness review" and "Shadow mode finish" requirements.
+
+## ADDED Requirements
 
 ### Requirement: Conditional step flow
 The wizard SHALL present the steps Connect, My system, Location & pricing, Inverter, Core sensors, Solar, Battery, Water heater, EV, Review & readiness, omitting Solar, Battery, Water heater and EV when the corresponding `has_*` flag is false. Progress indication SHALL count only applicable steps.

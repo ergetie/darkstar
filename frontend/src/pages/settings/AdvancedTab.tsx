@@ -97,9 +97,7 @@ export const AdvancedTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode
                     <button
                         type="button"
                         className="whitespace-nowrap rounded-lg bg-surface2 border border-line/20 px-4 py-2 text-xs font-semibold text-text hover:bg-surface0 transition shrink-0"
-                        onClick={() => {
-                            window.location.href = '/?setup_wizard=true'
-                        }}
+                        onClick={() => window.dispatchEvent(new Event('open-onboarding'))}
                     >
                         Relaunch Setup Wizard
                     </button>

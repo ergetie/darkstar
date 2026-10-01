@@ -14,6 +14,9 @@ WEIGHTS = {
     "daily": -15,
 }
 MIN_SCORE = 25
+PHASE_SPECIFIC_RE = re.compile(
+    r"(?:^|[._\s-])(?:l[123]|phase[ _-]?[123])(?:$|[._\s-])", re.IGNORECASE
+)
 
 
 def rank_candidates(
@@ -22,10 +25,13 @@ def rank_candidates(
     *,
     default_entity: str | None = None,
     cumulative: bool = False,
+    exclude_phase_specific: bool = False,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for entity in entities:
         if entity.get("domain") not in rules.get("domain", []):
+            continue
+        if exclude_phase_specific and _is_phase_specific(entity):
             continue
         if cumulative and (
             entity.get("device_class") != "energy"
@@ -75,6 +81,14 @@ def rank_candidates(
             else "low"
         )
     return candidates[:5]
+
+
+def _is_phase_specific(entity: dict[str, Any]) -> bool:
+    """Return whether an entity name identifies one phase instead of an aggregate."""
+    return any(
+        PHASE_SPECIFIC_RE.search(str(entity.get(field) or ""))
+        for field in ("entity_id", "friendly_name")
+    )
 
 
 def rank_brands(entities: list[dict[str, Any]], profiles: list[Any]) -> list[dict[str, Any]]:
@@ -147,6 +161,7 @@ def build_suggestions(
             definition["rules"],
             default_entity=definition.get("default_entity"),
             cumulative=definition.get("cumulative", False),
+            exclude_phase_specific=definition.get("exclude_phase_specific", False),
         )
         candidates[path], current[path] = ranked, value_at_path(config, path)
         if ranked and ranked[0]["confidence"] == "high":

@@ -87,6 +87,14 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
         "grid_import_power": dual,
         "grid_export_power": dual,
     }
+    non_negative_power_roles = {"pv_power", "load_power", "grid_import_power", "grid_export_power"}
+
+    def sensor_hint(role: str) -> str:
+        if role == "battery_soc":
+            return "Choose a battery state-of-charge sensor reporting between 0 and 100 %."
+        non_negative = " non-negative" if role in non_negative_power_roles else ""
+        return f"Choose a power sensor with a live numeric{non_negative} value in W or kW."
+
     for role, enabled in sensor_flags.items():
         path = f"input_sensors.{role}"
         if not enabled:
@@ -108,7 +116,14 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
             if not math.isfinite(value):
                 raise ValueError("Non-finite sensor value")
         except (ValueError, TypeError):
-            add(role, "sensors", "fail", f"{role}: live state is unavailable or non-numeric.", path)
+            add(
+                role,
+                "sensors",
+                "fail",
+                f"{role}: live state is unavailable or non-numeric.",
+                path,
+                sensor_hint(role),
+            )
             continue
         unit = entity.get("unit_of_measurement")
         plausible = (
@@ -125,7 +140,7 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
             "pass" if plausible else "warn",
             f"{role}: {value} {unit or '(no unit)'}.",
             path,
-            "Choose a sensor with a plausible live value and the expected unit (% or W/kW).",
+            "" if plausible else sensor_hint(role),
         )
 
     if system.get("has_battery", True):

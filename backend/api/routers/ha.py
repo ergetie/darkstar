@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
@@ -7,8 +8,12 @@ import pytz
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.core.ha_client import get_ha_entity_state, make_ha_headers
-from backend.core.secrets import load_home_assistant_config, load_yaml
+from backend.core.ha_client import get_ha_entity_state, get_ha_http_client, make_ha_headers
+from backend.core.secrets import (
+    load_home_assistant_config,
+    load_yaml,
+    save_home_assistant_config,
+)
 
 logger = logging.getLogger("darkstar.api.ha")
 
@@ -297,15 +302,19 @@ async def get_ha_services() -> dict[str, list[str]]:
 )
 async def test_ha_connection(body: "HACredentials | None" = None) -> dict[str, Any]:
     """Test credentials without saving them; the add-on always uses Supervisor auth."""
-    from backend.core.ha_client import get_ha_http_client
-    from backend.core.ha_registry import get_registry
-
     config = load_home_assistant_config()
     if body is not None and not os.environ.get("SUPERVISOR_TOKEN"):
         config = body.model_dump()
     url, token = config.get("url"), config.get("token")
     if not url or not token:
         return {"status": "error", "message": "HA not configured"}
+    return await _test_ha_credentials(str(url), str(token))
+
+
+async def _test_ha_credentials(url: str, token: str) -> dict[str, Any]:
+    """Test an explicit HA URL/token pair without persisting it."""
+    from backend.core.ha_registry import get_registry
+
     try:
         client = get_ha_http_client()
         headers = make_ha_headers(token)
@@ -328,6 +337,27 @@ async def test_ha_connection(body: "HACredentials | None" = None) -> dict[str, A
         }
     except Exception:
         return {"status": "error", "message": "Could not connect to Home Assistant"}
+
+
+@router.put(
+    "/config",
+    summary="Save Home Assistant Connection",
+    description="Test a standalone Home Assistant connection and save credentials on success.",
+)
+async def save_ha_connection(body: HACredentials) -> dict[str, str]:
+    """Persist typed standalone credentials only after Home Assistant accepts them."""
+    if os.environ.get("SUPERVISOR_TOKEN"):
+        raise HTTPException(400, "Home Assistant add-on connections use Supervisor authentication")
+
+    result = await _test_ha_credentials(body.url, body.token)
+    if result.get("status") != "success":
+        raise HTTPException(400, result.get("message", "Could not connect to Home Assistant"))
+    try:
+        await asyncio.to_thread(save_home_assistant_config, body.url, body.token)
+    except (OSError, ValueError) as exc:
+        logger.exception("Could not save Home Assistant credentials")
+        raise HTTPException(500, "Could not save Home Assistant credentials") from exc
+    return {"status": "success", "message": "Connected and saved Home Assistant credentials"}
 
 
 @router.get("/discovery")

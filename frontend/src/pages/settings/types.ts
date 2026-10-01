@@ -130,12 +130,6 @@ export const systemSections: SettingsSection[] = [
                 label: 'Inverter Profile',
                 path: ['system', 'inverter_profile'],
                 type: 'select',
-                options: [
-                    { label: 'Generic (Standard)', value: 'generic' },
-                    { label: 'Deye / SunSynk', value: 'deye' },
-                    { label: 'Fronius', value: 'fronius' },
-                    { label: 'Victron', value: 'victron' },
-                ],
                 helper: 'Select your inverter brand. Note: Only Deye/SunSynk is fully supported. Others are experimental.',
             },
             {

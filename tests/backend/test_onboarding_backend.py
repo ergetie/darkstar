@@ -109,6 +109,37 @@ def test_nested_patch_current_and_missing():
     assert result["missing_required"] == ["executor.inverter.work_mode"]
 
 
+def test_load_power_suggestions_exclude_phase_sensors(config):
+    definitions = {
+        "input_sensors.load_power": {
+            "rules": ROLE_RULES["load_power"],
+            "required": True,
+            "exclude_phase_specific": True,
+        }
+    }
+    aggregate = entity(
+        "sensor.inverter_load_power",
+        friendly_name="Inverter Load Power",
+        device_class="power",
+        unit_of_measurement="W",
+    )
+    phase = entity(
+        "sensor.inverter_load_l1_power",
+        friendly_name="Inverter Load L1 Power",
+        device_class="power",
+        unit_of_measurement="W",
+    )
+
+    result = build_suggestions(config, [phase, aggregate], definitions)
+    assert [c["entity_id"] for c in result["candidates"]["input_sensors.load_power"]] == [
+        aggregate["entity_id"]
+    ]
+
+    phase_only = build_suggestions(config, [phase], definitions)
+    assert phase_only["candidates"]["input_sensors.load_power"] == []
+    assert phase_only["missing_required"] == ["input_sensors.load_power"]
+
+
 @pytest.mark.parametrize(
     "name,integration,manufacturer",
     [
@@ -284,7 +315,7 @@ def test_connection_body_and_addon(client, monkeypatch, addon, body, expected):
             "backend.api.routers.ha.load_home_assistant_config",
             return_value={"url": "http://saved", "token": "saved"},
         ),
-        patch("backend.core.ha_client.get_ha_http_client", return_value=MagicMock(get=get)),
+        patch("backend.api.routers.ha.get_ha_http_client", return_value=MagicMock(get=get)),
         patch("backend.core.ha_registry.get_registry", new=AsyncMock(return_value=({}, True))),
     ):
         result = client.post("/api/ha/test", json=body) if body else client.post("/api/ha/test")
@@ -376,6 +407,24 @@ async def readiness_with(config, states, plan=3):
         return await readiness.check_readiness(config)
 
 
+async def test_readiness_sensor_hints_are_role_specific_and_only_for_issues(config):
+    config["input_sensors"]["battery_soc"] = "sensor.battery_soc"
+    config["system"]["has_battery"] = True
+    battery_soc = entity("sensor.battery_soc", state="50", unit_of_measurement="%")
+
+    passed = await readiness_with(config, [battery_soc])
+    passed_check = next(check for check in passed["checks"] if check["id"] == "battery_soc")
+    assert passed_check["status"] == "pass"
+    assert passed_check["fix_hint"] == ""
+
+    battery_soc.update(state="50", unit_of_measurement="W")
+    warned = await readiness_with(config, [battery_soc])
+    warned_check = next(check for check in warned["checks"] if check["id"] == "battery_soc")
+    assert warned_check["status"] == "warn"
+    assert "0 and 100 %" in warned_check["fix_hint"]
+    assert "W or kW" not in warned_check["fix_hint"]
+
+
 async def test_readiness_flags_dual_and_sensor_states(config):
     config["system"].update(
         has_battery=False,
@@ -460,11 +509,60 @@ async def test_readiness_timeout_warn(config):
 async def test_connection_rejected_credentials(client, monkeypatch):
     monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
     with patch(
-        "backend.core.ha_client.get_ha_http_client",
+        "backend.api.routers.ha.get_ha_http_client",
         return_value=MagicMock(get=AsyncMock(return_value=httpx.Response(401))),
     ):
         result = client.post("/api/ha/test", json={"url": "http://typed", "token": "wrong"})
     assert result.json() == {"status": "error", "message": "Authentication failed"}
+
+
+async def test_save_ha_connection_persists_only_after_success(client, tmp_path, monkeypatch):
+    import yaml
+
+    from backend.core import secrets
+
+    monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
+    secret_path = tmp_path / "secrets.yaml"
+    secret_path.write_text("notifications:\n  api_key: keep-me\n", encoding="utf-8")
+    monkeypatch.setattr(secrets, "SECRETS_PATH", secret_path)
+    ok_client = MagicMock()
+    ok_client.get = AsyncMock(
+        side_effect=[
+            httpx.Response(200, json={}),
+            httpx.Response(200, json={"version": "2026.10"}),
+        ]
+    )
+    with (
+        patch("backend.api.routers.ha.get_ha_http_client", return_value=ok_client),
+        patch(
+            "backend.core.ha_registry.get_registry",
+            new=AsyncMock(return_value=({}, False)),
+        ),
+    ):
+        response = client.put(
+            "/api/ha/config",
+            json={"url": "http://typed-ha/", "token": "typed-token"},
+        )
+    assert response.status_code == 200
+    assert yaml.safe_load(secret_path.read_text(encoding="utf-8")) == {
+        "notifications": {"api_key": "keep-me"},
+        "home_assistant": {"url": "http://typed-ha", "token": "typed-token"},
+    }
+
+    failure_path = tmp_path / "failure.yaml"
+    failure_path.write_text("home_assistant:\n  url: http://old\n  token: old-token\n", encoding="utf-8")
+    monkeypatch.setattr(secrets, "SECRETS_PATH", failure_path)
+    failed_client = MagicMock()
+    failed_client.get = AsyncMock(return_value=httpx.Response(401))
+    with patch("backend.api.routers.ha.get_ha_http_client", return_value=failed_client):
+        response = client.put(
+            "/api/ha/config",
+            json={"url": "http://typed-ha", "token": "rejected-token"},
+        )
+    assert response.status_code == 400
+    assert yaml.safe_load(failure_path.read_text(encoding="utf-8")) == {
+        "home_assistant": {"url": "http://old", "token": "old-token"}
+    }
 
 
 async def test_profile_and_role_endpoints_nested_patch(client, config):
