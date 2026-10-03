@@ -47,11 +47,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🔧 Improvements
 
-#### [Tooling] Format config-help.json with Prettier
-
-**Goal:** `frontend/src/config-help.json` passes `prettier --check`, and stays that way.
-
-**Notes:** The file already failed `prettier --check` at commit `9a6a302a`, so the failure predates the counter removal. It isn't caught because the `format` script in `frontend/package.json` only covers `ts,tsx,css,md`, and neither lint nor CI runs Prettier on JSON. Running `prettier --write` once rewrites the whole file, because escaped characters like `—` become the actual characters. That change is cosmetic only, so do it in its own commit. Add `json` to the `format` glob, and to the lint check if one exists for Prettier, so the problem doesn't come back.
+<!-- Empty -->
 
 ---
 
