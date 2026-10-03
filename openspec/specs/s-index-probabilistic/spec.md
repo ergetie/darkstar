@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD
+Supply the S-Index with probabilistic PV and load forecast bounds (P10/P90) from the Aurora ML database, so the safety floor can account for forecast uncertainty.
 
 ## Requirements
 

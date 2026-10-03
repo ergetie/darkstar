@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD
+Show live load-balancer status on the Dashboard PowerFlow card through a Load Balancer tab when load balancing is enabled, and draw attention to active interventions without changing the Executor page.
 
 ## Requirements
 

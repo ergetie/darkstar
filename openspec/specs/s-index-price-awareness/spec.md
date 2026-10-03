@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD
+Raise the S-Index battery safety floor ahead of expensive price periods by adding a price-driven floor addon, computed from proximity-weighted price forecasts and scaled by battery capacity and risk level.
 
 ## Requirements
 
