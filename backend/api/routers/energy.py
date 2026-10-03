@@ -229,11 +229,24 @@ async def get_energy_range(
         start_iso = day_start.isoformat()
         end_iso = day_end_excl.isoformat()
 
-        # EV source attribution per slot, grid first (ev-cost-attribution):
-        # the EV takes the slot's grid import before any solar.
+        # EV source attribution per slot (ev-cost-attribution): solar is bounded
+        # by the measured PV surplus after base load and water heating, grid is
+        # the remainder, so grid + solar = EV energy and zero PV means zero solar.
+        # Battery charging is not subtracted, so solar is an upper bound.
+        # EV cost is capped at the slot's import so it stays a subset of
+        # import_cost_sek.
         ev_slot = func.max(0, func.coalesce(SlotObservation.ev_charging_kwh, 0))
-        ev_grid_slot = func.min(ev_slot, func.max(0, func.coalesce(SlotObservation.import_kwh, 0)))
-        ev_solar_slot = ev_slot - ev_grid_slot
+        pv_surplus_slot = func.max(
+            0,
+            func.coalesce(SlotObservation.pv_kwh, 0)
+            - func.coalesce(SlotObservation.load_kwh, 0)
+            - func.coalesce(SlotObservation.water_kwh, 0),
+        )
+        ev_solar_slot = func.min(ev_slot, pv_surplus_slot)
+        ev_grid_slot = ev_slot - ev_solar_slot
+        ev_cost_kwh_slot = func.min(
+            ev_grid_slot, func.max(0, func.coalesce(SlotObservation.import_kwh, 0))
+        )
 
         async with store.AsyncSession() as session:
             stmt = select(
@@ -273,11 +286,11 @@ async def get_energy_range(
                     * func.coalesce(SlotObservation.import_price_sek_kwh, 0)
                 ),
                 func.count(),
-                # EV attribution (grid first). ev_cost_sek is the EV's grid import
-                # cost only, a subset of import_cost_sek; solar is not priced.
+                # EV attribution (PV-surplus bound). ev_cost_sek is the EV's grid
+                # import cost only, a subset of import_cost_sek; solar is not priced.
                 func.sum(ev_grid_slot),
                 func.sum(ev_solar_slot),
-                func.sum(ev_grid_slot * func.coalesce(SlotObservation.import_price_sek_kwh, 0)),
+                func.sum(ev_cost_kwh_slot * func.coalesce(SlotObservation.import_price_sek_kwh, 0)),
             ).where(SlotObservation.slot_start >= start_iso, SlotObservation.slot_start < end_iso)
             result = await session.execute(stmt)
             row = result.fetchone()

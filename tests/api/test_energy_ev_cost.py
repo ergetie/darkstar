@@ -1,4 +1,5 @@
-"""EV attribution in the energy endpoints: grid first, EV cost is grid import cost only."""
+"""EV attribution in the energy endpoints: solar bounded by PV surplus, grid is the remainder,
+EV cost is grid import cost only (capped at the slot's import)."""
 
 from datetime import datetime, timedelta
 from unittest.mock import patch
@@ -44,32 +45,86 @@ async def _range(store: LearningStore) -> dict:
         return await get_energy_range(period="today", store=store)
 
 
+P = dict(import_price_sek_kwh=2.0, export_price_sek_kwh=0.5)
+
+
 @pytest.mark.asyncio
 async def test_night_charging_is_all_grid(store):
-    await _add(
-        store,
-        [dict(ev_charging_kwh=1.5, import_kwh=2.0, import_price_sek_kwh=1.0, export_price_sek_kwh=0.5)],
-    )
+    await _add(store, [dict(ev_charging_kwh=1.5, pv_kwh=0.0, import_kwh=2.0, **P)])
     r = await _range(store)
     assert r["ev_grid_kwh"] == 1.5
     assert r["ev_solar_kwh"] == 0.0
-    assert r["ev_cost_sek"] == 1.5
+    assert r["ev_cost_sek"] == pytest.approx(3.0)
     assert r["ev_solar_share"] == 0.0
 
 
 @pytest.mark.asyncio
-async def test_midday_partial_solar(store):
+async def test_night_under_recorded_import_is_not_solar(store):
+    await _add(store, [dict(ev_charging_kwh=1.65, pv_kwh=0.0, import_kwh=1.04, **P)])
+    r = await _range(store)
+    assert r["ev_solar_kwh"] == 0.0
+    assert r["ev_grid_kwh"] == 1.65
+    assert r["ev_solar_share"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_ev_cost_capped_at_slot_import(store):
+    # ev_grid (1.65) exceeds import (1.04): cost uses import, never above import cost.
+    await _add(store, [dict(ev_charging_kwh=1.65, pv_kwh=0.0, import_kwh=1.04, **P)])
+    r = await _range(store)
+    assert r["ev_grid_kwh"] > r["grid_import_kwh"]
+    assert r["ev_cost_sek"] == pytest.approx(2.08)
+    assert r["ev_cost_sek"] <= r["import_cost_sek"]
+
+
+@pytest.mark.asyncio
+async def test_midday_full_solar(store):
     await _add(
         store,
-        [dict(ev_charging_kwh=1.5, import_kwh=0.4, import_price_sek_kwh=2.0, export_price_sek_kwh=0.5)],
+        [dict(ev_charging_kwh=1.5, pv_kwh=2.0, load_kwh=0.4, water_kwh=0.0, import_kwh=0.0, **P)],
     )
     r = await _range(store)
-    assert r["ev_grid_kwh"] == 0.4
-    assert r["ev_solar_kwh"] == 1.1
+    assert r["ev_solar_kwh"] == 1.5
+    assert r["ev_grid_kwh"] == 0.0
+    assert r["ev_cost_sek"] == 0.0
+    assert r["ev_solar_share"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_partial_surplus(store):
+    await _add(
+        store,
+        [dict(ev_charging_kwh=1.5, pv_kwh=1.0, load_kwh=0.4, water_kwh=0.0, import_kwh=1.2, **P)],
+    )
+    r = await _range(store)
+    assert r["ev_solar_kwh"] == pytest.approx(0.6)
+    assert r["ev_grid_kwh"] == pytest.approx(0.9)
     # Only the grid part is priced; solar has no monetary value in the EV cost.
-    assert r["ev_cost_sek"] == pytest.approx(0.8)
+    assert r["ev_cost_sek"] == pytest.approx(1.8)
     assert r["ev_cost_sek"] <= r["import_cost_sek"]
     assert r["ev_grid_kwh"] + r["ev_solar_kwh"] == pytest.approx(r["ev_charging_kwh"])
+
+
+@pytest.mark.asyncio
+async def test_water_heating_reduces_surplus(store):
+    await _add(
+        store,
+        [dict(ev_charging_kwh=1.5, pv_kwh=2.0, load_kwh=0.4, water_kwh=1.0, import_kwh=1.0, **P)],
+    )
+    r = await _range(store)
+    assert r["ev_solar_kwh"] == pytest.approx(0.6)
+    assert r["ev_grid_kwh"] == pytest.approx(0.9)
+
+
+@pytest.mark.asyncio
+async def test_load_above_pv_is_all_grid(store):
+    await _add(
+        store,
+        [dict(ev_charging_kwh=1.0, pv_kwh=0.3, load_kwh=0.5, water_kwh=0.0, import_kwh=1.2, **P)],
+    )
+    r = await _range(store)
+    assert r["ev_solar_kwh"] == 0.0
+    assert r["ev_grid_kwh"] == 1.0
 
 
 @pytest.mark.asyncio
@@ -77,8 +132,8 @@ async def test_period_share_and_sum(store):
     await _add(
         store,
         [
-            dict(ev_charging_kwh=6.0, import_kwh=6.0, import_price_sek_kwh=1.0, export_price_sek_kwh=0.5),
-            dict(ev_charging_kwh=4.0, import_kwh=0.0, import_price_sek_kwh=1.0, export_price_sek_kwh=0.5),
+            dict(ev_charging_kwh=6.0, pv_kwh=0.0, import_kwh=6.0, import_price_sek_kwh=1.0),
+            dict(ev_charging_kwh=4.0, pv_kwh=5.0, load_kwh=0.5, import_kwh=0.0, import_price_sek_kwh=1.0),
         ],
     )
     r = await _range(store)
@@ -91,21 +146,22 @@ async def test_period_share_and_sum(store):
 
 @pytest.mark.asyncio
 async def test_no_ev_energy(store):
-    await _add(store, [dict(ev_charging_kwh=0.0, import_kwh=2.0, import_price_sek_kwh=1.0)])
+    await _add(store, [dict(ev_charging_kwh=0.0, pv_kwh=3.0, import_kwh=2.0, import_price_sek_kwh=1.0)])
     r = await _range(store)
     assert r["ev_cost_sek"] == 0.0
     assert r["ev_grid_kwh"] == 0.0
+    assert r["ev_solar_kwh"] == 0.0
     assert r["ev_solar_share"] is None
 
 
 @pytest.mark.asyncio
 async def test_null_prices_and_inputs_count_as_zero(store):
-    await _add(store, [dict(ev_charging_kwh=1.0, import_kwh=None)])
+    await _add(store, [dict(ev_charging_kwh=1.0, import_kwh=None, pv_kwh=None, load_kwh=None)])
     r = await _range(store)
-    assert r["ev_grid_kwh"] == 0.0
-    assert r["ev_solar_kwh"] == 1.0
+    assert r["ev_grid_kwh"] == 1.0
+    assert r["ev_solar_kwh"] == 0.0
     assert r["ev_cost_sek"] == 0.0
-    assert r["ev_solar_share"] == 1.0
+    assert r["ev_solar_share"] == 0.0
 
 
 @pytest.mark.asyncio
@@ -125,23 +181,11 @@ async def test_energy_today_returns_ev_cost_fields(store):
 
     await _add(
         store,
-        [dict(ev_charging_kwh=1.5, import_kwh=0.4, import_price_sek_kwh=2.0, export_price_sek_kwh=0.5)],
+        [dict(ev_charging_kwh=1.5, pv_kwh=1.0, load_kwh=0.4, import_kwh=1.2, **P)],
     )
     with patch("backend.api.routers.energy.load_yaml", return_value=CONFIG):
         r = await get_energy_today(store=store)
-    assert r["ev_grid_kwh"] == 0.4
-    assert r["ev_solar_kwh"] == 1.1
-    assert r["ev_cost_sek"] == pytest.approx(0.8)
-    assert r["ev_solar_share"] == pytest.approx(1.1 / 1.5, abs=0.01)
-
-
-@pytest.mark.asyncio
-async def test_solar_only_charging_has_no_cost(store):
-    await _add(
-        store,
-        [dict(ev_charging_kwh=2.0, import_kwh=0.0, import_price_sek_kwh=2.0, export_price_sek_kwh=0.8)],
-    )
-    r = await _range(store)
-    assert r["ev_solar_kwh"] == 2.0
-    assert r["ev_cost_sek"] == 0.0
-    assert r["ev_solar_share"] == 1.0
+    assert r["ev_grid_kwh"] == pytest.approx(0.9)
+    assert r["ev_solar_kwh"] == pytest.approx(0.6)
+    assert r["ev_cost_sek"] == pytest.approx(1.8)
+    assert r["ev_solar_share"] == pytest.approx(0.4, abs=0.01)

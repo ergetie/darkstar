@@ -1,8 +1,10 @@
-# ev-cost-attribution Specification
+## RENAMED Requirements
 
-## Purpose
-Attribute recorded EV charging energy per slot to solar (bounded by the measured PV surplus) and grid (the remainder), to produce the EV's grid import cost and an informational solar-share figure.
-## Requirements
+- FROM: `### Requirement: EV energy is attributed to grid first, then solar, per slot`
+- TO: `### Requirement: EV energy is attributed to solar by measured PV surplus, grid is the remainder`
+
+## MODIFIED Requirements
+
 ### Requirement: EV energy is attributed to solar by measured PV surplus, grid is the remainder
 For each recorded slot, the system SHALL split the slot's `ev_charging_kwh` into:
 - `pv_surplus_kwh = max(0, pv_kwh − load_kwh − water_kwh)`
@@ -49,14 +51,3 @@ The EV cost of a slot SHALL be `min(ev_grid_kwh, import_kwh) × import_price_sek
 #### Scenario: Cost never exceeds the slot's import cost
 - **WHEN** a slot has `ev_grid_kwh=1.65` and `import_kwh=1.04` at import price 2.00
 - **THEN** the slot's EV cost SHALL be 2.08 SEK
-
-### Requirement: Period EV solar share
-For a period, the solar share SHALL be `Σ ev_solar_kwh / Σ ev_charging_kwh`, or null when `Σ ev_charging_kwh` is 0. It is informational only and does not affect the EV cost.
-
-#### Scenario: Share over a day
-- **WHEN** a day has 10 kWh of EV energy, 4 kWh of it attributed to solar
-- **THEN** the solar share SHALL be 0.4
-
-#### Scenario: No EV energy
-- **WHEN** a period has no EV energy
-- **THEN** the solar share SHALL be null
