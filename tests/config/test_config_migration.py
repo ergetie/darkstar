@@ -1611,3 +1611,111 @@ class TestWarnEvChargersMissingPhases:
         messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert len(messages) == 1
         assert "Configure phases for Garage to enable planning" in messages[0]
+
+
+COUNTER_KEYS = [
+    "total_pv_production",
+    "total_load_consumption",
+    "total_grid_import",
+    "total_grid_export",
+    "total_battery_charge",
+    "total_battery_discharge",
+]
+
+
+class TestCounterKeyRemoval:
+    """recorder-slot-aligned-energy: cumulative counter config is migrated away."""
+
+    def test_removes_counters_and_other_obsolete_keys_only(self):
+        from backend.config_migration import remove_deprecated_keys
+
+        config = {
+            "input_sensors": {
+                **dict.fromkeys(COUNTER_KEYS, "sensor.some_counter"),
+                "load_power": "sensor.load",
+                "synthetic_daily_load_kwh": 18,
+            },
+            "recorder": {"max_meter_delta_kwh": 80.0},
+            "learning": {"enable": True, "sensor_map": {"sensor.x": "pv"}},
+        }
+        result, changed = remove_deprecated_keys(config)
+        assert changed
+        assert result["input_sensors"] == {
+            "load_power": "sensor.load",
+            "synthetic_daily_load_kwh": 18,
+        }
+        assert "recorder" not in result
+        assert result["learning"] == {"enable": True}
+
+    def test_is_idempotent(self):
+        from backend.config_migration import remove_deprecated_keys
+
+        config = {"input_sensors": {"total_pv_production": "sensor.x", "pv_power": "sensor.pv"}}
+        remove_deprecated_keys(config)
+        _, changed = remove_deprecated_keys(config)
+        assert not changed
+
+    def test_recorder_section_with_other_keys_is_kept(self):
+        from backend.config_migration import remove_deprecated_keys
+
+        config = {"recorder": {"max_meter_delta_kwh": 80.0, "other": 1}}
+        result, _ = remove_deprecated_keys(config)
+        assert result["recorder"] == {"other": 1}
+
+    def test_default_template_has_no_counter_keys(self):
+        import yaml
+
+        with Path("config.default.yaml").open(encoding="utf-8") as f:
+            default = yaml.safe_load(f)
+        assert not set(COUNTER_KEYS) & set(default["input_sensors"])
+        assert "recorder" not in default
+        assert "sensor_map" not in default["learning"]
+
+    @pytest.mark.asyncio
+    async def test_full_migration_survives_template_merge_and_moves_numeric_load(
+        self, tmp_path, monkeypatch
+    ):
+        import shutil
+
+        from ruamel.yaml import YAML
+
+        import backend.config_migration as cm
+
+        yaml_loader = YAML()
+        config_file = tmp_path / "config.yaml"
+        default_file = tmp_path / "config.default.yaml"
+        shutil.copy("config.default.yaml", default_file)
+        with default_file.open() as f:
+            user = yaml_loader.load(f)
+        user["input_sensors"]["load_power"] = "sensor.house_load"
+        user["input_sensors"]["pv_power"] = "sensor.pv"
+        for key in COUNTER_KEYS:
+            user["input_sensors"][key] = f"sensor.{key}"
+        user["input_sensors"]["total_load_consumption"] = "18"
+        user["recorder"] = {"max_meter_delta_kwh": 80.0}
+        user["learning"]["sensor_map"] = {"sensor.x": "pv"}
+        with config_file.open("w") as f:
+            yaml_loader.dump(user, f)
+
+        monkeypatch.setenv(cm.BACKUP_DIR_ENV, str(tmp_path / "backups"))
+        monkeypatch.setattr(
+            cm,
+            "Path",
+            lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else Path(p),
+        )
+
+        await cm.migrate_config(strict_validation=False)
+
+        with config_file.open() as f:
+            migrated = yaml_loader.load(f)
+        assert not set(COUNTER_KEYS) & set(migrated["input_sensors"])
+        assert "recorder" not in migrated
+        assert "sensor_map" not in migrated["learning"]
+        assert migrated["input_sensors"]["synthetic_daily_load_kwh"] == 18
+        assert migrated["input_sensors"]["load_power"] == "sensor.house_load"
+        assert migrated["input_sensors"]["pv_power"] == "sensor.pv"
+
+        # A second run changes nothing
+        before = config_file.read_text()
+        await cm.migrate_config(strict_validation=False)
+        assert config_file.read_text() == before

@@ -10,8 +10,6 @@ WEIGHTS = {
     "entity_id_regex": 15,
     "name_regex": 10,
     "default_entity": 50,
-    "lifetime": 10,
-    "daily": -15,
 }
 MIN_SCORE = 25
 PHASE_SPECIFIC_RE = re.compile(
@@ -24,7 +22,6 @@ def rank_candidates(
     rules: dict[str, Any],
     *,
     default_entity: str | None = None,
-    cumulative: bool = False,
     exclude_phase_specific: bool = False,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
@@ -32,12 +29,6 @@ def rank_candidates(
         if entity.get("domain") not in rules.get("domain", []):
             continue
         if exclude_phase_specific and _is_phase_specific(entity):
-            continue
-        if cumulative and (
-            entity.get("device_class") != "energy"
-            or entity.get("unit_of_measurement") not in ("kWh", "Wh", "MWh")
-            or entity.get("state_class") not in ("total", "total_increasing")
-        ):
             continue
         score = 0
         reasons: list[str] = []
@@ -58,12 +49,6 @@ def rank_candidates(
         if default_entity and entity.get("entity_id") == default_entity:
             score += WEIGHTS["default_entity"]
             reasons.append("default_entity")
-        if cumulative:
-            name = f"{entity.get('entity_id', '')} {entity.get('friendly_name', '')}"
-            for rule, pattern in (("lifetime", r"total|lifetime"), ("daily", r"today|daily")):
-                if re.search(pattern, name, re.IGNORECASE):
-                    score += WEIGHTS[rule]
-                    reasons.append(rule)
         if score >= MIN_SCORE:
             candidates.append(
                 {"entity_id": entity["entity_id"], "score": score, "reasons": reasons}
@@ -160,7 +145,6 @@ def build_suggestions(
             entities,
             definition["rules"],
             default_entity=definition.get("default_entity"),
-            cumulative=definition.get("cumulative", False),
             exclude_phase_specific=definition.get("exclude_phase_specific", False),
         )
         candidates[path], current[path] = ranked, value_at_path(config, path)

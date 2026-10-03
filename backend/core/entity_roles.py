@@ -3,7 +3,6 @@
 from typing import Any
 
 POWER_UNITS = ["W", "kW"]
-ENERGY_UNITS = ["kWh", "Wh", "MWh"]
 ROLE_RULES: dict[str, dict[str, Any]] = {
     "battery_soc": {
         "domain": ["sensor"],
@@ -35,21 +34,6 @@ for _role in (
         "unit": POWER_UNITS,
         "entity_id_regex": _prefix,
         "name_regex": _prefix,
-    }
-for _role, _pattern in {
-    "total_pv_production": r"pv|solar|yield",
-    "total_load_consumption": r"load|consumption",
-    "total_grid_import": r"import",
-    "total_grid_export": r"export",
-    "total_battery_charge": r"battery.*charge",
-    "total_battery_discharge": r"battery.*discharge",
-}.items():
-    ROLE_RULES[_role] = {
-        "domain": ["sensor"],
-        "device_class": ["energy"],
-        "unit": ENERGY_UNITS,
-        "entity_id_regex": _pattern,
-        "name_regex": _pattern,
     }
 ROLE_RULES.update(
     {

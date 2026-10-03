@@ -1,72 +1,58 @@
 """Sensor-anomaly fault injection (spec req 3).
 
-One bad reading must not produce a wildly wrong recorded slot. The recorder's
-delta layer (RecorderStateStore) is the guard surface for cumulative meters.
+One bad reading must not produce a wildly wrong recorded slot. Slot energy is
+step-integrated from power history, so the guard surfaces are the integrator
+(unavailable and garbage states are skipped, negative samples never become PV or
+load energy) and the per-slot plausibility ceiling.
 """
 
 from datetime import datetime, timedelta
 
 import pytz
 
-from backend.recorder import RecorderStateStore
+from backend.core.ha_client import integrate_power_points, parse_power_states
+from backend.validation import validate_energy_values
 
-TZ = pytz.timezone("Europe/Stockholm")
-
-
-def primed_meter(tmp_path, key: str = "import", value: float = 1000.0) -> RecorderStateStore:
-    m = RecorderStateStore(state_file=tmp_path / "recorder_state.json")
-    m.load()
-    m.get_delta(
-        key,
-        value,
-        datetime.now(TZ) - timedelta(minutes=15),
-        sensor_timestamp=datetime.now(TZ) - timedelta(minutes=15),
-    )
-    return m
+START = datetime(2026, 10, 1, 12, 0, tzinfo=pytz.UTC)
+END = START + timedelta(minutes=15)
 
 
-class TestCumulativeMeterAnomalies:
-    def test_negative_delta_rejected(self, tmp_path):
-        """Spec scenario: cumulative meter goes backwards -> no negative energy."""
-        m = primed_meter(tmp_path)
-        delta, valid = m.get_delta(
-            "import", 900.0, datetime.now(TZ), sensor_timestamp=datetime.now(TZ)
-        )
-        assert valid is False
-        assert delta is None
+def state(value: str, minutes: float, unit: str = "kW") -> dict:
+    return {
+        "state": value,
+        "last_changed": (START + timedelta(minutes=minutes)).isoformat(),
+        "attributes": {"unit_of_measurement": unit},
+    }
 
-    def test_stuck_meter_yields_zero_not_garbage(self, tmp_path):
-        m = primed_meter(tmp_path)
-        delta, valid = m.get_delta(
-            "import", 1000.0, datetime.now(TZ), sensor_timestamp=datetime.now(TZ)
-        )
-        assert valid is True
-        assert delta == 0.0
 
-    def test_spike_delta_is_not_amplified_by_scaling(self, tmp_path):
-        """A large jump outside the 5-60 min scaling window must be passed raw
-        (never scaled up)."""
-        m = primed_meter(tmp_path)
-        # sensor timestamp only 1 min after previous -> outside scaling window
-        delta, valid = m.get_delta(
-            "import",
-            1002.0,
-            datetime.now(TZ),
-            sensor_timestamp=datetime.now(TZ) - timedelta(minutes=14),
-        )
-        assert valid is True
-        assert delta is not None
-        # raw jump is 2.0 kWh; scaling (900/60 = 15x) must NOT inflate it
-        assert delta <= 2.0 + 1e-9
+def integrate(states: list[dict]) -> tuple[float, float] | None:
+    return integrate_power_points(parse_power_states(states), START, END)
 
-    def test_unit_outlier_spike_is_recorded_raw(self, tmp_path):
-        """A 500 kWh jump in one 15-min slot (~2 MW — physically impossible for
-        this site) is now rejected by RecorderStateStore's plausibility ceiling
-        (recorder.max_meter_delta_kwh, default 50 kWh) instead of being recorded
-        raw. The baseline still advances so the next reading computes correctly."""
-        m = primed_meter(tmp_path)
-        delta, valid = m.get_delta(
-            "import", 1500.0, datetime.now(TZ), sensor_timestamp=datetime.now(TZ)
-        )
-        assert valid is False
-        assert delta is None
+
+class TestPowerHistoryAnomalies:
+    def test_unavailable_gap_holds_the_last_good_value(self):
+        """An 'unavailable' blip is skipped, not integrated as zero or garbage."""
+        positive, negative = integrate([state("2.0", 0), state("unavailable", 5), state("2.0", 10)])
+        assert positive == 0.5
+        assert negative == 0.0
+
+    def test_garbage_state_is_ignored(self):
+        positive, _ = integrate([state("2.0", 0), state("not-a-number", 7)])
+        assert positive == 0.5
+
+    def test_sensor_dead_for_the_whole_slot_yields_no_value(self):
+        """No valid sample at all -> None, so the recorder uses its snapshot fallback."""
+        assert integrate([state("unavailable", 0), state("unknown", 5)]) is None
+
+    def test_negative_glitch_is_kept_out_of_the_positive_side(self):
+        """A negative PV reading (inverter standby) must not reduce PV energy."""
+        positive, negative = integrate([state("3.0", 0), state("-0.2", 10)])
+        assert positive == 3.0 * 10 / 60
+        assert negative > 0.0  # reported separately; PV/load callers drop it
+
+    def test_unit_outlier_spike_is_zeroed_by_the_slot_ceiling(self):
+        """A W reading mistaken for kW (2 MW for the slot) is rejected, not recorded."""
+        positive, _ = integrate([state("2000", 0, unit="kW")])
+        record = validate_energy_values({"pv_kwh": positive, "load_kwh": 1.0}, max_kwh=16.0)
+        assert record["pv_kwh"] == 0.0
+        assert record["load_kwh"] == 1.0

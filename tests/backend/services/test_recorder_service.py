@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -78,3 +79,37 @@ async def test_loop_runs_startup_backfills_then_sleeps_and_records():
     record.assert_awaited_once()
     sleep_to_boundary.assert_awaited_once()
     assert calls == ["sleep", "record"]
+
+
+@pytest.mark.asyncio
+async def test_start_removes_obsolete_state_file(tmp_path, caplog):
+    state_file = tmp_path / "recorder_state.json"
+    state_file.write_text("{}", encoding="utf-8")
+    service = RecorderService()
+
+    with (
+        patch("backend.services.recorder_service.OBSOLETE_STATE_FILE", state_file),
+        patch.object(service, "_loop", new_callable=AsyncMock),
+        caplog.at_level(logging.INFO, logger="darkstar.services.recorder"),
+    ):
+        await service.start()
+        await service.stop()
+
+    assert not state_file.exists()
+    assert any("Removed obsolete recorder state file" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_start_without_state_file_is_silent(tmp_path, caplog):
+    service = RecorderService()
+
+    with (
+        patch("backend.services.recorder_service.OBSOLETE_STATE_FILE", tmp_path / "missing.json"),
+        patch.object(service, "_loop", new_callable=AsyncMock),
+        caplog.at_level(logging.INFO, logger="darkstar.services.recorder"),
+    ):
+        await service.start()
+        await service.stop()
+
+    assert not any("obsolete" in r.getMessage().lower() for r in caplog.records)
+    assert not any(r.levelno >= logging.WARNING for r in caplog.records)

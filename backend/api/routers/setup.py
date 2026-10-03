@@ -44,7 +44,6 @@ async def get_setup_suggestions(roles: str | None = None) -> dict[str, Any]:
         definitions[ROLE_PATHS[role]] = {
             "rules": rules,
             "required": role in ("load_power", "battery_soc", "grid_power"),
-            "cumulative": role.startswith("total_"),
             "exclude_phase_specific": role == "load_power",
         }
     try:

@@ -138,6 +138,25 @@ DEPRECATED_NESTED_KEYS = {
         "low_soc_export_floor",  # Moved to export.export_floor_soc_percent
         "excess_pv_threshold_kw",  # Removed: excess PV now handled by planner
     ],
+    "input_sensors": [
+        # recorder-slot-aligned-energy: slot energy is integrated from power history, so
+        # the cumulative energy counters are never read. _migrate_synthetic_load() moves a
+        # legacy numeric total_load_consumption to synthetic_daily_load_kwh first.
+        "total_pv_production",
+        "total_load_consumption",
+        "total_grid_import",
+        "total_grid_export",
+        "total_battery_charge",
+        "total_battery_discharge",
+    ],
+    "recorder": [
+        # recorder-slot-aligned-energy: only guarded counter deltas
+        "max_meter_delta_kwh",
+    ],
+    "learning": [
+        # recorder-slot-aligned-energy: only mapped counter series to canonical names
+        "sensor_map",
+    ],
     "load_balancing": [
         # load-balancing-completion: replaced (together with loads[].priority)
         # by the ordered give_way_order[] list. _migrate_give_way_order() reads
@@ -186,6 +205,12 @@ def remove_deprecated_keys(config: dict[str, Any]) -> tuple[dict[str, Any], bool
                         del obj[key]
                         logger.info(f"✂️  Removed deprecated key: '{path}.{key}'")
                         changed = True
+
+    # The recorder section held only max_meter_delta_kwh; drop it once empty.
+    if config.get("recorder") == {}:
+        del config["recorder"]
+        logger.info("✂️  Removed empty section: 'recorder'")
+        changed = True
 
     return config, changed
 

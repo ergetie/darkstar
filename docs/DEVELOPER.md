@@ -160,8 +160,8 @@ System parameters are defined in `config.yaml`. Credentials live in `secrets.yam
 *   **Input Sensors**: Map your canonical sensor names to Home Assistant Entity IDs.
     ```yaml
     input_sensors:
-      total_load_consumption: "sensor.inverter_load_total"
-      total_pv_production: "sensor.inverter_pv_total"
+      load_power: "sensor.inverter_load_power"
+      pv_power: "sensor.inverter_pv_power"
       battery_soc: "sensor.battery_soc"
       vacation_mode: "input_boolean.vacation"
     ```

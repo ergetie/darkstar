@@ -1,7 +1,7 @@
 import asyncio
 import logging
-import re
 import threading
+from bisect import bisect_right
 from collections.abc import Callable, Coroutine
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -221,55 +221,158 @@ async def get_ha_sensor_kw_normalized(entity_id: str) -> float | None:
         return None
 
 
-def _normalize_energy_to_kwh(value: float, unit: str | None) -> float:
-    """Normalize energy value to kWh based on Home Assistant unit_of_measurement.
+PowerPoint = tuple[datetime, float]
 
-    Handles common energy units: Wh, kWh, MWh with case-insensitive matching.
-    Uses magnitude-based heuristic when no unit is specified.
 
-    Args:
-        value: The raw numeric value from HA
-        unit: The unit_of_measurement attribute from HA state
+def _state_timestamp(state: dict[str, Any]) -> datetime | None:
+    for key in ("last_changed", "last_updated"):
+        raw = state.get(key)
+        if raw:
+            try:
+                return datetime.fromisoformat(str(raw))
+            except (TypeError, ValueError):
+                continue
+    return None
 
-    Returns:
-        Value normalized to kWh
+
+def _power_to_kw(value: float, unit: str | None) -> float:
+    unit = str(unit or "").upper()
+    if unit == "W":
+        return value / 1000.0
+    if unit == "MW":
+        return value * 1000.0
+    return value
+
+
+def parse_power_states(states: list[dict[str, Any]]) -> list[PowerPoint]:
+    """Parse HA history states of one power sensor into time-sorted ``(timestamp, kW)`` points.
+
+    States without a timestamp or numeric value are skipped. A state lacking a unit
+    inherits the last unit seen earlier in the series (HA often reports it only on the
+    first state).
     """
-    if not unit:
-        if value > 100_000:
-            result = value / 1000.0
-            logger.info(
-                "Energy normalization: %s (no unit) → %s kWh (Wh inferred from magnitude)",
-                value,
-                result,
-            )
-            return result
-        logger.debug("Energy normalization: %s (no unit) → %s kWh (assumed kWh)", value, value)
-        return value
+    points: list[PowerPoint] = []
+    cached_unit: str | None = None
+    stamped = [(ts, state) for state in states if (ts := _state_timestamp(state)) is not None]
+    stamped.sort(key=lambda item: item[0])
+    for ts, state in stamped:
+        state_val = state.get("state", "")
+        if state_val in ("unknown", "unavailable", "", None):
+            continue
+        try:
+            value = float(state_val)
+        except (TypeError, ValueError):
+            continue
 
-    unit_clean = re.sub(r"[^A-Z0-9]", "", str(unit).upper())
+        attributes: dict[str, Any] = state.get("attributes") or {}
+        unit: str | None = attributes.get("unit_of_measurement")
+        if unit is not None and unit != "":
+            cached_unit = unit
+        if unit is None or unit == "":
+            unit = cached_unit
+        points.append((ts, _power_to_kw(value, unit)))
+    return points
 
-    if unit_clean in ("WH", "WATTHOUR", "WATTHOURS"):
-        result = value / 1000.0
-        logger.debug(
-            "Energy normalization: %s %s → %s kWh (from unit_of_measurement)", value, unit, result
+
+def integrate_power_points(
+    points: list[PowerPoint],
+    start: datetime,
+    end: datetime,
+) -> tuple[float, float] | None:
+    """Step-integrate (zero-order hold) parsed power points over ``[start, end]``.
+
+    Returns ``(positive_kwh, negative_kwh)``, where each sample interval is added to
+    one side by the sign of its held value (negative energy is returned as a magnitude).
+    The last state at or before ``start`` is the pre-window value. Returns None when
+    there are no valid points at all.
+    """
+    if not points:
+        return None
+
+    positive = 0.0
+    negative = 0.0
+    current_kw: float | None = None
+    cursor = start
+
+    def accumulate(kw: float, until: datetime) -> None:
+        nonlocal positive, negative
+        kwh = kw * ((until - cursor).total_seconds() / 3600.0)
+        if kwh >= 0:
+            positive += kwh
+        else:
+            negative -= kwh
+
+    # Points are time-sorted: the last one at or before ``start`` is the pre-window state.
+    first_in_window = bisect_right(points, start, key=lambda point: point[0])
+    if first_in_window:
+        current_kw = points[first_in_window - 1][1]
+
+    for ts, value_kw in points[first_in_window:]:
+        if ts >= end:
+            break
+
+        if current_kw is not None and cursor < ts:
+            accumulate(current_kw, ts)
+
+        current_kw = value_kw
+        cursor = ts
+
+    if current_kw is not None and cursor < end:
+        accumulate(current_kw, end)
+
+    return positive, negative
+
+
+async def get_power_history_batch(
+    entity_ids: list[str],
+    start: datetime,
+    end: datetime,
+    timeout: float = 12.0,
+) -> dict[str, list[dict[str, Any]]] | None:
+    """Fetch the HA history of several entities in ONE request.
+
+    Returns raw history states per requested entity (an entity HA returned nothing
+    for maps to an empty list), or None when the request failed or HA is not
+    configured. A failure is logged once.
+    """
+    ha_config = secrets.load_home_assistant_config()
+    url = ha_config.get("url")
+    token = ha_config.get("token")
+    entities = [entity for entity in dict.fromkeys(entity_ids) if entity]
+
+    if not url or not token or not entities:
+        return None
+
+    api_url = f"{url.rstrip('/')}/api/history/period/{start.isoformat()}"
+    params = {
+        "filter_entity_id": ",".join(entities),
+        "end_time": end.isoformat(),
+        "significant_changes_only": False,
+        "minimal_response": False,
+    }
+
+    try:
+        client = get_ha_http_client()
+        response = await client.get(
+            api_url, headers=make_ha_headers(token), params=params, timeout=timeout
         )
-        return result
-    elif unit_clean in ("KWH", "KILOWATTHOUR", "KILOWATTHOURS"):
-        logger.debug(
-            "Energy normalization: %s %s → %s kWh (from unit_of_measurement)", value, unit, value
-        )
-        return value
-    elif unit_clean in ("MWH", "MEGAWATTHOUR", "MEGAWATTHOURS"):
-        result = value * 1000.0
-        logger.debug(
-            "Energy normalization: %s %s → %s kWh (from unit_of_measurement)", value, unit, result
-        )
-        return result
-    else:
-        logger.warning(
-            "Energy normalization: unknown unit '%s' for value %s, assuming kWh", unit, value
-        )
-        return value
+        response.raise_for_status()
+        data = response.json()
+    except Exception as exc:
+        logger.warning("get_power_history_batch(%d entities): %s", len(entities), exc)
+        return None
+
+    result: dict[str, list[dict[str, Any]]] = {entity: [] for entity in entities}
+    all_series: list[list[dict[str, Any]]] = data or []
+    for series in all_series:
+        if not series:
+            continue
+        entity_id: str | None = next((s["entity_id"] for s in series if s.get("entity_id")), None)
+        if entity_id in result:
+            result[entity_id] = series
+        elif len(entities) == 1 and len(all_series) == 1:
+            result[entities[0]] = series
+    return result
 
 
 async def get_energy_from_power_history(
@@ -279,110 +382,15 @@ async def get_energy_from_power_history(
 ) -> float | None:
     """Fetch power sensor history and compute energy via step integration.
 
-    Returns energy in kWh, or None if history unavailable.
+    Returns the signed energy in kWh, or None if history unavailable.
     """
-    ha_config = secrets.load_home_assistant_config()
-    url = ha_config.get("url")
-    token = ha_config.get("token")
-
-    if not url or not token or not entity_id:
+    history = await get_power_history_batch([entity_id], start, end)
+    if not history:
         return None
-
-    api_url = f"{url.rstrip('/')}/api/history/period/{start.isoformat()}"
-    params = {
-        "filter_entity_id": entity_id,
-        "end_time": end.isoformat(),
-        "significant_changes_only": False,
-        "minimal_response": False,
-    }
-
-    try:
-        client = get_ha_http_client()
-        response = await client.get(
-            api_url, headers=make_ha_headers(token), params=params, timeout=12.0
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        if not data or not data[0]:
-            return None
-
-        states = data[0]
-        valid_points = 0
-        energy_kwh = 0.0
-        current_kw: float | None = None
-        cursor = start
-
-        def state_timestamp(state: dict[str, Any]) -> datetime | None:
-            for key in ("last_changed", "last_updated"):
-                raw = state.get(key)
-                if raw:
-                    try:
-                        return datetime.fromisoformat(str(raw))
-                    except (TypeError, ValueError):
-                        continue
-            return None
-
-        def normalize_kw(value: float, unit: str | None) -> float:
-            unit = str(unit or "").upper()
-            if unit == "W":
-                return value / 1000.0
-            if unit == "MW":
-                return value * 1000.0
-            return value
-
-        cached_unit: str | None = None
-        for state in sorted(states, key=lambda item: state_timestamp(item) or start):
-            ts = state_timestamp(state)
-            if ts is None:
-                continue
-            state_val = state.get("state", "")
-            if state_val in ("unknown", "unavailable", "", None):
-                continue
-
-            try:
-                value = float(state_val)
-            except (TypeError, ValueError):
-                continue
-
-            attributes = state.get("attributes", {})
-            unit = attributes.get("unit_of_measurement")
-            if unit is not None and unit != "":
-                cached_unit = unit
-            if unit is None or unit == "":
-                unit = cached_unit
-
-            value_kw = normalize_kw(value, unit)
-            valid_points += 1
-
-            if ts <= start:
-                current_kw = value_kw
-                cursor = start
-                continue
-
-            if ts >= end:
-                if current_kw is not None and cursor < end:
-                    energy_kwh += current_kw * ((end - cursor).total_seconds() / 3600.0)
-                cursor = end
-                break
-
-            if current_kw is not None and cursor < ts:
-                energy_kwh += current_kw * ((ts - cursor).total_seconds() / 3600.0)
-
-            current_kw = value_kw
-            cursor = ts
-
-        if valid_points == 0:
-            return None
-
-        if current_kw is not None and cursor < end:
-            energy_kwh += current_kw * ((end - cursor).total_seconds() / 3600.0)
-
-        return energy_kwh
-
-    except Exception as exc:
-        logger.warning("get_energy_from_power_history(%s): %s", entity_id, exc)
+    integrated = integrate_power_points(parse_power_states(history[entity_id]), start, end)
+    if integrated is None:
         return None
+    return integrated[0] - integrated[1]
 
 
 async def get_ha_bool(entity_id: str, connected_states: Any = None) -> bool:
@@ -676,6 +684,7 @@ async def get_initial_state(
 
 
 _SLOT_SECONDS = 15 * 60
+_LOAD_PROFILE_DAYS = 7
 
 
 def _distribute_interval_energy(
@@ -726,7 +735,11 @@ def _distribute_interval_energy(
 
 
 async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
-    """Fetch actual load profile from Home Assistant historical data (Async)."""
+    """Build the average daily load profile from 7 days of ``load_power`` history (Async).
+
+    The power history is step-integrated per 15-minute slot and spread over the 96
+    local time-of-day slots. This is total load, as recorded by the load sensor.
+    """
     ha_config = secrets.load_home_assistant_config()
     url: str | None = cast("str | None", ha_config.get("url"))
     token = cast("str", ha_config.get("token", ""))
@@ -737,128 +750,64 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
     else:
         input_sensors = {}
 
-    entity_id: str | None = input_sensors.get(
-        "total_load_consumption", ha_config.get("consumption_entity_id")
-    )
+    entity_id: str | None = input_sensors.get("load_power")
 
     if not all([url, token, entity_id]):
         logger.warning("Missing Home Assistant configuration for load profile")
         return get_dummy_load_profile(config)
 
-    headers = make_ha_headers(token)
+    entity = cast("str", entity_id)
     end_time = datetime.now(pytz.UTC)
-    start_time = end_time - timedelta(days=7)
-
-    url_str: str = cast("str", url)
-    api_url = f"{url_str.rstrip('/')}/api/history/period/{start_time.isoformat()}"
-    params = {
-        "filter_entity_id": entity_id,
-        "end_time": end_time.isoformat(),
-        "significant_changes_only": False,
-        "minimal_response": True,
-        "no_attributes": True,
-    }
+    start_time = end_time - timedelta(days=_LOAD_PROFILE_DAYS)
 
     try:
-        logger.info("Fetching %s data from Home Assistant", entity_id)
-        client = get_ha_http_client()
-        response = await client.get(api_url, headers=headers, params=params, timeout=30.0)
-        response.raise_for_status()
-
-        data = response.json()
-        if not data or not data[0]:
-            logger.warning("No data received from Home Assistant for %s", entity_id)
-            return get_dummy_load_profile(config)
-
-        states = data[0]
-        if len(states) < 2:
-            logger.warning("Insufficient data points from Home Assistant for %s", entity_id)
-            return get_dummy_load_profile(config)
-
+        logger.info("Fetching %s history from Home Assistant", entity)
         # Convert to local timezone for processing
         local_tz = pytz.timezone("Europe/Stockholm")
 
         # Energy per local time-of-day slot, summed over the 7-day window
         slot_sums = [0.0] * 96
-        prev_state = None
-        prev_time = None
-        cached_unit: str | None = None
+        valid_points = 0
 
-        max_meter_delta_kwh = float(config.get("recorder", {}).get("max_meter_delta_kwh", 50.0))
-        skipped_delta_count = 0
-        largest_skipped_delta = 0.0
+        # One request per day keeps each response bounded (a power sensor reporting
+        # every few seconds yields ~16k states per day).
+        for day in range(_LOAD_PROFILE_DAYS):
+            day_start = start_time + timedelta(days=day)
+            day_end = day_start + timedelta(days=1)
+            history = await get_power_history_batch([entity], day_start, day_end)
+            if history is None:
+                return get_dummy_load_profile(
+                    config,
+                    discard_reason=f"'{entity}' history could not be fetched from Home Assistant",
+                )
 
-        for state in states:
-            try:
-                # Skip unavailable/unknown/null states silently
-                state_val = state.get("state", "")
-                if state_val in ("unavailable", "unknown", "null", "", None):
-                    continue
+            points = parse_power_states(history[entity])
+            valid_points += len(points)
+            slot_start = day_start
+            while slot_start < day_end:
+                slot_end = min(slot_start + timedelta(seconds=_SLOT_SECONDS), day_end)
+                integrated = integrate_power_points(points, slot_start, slot_end)
+                if integrated is not None and integrated[0] > 0:
+                    _distribute_interval_energy(
+                        slot_sums,
+                        slot_start,
+                        slot_end,
+                        integrated[0],
+                        local_tz,
+                        window_start=start_time,
+                        window_end=end_time,
+                    )
+                slot_start = slot_end
 
-                current_time = datetime.fromisoformat(state["last_changed"])
-                if current_time.tzinfo is None:
-                    current_time = current_time.replace(tzinfo=pytz.UTC)
-                current_time = current_time.astimezone(local_tz)
-                current_value = float(state_val)
-
-                # Normalize energy unit to kWh (handles Wh, kWh, MWh)
-                attributes = state.get("attributes", {})
-                unit = attributes.get("unit_of_measurement")
-                if unit is not None and unit != "":
-                    cached_unit = unit
-                if unit is None or unit == "":
-                    unit = cached_unit
-                current_value = _normalize_energy_to_kwh(current_value, unit)
-
-                if prev_state is not None and prev_time is not None:
-                    # Calculate energy delta (ensure positive)
-                    energy_delta = max(0, current_value - prev_state)
-
-                    if energy_delta > max_meter_delta_kwh:
-                        # Implausible cumulative-meter jump (e.g. a Fronius
-                        # lifetime sensor resetting to 0 overnight and back).
-                        # Skip this interval but still advance the baseline
-                        # below so subsequent deltas stay correct.
-                        skipped_delta_count += 1
-                        largest_skipped_delta = max(largest_skipped_delta, energy_delta)
-                        prev_state = current_value
-                        prev_time = current_time
-                        continue
-
-                    # Distribute across time buckets
-                    time_diff = current_time - prev_time
-                    minutes_diff = time_diff.total_seconds() / 60
-
-                    if minutes_diff > 0 and energy_delta > 0:
-                        _distribute_interval_energy(
-                            slot_sums,
-                            prev_time,
-                            current_time,
-                            energy_delta,
-                            local_tz,
-                            window_start=start_time,
-                            window_end=end_time,
-                        )
-
-                prev_state = current_value
-                prev_time = current_time
-
-            except (ValueError, TypeError, KeyError) as e:
-                logger.warning("Skipping invalid state data for %s: %s", entity_id, e)
-                continue
-
-        if skipped_delta_count:
-            logger.warning(
-                "Skipped %d implausible cumulative-meter delta(s) for %s "
-                "(largest %.1f kWh, max allowed %.1f kWh)",
-                skipped_delta_count,
-                entity_id,
-                largest_skipped_delta,
-                max_meter_delta_kwh,
+        if valid_points == 0:
+            logger.warning("No history received from Home Assistant for %s", entity)
+            return get_dummy_load_profile(
+                config,
+                discard_reason=(f"'{entity}' has no history in the last {_LOAD_PROFILE_DAYS} days"),
             )
 
         # Create average daily profile from the 7 days of data (divide by 7 days)
-        daily_profile = [slot_sum / 7.0 for slot_sum in slot_sums]
+        daily_profile = [slot_sum / float(_LOAD_PROFILE_DAYS) for slot_sum in slot_sums]
 
         # Validate and clean the profile
         total_daily = sum(daily_profile)
@@ -866,20 +815,20 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
             logger.warning(
                 "Daily total %.1f kWh/day for %s exceeds 500 kWh sanity bound, using dummy profile",
                 total_daily,
-                entity_id,
+                entity,
             )
             return get_dummy_load_profile(
                 config,
                 discard_reason=(
-                    f"'{entity_id}' data discarded: {total_daily:.1f} kWh/day exceeds the "
+                    f"'{entity}' data discarded: {total_daily:.1f} kWh/day exceeds the "
                     "500 kWh/day plausibility bound"
                 ),
             )
         if total_daily <= 0:
-            logger.warning("No valid energy consumption data found for %s", entity_id)
+            logger.warning("No valid energy consumption data found for %s", entity)
             return get_dummy_load_profile(
                 config,
-                discard_reason=f"'{entity_id}' returned no valid (positive) energy consumption data",
+                discard_reason=f"'{entity}' returned no valid (positive) power data",
             )
 
         logger.info("Successfully loaded HA data: %.2f kWh/day average", total_daily)
@@ -893,11 +842,8 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
 
         return daily_profile
 
-    except (httpx.HTTPStatusError, httpx.RequestError) as e:
-        logger.warning("Failed to fetch data from Home Assistant for %s: %s", entity_id, e)
-        return get_dummy_load_profile(config)
     except Exception as e:
-        logger.warning("Error processing Home Assistant data for %s: %s", entity_id, e)
+        logger.warning("Error processing Home Assistant data for %s: %s", entity, e)
         return get_dummy_load_profile(config)
 
 
@@ -910,9 +856,9 @@ def get_dummy_load_profile(
     we generate a synthetic winter heat-pump curve scaled to that daily total.
     Otherwise, we fall back to a 0.5 kWh flat dummy profile.
 
-    ``discard_reason``, when set, means a sensor WAS configured but its fetched
-    data was discarded as implausible (as opposed to no sensor being configured
-    at all) — it flows into the degraded-status detail so the health banner
+    ``discard_reason``, when set, means ``load_power`` WAS configured but its history
+    was unavailable, empty or discarded as implausible (as opposed to no sensor being
+    configured at all) — it flows into the degraded-status detail so the health banner
     names the sensor instead of telling the user to configure one that already
     exists.
     """
@@ -922,9 +868,8 @@ def get_dummy_load_profile(
 
     estimated_daily_kwh = None
     sensors = config.get("input_sensors", {})
-    # A configured cumulative sensor always takes precedence, even when its data is degraded.
-    sensor = sensors.get("total_load_consumption")
-    raw_val = sensors.get("synthetic_daily_load_kwh") if not sensor else None
+    # Reached only when load_power history is unusable (not configured, empty or discarded).
+    raw_val = sensors.get("synthetic_daily_load_kwh")
 
     if raw_val is not None:
         try:
@@ -1049,7 +994,7 @@ def get_dummy_load_profile(
         logger.warning("⚠️ Using DEMO load profile (0.5 kWh flat) - %s.", discard_reason)
     else:
         logger.warning(
-            "⚠️ Using DEMO load profile (0.5 kWh flat) - no historical data available. Configure total_load_consumption sensor for accurate forecasts."
+            "⚠️ Using DEMO load profile (0.5 kWh flat) - no historical data available. Configure the load_power sensor for accurate forecasts."
         )
 
     # REV F65 Phase 5b: Set degraded status when using demo data

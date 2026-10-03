@@ -150,5 +150,49 @@ class TestCheckLoadForecast:
         issues = checker.check_load_forecast()
         assert len(issues) == 1
         assert "sensor.fronius_lifetime" in issues[0].guidance
-        assert "discarded as implausible" in issues[0].guidance
-        assert "Configure 'total_load_consumption'" not in issues[0].guidance
+        assert "500 kWh/day plausibility bound" in issues[0].guidance
+        assert "total_load_consumption" not in issues[0].guidance
+
+
+class TestNoCounterSensorRequirement:
+    """Learning-enabled installs without the removed counter keys stay healthy."""
+
+    async def test_no_missing_sensor_issue_for_removed_counters(self):
+        from unittest.mock import AsyncMock
+
+        checker = HealthChecker()
+        checker._secrets = {"home_assistant": {"url": "http://ha.local", "token": "tok"}}
+        checker._config = {
+            "learning": {"enable": True},
+            "system": {
+                "grid_meter_type": "net",
+                "has_battery": True,
+                "has_solar": True,
+                "has_water_heater": False,
+            },
+            "input_sensors": {
+                "battery_soc": "sensor.soc",
+                "load_power": "sensor.load",
+                "pv_power": "sensor.pv",
+                "grid_power": "sensor.grid",
+                "battery_power": "sensor.batt",
+            },
+        }
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"state": "1.0"}
+        client = MagicMock()
+        client.get = AsyncMock(return_value=response)
+
+        with patch("backend.core.ha_client.get_ha_http_client", return_value=client):
+            issues = await checker.check_entities()
+
+        assert issues == []
+        # Only the configured power sensors are looked up, no counters
+        requested = {call.args[0].rsplit("/", 1)[1] for call in client.get.await_args_list}
+        assert requested == {
+            "sensor.soc",
+            "sensor.load",
+            "sensor.pv",
+            "sensor.grid",
+            "sensor.batt",
+        }

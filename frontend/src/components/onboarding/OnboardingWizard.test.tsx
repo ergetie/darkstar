@@ -372,7 +372,7 @@ describe('OnboardingWizard', () => {
         expect(api.haSaveConnection).not.toHaveBeenCalled()
     })
 
-    it('saves a selected synthetic daily load estimate with the core sensor step', async () => {
+    it('saves an optional synthetic daily load estimate with the core sensor step', async () => {
         const defaults = baseConfig()
         setup('sensors', {
             config: {
@@ -382,8 +382,9 @@ describe('OnboardingWizard', () => {
         })
         expect(await screen.findByRole('heading', { name: 'Core sensors' })).toBeInTheDocument()
 
-        fireEvent.click(screen.getByText('Estimate daily use'))
-        expect(screen.getByLabelText(/Estimated daily use/)).toHaveValue(20)
+        // No counter-vs-estimate toggle: the estimate is a plain optional field
+        expect(screen.queryByText('Use total energy sensor')).not.toBeInTheDocument()
+        fireEvent.change(screen.getByLabelText(/Estimated daily use/), { target: { value: '20' } })
         fireEvent.click(screen.getByRole('button', { name: 'Next' }))
 
         await waitFor(() =>
@@ -395,7 +396,20 @@ describe('OnboardingWizard', () => {
         )
     })
 
-    it('shows cumulative energy units for total sensors and power units for instantaneous sensors', async () => {
+    it('completes the core sensor step without a synthetic estimate', async () => {
+        const defaults = baseConfig()
+        setup('sensors', {
+            config: {
+                ...defaults,
+                input_sensors: { load_power: 'sensor.house', grid_power: 'sensor.grid' },
+            },
+        })
+        expect(await screen.findByRole('heading', { name: 'Core sensors' })).toBeInTheDocument()
+        expect(screen.getByLabelText(/Estimated daily use/)).toHaveValue(null)
+        expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled()
+    })
+
+    it('shows power units for sensors and no cumulative energy counters', async () => {
         const defaults = baseConfig()
         setup('sensors', {
             config: {
@@ -405,11 +419,18 @@ describe('OnboardingWizard', () => {
         })
 
         expect(await screen.findByRole('heading', { name: 'Core sensors' })).toBeInTheDocument()
-        expect(screen.getAllByText('Cumulative energy sensors should report Wh, kWh, or MWh.').length).toBeGreaterThan(
-            0,
-        )
         expect(screen.getAllByText('Power sensors should report W or kW.').length).toBeGreaterThan(0)
         expect(screen.getByText('State of charge should be between 0 and 100%.')).toBeInTheDocument()
+        expect(screen.queryByText(/Cumulative energy sensors/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/Total house energy/)).not.toBeInTheDocument()
+    })
+
+    it('does not request counter roles from the suggestions endpoint', async () => {
+        setup('sensors')
+        expect(await screen.findByRole('heading', { name: 'Core sensors' })).toBeInTheDocument()
+        await waitFor(() => expect(api.suggestions).toHaveBeenCalled())
+        const roles = api.suggestions.mock.calls.flatMap((call: unknown[]) => call.flat().map(String))
+        expect(roles.join(',')).not.toMatch(/total_/)
     })
 
     it('routes a failed readiness check to the owning step', async () => {

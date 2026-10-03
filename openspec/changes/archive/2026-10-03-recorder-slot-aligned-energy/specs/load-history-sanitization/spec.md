@@ -1,7 +1,5 @@
-## Purpose
+## MODIFIED Requirements
 
-Ensure the 7-day load profile built from a cumulative energy sensor's Home Assistant history is resilient to implausible meter-delta readings (e.g. nightly counter resets), and that degraded load-forecast messaging accurately reflects why the fallback profile is in use.
-## Requirements
 ### Requirement: Degraded load-forecast messaging is accurate
 When the system falls back to a demo or synthetic load profile, the user-facing degraded status and log message SHALL distinguish between (a) no `input_sensors.load_power` configured and (b) a configured `load_power` whose history was empty or discarded as implausible, stating which sensor and why in case (b). The message SHALL NOT instruct the user to configure a sensor that is already configured, and SHALL NOT mention cumulative energy counters.
 
@@ -16,3 +14,9 @@ When the system falls back to a demo or synthetic load profile, the user-facing 
 #### Scenario: Sensor genuinely not configured
 - **WHEN** `input_sensors.load_power` is empty
 - **THEN** the degraded message instructs the user to configure `load_power`
+
+## REMOVED Requirements
+
+### Requirement: Implausible cumulative-meter deltas are skipped, not fatal
+**Reason**: The load profile is built from `load_power` history; there are no meter deltas or resets. The 500 kWh/day backstop and the per-slot clamp remain.
+**Migration**: `recorder.max_meter_delta_kwh` is removed by startup config migration.

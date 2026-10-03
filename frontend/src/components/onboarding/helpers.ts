@@ -85,10 +85,6 @@ const SETTING_LABELS: Record<string, string> = {
     'input_sensors.battery_soc': 'Battery state of charge sensor',
     'input_sensors.battery_power': 'Battery power sensor',
     'input_sensors.pv_power': 'Solar power sensor',
-    'input_sensors.total_load_consumption': 'Total house energy sensor',
-    'input_sensors.total_pv_production': 'Total solar energy sensor',
-    'input_sensors.total_grid_import': 'Total grid import energy sensor',
-    'input_sensors.total_grid_export': 'Total grid export energy sensor',
     'input_sensors.synthetic_daily_load_kwh': 'Estimated daily use',
     'battery.capacity_kwh': 'Battery capacity',
     'battery.min_soc_percent': 'Minimum state of charge',
@@ -125,8 +121,6 @@ const SEGMENT_LABELS: Record<string, string> = {
     vat_percent: 'VAT',
     energy_tax_sek: 'Energy tax',
     grid_transfer_fee_sek: 'Grid transfer fee',
-    total_battery_charge: 'Total battery charge energy sensor',
-    total_battery_discharge: 'Total battery discharge energy sensor',
 }
 
 const SECTION_LABELS: Record<string, string> = {

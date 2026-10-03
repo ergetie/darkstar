@@ -256,12 +256,6 @@ if 'timezone' in options:
 if 'battery_soc_sensor' in options:
     update_config('input_sensors', 'battery_soc', options['battery_soc_sensor'])
 
-if 'pv_production_sensor' in options:
-    update_config('input_sensors', 'total_pv_production', options['pv_production_sensor'])
-
-if 'load_consumption_sensor' in options:
-    update_config('input_sensors', 'total_load_consumption', options['load_consumption_sensor'])
-
 # 4. System Toggles
 if 'has_solar' in options:
     update_config('system', 'has_solar', options['has_solar'], lambda x: bool(x))

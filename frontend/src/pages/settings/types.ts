@@ -328,41 +328,6 @@ export const systemSections: SettingsSection[] = [
         ],
     },
     {
-        title: '── Lifetime Energy Totals ──',
-        isHA: true,
-        description: 'Cumulative lifetime energy sensors for forecasting accuracy.',
-        fields: [
-            {
-                key: 'input_sensors.total_load_consumption',
-                label: 'Total Load Consumption (kWh)',
-                path: ['input_sensors', 'total_load_consumption'],
-                type: 'entity',
-                helper: 'Lifetime total load consumption. Required for forecasting accuracy.',
-                required: true,
-            },
-            {
-                key: 'input_sensors.total_grid_import',
-                label: 'Total Grid Import (kWh)',
-                path: ['input_sensors', 'total_grid_import'],
-                type: 'entity',
-                helper: 'Lifetime total grid import. Required for energy accounting.',
-                required: true,
-            },
-            {
-                key: 'input_sensors.total_grid_export',
-                label: 'Total Grid Export (kWh)',
-                path: ['input_sensors', 'total_grid_export'],
-                type: 'entity',
-                helper: 'Lifetime total grid export. Required for energy accounting.',
-                required: true,
-                showIf: {
-                    configKey: 'export.enable_export',
-                    disabledText: 'Enable "Grid Export" in System Profile to configure',
-                },
-            },
-        ],
-    },
-    {
         title: 'Required HA Control Entities',
         isHA: true,
         description: 'Entities Darkstar writes to for control.',
@@ -933,21 +898,6 @@ export const solarSections: SettingsSection[] = [
             },
         ],
     },
-    {
-        title: '── Lifetime Energy Totals ──',
-        isHA: true,
-        description: 'Cumulative lifetime solar production for forecasting accuracy.',
-        fields: [
-            {
-                key: 'input_sensors.total_pv_production',
-                label: 'Total PV Production (kWh)',
-                path: ['input_sensors', 'total_pv_production'],
-                type: 'entity',
-                helper: 'Lifetime total solar production. Required for forecasting accuracy.',
-                required: true,
-            },
-        ],
-    },
 ]
 
 export const batterySections: SettingsSection[] = [
@@ -1075,29 +1025,6 @@ export const batterySections: SettingsSection[] = [
                 path: ['input_sensors', 'battery_power'],
                 type: 'entity',
                 companionKey: 'input_sensors.battery_power_inverted',
-            },
-        ],
-    },
-    {
-        title: '── Lifetime Energy Totals ──',
-        isHA: true,
-        description: 'Cumulative lifetime battery energy for forecasting accuracy.',
-        fields: [
-            {
-                key: 'input_sensors.total_battery_charge',
-                label: 'Total Battery Charge (kWh)',
-                path: ['input_sensors', 'total_battery_charge'],
-                type: 'entity',
-                helper: 'Lifetime total battery charge. Required for forecasting accuracy.',
-                required: true,
-            },
-            {
-                key: 'input_sensors.total_battery_discharge',
-                label: 'Total Battery Discharge (kWh)',
-                path: ['input_sensors', 'total_battery_discharge'],
-                type: 'entity',
-                helper: 'Lifetime total battery discharge. Required for forecasting accuracy.',
-                required: true,
             },
         ],
     },

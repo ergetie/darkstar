@@ -25,6 +25,9 @@ from backend.recorder import (
 
 logger = logging.getLogger("darkstar.services.recorder")
 
+# Meter-delta state of earlier versions; slot energy is integrated statelessly now.
+OBSOLETE_STATE_FILE = Path("data/recorder_state.json")
+
 
 @dataclass
 class RecorderStatus:
@@ -62,10 +65,23 @@ class RecorderService:
             logger.warning("Recorder already running")
             return
 
+        self._remove_obsolete_state_file()
         self._running = True
         self._status.running = True
         self._task = asyncio.create_task(self._loop(), name="recorder_loop")
         logger.info("RecorderService started")
+
+    @staticmethod
+    def _remove_obsolete_state_file() -> None:
+        """Delete the recorder state file left behind by earlier versions."""
+        try:
+            OBSOLETE_STATE_FILE.unlink()
+        except FileNotFoundError:
+            return
+        except OSError as e:
+            logger.warning(f"Could not remove obsolete {OBSOLETE_STATE_FILE}: {e}")
+            return
+        logger.info(f"Removed obsolete recorder state file {OBSOLETE_STATE_FILE}")
 
     async def stop(self) -> None:
         """Gracefully stop the recorder."""

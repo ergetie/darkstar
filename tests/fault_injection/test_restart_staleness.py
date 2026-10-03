@@ -50,54 +50,26 @@ class TestStaleSchedule:
 
 
 class TestRestartMidSlot:
-    def test_meter_state_survives_restart_without_double_counting(self, tmp_path):
-        """Recorder RecorderStateStore persists to disk: a 'restart' (new instance over the
-        same state file) must compute the true increment, never re-attribute the
-        full cumulative meter value."""
-        from backend.recorder import RecorderStateStore
+    def test_slot_energy_is_stateless_across_restarts(self):
+        """Slot energy is integrated from history over the slot window: a 'restart'
+        (a second computation from scratch) yields the identical value, and no
+        recorder state is needed or persisted."""
+        from backend.core.ha_client import integrate_power_points, parse_power_states
 
-        state_file = tmp_path / "recorder_state.json"
-        ts0 = datetime.now(TZ) - timedelta(minutes=15)
-        ts1 = datetime.now(TZ)
+        start = datetime(2026, 10, 1, 12, 0, tzinfo=TZ)
+        end = start + timedelta(minutes=15)
+        states = [
+            {
+                "state": "2.0",
+                "last_changed": start.isoformat(),
+                "attributes": {"unit_of_measurement": "kW"},
+            },
+            {"state": "4.0", "last_changed": (start + timedelta(minutes=5)).isoformat()},
+        ]
 
-        m1 = RecorderStateStore(state_file=state_file)
-        m1.load()
-        first, valid1 = m1.get_delta("import", 1000.0, ts0, sensor_timestamp=ts0)
-        assert first is None and valid1 is True  # first-ever reading: no delta
+        first = integrate_power_points(parse_power_states(states), start, end)
+        after_restart = integrate_power_points(parse_power_states(states), start, end)
 
-        # Restart: fresh instance, same file; meter advanced 0.5 kWh in 15 min.
-        m2 = RecorderStateStore(state_file=state_file)
-        m2.load()
-        delta, valid2 = m2.get_delta("import", 1000.5, ts1, sensor_timestamp=ts1)
-
-        assert valid2 is True
-        assert delta is not None
-        assert abs(delta - 0.5) < 0.01  # the increment, not 1000.5
-
-    def test_negative_delta_meter_reset_is_flagged_invalid(self, tmp_path):
-        from backend.recorder import RecorderStateStore
-
-        state_file = tmp_path / "recorder_state.json"
-        ts0 = datetime.now(TZ) - timedelta(minutes=15)
-        m = RecorderStateStore(state_file=state_file)
-        m.load()
-        m.get_delta("import", 500.0, ts0, sensor_timestamp=ts0)
-
-        m2 = RecorderStateStore(state_file=state_file)
-        m2.load()
-        delta, valid = m2.get_delta(
-            "import", 100.0, datetime.now(TZ), sensor_timestamp=datetime.now(TZ)
-        )
-
-        assert valid is False  # meter reset detected
-        assert delta is None  # never a negative energy delta
-
-    def test_corrupt_state_file_starts_fresh_without_crash(self, tmp_path):
-        from backend.recorder import RecorderStateStore
-
-        state_file = tmp_path / "recorder_state.json"
-        state_file.write_text("{corrupt", encoding="utf-8")
-        m = RecorderStateStore(state_file=state_file)
-        m.load()  # must not raise; corrupted file is discarded
-        delta, valid = m.get_delta("import", 100.0, datetime.now(TZ))
-        assert delta is None and valid is True  # treated as first reading
+        assert first == after_restart
+        assert first is not None
+        assert abs(first[0] - (2.0 * 5 + 4.0 * 10) / 60) < 1e-9

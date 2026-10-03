@@ -250,7 +250,7 @@ async def test_get_load_profile_from_ha_uses_shared_client():
     # Mock config
     config = {
         "timezone": "Europe/Stockholm",
-        "input_sensors": {"total_load_consumption": "sensor.test_consumption"},
+        "input_sensors": {"load_power": "sensor.test_load_power"},
     }
 
     with (
@@ -262,14 +262,14 @@ async def test_get_load_profile_from_ha_uses_shared_client():
         mock_load_config.return_value = {
             "url": "http://homeassistant:8123",
             "token": "test_token",
-            "consumption_entity_id": "sensor.test_consumption",
         }
 
         # Call the function
         result = await get_load_profile_from_ha(config)
 
-        # Verify shared client was used
-        mock_get_client.assert_called_once()
+        # Verify the shared client was used, one history request per day
+        mock_get_client.assert_called()
+        assert mock_client.get.await_count == 7
 
         # Should return a list of 96 values
         assert isinstance(result, list)
@@ -383,30 +383,17 @@ class TestGatherSensorReadsBatchExecution:
             # Patch everything else the recorder needs
             with (
                 patch(
-                    "backend.recorder.get_ha_entity_state",
-                    new_callable=AsyncMock,
-                    return_value=None,
-                ),
-                patch(
                     "backend.recorder.get_current_slot_prices",
                     new_callable=AsyncMock,
                     return_value=(0.0, 0.0, 0.0),
                 ),
                 patch("backend.recorder.LearningStore") as mock_store_cls,
-                patch("backend.recorder.RecorderStateStore") as mock_state_store_cls,
                 patch("backend.recorder.validate_energy_values", return_value=(True, [])),
                 patch("backend.recorder.get_max_energy_per_slot", return_value=10.0),
             ):
                 mock_store = MagicMock()
                 mock_store.record_observation = AsyncMock()
                 mock_store_cls.return_value = mock_store
-
-                mock_state_store = MagicMock()
-                mock_state_store.load = MagicMock()
-                mock_state_store.save = MagicMock()
-                mock_state_store.get = MagicMock(return_value=None)
-                mock_state_store.set = MagicMock()
-                mock_state_store_cls.return_value = mock_state_store
 
                 from backend.recorder import record_observation_from_current_state
 

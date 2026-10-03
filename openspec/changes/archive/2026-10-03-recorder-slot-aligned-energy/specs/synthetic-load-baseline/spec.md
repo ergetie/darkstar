@@ -1,8 +1,5 @@
-# synthetic-load-baseline Specification
+## MODIFIED Requirements
 
-## Purpose
-Provide a dedicated synthetic daily load baseline and migrate legacy numeric consumption values.
-## Requirements
 ### Requirement: Dedicated synthetic load key
 The config SHALL provide `input_sensors.synthetic_daily_load_kwh` (default `null`). When the load profile cannot be built from `input_sensors.load_power` history (sensor not configured, no valid history, or data discarded as implausible) and `synthetic_daily_load_kwh` is a positive number, the load forecast fallback SHALL generate the synthetic profile scaled to that value.
 

@@ -3,9 +3,7 @@
 ## Purpose
 
 Configuration for Home Assistant sensors and input sensors.
-
 ## Requirements
-
 ### Requirement: Configuration schema removes today_* sensors
 The configuration schema SHALL NOT require or support `today_*` sensors in the `input_sensors` section.
 
@@ -17,23 +15,24 @@ The configuration schema SHALL NOT require or support `today_*` sensors in the `
 #### Scenario: Default config excludes today_* sensors
 - **WHEN** a new user installs Darkstar
 - **THEN** the default config.yaml does NOT include any `today_*` sensors
-- **AND** the default config only includes cumulative sensors
+- **AND** the default config only includes power sensors for PV, load, grid and battery energy
 
 ### Requirement: Settings UI removes today_* sensor configuration
-The Settings user interface SHALL NOT display configuration fields for `today_*` sensors.
+The Settings user interface SHALL NOT display configuration fields for `today_*` sensors or for cumulative energy counters.
 
-#### Scenario: Settings page shows only cumulative sensors
+#### Scenario: Settings page shows only power sensors for energy
 - **WHEN** a user navigates to Settings > Input Sensors
-- **THEN** the UI displays configuration for cumulative sensors only
+- **THEN** the UI displays power sensor configuration for PV, load, grid and battery
 - **AND** does NOT display fields for today_grid_import, today_grid_export, today_pv_production, today_load_consumption, today_battery_charge, today_battery_discharge, or today_net_cost
+- **AND** does NOT display a "Lifetime Energy Totals" section or any `total_*` counter field
 
 ### Requirement: Config help documentation updates
-The configuration help documentation SHALL remove all references to `today_*` sensors.
+The configuration help documentation SHALL remove all references to `today_*` sensors and to cumulative energy counters.
 
 #### Scenario: Help text updated
 - **WHEN** a user views configuration help
-- **THEN** the documentation describes cumulative sensors as the required configuration
-- **AND** does NOT mention `today_*` sensors
+- **THEN** the documentation describes the power sensors as the required configuration for energy recording
+- **AND** does NOT mention `today_*` sensors or `total_*` counter keys
 
 ### Requirement: EV charger energy_sensor configuration removed
 The `energy_sensor` field SHALL NOT be supported for `ev_chargers[]` items. EV energy recording MUST use the HA History API with the existing power sensor (`sensor` field). Config migration SHALL silently remove `energy_sensor` from `ev_chargers[]` items — no user action required.
@@ -171,27 +170,26 @@ The configuration help text for the per-charger `max_power_kw` field SHALL expli
 - **AND** the tooltip includes at least one example value
 - **AND** the tooltip warns that a missing or zero value disables the charger
 
-### Requirement: Cumulative energy sensor tooltips explain expected sensor shape
-The configuration help tooltips for each of the six cumulative energy input sensors SHALL explicitly describe the expected sensor shape: a cumulative (monotonically increasing) energy counter with `device_class: energy` and a unit of `kWh`, `Wh`, or `MWh`. The tooltips SHALL warn that power sensors (units `W`, `kW`) are not valid choices.
+### Requirement: Cumulative energy counter keys removed
+The configuration SHALL NOT support `input_sensors.total_pv_production`, `total_load_consumption`, `total_grid_import`, `total_grid_export`, `total_battery_charge`, `total_battery_discharge`, `recorder.max_meter_delta_kwh` or `learning.sensor_map`. Startup config migration SHALL remove these keys from existing configs silently and idempotently, after the legacy numeric `total_load_consumption` value has been moved to `synthetic_daily_load_kwh`. The keys SHALL NOT be re-added by the default-template merge. The legacy `secrets.home_assistant.consumption_entity_id` fallback SHALL NOT be read.
 
-The six keys covered SHALL be:
-- `input_sensors.total_load_consumption`
-- `input_sensors.total_grid_import`
-- `input_sensors.total_grid_export`
-- `input_sensors.total_pv_production`
-- `input_sensors.total_battery_charge`
-- `input_sensors.total_battery_discharge`
+#### Scenario: Existing config with counters
+- **WHEN** a config contains all six `input_sensors.total_*` keys set to sensor entities
+- **THEN** after startup migration none of the six keys SHALL be present
+- **AND** all other `input_sensors` values SHALL be unchanged
 
-The tooltips MAY include example entity naming patterns (e.g., `sensor.*_energy_total`, `sensor.*_consumed_energy`).
+#### Scenario: Keys are not restored by the template merge
+- **WHEN** migration runs and the default template is merged afterwards
+- **THEN** the removed keys SHALL still be absent
 
-No runtime validation of sensor attributes is introduced by this requirement — tooltips are the sole mitigation.
+#### Scenario: Legacy numeric load value is preserved
+- **WHEN** a config contains `total_load_consumption: "18"` and no `synthetic_daily_load_kwh`
+- **THEN** after migration `synthetic_daily_load_kwh` SHALL be `18` and `total_load_consumption` SHALL be absent
 
-#### Scenario: Load consumption tooltip describes cumulative sensor requirement
-- **WHEN** a user hovers the help indicator for `input_sensors.total_load_consumption` in Settings
-- **THEN** the tooltip text explicitly describes a cumulative energy counter
-- **AND** the tooltip explicitly warns against selecting a power sensor (W/kW)
-- **AND** the tooltip mentions `device_class: energy` or equivalent phrasing
+#### Scenario: Migration is idempotent
+- **WHEN** migration runs on an already-migrated config
+- **THEN** it SHALL report no change
 
-#### Scenario: All six cumulative sensor tooltips updated
-- **WHEN** `frontend/src/config-help.json` is loaded
-- **THEN** each of the six `input_sensors.total_*` keys has a tooltip that describes the expected cumulative energy counter shape and warns against power sensors
+#### Scenario: Health does not require removed keys
+- **WHEN** learning is enabled and none of the removed keys are present
+- **THEN** the health check SHALL NOT report a missing sensor for any of them

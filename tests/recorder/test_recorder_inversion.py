@@ -2,16 +2,14 @@
 Tests for REV F55: History Display Bug - Respect Inversion Flags
 
 These tests verify that battery_power_inverted and grid_power_inverted flags
-are correctly applied in the recorder and learning engine ETL pipelines.
+are correctly applied in the recorder (live snapshot path; the integrated and backfill
+paths are covered in test_recorder_slot_energy.py and test_backfill.py).
 """
 
-from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytz
 
-from backend.learning.engine import LearningEngine
 from backend.recorder import record_observation_from_current_state
 
 
@@ -256,71 +254,6 @@ class TestRecorderGridInversion:
         # 1.0 kW * 0.25h = 0.25 kWh import
         assert df.iloc[0]["import_kwh"] == 0.25
         assert df.iloc[0]["export_kwh"] == 0.0
-
-
-class TestEnginePowerToSlotsInversion:
-    """Test power-to-slots ETL with inversion flags."""
-
-    @pytest.fixture
-    def engine_with_inversion(self, tmp_path):
-        """Create LearningEngine with inversion flags set."""
-        # Create a minimal LearningEngine without needing full initialization
-        engine = LearningEngine.__new__(LearningEngine)
-        engine.timezone = pytz.timezone("Europe/Stockholm")
-        engine.sensor_map = {}
-        engine.inversion_flags = {"battery": True, "grid": True}
-        engine.config = {"system": {"grid": {"max_power_kw": 8.0}}}
-        return engine
-
-    def test_battery_inversion_applied_in_etl(self, engine_with_inversion):
-        """Test that battery inversion is applied in etl_power_to_slots."""
-        tz = pytz.timezone("Europe/Stockholm")
-        # Use exact 15-minute boundary
-        now = datetime.now(tz).replace(minute=0, second=0, microsecond=0)
-
-        # Simulate Sungrow data: +2000W (charging in Sungrow convention)
-        # Need at least 2 data points to create 1 slot
-        power_data = {
-            "sensor.battery_power": [
-                (now, 2000.0),  # Raw: positive = charging
-                (now + timedelta(minutes=15), 2000.0),
-            ]
-        }
-
-        engine_with_inversion.inversion_flags = {"battery": True, "grid": False}
-
-        df = engine_with_inversion.etl_power_to_slots(power_data, resolution_minutes=15)
-
-        # After inversion: +2000W becomes -2000W, which is charge
-        # Energy = 2.0 kW * 0.25h = 0.5 kWh
-        assert len(df) >= 1
-        assert df.iloc[0]["batt_charge_kwh"] == 0.5
-        assert df.iloc[0]["batt_discharge_kwh"] == 0.0
-
-    def test_grid_inversion_applied_in_etl(self, engine_with_inversion):
-        """Test that grid inversion is applied in etl_power_to_slots."""
-        tz = pytz.timezone("Europe/Stockholm")
-        # Use exact 15-minute boundary
-        now = datetime.now(tz).replace(minute=0, second=0, microsecond=0)
-
-        # Simulate inverted grid data: +1000W (export in inverted convention)
-        # Need at least 2 data points to create 1 slot
-        power_data = {
-            "sensor.grid_power": [
-                (now, 1000.0),  # Raw: positive = export
-                (now + timedelta(minutes=15), 1000.0),
-            ]
-        }
-
-        engine_with_inversion.inversion_flags = {"battery": False, "grid": True}
-
-        df = engine_with_inversion.etl_power_to_slots(power_data, resolution_minutes=15)
-
-        # After inversion: +1000W becomes -1000W, which is export
-        # Energy = 1.0 kW * 0.25h = 0.25 kWh
-        assert len(df) >= 1
-        assert df.iloc[0]["export_kwh"] == 0.25
-        assert df.iloc[0]["import_kwh"] == 0.0
 
 
 class TestNonInvertedSensors:

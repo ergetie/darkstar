@@ -2,9 +2,7 @@
 
 ## Purpose
 The Startup Wizard guides users through connecting Darkstar and configuring their energy system, then provides a readiness review. Users can skip or dismiss setup and return to it from Settings.
-
 ## Requirements
-
 ### Requirement: Triggering the Setup Wizard
 
 The system MUST open the onboarding wizard automatically on a fresh installation, MUST allow the user to skip or close it at any time, and MUST allow re-opening it later. The dashboard MUST remain accessible after the wizard is skipped.
@@ -104,11 +102,19 @@ When a field already has a configured value, the wizard SHALL keep it selected a
 - **AND** nothing is changed unless the user applies it
 
 ### Requirement: Core sensors step
-The step SHALL collect `load_power`; `grid_power` or `grid_import_power`/`grid_export_power` per meter type; `battery_soc` and `battery_power` when battery; `pv_power` when solar; cumulative totals when learning is enabled; and a load baseline as a sensor or a synthetic daily kWh saved to `input_sensors.synthetic_daily_load_kwh`.
+The step SHALL collect `load_power`; `grid_power` or `grid_import_power`/`grid_export_power` per meter type; `battery_soc` and `battery_power` when battery; `pv_power` when solar; and an optional synthetic daily kWh saved to `input_sensors.synthetic_daily_load_kwh`. The step SHALL NOT collect cumulative energy counters or offer a choice between a counter and an estimate. Step completion SHALL depend only on the required power sensors, not on the synthetic value.
 
 #### Scenario: Synthetic baseline saved
-- **WHEN** the user chooses estimate and enters 20 kWh/day
+- **WHEN** the user enters 20 kWh/day in the optional estimated daily use field
 - **THEN** `input_sensors.synthetic_daily_load_kwh` is saved as 20
+
+#### Scenario: Step completes without synthetic value
+- **WHEN** all required power sensors for the system are set and the synthetic field is empty
+- **THEN** the step is complete
+
+#### Scenario: No counter fields or suggestions
+- **WHEN** the step is shown
+- **THEN** no `total_*` field is displayed and no `total_*` role is requested from `/api/setup/suggestions`
 
 ### Requirement: Solar and battery steps
 The Solar step SHALL collect one or more arrays with name, kWp, tilt and azimuth. The Battery step SHALL collect capacity, min/max SoC and max charge/discharge power in W, and SHALL NOT allow continuing with zero charge/discharge power.

@@ -47,7 +47,7 @@ def explode_rows() -> None:
                 continue
 
             # We assume the values in the :00 row are ALREADY 15-min scaled
-            # (because we ran backfill_ha which divided by 4, even if it only updated this one row)
+            # (an earlier backfill divided by 4, even if it only updated this one row)
             # OR they are 1-hour values.
             # Given your logs showed 0.02 (which is ~0.1/4), the values in :00 are likely already 15-min scale.
             # So we just clone them.

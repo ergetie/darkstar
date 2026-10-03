@@ -2,9 +2,7 @@
 
 ## Purpose
 This specification defines hygiene and defensive-guard requirements that remove dead data/config surface area and guard against silent misbehavior: dead schedule data, misleading configuration, implausible meter deltas, bypassable schedule-staleness checks, and mock/test entities left enabled in a production instance.
-
 ## Requirements
-
 ### Requirement: Dead `schedule_planned` table and model are removed
 
 The system SHALL NOT define or retain the `schedule_planned` table or its `SchedulePlanned` ORM model. All plan-of-record reads and writes use `slot_plans`.
@@ -71,19 +69,6 @@ Configuration SHALL NOT contain keys that are read by no code, and effective con
 #### Scenario: Current configuration behavior is preserved
 - **WHEN** the change is applied against this instance's config (`battery.charge_efficiency = 0.92`)
 - **THEN** the executor's resolved charge efficiency is still `0.92`
-
-### Requirement: Cumulative meter deltas have a plausibility ceiling
-
-The recorder SHALL reject a computed meter delta that exceeds a configurable per-slot ceiling (`recorder.max_meter_delta_kwh`, default 50 kWh), so a physically impossible spike is not recorded as energy.
-
-#### Scenario: Implausible spike rejected without double-counting
-- **WHEN** a cumulative meter jumps by more than the ceiling between two readings
-- **THEN** `get_delta` returns `(None, False)` and logs a warning
-- **AND** the stored baseline advances to the current reading so the next delta is computed correctly
-
-#### Scenario: Normal delta unaffected
-- **WHEN** a meter delta is within the ceiling
-- **THEN** it is returned unchanged (subject to existing time-proportional scaling)
 
 ### Requirement: A schedule with no parseable `generated_at` is treated as stale
 

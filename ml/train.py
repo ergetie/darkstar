@@ -343,7 +343,7 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
     observations = _load_slot_observations(engine, end_time=now)
     if observations.empty:
         print("Error: No valid (non-zero load) observations found.")
-        print("Action: Check if data_activator has run or if sensors are reporting 0.")
+        print("Action: Check if the recorder has run or if sensors are reporting 0.")
         return
 
     # Get time range from observations for feature enrichment

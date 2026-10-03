@@ -607,12 +607,6 @@ const ROLE_LABELS: Record<string, string> = {
     battery_soc: 'Battery state of charge',
     battery_power: 'Battery power',
     pv_power: 'Solar power',
-    total_load_consumption: 'Total house energy',
-    total_pv_production: 'Total solar energy',
-    total_grid_import: 'Total grid import energy',
-    total_grid_export: 'Total grid export energy',
-    total_battery_charge: 'Total battery charge energy',
-    total_battery_discharge: 'Total battery discharge energy',
 }
 
 function CoreSensorsStep(props: StepProps) {
@@ -623,20 +617,11 @@ function CoreSensorsStep(props: StepProps) {
     const roles = ['load_power', ...meter]
     if (isFeatureEnabled(props.config, 'has_battery')) roles.push('battery_soc', 'battery_power')
     if (isFeatureEnabled(props.config, 'has_solar')) roles.push('pv_power')
-    roles.push('total_load_consumption')
-    if (getPath(props.config, 'learning.enable') !== false) {
-        if (isFeatureEnabled(props.config, 'has_solar')) roles.push('total_pv_production')
-        if (getPath(props.config, 'system.grid_meter_type') === 'dual')
-            roles.push('total_grid_import', 'total_grid_export')
-        if (isFeatureEnabled(props.config, 'has_battery')) roles.push('total_battery_charge', 'total_battery_discharge')
-    }
-    const synthetic = getPath(props.config, 'input_sensors.synthetic_daily_load_kwh')
-    const baselineMode = isConfigured(synthetic) ? 'synthetic' : 'sensor'
     return (
         <div className="space-y-4">
             <p className="text-xs text-muted">
                 High-confidence matches are preselected; other matches need your approval. Instantaneous power sensors
-                report W or kW, state of charge reports %, and cumulative energy sensors report Wh, kWh, or MWh.
+                report W or kW and state of charge reports %.
             </p>
             {roles.map((role) => {
                 const path = `input_sensors.${role}`
@@ -650,57 +635,26 @@ function CoreSensorsStep(props: StepProps) {
                         plausibility={
                             role === 'battery_soc'
                                 ? 'State of charge should be between 0 and 100%.'
-                                : role.startsWith('total_')
-                                  ? 'Cumulative energy sensors should report Wh, kWh, or MWh.'
-                                  : 'Power sensors should report W or kW.'
+                                : 'Power sensors should report W or kW.'
                         }
                     />
                 )
             })}
             <div className="space-y-3 rounded-ds-md border border-line bg-surface p-4">
-                <h3 className="text-sm font-bold text-text">Load baseline</h3>
-                <div className="flex flex-wrap gap-4 text-sm">
-                    <label className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            aria-pressed={baselineMode === 'sensor'}
-                            className={`rounded-ds-md border px-3 py-2 transition ${baselineMode === 'sensor' ? 'border-accent bg-accent/10 text-text' : 'border-line bg-surface2 text-muted hover:text-text'}`}
-                            onClick={() => props.update('input_sensors.synthetic_daily_load_kwh', '')}
-                        >
-                            Use total energy sensor
-                        </button>
-                    </label>
-                    <label className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            aria-pressed={baselineMode === 'synthetic'}
-                            className={`rounded-ds-md border px-3 py-2 transition ${baselineMode === 'synthetic' ? 'border-accent bg-accent/10 text-text' : 'border-line bg-surface2 text-muted hover:text-text'}`}
-                            onClick={() =>
-                                props.update(
-                                    'input_sensors.synthetic_daily_load_kwh',
-                                    Number(getPath(props.config, 'input_sensors.synthetic_daily_load_kwh')) || 20,
-                                )
-                            }
-                        >
-                            Estimate daily use
-                        </button>
-                    </label>
-                </div>
-                {baselineMode === 'synthetic' ? (
-                    <TextField
-                        config={props.config}
-                        update={props.update}
-                        path="input_sensors.synthetic_daily_load_kwh"
-                        label="Estimated daily use"
-                        type="number"
-                        min={1}
-                        step={1}
-                        unit="kWh/day"
-                        required
-                    />
-                ) : (
-                    <p className="text-xs text-muted">Choose the Total house energy entity above.</p>
-                )}
+                <h3 className="text-sm font-bold text-text">Load baseline (optional)</h3>
+                <TextField
+                    config={props.config}
+                    update={props.update}
+                    path="input_sensors.synthetic_daily_load_kwh"
+                    label="Estimated daily use"
+                    type="number"
+                    min={1}
+                    step={1}
+                    unit="kWh/day"
+                />
+                <p className="text-xs text-muted">
+                    Used for the load forecast only when the house load power sensor has no usable history yet.
+                </p>
             </div>
         </div>
     )
@@ -1215,12 +1169,6 @@ const commonSensorPaths = [
     'input_sensors.battery_soc',
     'input_sensors.battery_power',
     'input_sensors.pv_power',
-    'input_sensors.total_load_consumption',
-    'input_sensors.total_pv_production',
-    'input_sensors.total_grid_import',
-    'input_sensors.total_grid_export',
-    'input_sensors.total_battery_charge',
-    'input_sensors.total_battery_discharge',
     'input_sensors.synthetic_daily_load_kwh',
 ]
 export const steps: StepDefinition[] = [
@@ -1284,9 +1232,7 @@ export const steps: StepDefinition[] = [
                         : 'input_sensors.grid_power',
                 ),
             ) &&
-            (!isFeatureEnabled(config, 'has_battery') || isConfigured(getPath(config, 'input_sensors.battery_soc'))) &&
-            (Number(getPath(config, 'input_sensors.synthetic_daily_load_kwh')) > 0 ||
-                isConfigured(getPath(config, 'input_sensors.total_load_consumption'))),
+            (!isFeatureEnabled(config, 'has_battery') || isConfigured(getPath(config, 'input_sensors.battery_soc'))),
     },
     {
         id: 'solar',

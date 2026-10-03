@@ -13,7 +13,7 @@ from backend.api.routers import ha, setup
 from backend.config_migration import _migrate_synthetic_load
 from backend.core import ha_registry, onboarding_state, readiness
 from backend.core.entity_matcher import build_suggestions, rank_brands, rank_candidates
-from backend.core.entity_roles import ROLE_RULES
+from backend.core.entity_roles import ROLE_PATHS, ROLE_RULES
 from backend.core.ha_client import get_dummy_load_profile
 from backend.core.secrets import load_yaml
 from executor.profiles import load_profile, parse_profile
@@ -67,32 +67,9 @@ def test_confidence_top_five_and_margin():
     assert all(c["confidence"] == "medium" for c in candidates)
 
 
-def test_cumulative_requirements_and_daily_penalty():
-    rules = ROLE_RULES["total_grid_import"]
-    values = [
-        entity(
-            "sensor.grid_import_total",
-            device_class="energy",
-            unit_of_measurement="kWh",
-            state_class="total_increasing",
-        ),
-        entity(
-            "sensor.grid_import_daily",
-            device_class="energy",
-            unit_of_measurement="kWh",
-            state_class="total",
-        ),
-        entity(
-            "sensor.grid_import_power",
-            device_class="power",
-            unit_of_measurement="W",
-            state_class="measurement",
-        ),
-    ]
-    result = rank_candidates(values, rules, cumulative=True)
-    assert result[0]["entity_id"] == "sensor.grid_import_total"
-    assert len(result) == 2
-    assert result[0]["score"] - result[1]["score"] == 25
+def test_cumulative_counter_roles_are_gone():
+    assert not [role for role in ROLE_RULES if role.startswith("total_")]
+    assert not [role for role in ROLE_PATHS if role.startswith("total_")]
 
 
 def test_nested_patch_current_and_missing():
@@ -184,7 +161,8 @@ def test_migration_and_synthetic_precedence(config):
     assert sum(get_dummy_load_profile(config)) == pytest.approx(20)
     config["input_sensors"]["total_load_consumption"] = "sensor.house_energy"
     assert not _migrate_synthetic_load(config)[1]
-    assert sum(get_dummy_load_profile(config)) != pytest.approx(20)
+    # The synthetic estimate is the fallback whenever load power history is unusable
+    assert sum(get_dummy_load_profile(config)) == pytest.approx(20)
 
 
 def test_onboarding_roundtrip_validation_and_corruption(client, tmp_path):

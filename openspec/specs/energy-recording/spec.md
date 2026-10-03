@@ -1,108 +1,9 @@
 ## Purpose
 
-TBD - Energy recording capability for accurate historical energy tracking using cumulative meter sensors.
-
+TBD - Energy recording capability for accurate historical energy tracking using step-integrated power sensor history.
 ## Requirements
-
-### Requirement: Support for Cumulative Energy Sensors
-The system SHALL support configuring cumulative energy sensors (meter readings) in `input_sensors` for PV, Load, Grid, and Battery. These sensors represent total energy processed over the device's lifetime.
-
-#### Scenario: User configures a total PV production sensor
-- **WHEN** the user adds `total_pv_production: sensor.pv_energy_total` to `input_sensors` in `config.yaml`
-- **THEN** the system SHALL recognize this as a cumulative source for PV energy calculation
-
-#### Scenario: User configures battery charge/discharge sensors
-- **WHEN** the user adds `total_battery_charge: sensor.inverter_total_battery_charge` and `total_battery_discharge: sensor.inverter_total_battery_discharge` to `input_sensors` in `config.yaml`
-- **THEN** the system SHALL recognize these as cumulative sources for `batt_charge_kwh` and `batt_discharge_kwh` calculation, respectively
-
-### Requirement: Delta-based Energy Calculation
-The recorder SHALL calculate the energy for a 15-minute slot by subtracting the cumulative meter reading at the start of the slot from the reading at the end of the slot, then scaling the result proportionally to represent exactly 15 minutes of energy when the sensor's update timing differs from the recording interval.
-
-#### Scenario: Recorder calculates energy during a continuous run
-- **WHEN** the recorder has a previous reading of `1000.0 kWh` for PV at `12:00`
-- **AND** the current reading at `12:15` is `1001.2 kWh`
-- **THEN** the recorder SHALL store `1.2 kWh` as the `pv_kwh` for the `12:00` slot
-
-#### Scenario: Recorder calculates energy with matching timing
-- **WHEN** the recorder has a previous reading of `1000.0 kWh` for PV at `12:00`
-- **AND** the current reading at `12:15` is `1001.2 kWh`
-- **AND** the sensor's `last_updated` timestamp indicates exactly 15 minutes elapsed
-- **THEN** the recorder SHALL store `1.2 kWh` as the `pv_kwh` for the `12:00` slot
-
-#### Scenario: Recorder scales energy when timing differs
-- **WHEN** the recorder reads PV cumulative `1000.0 kWh` at `11:00:05` with sensor timestamp `10:53`
-- **AND** the previous reading was `998.0 kWh` with sensor timestamp `10:43`
-- **AND** the raw delta is `2.0 kWh` over 10 actual minutes
-- **THEN** the recorder SHALL scale to `3.0 kWh` (2.0 × 15/10) for the 15-minute slot
-
-#### Scenario: Recorder handles missing sensor timestamp gracefully
-- **WHEN** the sensor's `last_updated` field is unavailable
-- **THEN** the recorder SHALL use the raw delta without scaling
-
-#### Scenario: Recorder skips scaling for extreme time gaps
-- **WHEN** the time between sensor timestamps is less than 5 minutes or greater than 60 minutes
-- **THEN** the recorder SHALL use the raw delta without scaling
-
-### Requirement: Persistent Recorder State
-The recorder SHALL persist its last known meter readings to a local state file to allow accurate delta calculation across service restarts.
-
-#### Scenario: Recorder resumes after a restart
-- **WHEN** the recorder service starts up
-- **AND** it finds a state file containing a PV reading of `500.0 kWh` from 15 minutes ago
-- **AND** the current HA reading is `500.5 kWh`
-- **THEN** it SHALL record `0.5 kWh` for the missing slot instead of defaulting to 0 or snapshots
-
-### Requirement: Automatic Unit Normalization
-The system SHALL automatically normalize cumulative energy sensor values to kWh, supporting Wh, kWh, and MWh units based on the sensor's `unit_of_measurement` attribute. When no unit is specified, the system SHALL use a magnitude-based heuristic to detect Wh values and convert accordingly.
-
-#### Scenario: Sensor reports in Watt-hours
-- **WHEN** a cumulative sensor reports `500000` with `unit_of_measurement: "Wh"`
-- **THEN** the system SHALL normalize to `500.0 kWh`
-- **AND** delta calculations SHALL use the normalized value
-
-#### Scenario: Sensor reports in kilowatt-hours
-- **WHEN** a cumulative sensor reports `500.0` with `unit_of_measurement: "kWh"`
-- **THEN** the system SHALL use the value as-is
-
-#### Scenario: Sensor reports in megawatt-hours
-- **WHEN** a cumulative sensor reports `0.5` with `unit_of_measurement: "MWh"`
-- **THEN** the system SHALL normalize to `500.0 kWh`
-
-#### Scenario: Sensor reports in Wh with non-standard unit string
-- **WHEN** a cumulative sensor reports `5675983` with `unit_of_measurement: "W·h"` or `"W h"` or `"watthour"` or any case variant of Wh
-- **THEN** the system SHALL normalize to `5675.983 kWh`
-
-#### Scenario: Sensor reports large value with no unit attribute
-- **WHEN** a cumulative sensor reports `5675983` with no `unit_of_measurement` attribute (None or missing)
-- **AND** the value exceeds the Wh detection threshold (default 100,000)
-- **THEN** the system SHALL assume Wh and normalize to `5675.983 kWh`
-- **AND** the system SHALL log an info message: "Energy normalization: X (no unit) → Y kWh (Wh inferred from magnitude)"
-
-#### Scenario: Sensor reports small value with no unit attribute
-- **WHEN** a cumulative sensor reports `500.0` with no `unit_of_measurement` attribute
-- **AND** the value is at or below the Wh detection threshold
-- **THEN** the system SHALL assume kWh and use `500.0` as-is
-
-### Requirement: Unit Propagation in History Processing
-
-The `get_load_profile_from_ha` function SHALL propagate the `unit_of_measurement` from the first HA history state entry to all subsequent entries that lack attributes. The HA history API only includes attributes on the first entry in a response series — the function MUST NOT rely on every state entry having its own `unit_of_measurement`.
-
-#### Scenario: HA history returns attributes only on first entry
-- **WHEN** the first state entry has `attributes: {"unit_of_measurement": "Wh"}` and all subsequent entries have `attributes: {}`
-- **THEN** the function SHALL apply the `"Wh"` unit to ALL state entries when normalizing
-- **AND** all cumulative values SHALL be consistently divided by 1000
-
-#### Scenario: No state entry has attributes
-- **WHEN** all state entries have `attributes: {}` (no `unit_of_measurement` anywhere)
-- **THEN** the function SHALL pass `None` as the unit to normalization
-- **AND** the magnitude-based heuristic SHALL apply as fallback
-
-#### Scenario: Unit changes mid-series
-- **WHEN** a later state entry introduces a different `unit_of_measurement` (e.g., sensor reconfigured)
-- **THEN** the function SHALL adopt the new unit from that entry onward
-
 ### Requirement: Load Profile Sanity Bound
-The `get_load_profile_from_ha` function SHALL validate the computed daily total before returning. If the daily total exceeds a reasonable residential threshold, the function SHALL discard the profile and return the dummy fallback.
+The `get_load_profile_from_ha` function SHALL build the 7-day load profile by step-integrating `input_sensors.load_power` history and SHALL validate the computed daily total before returning. If the daily total exceeds a reasonable residential threshold, the function SHALL discard the profile and use the fallback profile.
 
 #### Scenario: Normal daily total passes validation
 - **WHEN** `get_load_profile_from_ha` computes a daily total of `25.0 kWh/day`
@@ -111,18 +12,11 @@ The `get_load_profile_from_ha` function SHALL validate the computed daily total 
 #### Scenario: Absurd daily total triggers fallback
 - **WHEN** `get_load_profile_from_ha` computes a daily total exceeding `500 kWh/day`
 - **THEN** the function SHALL log a warning with the computed total and entity ID
-- **AND** the function SHALL return the dummy load profile instead
+- **AND** the function SHALL return the fallback load profile instead
 
-### Requirement: Unit Detection Logging
-The normalization function SHALL log the detected unit and conversion result at debug level for every cumulative sensor read, enabling diagnosis of sensor configuration issues.
-
-#### Scenario: Unit detected from attribute
-- **WHEN** the normalization function processes a value of `500000` with `unit_of_measurement: "Wh"`
-- **THEN** the function SHALL log at debug level: "Energy normalization: 500000 Wh → 500.0 kWh (from unit_of_measurement)"
-
-#### Scenario: Unit inferred from magnitude
-- **WHEN** the normalization function processes a value of `5675983` with no `unit_of_measurement`
-- **THEN** the function SHALL log at info level: "Energy normalization: 5675983 (no unit) → 5675.983 kWh (Wh inferred from magnitude)"
+#### Scenario: Profile is built from load power
+- **WHEN** `load_power` reports a constant `1.0 kW` over the 7-day window
+- **THEN** every slot of the profile SHALL be `0.25 kWh` and the daily total `24 kWh`
 
 ### Requirement: HA History API Power-to-Energy Conversion
 The system SHALL provide a generic function that fetches power sensor history from the HA History API for a given time window and computes energy by **time-weighted (step) integration** of the power samples over the window: `Σ powerᵢ · Δtᵢ`, where each sample's power is held constant from its `last_changed` timestamp until the next sample (zero-order hold), clipped to the requested `[start, end]` window. The function SHALL NOT use an unweighted sample mean.
@@ -283,61 +177,23 @@ The power history function SHALL be production-grade: it SHALL use a reasonable 
 - **THEN** the function SHALL catch the exception, return `None`, and log a warning
 
 ### Requirement: Snapshot Fallback
-The recorder SHALL fall back to power-snapshot based estimation (kW × 0.25h) when the HA History API power-to-energy function returns `None` for a specific metric.
+The recorder SHALL fall back to power-snapshot based estimation (kW × 0.25 h) for a metric when power-history integration returns no value for that metric. The snapshot SHALL use the same sign rules and inversion flags as the integration. There SHALL be no other fallback.
 
-#### Scenario: Missing total energy sensor
-- **WHEN** `input_sensors` only contains `pv_power: sensor.pv_current_kw` (no total energy sensor)
-- **THEN** the recorder SHALL continue to use `pv_power * 0.25` to estimate energy for the slot
+#### Scenario: History unavailable for PV
+- **WHEN** power-history integration returns no value for `pv_power`
+- **THEN** the recorder SHALL store `pv_power_kw × 0.25` as `pv_kwh`
 
 #### Scenario: History API unavailable for EV
-- **WHEN** the power history function returns `None` for an EV charger power sensor
-- **THEN** the recorder SHALL use `ev_power_kw × 0.25` to estimate energy for the slot
+- **WHEN** power-history integration returns no value for an EV charger power sensor
+- **THEN** the recorder SHALL use `ev_power_kw × 0.25` for that charger
 
 #### Scenario: History API unavailable for water heater
-- **WHEN** the power history function returns `None` for a water heater power sensor
-- **THEN** the recorder SHALL use `water_power_kw × 0.25` to estimate energy for the slot
+- **WHEN** power-history integration returns no value for a water heater power sensor
+- **THEN** the recorder SHALL use `water_power_kw × 0.25` for that heater
 
-#### Scenario: PV/load/grid unchanged
-- **WHEN** the recorder calculates PV, load, or grid energy
-- **THEN** the recorder SHALL continue using cumulative energy sensor deltas as the primary method
-- **AND** fall back to power snapshot only when no cumulative sensor is configured
-
-#### Scenario: Battery falls back to snapshot when no cumulative sensor is configured
-- **WHEN** neither `total_battery_charge` nor `total_battery_discharge` is configured in `input_sensors`
-- **THEN** the recorder SHALL use the instantaneous `battery_power` snapshot (`battery_kw * 0.25`, sign-gated for charge vs. discharge) exactly as it does today
-
-#### Scenario: Battery charge side falls back independently of discharge side
-- **WHEN** `total_battery_charge` is configured but `total_battery_discharge` is not (or vice versa)
-- **THEN** the configured side SHALL use its cumulative sensor delta
-- **AND** the unconfigured side SHALL use the power-snapshot method for that slot
-
-### Requirement: Battery Cumulative Delta Calculation
-The recorder SHALL calculate `batt_charge_kwh` and `batt_discharge_kwh` from the configured `total_battery_charge` and `total_battery_discharge` cumulative sensors independently, using the same delta-based calculation (including time-proportional scaling and meter-reset detection) already used for PV, load, and grid energy. Each side SHALL fall back to the power-snapshot method only for the slots where its own cumulative sensor is unavailable or its meter reset — the charge and discharge sides SHALL NOT share a single fallback decision.
-
-#### Scenario: Recorder calculates battery charge energy from cumulative delta
-- **WHEN** the recorder has a previous reading of `500.0 kWh` for `total_battery_charge` at `12:00`
-- **AND** the current reading at `12:15` is `501.2 kWh`
-- **THEN** the recorder SHALL store `1.2 kWh` as `batt_charge_kwh` for the `12:00` slot
-
-#### Scenario: Recorder calculates battery discharge energy from cumulative delta
-- **WHEN** the recorder has a previous reading of `300.0 kWh` for `total_battery_discharge` at `12:00`
-- **AND** the current reading at `12:15` is `301.5 kWh`
-- **THEN** the recorder SHALL store `1.5 kWh` as `batt_discharge_kwh` for the `12:00` slot
-
-#### Scenario: Battery meter reset falls back for that side only
-- **WHEN** the `total_battery_discharge` cumulative reading decreases between two consecutive slots (meter reset)
-- **THEN** the recorder SHALL use the power-snapshot method for `batt_discharge_kwh` in that slot
-- **AND** `batt_charge_kwh` SHALL continue to use its own cumulative delta if `total_battery_charge` is unaffected
-
-#### Scenario: Battery power inversion flag does not apply to cumulative sensors
-- **WHEN** `input_sensors.battery_power_inverted` is `true`
-- **AND** the recorder calculates `batt_charge_kwh`/`batt_discharge_kwh` from the cumulative sensors
-- **THEN** the inversion flag SHALL NOT be applied to the cumulative deltas (it continues to apply only to the instantaneous `battery_power` snapshot fallback)
-
-#### Scenario: Cold start after deploy falls back for one slot
-- **WHEN** the recorder has no prior state for `battery_charge_total` or `battery_discharge_total` (first run after this change is deployed)
-- **THEN** the recorder SHALL use the power-snapshot method for that side for that one slot
-- **AND** subsequent slots SHALL use the cumulative delta once a prior reading exists
+#### Scenario: Battery snapshot is sign-gated
+- **WHEN** power-history integration returns no value for `battery_power` and the inversion-adjusted snapshot is `−1.2 kW`
+- **THEN** the recorder SHALL store `batt_charge_kwh = 0.3` and `batt_discharge_kwh = 0`
 
 ### Requirement: Energy value validation before storage
 The recorder SHALL validate all energy values against physical limits before storing to `slot_observations`.
@@ -352,12 +208,11 @@ The recorder SHALL validate all energy values against physical limits before sto
 - **AND** the recorder SHALL log a warning identifying the spiked field
 
 ### Requirement: Backfill uses config-derived threshold
-The learning engine's `etl_cumulative_to_slots` and `etl_power_to_slots` functions SHALL use the config-derived threshold for spike filtering instead of a hardcoded value.
+The backfill path SHALL filter spikes with the config-derived `max_kwh_per_slot` (`get_max_energy_per_slot`) via the same validation as the live recorder, instead of a hardcoded value.
 
 #### Scenario: Backfill filters spikes using config threshold
-- **WHEN** backfill processes cumulative or power sensor data
-- **AND** a delta exceeds `max_kwh_per_slot`
-- **THEN** the delta SHALL be set to `0.0`
+- **WHEN** backfill integrates a slot value that exceeds `max_kwh_per_slot`
+- **THEN** that value SHALL be set to `0.0` before storage
 
 ### Requirement: Analytical pipelines filter spike rows at read time
 All analytical read paths that consume `pv_kwh` or `load_kwh` from `slot_observations` SHALL exclude rows where those values exceed `max_kwh_per_slot`.
@@ -386,69 +241,41 @@ All analytical read paths that consume `pv_kwh` or `load_kwh` from `slot_observa
 - **WHEN** `ml/evaluate.py` `_compute_mae` calculates forecast accuracy metrics
 - **THEN** rows where `pv_kwh` or `load_kwh` exceeds `max_kwh_per_slot` SHALL be excluded from MAE calculation
 
-### Requirement: Persistent Sensor Timestamp Storage
-The recorder SHALL store the sensor's `last_updated` timestamp alongside each cumulative meter reading in the state file to enable time-proportional scaling on subsequent recordings.
-
-#### Scenario: State file includes sensor timestamp
-- **WHEN** the recorder successfully reads a cumulative sensor value
-- **THEN** the state file entry SHALL include `sensor_timestamp` with the ISO format timestamp from the sensor's `last_updated` field
-
-#### Scenario: Backward compatible with old state files
-- **WHEN** the recorder reads a state file entry without `sensor_timestamp`
-- **THEN** the recorder SHALL proceed without scaling for that recording cycle
-
-### Requirement: Backfill Interpolation for Cumulative Sensors
-The learning engine's `etl_cumulative_to_slots` function SHALL use linear interpolation to estimate cumulative values at exact slot boundaries, ensuring consistent delta calculations across all slots.
-
-#### Scenario: Backfill interpolates to slot boundaries
-- **WHEN** backfill processes cumulative sensor data with readings at irregular times
-- **THEN** the function SHALL interpolate cumulative values at `:00, :15, :30, :45` boundaries
-- **AND** delta calculations SHALL use these interpolated boundary values
-
-#### Scenario: Backfill handles edge cases with fill
-- **WHEN** interpolation leaves NaN values at series edges
-- **THEN** the function SHALL apply forward-fill then backward-fill to ensure complete coverage
-
 ### Requirement: Load Isolation from Deferrable Loads
-Every writer of `slot_observations` — the live recorder AND the backfill/gap-fill path — SHALL subtract energy from controllable loads (EV charging, water heating) from the total load before storing `load_kwh`, so that `load_kwh` always represents base load only, with one consistent meaning regardless of which writer produced the row. The controllable-load energy used for the subtraction SHALL be the slot-aligned, integrated energy for that same completed slot (per the slot-alignment and integration requirements), falling back to the power snapshot only when history is unavailable.
+Every writer of `slot_observations` — the live recorder AND the backfill path — SHALL subtract energy from controllable loads (EV charging, water heating) from the total load before storing `load_kwh`, so that `load_kwh` always represents base load only. The controllable-load energy used for the subtraction SHALL be the integrated energy for that same completed slot, falling back to the power snapshot only when history is unavailable.
 
 #### Scenario: Live recorder subtracts EV charging energy from total load
-- **WHEN** the live recorder calculates `total_load_kwh` as `5.0 kWh`
+- **WHEN** the live recorder integrates total load as `5.0 kWh`
 - **AND** EV charging consumed `2.0 kWh` during the same completed slot
 - **THEN** the recorder SHALL store `3.0 kWh` as `load_kwh`
 
 #### Scenario: Live recorder subtracts water heating energy from total load
-- **WHEN** the live recorder calculates `total_load_kwh` as `4.0 kWh`
+- **WHEN** the live recorder integrates total load as `4.0 kWh`
 - **AND** water heating consumed `0.75 kWh` during the same completed slot
 - **THEN** the recorder SHALL store `3.25 kWh` as `load_kwh`
 
 #### Scenario: Recorder subtracts both EV and water from total load
-- **WHEN** the recorder calculates `total_load_kwh` as `6.0 kWh`
+- **WHEN** the recorder integrates total load as `6.0 kWh`
 - **AND** EV charging consumed `2.0 kWh`
 - **AND** water heating consumed `0.75 kWh`
 - **THEN** the recorder SHALL store `3.25 kWh` as `load_kwh`
 
 #### Scenario: Base load never goes negative
 - **WHEN** subtracting controllable-load energy would make `load_kwh` negative
-- **THEN** the writer SHALL clamp `load_kwh` to `0.0`
+- **THEN** the writer SHALL clamp `load_kwh` to `0.0` and log a warning
 
-#### Scenario: Load isolation always applies
-- **WHEN** EV or water energy is calculated via power history or snapshot fallback
-- **THEN** the recorder SHALL always subtract those values from total load
-- **AND** isolation SHALL NOT be conditional on any sensor type configuration
-
-#### Scenario: Recorder uses power snapshot fallback when no cumulative sensor
-- **WHEN** no `total_load_consumption` sensor is configured
+#### Scenario: Load snapshot fallback uses disaggregated base load
+- **WHEN** power-history integration returns no value for `load_power`
 - **AND** the LoadDisaggregator provides `base_load_kw` from power snapshot isolation
-- **THEN** the recorder SHALL use `base_load_kw * 0.25` for `load_kwh`
+- **THEN** the recorder SHALL use `base_load_kw × 0.25` for `load_kwh` without subtracting EV and water a second time
 
 #### Scenario: Backfill disaggregates exactly like the live path
-- **WHEN** the backfill/gap-fill path fills a missing slot whose total load delta is `5.0 kWh`
-- **AND** EV charging consumed `2.0 kWh` and water heating `0.5 kWh` during that slot (fetched from power history for the same window)
-- **THEN** the backfill path SHALL store `2.5 kWh` as `load_kwh`, NOT the un-disaggregated `5.0 kWh`
+- **WHEN** backfill integrates total load of `5.0 kWh` for a missing slot
+- **AND** EV charging consumed `2.0 kWh` and water heating `0.5 kWh` during that slot
+- **THEN** backfill SHALL store `2.5 kWh` as `load_kwh`
 
 ### Requirement: Slot Alignment to Completed Window
-The recorder SHALL record the 15-minute slot that has just **finished**, labeling the row with `slot_start = floor(now) − 15 minutes` and computing every field — cumulative-delta energy (load/PV/grid) and integrated controllable-load energy (EV/water) — over the single window `[slot_start, slot_start + 15 min]`. The `slot_start` label SHALL be derived from the wall-clock time, not from a loop iteration counter, so a late or skipped wake still labels the correct completed slot.
+The recorder SHALL record the 15-minute slot that has just **finished**, labeling the row with `slot_start = floor(now) − 15 minutes` and computing every energy field over the single window `[slot_start, slot_start + 15 min]`. The `slot_start` label SHALL be derived from the wall-clock time, not from a loop iteration counter, so a late or skipped wake still labels the correct completed slot.
 
 #### Scenario: Steady-state wake records the finished slot
 - **WHEN** the recorder wakes at `12:15:04` (just after the boundary)
@@ -457,7 +284,7 @@ The recorder SHALL record the 15-minute slot that has just **finished**, labelin
 
 #### Scenario: All fields align to one window
 - **WHEN** the recorder records the `12:00` slot
-- **THEN** the load/PV/grid deltas AND the EV/water integrated energy SHALL all cover `[12:00, 12:15]` — no field is shifted to a different slot
+- **THEN** PV, load, grid, battery, EV and water energy SHALL all be integrated over `[12:00, 12:15]` — no field is shifted to a different slot
 
 #### Scenario: Late wake still labels correctly
 - **WHEN** the recorder wakes at `12:33` after missing the `12:15` boundary
@@ -487,7 +314,7 @@ The slot-observation UPSERT SHALL distinguish "no measurement available" (skip t
 ### Requirement: Single Live Recorder Instance
 Exactly one live recorder instance SHALL write `slot_observations` energy and price columns at runtime. The deployment runtime SHALL NOT start more than one concurrent recorder, and the in-process `RecorderService` (started by `backend/main.py`) SHALL be the single canonical live recorder. Container entrypoints SHALL NOT additionally launch the standalone `python -m backend.recorder` loop alongside the application server.
 
-This requirement closes the interaction with the Correctable Energy Storage requirement: because authoritative writes use last-writer-wins (so genuine zeros and downward corrections can be stored), two concurrent recorders sharing the meter-state file (`data/recorder_state.json`) will race — the later writer reads the already-advanced cumulative state, computes a zero delta, and overwrites the earlier writer's real measurement with `0.0`. A single live recorder makes the shared-state delta calculation and the authoritative overwrite well-defined.
+Authoritative writes use last-writer-wins (so genuine zeros and downward corrections can be stored); a single live recorder keeps those writes well-defined and avoids duplicate history requests for the same slot.
 
 #### Scenario: Application server starts exactly one recorder
 - **WHEN** the container starts the application server (`uvicorn backend.main:app`)
@@ -498,11 +325,6 @@ This requirement closes the interaction with the Correctable Energy Storage requ
 - **WHEN** `scripts/docker-entrypoint.sh` runs
 - **THEN** it SHALL NOT invoke `python -m backend.recorder` (neither at initial startup nor in any process-monitor/restart block)
 - **AND** it SHALL rely on the application server's in-process recorder for live observation recording
-
-#### Scenario: A second concurrent recorder cannot silently zero out real data
-- **WHEN** a real cumulative-meter delta has been recorded for a slot by the single live recorder
-- **AND** any additional recorder loop were to run against the same shared meter-state file
-- **THEN** the system design SHALL prevent that second loop from overwriting the real measurement with a zero delta — enforced by ensuring only one recorder instance runs
 
 #### Scenario: Add-on and root entrypoints are consistent
 - **WHEN** the system is deployed via either the root `Dockerfile` (`scripts/docker-entrypoint.sh`) or the HA add-on Dockerfiles (`darkstar/run.sh`, `darkstar-dev/run.sh`)
@@ -518,3 +340,95 @@ Each `slot_observations` column SHALL have exactly one canonical owner. The reco
 #### Scenario: Executor write does not clobber recorder columns
 - **WHEN** the executor updates `executed_action` for a slot the recorder also wrote
 - **THEN** the recorder-owned energy/price columns for that slot SHALL be unaffected
+
+### Requirement: All slot energy is integrated from power history
+The recorder SHALL compute `pv_kwh`, total load, `import_kwh`, `export_kwh`, `batt_charge_kwh`, `batt_discharge_kwh`, `ev_charging_kwh` and `water_kwh` for the completed slot by step-integrating (zero-order hold) the configured power sensors' HA history over exactly `[slot_start, slot_end]`. This SHALL be the only primary method; the system SHALL NOT read cumulative energy counters for any metric.
+
+The power sensors used SHALL be `input_sensors.pv_power`, `load_power`, `grid_power` (net meter) or `grid_import_power` and `grid_export_power` (dual meter), `battery_power`, each enabled EV charger's `sensor` and each enabled water heater's `sensor`. Metrics for a subsystem that is disabled (`has_solar`, `has_battery`, `has_ev_charger`, `has_water_heater` false) SHALL be recorded as `0.0` without fetching history.
+
+#### Scenario: Load starting mid-slot is placed in the right slot
+- **WHEN** the grid power is `0.3 kW` until `00:15:08` and `7.2 kW` from `00:15:09` to the end of the slot `[00:15, 00:30]`
+- **THEN** the recorder SHALL store `import_kwh` equal to the integral over `[00:15, 00:30]` (about 1.8 kWh)
+
+#### Scenario: EV charge-start slot has import at least equal to the EV share
+- **WHEN** an EV charges at about 6.9 kW from `00:15:10` to the end of the `[00:15, 00:30]` slot with house load of about 0.25 kWh in the slot and no PV or battery discharge
+- **THEN** the stored `import_kwh` SHALL be at least the stored `ev_charging_kwh` within sensor tolerance
+- **AND** `load_kwh` SHALL NOT be clamped to 0
+
+#### Scenario: Battery energy comes from battery power history
+- **WHEN** the battery power is `−2.0 kW` (charging) for the first 6 minutes of a slot and `+1.0 kW` (discharging) for the remaining 9 minutes
+- **THEN** the recorder SHALL store `batt_charge_kwh = 0.2` and `batt_discharge_kwh = 0.15`
+
+#### Scenario: Disabled subsystem records zero without a request
+- **WHEN** `system.has_battery` is false
+- **THEN** `batt_charge_kwh` and `batt_discharge_kwh` SHALL be `0.0`
+- **AND** no history SHALL be requested for `battery_power`
+
+### Requirement: Signed power is split by sign per sample interval
+The integrator SHALL return the positive and negative energy of a power series separately, accumulating each sample interval into one side by the sign of its held value. Inversion flags SHALL be applied before splitting.
+
+- Net grid: after `input_sensors.grid_power_inverted`, the positive part SHALL be `import_kwh` and the magnitude of the negative part SHALL be `export_kwh`.
+- Battery: after `input_sensors.battery_power_inverted`, the positive part SHALL be `batt_discharge_kwh` and the magnitude of the negative part SHALL be `batt_charge_kwh`.
+- PV, load, dual-meter import and export, EV and water: negative samples SHALL contribute `0`.
+
+#### Scenario: Net meter splits import and export
+- **WHEN** a net grid power sensor is `+2.0 kW` for the first 5 minutes of a slot and `−4.0 kW` for the remaining 10 minutes
+- **THEN** the recorder SHALL store `import_kwh = 0.1667` and `export_kwh = 0.6667`
+
+#### Scenario: Inverted net meter
+- **WHEN** `grid_power_inverted` is true and the raw sensor reads `−3.0 kW` for the whole slot
+- **THEN** the recorder SHALL store `import_kwh = 0.75` and `export_kwh = 0`
+
+#### Scenario: Inverted battery sensor
+- **WHEN** `battery_power_inverted` is true and the raw sensor reads `+2.0 kW` for the whole slot
+- **THEN** the recorder SHALL store `batt_charge_kwh = 0.5` and `batt_discharge_kwh = 0`
+
+#### Scenario: Dual meter integrates both sensors
+- **WHEN** the grid meter type is dual and the import and export power sensors hold `1.0 kW` and `0 kW` over the slot
+- **THEN** the recorder SHALL store `import_kwh = 0.25` and `export_kwh = 0`
+
+#### Scenario: EV and water results are unchanged
+- **WHEN** the recorder integrates an EV charger or water heater power sensor
+- **THEN** the result SHALL equal the value the previous `get_energy_from_power_history` produced for the same history
+
+### Requirement: One batched history request per slot
+The recorder SHALL fetch the history of all power entities needed for a slot in a single HA History API request (comma-separated `filter_entity_id`, same timeout as the existing power-history function) and integrate each entity from that response. If the request fails, every metric SHALL use its snapshot fallback for that slot and the failure SHALL be logged once at warning level. An entity missing from an otherwise successful response SHALL use its own snapshot fallback.
+
+#### Scenario: Single request for all entities
+- **WHEN** the recorder records a slot with PV, load, net grid, battery, one EV charger and one water heater configured
+- **THEN** exactly one HA history request SHALL be made for that slot
+
+#### Scenario: Request failure falls back per metric
+- **WHEN** the batched history request times out
+- **THEN** every metric SHALL be recorded from its power snapshot × 0.25 h
+- **AND** one warning SHALL be logged
+
+#### Scenario: One entity has no history
+- **WHEN** the response contains no valid samples for `pv_power` but valid samples for the other entities
+- **THEN** only `pv_kwh` SHALL use the snapshot fallback
+
+### Requirement: Backfill integrates power history
+The backfill path SHALL fill missing slots (from the last observation to now, capped at 10 days) by integrating the same power entities as the live recorder over each 15-minute slot, using the same integrator, sign rules and load isolation, and SHALL write with `authoritative=False`. History SHALL be fetched in batched requests that each cover at most one local day. The backfill path SHALL NOT read cumulative energy counters. Battery charge and discharge SHALL be backfilled.
+
+#### Scenario: Gap is filled from power history
+- **WHEN** the last observation is `08:00` and the service starts at `11:07`
+- **THEN** backfill SHALL write slots `08:15` through `10:45` with PV, load, grid, battery, EV and water energy integrated from power history
+
+#### Scenario: Requests are bounded per day
+- **WHEN** backfill covers a 3-day gap
+- **THEN** it SHALL make at most 3 history requests, each for all entities over one local day or less
+
+#### Scenario: Gap older than the cap stays unfilled
+- **WHEN** the last observation is 14 days ago
+- **THEN** backfill SHALL only fill the most recent 10 days
+
+### Requirement: Obsolete recorder state is removed
+On startup, the recorder service SHALL delete `data/recorder_state.json` if it exists and log the removal at info level. No component SHALL read or write it afterwards.
+
+#### Scenario: State file left from an earlier version
+- **WHEN** the service starts and `data/recorder_state.json` exists
+- **THEN** the file SHALL be deleted and an info message logged
+
+#### Scenario: No state file
+- **WHEN** the service starts and the file does not exist
+- **THEN** startup SHALL proceed without a warning

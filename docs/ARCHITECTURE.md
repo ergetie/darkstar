@@ -1128,8 +1128,8 @@ As of **REV UI20**, the settings page has been reorganized into **device-centric
 |-----|------------|----------|
 | **System** | Always | System profile toggles (has_solar, has_battery, etc.), Grid config, Pricing, Timezone, HA Connection, Inverter control entities, Non-device sensors (load_power, grid_power) |
 | **Parameters** | Always | Forecasting & Strategy, Arbitrage & Economics, Battery Economics, Learning, S-Index, Charging Strategy |
-| **Solar** | has_solar=true | Location coordinates, Solar arrays configuration, PV sensors (pv_power, total_pv_production) |
-| **Battery** | has_battery=true | Battery specifications (capacity, SoC limits, max power), Battery sensors (battery_soc, battery_power, charge/discharge totals), Work mode selector |
+| **Solar** | has_solar=true | Location coordinates, Solar arrays configuration, PV sensors (pv_power) |
+| **Battery** | has_battery=true | Battery specifications (capacity, SoC limits, max power), Battery sensors (battery_soc, battery_power), Work mode selector |
 | **EV** | has_ev_charger=true | EV chargers array, EV sensors (ev_soc, ev_plug, ev_power), Charger controls (switch, replan triggers) |
 | **Water** | has_water_heater=true | Water heaters array, Water sensors (water_power, consumption), Scheduling params, Temperature setpoints, Vacation mode |
 | **UI** | Always | Theme settings, Dashboard options, Notification preferences |

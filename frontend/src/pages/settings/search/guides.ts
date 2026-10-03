@@ -370,7 +370,7 @@ Grid export as a whole is gated by the "Enable grid export" toggle, and the Expo
 
 The connection is the Home Assistant URL and a long-lived access token. On a fresh install, the startup wizard walks you through the essentials: picking your inverter profile (which pre-fills the standard entity names for that brand), entering your battery and solar specs, and establishing a baseline consumption profile from your history.
 
-Sensors are how Darkstar sees your home: at minimum, load power and grid power (either one net meter, or separate import/export sensors — the Grid Meter Type setting picks which). The "Lifetime Energy Totals" sensors (cumulative kWh counters) feed the energy statistics. Control entities are how it acts: the inverter's charge/discharge limits, work mode, SoC target, and grid charging switch.
+Sensors are how Darkstar sees your home: at minimum, load power and grid power (either one net meter, or separate import/export sensors — the Grid Meter Type setting picks which). Energy statistics are built from the power sensors' history. Control entities are how it acts: the inverter's charge/discharge limits, work mode, SoC target, and grid charging switch.
 
 A core principle: features fail safe by staying off until fully configured. The system profile toggles (solar, battery, water heater, EV) hide whole tabs and features you don't have. Load balancing stays inert until the main fuse, all three phase sensors, and a give-way order are set. If you search for a setting and it's marked hidden or disabled, the hint tells you what's missing — that's the fastest way to find out why a feature is greyed out.`,
         aliases: ['setup', 'installation', 'wizard', 'onboarding', 'connect', 'greyed out', 'entities'],

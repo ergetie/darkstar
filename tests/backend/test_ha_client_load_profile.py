@@ -1,7 +1,8 @@
-"""Tests for get_load_profile_from_ha's per-delta sanity guard and honest
-degraded messaging (fix-beta-monitor-false-alarms).
+"""Tests for get_load_profile_from_ha (built from load_power history) and honest
+degraded messaging (fix-beta-monitor-false-alarms, recorder-slot-aligned-energy).
 """
 
+import logging
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,9 +13,11 @@ from backend.core.ha_client import get_dummy_load_profile, get_load_profile_from
 from backend.health import clear_load_forecast_status, get_load_forecast_status
 
 # Pinned "current time" for get_load_profile_from_ha. With a real clock, the
-# local time of day of each synthetic sample shifts per run, so e.g. the
-# expected slot of injected jumps would shift between runs.
+# local time of day of each synthetic sample shifts per run.
 FIXED_NOW = datetime(2026, 9, 20, 12, 0, tzinfo=pytz.UTC)
+ENTITY = "sensor.inverter_load_power"
+CONFIG = {"timezone": "Europe/Stockholm", "input_sensors": {"load_power": ENTITY}}
+STOCKHOLM = pytz.timezone("Europe/Stockholm")
 
 
 class _FrozenDatetime(datetime):
@@ -29,83 +32,6 @@ def _frozen_clock():
         yield
 
 
-def _fresh_start() -> datetime:
-    """A timestamp safely inside the function's trailing-7-day query window
-    (relative to the pinned FIXED_NOW)."""
-    return FIXED_NOW - timedelta(days=7) + timedelta(minutes=20)
-
-
-def _state(value: str, ts: datetime, unit: str = "kWh") -> dict:
-    return {
-        "state": value,
-        "last_changed": ts.isoformat(),
-        "attributes": {"unit_of_measurement": unit},
-    }
-
-
-def _clean_lifetime_states(days: int = 6, daily_kwh: float = 10.0) -> list[dict]:
-    """Plausible cumulative-meter history: steady small per-slot increments."""
-    start = _fresh_start()
-    per_step = daily_kwh / 96
-    lifetime = 19600.0
-    states = []
-    for day in range(days):
-        for step in range(96):
-            t = start + timedelta(days=day, minutes=15 * step)
-            lifetime += per_step
-            states.append(_state(f"{lifetime:.4f}", t))
-    return states
-
-
-def _lifetime_states_with_nightly_reset(days: int = 6, daily_kwh: float = 10.0) -> list[dict]:
-    """Cumulative-meter history with a Fronius-style nightly 0->lifetime jump.
-
-    Each day, one slot reads 0 (meter reset) and the next slot jumps back up
-    to the true cumulative value, matching the beta-tester evidence
-    (~19,600 kWh jumps, once per day).
-    """
-    start = _fresh_start()
-    per_step = daily_kwh / 96
-    lifetime = 19600.0
-    states = []
-    for day in range(days):
-        for step in range(96):
-            t = start + timedelta(days=day, minutes=15 * step)
-            if step == 12:
-                states.append(_state("0.0", t))
-                continue
-            lifetime += per_step
-            states.append(_state(f"{lifetime:.4f}", t))
-    return states
-
-
-async def _run_get_load_profile(states: list[dict], config: dict | None = None) -> list[float]:
-    mock_response = MagicMock()
-    mock_response.json.return_value = [states]
-    mock_response.raise_for_status = MagicMock()
-
-    mock_client = AsyncMock()
-    mock_client.get = AsyncMock(return_value=mock_response)
-
-    cfg = config or {
-        "timezone": "Europe/Stockholm",
-        "input_sensors": {"total_load_consumption": "sensor.fronius_lifetime"},
-    }
-
-    with (
-        patch("backend.core.ha_client.get_ha_http_client", return_value=mock_client),
-        patch(
-            "backend.core.secrets.load_home_assistant_config",
-            return_value={
-                "url": "http://homeassistant:8123",
-                "token": "test_token",
-                "consumption_entity_id": "sensor.fronius_lifetime",
-            },
-        ),
-    ):
-        return await get_load_profile_from_ha(cfg)
-
-
 @pytest.fixture(autouse=True)
 def _reset_load_forecast_status():
     clear_load_forecast_status()
@@ -113,166 +39,112 @@ def _reset_load_forecast_status():
     clear_load_forecast_status()
 
 
-class TestDeltaGuard:
+def _state(value: float, ts: datetime, unit: str = "kW") -> dict:
+    return {
+        "entity_id": ENTITY,
+        "state": str(value),
+        "last_changed": ts.isoformat(),
+        "attributes": {"unit_of_measurement": unit},
+    }
+
+
+class _FakeHA:
+    """HA history endpoint over a power series of ``(timestamp, value)`` points.
+
+    Like HA, a request returns the state held at the window start (stamped at the start)
+    followed by the changes inside the window.
+    """
+
+    def __init__(self, points: list[tuple[datetime, float]], unit: str = "kW", error=None):
+        self.points = sorted(points)
+        self.unit = unit
+        self.error = error
+        self.requests: list[tuple[datetime, datetime]] = []
+        self.client = MagicMock()
+        self.client.get = AsyncMock(side_effect=self._get)
+
+    async def _get(self, api_url, headers=None, params=None, timeout=None):
+        if self.error:
+            raise self.error
+        start = datetime.fromisoformat(api_url.rsplit("/", 1)[1])
+        end = datetime.fromisoformat(params["end_time"])
+        self.requests.append((start, end))
+        held = [p for p in self.points if p[0] <= start]
+        states = [_state(held[-1][1], start, self.unit)] if held else []
+        states += [_state(v, t, self.unit) for t, v in self.points if start < t < end]
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = [states] if states else []
+        return response
+
+
+async def _profile(fake: _FakeHA, config: dict | None = None) -> list[float]:
+    with (
+        patch("backend.core.ha_client.get_ha_http_client", return_value=fake.client),
+        patch(
+            "backend.core.secrets.load_home_assistant_config",
+            return_value={"url": "http://homeassistant:8123", "token": "test_token"},
+        ),
+    ):
+        return await get_load_profile_from_ha(config or CONFIG)
+
+
+def _constant(kw: float, days: int = 8) -> list[tuple[datetime, float]]:
+    return [(FIXED_NOW - timedelta(days=days), kw)]
+
+
+class TestLoadProfileFromPower:
     @pytest.mark.asyncio
-    async def test_nightly_reset_produces_plausible_profile_not_demo(self):
-        states = _lifetime_states_with_nightly_reset(daily_kwh=10.0)
-        profile = await _run_get_load_profile(states)
-
-        # Demo fallback is a flat 0.5 kWh * 96 slots; a real profile built
-        # from ~10 kWh/day of genuine deltas looks nothing like that.
-        assert profile != [0.5] * 96
-        assert sum(profile) < 500
-        status = get_load_forecast_status()
-        assert status["status"] != "degraded"
+    async def test_constant_one_kw_gives_24_kwh_per_day(self):
+        profile = await _profile(_FakeHA(_constant(1.0)))
+        assert sum(profile) == pytest.approx(24.0)
+        assert profile == [pytest.approx(0.25)] * 96
+        assert get_load_forecast_status()["status"] != "degraded"
 
     @pytest.mark.asyncio
-    async def test_clean_history_unaffected_by_guard(self):
-        states = _clean_lifetime_states(daily_kwh=10.0)
-        profile = await _run_get_load_profile(states)
-
-        assert profile != [0.5] * 96
-        assert 3.0 < sum(profile) < 20.0
-        status = get_load_forecast_status()
-        assert status["status"] != "degraded"
+    async def test_watt_sensor_is_scaled(self):
+        profile = await _profile(_FakeHA(_constant(1000.0), unit="W"))
+        assert sum(profile) == pytest.approx(24.0)
 
     @pytest.mark.asyncio
-    async def test_skip_warning_logged_once(self, caplog):
-        import logging
+    async def test_one_request_per_day(self):
+        fake = _FakeHA(_constant(1.0))
+        await _profile(fake)
+        assert len(fake.requests) == 7
+        assert all(end - start == timedelta(days=1) for start, end in fake.requests)
+        assert fake.requests[0][0] == FIXED_NOW - timedelta(days=7)
+        assert fake.requests[-1][1] == FIXED_NOW
 
-        states = _lifetime_states_with_nightly_reset(days=6, daily_kwh=10.0)
-        with caplog.at_level(logging.WARNING, logger="darkstar.core.ha_client"):
-            await _run_get_load_profile(states)
+    @pytest.mark.asyncio
+    async def test_evening_peak_lands_in_its_local_slots(self):
+        """A weekly 4 kW burst 18:00-19:00 local (CEST) maps to slots 72-75."""
+        points: list[tuple[datetime, float]] = [(FIXED_NOW - timedelta(days=9), 0.0)]
+        for day in range(-1, 8):
+            base = datetime(2026, 9, 20, 16, 0, tzinfo=pytz.UTC) - timedelta(days=day)  # 18:00 CEST
+            points += [(base, 4.0), (base + timedelta(hours=1), 0.0)]
+        profile = await _profile(_FakeHA(points))
+        for slot in range(96):
+            expected = 1.0 if 72 <= slot <= 75 else 0.0
+            assert profile[slot] == pytest.approx(expected, abs=1e-6)
 
-        skip_warnings = [
-            r for r in caplog.records if "implausible cumulative-meter delta" in r.message
+    @pytest.mark.asyncio
+    async def test_burst_across_local_midnight_wraps_into_slots_95_and_0(self):
+        # 4 kW from 23:50 to 00:05 local on 2026-09-17 (CEST = UTC+2)
+        start = datetime(2026, 9, 17, 21, 50, tzinfo=pytz.UTC)
+        points = [
+            (FIXED_NOW - timedelta(days=9), 0.0),
+            (start, 4.0),
+            (start + timedelta(minutes=15), 0.0),
         ]
-        assert len(skip_warnings) == 1
-        assert "6 implausible" in skip_warnings[0].message
+        profile = await _profile(_FakeHA(points))
+        assert sum(profile) == pytest.approx(1.0 / 7)
+        assert profile[95] == pytest.approx(4.0 * 10 / 60 / 7)
+        assert profile[0] == pytest.approx(4.0 * 5 / 60 / 7)
 
     @pytest.mark.asyncio
-    async def test_custom_max_meter_delta_kwh_is_honored(self):
-        """A delta below the configured max is NOT skipped even if unusually large."""
-        baseline_states = _clean_lifetime_states(daily_kwh=10.0)
-        baseline_profile = await _run_get_load_profile(baseline_states)
-
-        states = _clean_lifetime_states(daily_kwh=10.0)
-        # Inject one 30 kWh jump, plausible under a raised 100 kWh config max.
-        prev_val = float(states[49]["state"])
-        states[50] = _state(
-            f"{prev_val + 30.0:.4f}", datetime.fromisoformat(states[50]["last_changed"])
-        )
-        config = {
-            "timezone": "Europe/Stockholm",
-            "input_sensors": {"total_load_consumption": "sensor.fronius_lifetime"},
-            "recorder": {"max_meter_delta_kwh": 100.0},
-        }
-        profile = await _run_get_load_profile(states, config=config)
-        assert profile != [0.5] * 96
-        # the 30 kWh jump should be counted, not skipped: total rises by ~30/7 kWh/day
-        assert sum(profile) - sum(baseline_profile) > 3.0
-
-
-class TestDegradedMessaging:
-    def test_not_configured_message_instructs_configuration(self):
-        clear_load_forecast_status()
-        get_dummy_load_profile({"input_sensors": {}})
-        status = get_load_forecast_status()
-        assert status["status"] == "degraded"
-        assert status["reason"] == "demo"
-        assert status["detail"] == ""
-
-    def test_configured_but_discarded_message_names_sensor(self):
-        clear_load_forecast_status()
-        get_dummy_load_profile(
-            {"input_sensors": {}},
-            discard_reason=(
-                "'sensor.fronius_lifetime' data discarded: 19609.2 kWh/day exceeds the "
-                "500 kWh/day plausibility bound"
-            ),
-        )
-        status = get_load_forecast_status()
-        assert status["status"] == "degraded"
-        assert status["reason"] == "demo"
-        assert "sensor.fronius_lifetime" in status["detail"]
-        assert "discarded" in status["detail"]
-
-    @pytest.mark.asyncio
-    async def test_total_daily_over_500_passes_discard_reason_to_dummy(self):
-        """A whole-profile bound violation (unskippable pattern of sub-threshold
-        deltas summing over 500 kWh/day) still names the sensor, not 'not configured'."""
-        # Deltas each just under the 50 kWh guard, but frequent enough that the
-        # 500 kWh/day backstop trips.
-        start = _fresh_start()
-        per_step = 40.0
-        lifetime = 0.0
-        states = []
-        for step in range(96):
-            t = start + timedelta(minutes=15 * step)
-            lifetime += per_step
-            states.append(_state(f"{lifetime:.4f}", t))
-
-        clear_load_forecast_status()
-        profile = await _run_get_load_profile(states)
-        assert profile == [0.5] * 96  # demo fallback
-        status = get_load_forecast_status()
-        assert status["status"] == "degraded"
-        assert status["reason"] == "demo"
-        assert "sensor.fronius_lifetime" in status["detail"]
-        assert "500 kWh/day" in status["detail"]
-
-
-STOCKHOLM = pytz.timezone("Europe/Stockholm")
-
-
-def _slot_of(ts: datetime) -> int:
-    local = ts.astimezone(STOCKHOLM)
-    return (local.hour * 60 + local.minute) // 15
-
-
-class TestSlotDistribution:
-    @pytest.mark.asyncio
-    async def test_jump_in_interval_crossing_local_midnight_is_fully_counted(self):
-        """An interval spanning local midnight must wrap into slots 95 and 0,
-        not be silently dropped."""
-        baseline_states = _clean_lifetime_states(daily_kwh=10.0)
-        baseline_profile = await _run_get_load_profile(baseline_states)
-
-        states = _clean_lifetime_states(daily_kwh=10.0)
-        times = [datetime.fromisoformat(s["last_changed"]) for s in states]
-        # First interval whose readings sit on either side of local midnight.
-        idx = next(
-            i
-            for i in range(1, len(times))
-            if times[i].astimezone(STOCKHOLM).date() != times[i - 1].astimezone(STOCKHOLM).date()
-        )
-        before = times[idx - 1].astimezone(STOCKHOLM)
-        after = times[idx].astimezone(STOCKHOLM)
-        assert (before.hour, before.minute) == (23, 50)
-        assert (after.hour, after.minute) == (0, 5)
-
-        jump = 30.0
-        for i in range(idx, len(states)):
-            states[i] = _state(f"{float(states[i]['state']) + jump:.4f}", times[i])
-
-        config = {
-            "timezone": "Europe/Stockholm",
-            "input_sensors": {"total_load_consumption": "sensor.fronius_lifetime"},
-            "recorder": {"max_meter_delta_kwh": 100.0},
-        }
-        profile = await _run_get_load_profile(states, config=config)
-
-        assert sum(profile) - sum(baseline_profile) == pytest.approx(jump / 7, rel=1e-3)
-        # 23:50-00:00 is 10 of the 15 minutes -> slot 95; 00:00-00:05 -> slot 0.
-        assert profile[95] - baseline_profile[95] == pytest.approx(jump * 10 / 15 / 7, rel=1e-3)
-        assert profile[0] - baseline_profile[0] == pytest.approx(jump * 5 / 15 / 7, rel=1e-3)
-        for slot in range(1, 95):
-            assert profile[slot] == pytest.approx(baseline_profile[slot], abs=1e-6)
-
-    @pytest.mark.asyncio
-    async def test_interval_across_dst_fall_back_uses_wall_clock_slots(self):
-        """On the 25 h day (2026-10-25, 03:00 CEST -> 02:00 CET) the repeated
-        02:00-03:00 hour lands in its wall-clock slots twice and no energy is lost."""
+    async def test_dst_fall_back_repeats_the_hour_in_wall_clock_slots(self):
+        """On 2026-10-25 (25 h day) 02:00-03:00 occurs twice, so its slots get 8 samples
+        in the window where every other slot gets 7; no energy is lost."""
         now = datetime(2026, 10, 27, 12, 0, tzinfo=pytz.UTC)
 
         class _DstNow(datetime):
@@ -280,30 +152,119 @@ class TestSlotDistribution:
             def now(cls, tz=None):  # type: ignore[override]
                 return now if tz is None else now.astimezone(tz)
 
-        t0 = datetime(2026, 10, 24, 23, 50, tzinfo=pytz.UTC)  # 01:50 CEST
-        t1 = datetime(2026, 10, 25, 2, 5, tzinfo=pytz.UTC)  # 03:05 CET
-        assert _slot_of(t0) == 7 and _slot_of(t1) == 12
-        minutes = (t1 - t0).total_seconds() / 60  # 135 real minutes
-        energy = 13.5
-        states = [_state("100.0", t0), _state(f"{100.0 + energy}", t1)]
-
+        fake = _FakeHA([(now - timedelta(days=9), 1.0)])
         with patch("backend.core.ha_client.datetime", _DstNow):
-            profile = await _run_get_load_profile(states)
+            profile = await _profile(fake)
 
-        per_min = energy / minutes / 7
-        assert sum(profile) == pytest.approx(energy / 7, rel=1e-6)
-        assert profile[7] == pytest.approx(10 * per_min, rel=1e-6)
-        for slot in range(8, 12):
-            assert profile[slot] == pytest.approx(30 * per_min, rel=1e-6)
-        assert profile[12] == pytest.approx(5 * per_min, rel=1e-6)
+        assert sum(profile) * 7 == pytest.approx(7 * 24.0)
+        assert profile[9] == pytest.approx(0.25 * 8 / 7)
+        assert profile[60] == pytest.approx(0.25)
+
+
+class TestUnusableHistory:
+    @pytest.mark.asyncio
+    async def test_over_500_kwh_per_day_names_the_sensor(self):
+        profile = await _profile(_FakeHA(_constant(25.0)))  # 600 kWh/day
+        assert profile == [0.5] * 96
+        status = get_load_forecast_status()
+        assert status["status"] == "degraded"
+        assert ENTITY in status["detail"]
+        assert "500 kWh/day" in status["detail"]
+        assert "discarded" in status["detail"]
 
     @pytest.mark.asyncio
-    async def test_long_gap_spanning_days_is_spread_evenly(self):
-        """A 2-day gap (48 kWh, under the 50 kWh delta guard) spreads its energy
-        evenly over every slot."""
-        start = _fresh_start()
-        states = [_state("100.0", start), _state("148.0", start + timedelta(days=2))]
-        profile = await _run_get_load_profile(states)
-        assert sum(profile) == pytest.approx(48.0 / 7, rel=1e-6)
-        for slot in range(96):
-            assert profile[slot] == pytest.approx(48.0 / 96 / 7, rel=1e-6)
+    async def test_empty_history_names_the_sensor(self):
+        profile = await _profile(_FakeHA([]))
+        assert profile == [0.5] * 96
+        status = get_load_forecast_status()
+        assert status["status"] == "degraded"
+        assert ENTITY in status["detail"]
+        assert "no history" in status["detail"]
+
+    @pytest.mark.asyncio
+    async def test_all_zero_history_is_unusable(self):
+        profile = await _profile(_FakeHA(_constant(0.0)))
+        assert profile == [0.5] * 96
+        assert ENTITY in get_load_forecast_status()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_failed_request_falls_back_and_names_the_sensor(self):
+        profile = await _profile(_FakeHA([], error=TimeoutError("timed out")))
+        assert profile == [0.5] * 96
+        status = get_load_forecast_status()
+        assert status["status"] == "degraded"
+        assert ENTITY in status["detail"]
+
+    @pytest.mark.asyncio
+    async def test_synthetic_estimate_replaces_demo_when_history_is_empty(self):
+        config = {
+            "input_sensors": {"load_power": ENTITY, "synthetic_daily_load_kwh": 20},
+        }
+        profile = await _profile(_FakeHA([]), config)
+        assert sum(profile) == pytest.approx(20.0)
+        status = get_load_forecast_status()
+        assert (status["status"], status["reason"]) == ("synthetic", "estimated")
+
+    @pytest.mark.asyncio
+    async def test_synthetic_estimate_replaces_demo_when_data_is_discarded(self):
+        config = {
+            "input_sensors": {"load_power": ENTITY, "synthetic_daily_load_kwh": 20},
+        }
+        profile = await _profile(_FakeHA(_constant(25.0)), config)
+        assert sum(profile) == pytest.approx(20.0)
+
+    @pytest.mark.asyncio
+    async def test_history_takes_precedence_over_synthetic_estimate(self):
+        config = {
+            "input_sensors": {"load_power": ENTITY, "synthetic_daily_load_kwh": 20},
+        }
+        profile = await _profile(_FakeHA(_constant(1.0)), config)
+        assert sum(profile) == pytest.approx(24.0)
+        assert get_load_forecast_status()["status"] != "degraded"
+
+
+class TestDegradedMessaging:
+    def test_not_configured_message_instructs_configuration(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            get_dummy_load_profile({"input_sensors": {}})
+        status = get_load_forecast_status()
+        assert status["status"] == "degraded"
+        assert status["reason"] == "demo"
+        assert status["detail"] == ""
+        assert "load_power" in caplog.text
+        assert "total_load_consumption" not in caplog.text
+
+    def test_configured_but_discarded_message_names_sensor(self):
+        get_dummy_load_profile(
+            {"input_sensors": {}},
+            discard_reason=(
+                f"'{ENTITY}' data discarded: 900.0 kWh/day exceeds the 500 kWh/day plausibility bound"
+            ),
+        )
+        status = get_load_forecast_status()
+        assert status["status"] == "degraded"
+        assert status["reason"] == "demo"
+        assert ENTITY in status["detail"]
+        assert "discarded" in status["detail"]
+
+    @pytest.mark.asyncio
+    async def test_missing_ha_configuration_uses_dummy(self):
+        with patch("backend.core.secrets.load_home_assistant_config", return_value={}):
+            profile = await get_load_profile_from_ha(CONFIG)
+        assert profile == [0.5] * 96
+
+    @pytest.mark.asyncio
+    async def test_unconfigured_load_power_uses_dummy_without_request(self):
+        fake = _FakeHA(_constant(1.0))
+        profile = await _profile(fake, {"input_sensors": {}})
+        assert profile == [0.5] * 96
+        assert fake.requests == []
+
+    def test_degraded_guidance_names_load_power(self):
+        from backend.health import HealthChecker
+
+        get_dummy_load_profile({"input_sensors": {}})
+        issues = HealthChecker().check_load_forecast()
+        assert issues
+        assert "load_power" in issues[0].guidance
+        assert "total_load_consumption" not in issues[0].guidance

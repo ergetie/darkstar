@@ -646,10 +646,7 @@ class HealthChecker:
 
         # Define which sensors are HARD requirements for core functionality
         # If False, a missing entity is a WARNING, not a CRITICAL error.
-        # REV F65: Cumulative sensors are REQUIRED for forecasting/ML
         # NOTE: today_* sensors are DEPRECATED (v2.6.1-beta) - energy data comes from DB
-        learning_cfg = self._config.get("learning", {})
-        is_learning_enabled = learning_cfg.get("enable", False)
 
         sensor_requirements = {
             # Core energy sensors (CRITICAL)
@@ -659,13 +656,6 @@ class HealthChecker:
             "grid_power": is_net_metering,
             "grid_import_power": not is_net_metering,
             "grid_export_power": not is_net_metering,
-            # Cumulative sensors (REQUIRED for forecasting/ML - F65)
-            "total_load_consumption": is_learning_enabled,
-            "total_pv_production": is_learning_enabled,
-            "total_grid_import": is_learning_enabled,
-            "total_grid_export": is_learning_enabled,
-            "total_battery_charge": is_learning_enabled,
-            "total_battery_discharge": is_learning_enabled,
             # Features (WARNING if missing but enabled)
             # ARC15: water_power and water_heater_consumption removed - now in water_heaters[]
             "alarm_state": False,  # Optional
@@ -735,34 +725,6 @@ class HealthChecker:
                         guidance=(
                             f"Add '{req_key}' to input_sensors in config.yaml. "
                             f"This is required for {grid_meter_type} metering."
-                        ),
-                    )
-                )
-
-        # REV F65: Add forecasting-specific warnings when learning is enabled
-        if is_learning_enabled:
-            cumulative_sensors = [
-                "total_load_consumption",
-                "total_pv_production",
-                "total_grid_import",
-                "total_grid_export",
-                "total_battery_charge",
-                "total_battery_discharge",
-            ]
-            missing_cumulative = [
-                s for s in cumulative_sensors if s not in input_sensors or not input_sensors.get(s)
-            ]
-            if missing_cumulative:
-                issues.append(
-                    HealthIssue(
-                        category="config",
-                        severity="warning",
-                        message="Forecasting may use inaccurate fallback data",
-                        guidance=(
-                            f"Learning/forecasting is enabled but missing cumulative sensors: "
-                            f"{', '.join(missing_cumulative)}. "
-                            f"Forecasting will fall back to dummy sine wave profiles. "
-                            f"Add these sensors to input_sensors for accurate forecasts."
                         ),
                     )
                 )
@@ -997,9 +959,8 @@ class HealthChecker:
                             severity="warning",
                             message="Load forecast using demo data (0.5 kWh flat)",
                             guidance=(
-                                f"{detail}. The data was discarded as implausible, not because "
-                                "the sensor is unconfigured. This resolves automatically once the "
-                                "sensor reports plausible readings again."
+                                f"{detail}. The sensor is configured. This resolves "
+                                "automatically once it reports usable history again."
                             ),
                         )
                     )
@@ -1011,7 +972,7 @@ class HealthChecker:
                             message="Load forecast using demo data (0.5 kWh flat)",
                             guidance=(
                                 "No historical load data available. The system is using a flat demo profile. "
-                                "Configure 'total_load_consumption' sensor in input_sensors to enable accurate load forecasting."
+                                "Configure the 'load_power' sensor in input_sensors to enable accurate load forecasting."
                             ),
                         )
                     )
