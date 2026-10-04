@@ -286,5 +286,29 @@ class TestStrategyAdviceIntegration(unittest.IsolatedAsyncioTestCase):
         print("✓ No price advice when today's actual prices are unavailable; other advice intact")
 
 
+class TestCycleCostAdvice(unittest.IsolatedAsyncioTestCase):
+    """Battery wear advice fires only above HIGH_CYCLE_COST_SEK_KWH (0.5)."""
+
+    async def _battery_advice(self, cycle_cost):
+        config = {
+            "price_forecast": {"enabled": False},
+            "battery_economics": {"battery_cycle_cost_kwh": cycle_cost},
+        }
+        with patch("backend.api.routers.analyst.load_yaml", return_value=config):
+            result = await _get_strategy_advice()
+        return [item for item in result["advice"] if item["category"] == "battery"]
+
+    async def test_no_warning_at_shipped_default(self):
+        self.assertEqual(await self._battery_advice(0.2), [])
+
+    async def test_no_warning_at_threshold(self):
+        self.assertEqual(await self._battery_advice(0.5), [])
+
+    async def test_warning_above_threshold(self):
+        advice = await self._battery_advice(0.6)
+        self.assertEqual(len(advice), 1)
+        self.assertEqual(advice[0]["priority"], "warning")
+
+
 if __name__ == "__main__":
     unittest.main()

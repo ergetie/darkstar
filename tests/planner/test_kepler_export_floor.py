@@ -261,3 +261,33 @@ class TestExportFloorAdapterMapping:
 
         kepler_cfg = config_to_kepler_config(planner_config)
         assert kepler_cfg.export_floor_soc_percent == 25.0
+
+    def test_settings_save_reaches_planner(self, tmp_path, monkeypatch):
+        """A Settings save of the export floor lands under export.* and drives KeplerConfig."""
+        import asyncio
+        import shutil
+        from pathlib import Path
+        from unittest.mock import patch
+
+        import yaml
+
+        from backend.api.routers.config import save_config
+        from planner.solver.adapter import config_to_kepler_config
+
+        repo = Path(__file__).resolve().parents[2]
+        shutil.copy(repo / "config.default.yaml", tmp_path / "config.default.yaml")
+        shutil.copy(repo / "config.default.yaml", tmp_path / "config.yaml")
+        monkeypatch.chdir(tmp_path)
+
+        # Same payload shape the Settings form builds from the field path.
+        payload = {"export": {"export_floor_soc_percent": 30}}
+        with patch("backend.api.routers.config.get_executor_instance", return_value=None):
+            result = asyncio.run(save_config(payload))
+        assert result["status"] == "success"
+
+        saved = yaml.safe_load((tmp_path / "config.yaml").read_text())
+        assert saved["export"]["export_floor_soc_percent"] == 30
+        assert "low_soc_export_floor" not in (saved.get("executor", {}).get("override") or {})
+
+        kepler_cfg = config_to_kepler_config(saved)
+        assert kepler_cfg.export_floor_soc_percent == 30.0

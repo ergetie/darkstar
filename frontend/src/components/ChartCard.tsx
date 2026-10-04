@@ -15,6 +15,7 @@ import { sampleChart } from '../lib/sample'
 import { Api, type ConfigResponse } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { formatHour, DaySel, isToday, isTomorrow, wallClockParts } from '../lib/time'
+import { hourLabelStep, hourOfLabel } from '../lib/chartTicks'
 import { transferFeeAt, transferFeeConfigFromPricing, type TransferFeeConfig } from '../pages/settings/transferFees'
 // Note: We use a custom plugin for the NOW marker to support zooming.
 // CSS overlays don't work well with pan/zoom.
@@ -87,6 +88,18 @@ export function splitPriceBreakdown(
     const spot = Math.max(0, basePrice - (pricing.energyTax + transferFee))
     const feesAndVat = value - spot
     return { spot, feesAndVat }
+}
+
+// Full-hour ticks in the visible (zoomed) range, counted once per tick array
+// rather than once per tick label.
+const hourCountCache = new WeakMap<Tick[], number>()
+function visibleHourCount(scale: Scale, ticks: Tick[]): number {
+    let count = hourCountCache.get(ticks)
+    if (count === undefined) {
+        count = ticks.filter((t) => hourOfLabel(scale.getLabelForValue(t.value)) !== null).length
+        hourCountCache.set(ticks, count)
+    }
+    return count
 }
 
 const chartOptions: ChartConfiguration['options'] = {
@@ -214,13 +227,13 @@ const chartOptions: ChartConfiguration['options'] = {
                 },
                 maxRotation: 0,
                 autoSkip: false,
-                callback: function (this: Scale, value: string | number, _index: number, _ticks: Tick[]) {
-                    const label = this.getLabelForValue(value as number)
-                    if (typeof label !== 'string') return ''
-                    const parts = label.split(':')
-                    if (parts.length < 2) return ''
-                    const [hh, mm] = parts
-                    return mm === '00' ? hh : ''
+                // Hour labels only; thinned to every 3rd (6th, 12th) hour when a label per
+                // hour does not fit the scale width. Hourly dots stay (dotGridPlugin).
+                callback: function (this: Scale, value: string | number, _index: number, ticks: Tick[]) {
+                    const hh = hourOfLabel(this.getLabelForValue(value as number))
+                    if (hh === null) return ''
+                    const step = hourLabelStep(this.width, visibleHourCount(this, ticks))
+                    return Number(hh) % step === 0 ? hh : ''
                 },
             },
             border: { display: false },
@@ -1324,7 +1337,8 @@ export default function ChartCard({
                         },
                     },
                     // Per-instance plugin options for the selection band (B1/S1)
-                    selectionBand: { mobile: isMobile, index: null as number | null },
+                    // Seeded from the current selection: it survives data refreshes, so a re-created chart must keep the band
+                    selectionBand: { mobile: isMobile, index: effectiveSelectedIndex },
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 } as any,
                 // Always register onClick but guard on isMobileRef so crossing 768px mid-session
@@ -1481,9 +1495,11 @@ export default function ChartCard({
             try {
                 if (chartRef.current) {
                     chartRef.current.data = liveData
-                    // Reset selection and snapshot the new data so the panel memo
-                    // reads stable React state (not a mutating ref) (S2a/S2b)
-                    setSelectedIndex(null)
+                    // Keep the selection while it still points at a slot in the new data
+                    // (dismissal is the click-away / re-tap), and snapshot the new data so
+                    // the panel memo reads stable React state, not a mutating ref (S2a/S2b)
+                    const slotCount = liveData.labels?.length ?? 0
+                    setSelectedIndex((prev) => (prev !== null && prev >= slotCount ? null : prev))
                     setLiveChartData(liveData)
                     chartRef.current.update()
 

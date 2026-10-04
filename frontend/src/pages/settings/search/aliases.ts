@@ -9,7 +9,7 @@ export const fieldAliases: Record<string, string[]> = {
     'battery.min_soc_percent': ['battery floor', 'reserve', 'state of charge'],
     'battery.max_soc_percent': ['battery ceiling', 'state of charge'],
     'battery_economics.battery_cycle_cost_kwh': ['wear cost', 'degradation', 'battery wear'],
-    'executor.override.low_soc_export_floor': ['backup reserve', 'export stop'],
+    'export.export_floor_soc_percent': ['backup reserve', 'export stop'],
     'water_heating.vacation_mode.enabled': ['away mode', 'holiday mode'],
     'input_sensors.vacation_mode': ['away mode', 'holiday mode'],
     'water_heating.vacation_mode.anti_legionella_temp_c': ['legionella', 'bacteria'],

@@ -991,10 +991,10 @@ export const batterySections: SettingsSection[] = [
                 type: 'number',
             },
             {
-                key: 'executor.override.low_soc_export_floor',
+                key: 'export.export_floor_soc_percent',
                 label: 'Export Prevention Floor (%)',
                 helper: 'Minimum SoC to allow battery export. Prevents discharging to grid when battery is low.',
-                path: ['executor', 'override', 'low_soc_export_floor'],
+                path: ['export', 'export_floor_soc_percent'],
                 type: 'number',
             },
             {

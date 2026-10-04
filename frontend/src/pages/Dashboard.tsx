@@ -12,7 +12,7 @@ import {
     type LiveEvCharger,
 } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
-import { isToday, isTomorrow, formatHour } from '../lib/time'
+import { isToday, isTomorrow, formatHour, ymdLocal } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
 import PowerFlowTabs from '../components/PowerFlowTabs'
 import { computeHouseKw } from '../components/PowerFlowHouse'
@@ -29,6 +29,30 @@ type PlannerMeta = {
     planner_version?: string
     s_index?: PlannerSIndex
 } | null
+
+/** Today+tomorrow slots for the schedule chart (history replaces today when present).
+ * Memoized so live_metrics re-renders hand ChartCard the same array; a new array
+ * re-runs its data effect (chart.update) and disturbs the selection. The calendar
+ * day is a dependency so a dashboard left open past midnight re-splits the days on
+ * the next render instead of keeping yesterday's split. */
+// eslint-disable-next-line react-refresh/only-export-components -- hook tested directly
+export function useChartSlots(
+    localSchedule: ScheduleSlot[] | null,
+    historySlots: ScheduleSlot[] | null,
+): ScheduleSlot[] | undefined {
+    const calendarDay = ymdLocal(new Date())
+    return useMemo<ScheduleSlot[] | undefined>(() => {
+        if (!localSchedule || localSchedule.length === 0) return undefined
+        const todayAndTomorrow = localSchedule.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
+        if (historySlots && historySlots.length > 0) {
+            const tomorrowSlots = todayAndTomorrow.filter((slot) => isTomorrow(slot.start_time))
+            return [...historySlots, ...tomorrowSlots]
+        }
+        return todayAndTomorrow
+        // calendarDay is not read in the body: it only invalidates the memo at midnight.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [localSchedule, historySlots, calendarDay])
+}
 
 /** Merges adjacent same-action slots into a single joined "Charge 00:00-01:00 (...)" string
  * for today's schedule, e.g. "Charge 00:00-01:00 → Export 06:00-07:00". */
@@ -517,16 +541,7 @@ export default function Dashboard() {
         }
     }, [socketConnected, fetchAllData])
 
-    let slotsOverride: ScheduleSlot[] | undefined
-    if (localSchedule && localSchedule.length > 0) {
-        const todayAndTomorrow = localSchedule.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
-        if (historySlots && historySlots.length > 0) {
-            const tomorrowSlots = todayAndTomorrow.filter((slot) => isTomorrow(slot.start_time))
-            slotsOverride = [...historySlots, ...tomorrowSlots]
-        } else {
-            slotsOverride = todayAndTomorrow
-        }
-    }
+    const slotsOverride = useChartSlots(localSchedule, historySlots)
 
     const todaySummary = computeTodaySummary(slotsOverride ?? [])
 

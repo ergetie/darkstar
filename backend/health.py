@@ -199,6 +199,43 @@ class HealthChecker:
         self._secrets: dict[str, Any] = {}
 
     def check_planner(self) -> list[HealthIssue]:
+        """Check planner service health from last error state and plan save status."""
+        issues = self._check_planner_run_state()
+        issues.extend(self._check_plan_store())
+        return issues
+
+    def _check_plan_store(self) -> list[HealthIssue]:
+        """Warn while the latest plan could not be stored to slot_plans.
+
+        Independent of the planner run state: a failed save does not fail the run.
+        """
+        try:
+            from planner.errors import PlannerErrorCode, fix_hints, user_message
+            from planner.plan_store_status import get_plan_store_failure
+
+            failure = get_plan_store_failure()
+            if failure is None:
+                return []
+
+            code = PlannerErrorCode.PLAN_STORE_FAILED
+            return [
+                HealthIssue(
+                    category="planner",
+                    severity="warning",
+                    message=user_message(code),
+                    guidance=fix_hints(code)[0],
+                    code=code.value,
+                    details={
+                        "error": failure.summary,
+                        "failed_at": failure.failed_at.isoformat(),
+                    },
+                )
+            ]
+        except Exception as e:
+            logger.debug("Could not check plan store status: %s", e)
+            return []
+
+    def _check_planner_run_state(self) -> list[HealthIssue]:
         """Check planner service health from last error state."""
         issues: list[HealthIssue] = []
 

@@ -43,15 +43,43 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🐛 Fixes
 
+#### [Monitoring] Command Success Invariant Gives False Alarms
+
+**Goal:** Stop reporting a healthy executor as failing, and show which action actually failed when something does.
+
+**Notes:** Reported on Discord 2026-09-22 by two users, one with an EV: "tick success 57.51% over 24 h (82/193 failed)" while everything worked. `backend/monitors.py` computes the rate over throttled `execution_log` rows; failed ticks are always logged while healthy ones are throttled, so failures are over-weighted (the code comment admits the bias). Possible trigger, not confirmed: the EV charge-failure check marking ticks unsuccessful for a plugged-in or sleeping car. **(needs production data)**
+
+#### [Settings] Water Heater Validation Error Traps The User
+
+**Goal:** Let the user save and reach the Water tab to fix a mismatched control type, instead of being blocked by a save error.
+
+**Notes:** Reported on Discord 2026-09-24: after turning "Smart water heater" off and on, saving is blocked by a "VVB switch is wrong" error, and the Water tab cannot be reached to fix it. Likely trigger, not confirmed: the save-blocking validation in `backend/api/routers/config.py` for a `switch.*` target with control type `temperature`. Needs a reproduction; the exact error was in a screenshot.
+
 ---
 
 ## 🔧 Improvements
 
-<!-- Empty -->
+#### [Monitoring] Plan Freshness Error Message Is Not User-Friendly
+
+**Goal:** Make the plan freshness error say in plain words that no new plan has been produced, and what the user should check, instead of pointing at developer-only artifacts.
+
+**Notes:** Found 2026-10-04. The current guidance ("See /api/system/monitors for evidence; check findings ledger") refers to an internal review file. Also note `first_detected_at` only reflects the first check since the last backend restart, not when the outage began, so the message can mislead about timing.
 
 ---
 
 ## ✨ New Features
+
+#### [Planner] Power Tariff (Effekttariff) Awareness
+
+**Goal:** Let the planner include a peak-power fee in its costs, so plans that avoid high grid peaks win on the real cost.
+
+**Notes:** Requested on Discord 2026-09-23 by a user in Göteborg, who gets almost no grid cost running the battery on inverter auto. The maintainer stopped work on power tariffs earlier and said he would look again if several users have one. Starting point: `docs/designs/effekttariff-kiss.md` and `docs/designs/effekttariff-advanced.md` (designs only, nothing implemented). A "prefer self-consumption" mode and a way to disable idle were requested in the same conversation; that is a related but separate request. Needs a decision session first.
+
+#### [Planner] Water Heater Tank Temperature Sensor
+
+**Goal:** Let a user connect a temperature sensor on the water heater tank, so the planner can heat the water to a target temperature, and learn the usage pattern so it does not heat to maximum every time.
+
+**Notes:** Suggested on Discord 2026-10-01. Open design questions: how the target temperature is chosen, how the usage pattern is learned, and how this fits with the existing water heater control. Not yet investigated.
 
 #### [Planner] Per-Phase Load Awareness
 

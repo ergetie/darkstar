@@ -171,7 +171,7 @@ For how the planner decides when cycling the battery is actually worth it, see t
             'battery.capacity_kwh',
             'battery.min_soc_percent',
             'battery.max_soc_percent',
-            'executor.override.low_soc_export_floor',
+            'export.export_floor_soc_percent',
             'battery_economics.battery_cycle_cost_kwh',
             's_index.mode',
             's_index.temp_cold_c',
@@ -359,7 +359,7 @@ Grid export as a whole is gated by the "Enable grid export" toggle, and the Expo
             'pricing.energy_tax_sek',
             'kepler.curtailment_penalty_sek',
             'kepler.ramping_cost_sek_per_kw',
-            'executor.override.low_soc_export_floor',
+            'export.export_floor_soc_percent',
         ],
     },
     {

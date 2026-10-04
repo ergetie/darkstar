@@ -76,6 +76,7 @@ def test_is_transient_codes():
 def test_is_warning_only_codes():
     assert is_warning_only(PlannerErrorCode.DATA_STALE)
     assert is_warning_only(PlannerErrorCode.EV_DEADLINE_PAST)
+    assert is_warning_only(PlannerErrorCode.PLAN_STORE_FAILED)
     assert not is_warning_only(PlannerErrorCode.SOLVER_INFEASIBLE)
 
 

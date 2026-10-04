@@ -19,6 +19,7 @@ class PlannerErrorCode(StrEnum):
     SOLVER_UNDEFINED = "SOLVER_UNDEFINED"
     INVALID_SCHEDULE = "INVALID_SCHEDULE"
     HA_UNAVAILABLE = "HA_UNAVAILABLE"
+    PLAN_STORE_FAILED = "PLAN_STORE_FAILED"
     UNKNOWN = "UNKNOWN"
 
 
@@ -37,6 +38,7 @@ _USER_MESSAGES: dict[PlannerErrorCode, str] = {
     PlannerErrorCode.SOLVER_UNDEFINED: "Planner solver returned an undefined result",
     PlannerErrorCode.INVALID_SCHEDULE: "Planner produced an invalid schedule",
     PlannerErrorCode.HA_UNAVAILABLE: "Home Assistant is unreachable",
+    PlannerErrorCode.PLAN_STORE_FAILED: "The latest plan could not be saved to the history database",
     PlannerErrorCode.UNKNOWN: "An unexpected planner error occurred",
 }
 
@@ -83,6 +85,9 @@ _FIX_HINTS: dict[PlannerErrorCode, list[str]] = {
     PlannerErrorCode.HA_UNAVAILABLE: [
         "Home Assistant did not respond. Planning is paused until it returns and will resume automatically — no action needed unless the outage persists.",
     ],
+    PlannerErrorCode.PLAN_STORE_FAILED: [
+        "The schedule is still being executed, but plan history and performance tracking are not updated. Check the backend logs for the database error; the warning clears after the next successful save.",
+    ],
     PlannerErrorCode.UNKNOWN: [
         "An unexpected error occurred. Check the backend logs for the full traceback.",
     ],
@@ -118,6 +123,7 @@ def is_warning_only(code: PlannerErrorCode) -> bool:
     return code in {
         PlannerErrorCode.DATA_STALE,
         PlannerErrorCode.EV_DEADLINE_PAST,
+        PlannerErrorCode.PLAN_STORE_FAILED,
     }
 
 

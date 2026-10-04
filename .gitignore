@@ -135,3 +135,7 @@ data/ev_multi_day_state.json.lock
 
 # Onboarding progress is local runtime state
 data/onboarding_state.json
+
+# Personal tooling, not part of the app
+ops/
+.claude/skills/discord-triage/

@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/analyst", tags=["analyst"])
 PRICE_DROP_RELATIVE_THRESHOLD = 0.70  # a day's avg must be <=70% of today's (30%+ drop)
 PRICE_DROP_MIN_ABSOLUTE_SEK = 0.15  # ...and at least this much cheaper in absolute terms
 PRICE_WINDOW_RATIO_THRESHOLD = 0.75  # a window avg must be <=75% of the daily avg (25%+ below)
+HIGH_CYCLE_COST_SEK_KWH = 0.5  # battery wear advice only above this (shipped default is 0.2)
 
 
 def _get_price_advice(
@@ -183,7 +184,7 @@ async def _get_strategy_advice() -> dict[str, Any]:
         # Battery wear cost check
         battery_econ = config.get("battery_economics", {})
         cycle_cost = battery_econ.get("battery_cycle_cost_kwh", 0.05)
-        if cycle_cost > 0.15:
+        if cycle_cost > HIGH_CYCLE_COST_SEK_KWH:
             advice_items.append(
                 {
                     "category": "battery",

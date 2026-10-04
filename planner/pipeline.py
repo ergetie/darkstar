@@ -38,6 +38,7 @@ from planner.inputs.learning import load_learning_overlays
 from planner.inputs.weather import fetch_temperature_forecast
 from planner.output.schedule import DEFAULT_SCHEDULE_PATH, save_schedule_to_json
 from planner.output.soc_target import apply_soc_target_percent
+from planner.plan_store_status import clear_plan_store_failure, record_plan_store_failure
 from planner.preflight import run_preflight
 from planner.solver.adapter import (
     config_to_kepler_config,
@@ -1208,6 +1209,30 @@ def _attach_ev_planned_by_day(
             state["planned_by_day"] = []
 
 
+async def _store_plan_history(
+    final_df: pd.DataFrame, config: dict[str, Any], timezone_name: str
+) -> None:
+    """Store the plan to slot_plans; a failure is recorded, never raised.
+
+    Non-fatal by design: schedule.json is already written and the executor keeps
+    working. The failure is recorded so check_planner() surfaces PLAN_STORE_FAILED
+    until a later save succeeds.
+    """
+    try:
+        tz = pytz.timezone(timezone_name)
+        sqlite_path = config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+        store = LearningStore(sqlite_path, tz)
+        # Reset index so start_time becomes a column (store_plan expects it)
+        plan_df = final_df.reset_index()
+        await store.store_plan(plan_df)
+    except Exception as store_err:
+        logger.exception("Failed to store plan to slot_plans")
+        record_plan_store_failure(store_err)
+        return
+    clear_plan_store_failure()
+    logger.debug("Stored plan to slot_plans for performance tracking")
+
+
 class PlannerPipeline:
     """
     Orchestrator for the modular planner pipeline.
@@ -1981,18 +2006,7 @@ class PlannerPipeline:
             )
 
             # Rev UI5: Always store plan to slot_plans for performance tracking
-            try:
-                tz = pytz.timezone(timezone_name)
-                sqlite_path = active_config.get("learning", {}).get(
-                    "sqlite_path", "data/planner_learning.db"
-                )
-                store = LearningStore(sqlite_path, tz)
-                # Reset index so start_time becomes a column (store_plan expects it)
-                plan_df = final_df.reset_index()
-                await store.store_plan(plan_df)
-                logger.debug("Stored plan to slot_plans for performance tracking")
-            except Exception as store_err:
-                logger.warning("Failed to store plan to slot_plans: %s", store_err)
+            await _store_plan_history(final_df, active_config, timezone_name)
 
             # Note: Cache invalidation and WebSocket emit moved to planner_service.py (Rev ARC8)
 
