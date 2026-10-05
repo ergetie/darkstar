@@ -24,7 +24,6 @@ def test_bulk_mode(comfort_level: int, enable_top_ups: bool):
             "max_soc_percent": 95,
             "max_charge_power_kw": 5.0,
             "max_discharge_power_kw": 5.0,
-            "roundtrip_efficiency_percent": 90,
             "nominal_voltage_v": 48.0,
             "max_charge_a": 185.0,
             "max_discharge_a": 185.0,

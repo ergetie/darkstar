@@ -248,7 +248,7 @@ class InvariantMonitors:
             return InvariantResult(
                 "plan_freshness",
                 "violation",
-                f"last successful plan write {age_h:.1f} h ago (max {PLAN_AGE_MAX_HOURS} h)",
+                f"the last plan was saved {age_h:.1f} h ago (limit {PLAN_AGE_MAX_HOURS} h)",
             )
         return InvariantResult("plan_freshness", "pass", f"last plan write {age_h:.1f} h ago")
 
@@ -423,12 +423,22 @@ class InvariantMonitors:
         """Active violations as HealthIssue-shaped dicts for the SystemAlert banner."""
         issues: list[dict[str, Any]] = []
         for ep in self.state.episodes.values():
+            if ep.invariant == "plan_freshness":
+                message = f"No new plan has been made: {ep.detail}"
+                guidance = (
+                    "Darkstar keeps following the last plan until a new one is made. "
+                    "Check that electricity prices and forecasts are arriving, "
+                    "and look in the backend logs for planner errors."
+                )
+            else:
+                message = f"Invariant violated: {ep.invariant} — {ep.detail}"
+                guidance = "See /api/system/monitors for details, or check the backend logs."
             issues.append(
                 {
                     "category": "monitors",
                     "severity": "warning",
-                    "message": f"Invariant violated: {ep.invariant} — {ep.detail}",
-                    "guidance": "See /api/system/monitors for evidence; check findings ledger.",
+                    "message": message,
+                    "guidance": guidance,
                     "code": f"INVARIANT_{ep.invariant.upper()}",
                     "details": {"first_detected_at": ep.first_detected_at},
                 }

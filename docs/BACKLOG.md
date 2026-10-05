@@ -55,21 +55,9 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Reported on Discord 2026-09-24: after turning "Smart water heater" off and on, saving is blocked by a "VVB switch is wrong" error, and the Water tab cannot be reached to fix it. Likely trigger, not confirmed: the save-blocking validation in `backend/api/routers/config.py` for a `switch.*` target with control type `temperature`. Needs a reproduction; the exact error was in a screenshot.
 
-#### [Config] Dead Round-Trip Efficiency Setting And Implicit Discharge Efficiency
-
-**Goal:** Make the battery efficiency settings honest: remove the setting that does nothing and state the discharge efficiency the planner actually uses.
-
-**Notes:** Verified 2026-10-04. `battery.roundtrip_efficiency_percent` (`config.default.yaml:54`, 95.0) is read by no application code; its comment says "used only in planner/simulation.py", which no longer exists. Remaining references: `samples/config.sample.json`, `scripts/test_edge_cases.py`, `scripts/test_bulk_mode.py`. Separately, `config.default.yaml` sets `charge_efficiency: 0.92` but has no `discharge_efficiency`, so the solver uses the code default of 0.95 (`planner/solver/adapter.py:494`) and plans with ~87.4% round trip, not the 95% the dead setting suggests. Fix: remove the dead key (and decide whether the config migration strips it from existing `config.yaml` files), and add `discharge_efficiency: 0.95` explicitly to `config.default.yaml`.
-
 ---
 
 ## 🔧 Improvements
-
-#### [Monitoring] Plan Freshness Error Message Is Not User-Friendly
-
-**Goal:** Make the plan freshness error say in plain words that no new plan has been produced, and what the user should check, instead of pointing at developer-only artifacts.
-
-**Notes:** Found 2026-10-04. The current guidance ("See /api/system/monitors for evidence; check findings ledger") refers to an internal review file. Also note `first_detected_at` only reflects the first check since the last backend restart, not when the outage began, so the message can mislead about timing.
 
 ---
 

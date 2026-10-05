@@ -49,10 +49,8 @@ battery:
   max_discharge_w: 5000.0             # Max discharging power (W)
   min_soc_percent: 12
   max_soc_percent: 100                # Soft penalty ceiling — planner prefers to stay below, but overshoots are allowed with a discharge action rather than failure. BMS enforces the absolute limit.
-  # NOTE: Used only in planner/simulation.py. Separate from charge_efficiency
-  # which is used by the MILP solver. Derives one-way efficiency as sqrt(roundtrip).
-  roundtrip_efficiency_percent: 95.0
   charge_efficiency: 0.92             # Charging efficiency (0-1)
+  discharge_efficiency: 0.95          # Discharging efficiency (0-1)
 
 battery_economics:
   battery_cycle_cost_kwh: 0.2      # Degradation cost applied per kWh cycled through the battery

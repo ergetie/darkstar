@@ -24,7 +24,6 @@ def test_extreme_prices(comfort_level: int, scenario: str):
             "nominal_voltage_v": 48.0,
             "max_charge_a": 185.0,
             "max_discharge_a": 185.0,
-            "roundtrip_efficiency_percent": 90,
             "control_unit": "A",
         },
         "water_heating": {

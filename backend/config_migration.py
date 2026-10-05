@@ -134,6 +134,11 @@ DEPRECATED_NESTED_KEYS = {
         "spacing_penalty_sek",
         "block_start_penalty_sek",
     ],
+    "battery": [
+        # Read by no code since planner/simulation.py was removed; the solver uses
+        # charge_efficiency and discharge_efficiency.
+        "roundtrip_efficiency_percent",
+    ],
     "executor.override": [
         "low_soc_export_floor",  # Moved to export.export_floor_soc_percent
         "excess_pv_threshold_kw",  # Removed: excess PV now handled by planner
