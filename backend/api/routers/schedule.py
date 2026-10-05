@@ -46,6 +46,32 @@ def get_executor_instance() -> Any | None:
     return get_exec()
 
 
+def _tag_price_source(
+    slots: list[dict[str, Any]], price_slots: list[dict[str, Any]], tz: Any
+) -> None:
+    """Mark each slot "nordpool" when its price is published, else "forecast".
+
+    A slot is "forecast" when the price feed has a forecast fallback for it or no
+    price at all (beyond the published horizon, where the planner used forecasts).
+    """
+    published: set[datetime] = set()
+    for p in price_slots:
+        if p.get("price_source", "nordpool") != "nordpool":
+            continue
+        st = p["start_time"]
+        published.add(st if st.tzinfo is None else st.astimezone(tz).replace(tzinfo=None))
+    for slot in slots:
+        start_str = slot.get("start_time")
+        if not start_str:
+            continue
+        try:
+            start = datetime.fromisoformat(str(start_str).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        local_naive = start if start.tzinfo is None else start.astimezone(tz).replace(tzinfo=None)
+        slot["price_source"] = "nordpool" if local_naive in published else "forecast"
+
+
 @router.get(
     "/api/scheduler/status",
     summary="Get Scheduler Status",
@@ -141,6 +167,7 @@ async def get_schedule() -> dict[str, Any]:
                                 slot["import_price_sek_kwh"] = round(price, 4)
                     except Exception:
                         pass
+            _tag_price_source(data["schedule"], price_slots, tz)
         except Exception as exc:
             logger.warning("Price overlay unavailable: %s", exc)
 
@@ -488,6 +515,7 @@ async def schedule_today_with_history(
                             slot["import_price_sek_kwh"] = round(price, 4)
                 except Exception:
                     pass
+        _tag_price_source(merged_slots, price_slots, tz)
     except Exception as exc:
         logger.warning("Price overlay unavailable in today_with_history: %s", exc)
 

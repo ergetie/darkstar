@@ -12,8 +12,7 @@ import {
     type LiveEvCharger,
 } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
-import { isToday, isTomorrow, formatHour, ymdLocal } from '../lib/time'
-import SmartAdvisor from '../components/SmartAdvisor'
+import { isToday, isTomorrow, ymdLocal } from '../lib/time'
 import PowerFlowTabs from '../components/PowerFlowTabs'
 import { computeHouseKw } from '../components/PowerFlowHouse'
 import CommandBar from '../components/CommandBar'
@@ -52,65 +51,6 @@ export function useChartSlots(
         // calendarDay is not read in the body: it only invalidates the memo at midnight.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [localSchedule, historySlots, calendarDay])
-}
-
-/** Merges adjacent same-action slots into a single joined "Charge 00:00-01:00 (...)" string
- * for today's schedule, e.g. "Charge 00:00-01:00 → Export 06:00-07:00". */
-// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
-export function computeTodaySummary(slots: ScheduleSlot[], now: Date = new Date()): string | null {
-    if (!slots || slots.length === 0) return null
-    const todayStart = new Date(now)
-    todayStart.setHours(0, 0, 0, 0)
-    const tomorrowStart = new Date(todayStart)
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1)
-    const todaySlots = slots.filter((s) => {
-        const t = new Date(s.start_time)
-        return t >= todayStart && t < tomorrowStart
-    })
-    if (todaySlots.length === 0) return null
-
-    interface Phase {
-        action: string
-        start: string
-        end: string
-        extra?: string
-    }
-    const phases: Phase[] = []
-
-    todaySlots.forEach((s) => {
-        const start = formatHour(s.start_time)
-        const endTime = new Date(new Date(s.start_time).getTime() + 30 * 60 * 1000)
-        const end = formatHour(endTime.toISOString())
-        if ((s.charge_kw || 0) > 0.1) {
-            const price = s.import_price_sek_kwh ? `${s.import_price_sek_kwh.toFixed(2)} kr` : null
-            phases.push({ action: 'Charge', start, end, extra: price ? price : undefined })
-        } else if ((s.discharge_kw || 0) > 0.1) {
-            const price = s.import_price_sek_kwh ? `${s.import_price_sek_kwh.toFixed(2)} kr` : null
-            phases.push({ action: 'Discharge', start, end, extra: price ? price : undefined })
-        } else if ((s.export_kwh || 0) > 0.1) {
-            const price = s.import_price_sek_kwh ? `${s.import_price_sek_kwh.toFixed(2)} kr` : null
-            phases.push({ action: 'Export', start, end, extra: price ? price : undefined })
-        }
-    })
-    if (phases.length === 0) return null
-
-    const merged: Phase[] = []
-    phases.forEach((p) => {
-        const last = merged[merged.length - 1]
-        if (last && last.action === p.action) {
-            last.end = p.end
-            if (p.extra) last.extra = p.extra
-        } else {
-            merged.push({ ...p })
-        }
-    })
-    return merged
-        .map((p) => {
-            let text = `${p.action} ${p.start}-${p.end}`
-            if (p.extra) text += ` (${p.extra})`
-            return text
-        })
-        .join(' → ')
 }
 
 function toEvLiveReading(ev: LiveEvCharger): EvLiveReading {
@@ -187,7 +127,6 @@ export default function Dashboard() {
     const [config, setConfig] = useState<ConfigResponse | null>(null)
 
     const [priceOutlook, setPriceOutlook] = useState<import('../lib/api').PriceOutlookResponse | undefined>(undefined)
-    const [priceAdvice, setPriceAdvice] = useState<import('../lib/api').AdviceItem[]>([])
     const [learningStatus, setLearningStatus] = useState<LearningStatusResponse | null>(null)
 
     const { toast } = useToast()
@@ -414,23 +353,15 @@ export default function Dashboard() {
 
     const fetchDeferredData = useCallback(async () => {
         try {
-            const [
-                todayStatsData,
-                auroraData,
-                historyData,
-                executorHealthData,
-                priceOutlookData,
-                adviceData,
-                learningStatusData,
-            ] = await Promise.allSettled([
-                Api.energyToday(),
-                Api.aurora.dashboard(),
-                Api.scheduleTodayWithHistory(),
-                Api.executor.health(),
-                Api.priceForecast.outlook(),
-                Api.getAdvice(),
-                Api.learningStatus(),
-            ])
+            const [todayStatsData, auroraData, historyData, executorHealthData, priceOutlookData, learningStatusData] =
+                await Promise.allSettled([
+                    Api.energyToday(),
+                    Api.aurora.dashboard(),
+                    Api.scheduleTodayWithHistory(),
+                    Api.executor.health(),
+                    Api.priceForecast.outlook(),
+                    Api.learningStatus(),
+                ])
 
             if (executorHealthData.status === 'fulfilled') {
                 setExecutorHealth(executorHealthData.value)
@@ -438,14 +369,6 @@ export default function Dashboard() {
 
             if (priceOutlookData.status === 'fulfilled') {
                 setPriceOutlook(priceOutlookData.value)
-            }
-
-            if (adviceData.status === 'fulfilled' && adviceData.value?.advice) {
-                const adviceList = Array.isArray(adviceData.value.advice) ? adviceData.value.advice : []
-                const filteredAdvice = adviceList.filter(
-                    (item: import('../lib/api').AdviceItem) => item.category === 'price',
-                )
-                setPriceAdvice(filteredAdvice)
             }
 
             if (learningStatusData.status === 'fulfilled') {
@@ -542,8 +465,6 @@ export default function Dashboard() {
     }, [socketConnected, fetchAllData])
 
     const slotsOverride = useChartSlots(localSchedule, historySlots)
-
-    const todaySummary = computeTodaySummary(slotsOverride ?? [])
 
     return (
         <main className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 lg:pt-8 space-y-4">
@@ -762,9 +683,18 @@ export default function Dashboard() {
 
             {/* Row 3: Bento Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Cell 1: SmartAdvisor (row 1, col 1) */}
-                <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                    <SmartAdvisor todaySummary={todaySummary} priceAdvice={priceAdvice} />
+                {/* Cell 1: GridDomain (rows 1-2, col 1) */}
+                <motion.div
+                    className="h-full lg:row-span-2"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                >
+                    <GridDomain
+                        netCost={todayStats?.netCost ?? null}
+                        importKwh={todayStats?.gridImport ?? null}
+                        exportKwh={todayStats?.gridExport ?? null}
+                        hasEvCharger={systemFlags.hasEvCharger}
+                    />
                 </motion.div>
 
                 {/* Cell 2: PowerFlowTabs (row 1, col 2) */}
@@ -817,17 +747,7 @@ export default function Dashboard() {
                     />
                 </motion.div>
 
-                {/* Cell 4: GridDomain (row 2, col 1) */}
-                <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                    <GridDomain
-                        netCost={todayStats?.netCost ?? null}
-                        importKwh={todayStats?.gridImport ?? null}
-                        exportKwh={todayStats?.gridExport ?? null}
-                        hasEvCharger={systemFlags.hasEvCharger}
-                    />
-                </motion.div>
-
-                {/* Cell 5: ResourcesDomain (row 2, col 2) */}
+                {/* Cell 4: ResourcesDomain (row 2, col 2) */}
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                     <ResourcesDomain
                         pvActual={todayStats?.pvProduction ?? null}

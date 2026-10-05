@@ -15,6 +15,16 @@ export type PlannerSIndex = {
         base_reserve_kwh?: number
         weather_buffer_kwh?: number
         risk_multiplier?: number
+        effective_reserve_kwh?: number
+        final_floor_kwh?: number
+        price_reserve_active?: boolean
+        price_reserve_reason?: string
+        price_reserve_kwh?: number
+        price_reserve_applied_kwh?: number
+        price_reserve_capped_by?: string
+        known_cost_sek_kwh?: number | null
+        own_day_cost_sek_kwh?: number | null
+        unseen_window_start?: string | null
         [key: string]: unknown
     }
     [key: string]: unknown
@@ -533,6 +543,23 @@ export type EnergyTodayResponse = {
     grid_import?: number | null
     grid_export?: number | null
     net_cost_kr?: number | null
+}
+
+export type CostSeriesPoint = {
+    start: string
+    import_cost_sek: number
+    export_revenue_sek: number
+    net_cost_sek: number
+    cumulative_net_cost_sek: number
+}
+
+export type CostSeriesResponse = {
+    period: string
+    start_date?: string
+    end_date?: string
+    bucket: 'hour' | 'day'
+    points: CostSeriesPoint[]
+    error?: string
 }
 
 export type EnergyRangeResponse = {
@@ -1055,6 +1082,17 @@ export const Api = {
             url += `&start_date=${start_date}&end_date=${end_date}`
         }
         return getJSON<EnergyRangeResponse>(url)
+    },
+    energyCostSeries: (
+        period: 'today' | 'yesterday' | 'week' | 'month' | 'custom',
+        start_date?: string,
+        end_date?: string,
+    ) => {
+        let url = `/api/energy/cost-series?period=${period}`
+        if (period === 'custom' && start_date && end_date) {
+            url += `&start_date=${start_date}&end_date=${end_date}`
+        }
+        return getJSON<CostSeriesResponse>(url)
     },
     // Log management
     logInfo: () => getJSON<LogInfoResponse>('/api/system/log-info'),

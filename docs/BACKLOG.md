@@ -61,12 +61,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Verified 2026-10-04. `battery.roundtrip_efficiency_percent` (`config.default.yaml:54`, 95.0) is read by no application code; its comment says "used only in planner/simulation.py", which no longer exists. Remaining references: `samples/config.sample.json`, `scripts/test_edge_cases.py`, `scripts/test_bulk_mode.py`. Separately, `config.default.yaml` sets `charge_efficiency: 0.92` but has no `discharge_efficiency`, so the solver uses the code default of 0.95 (`planner/solver/adapter.py:494`) and plans with ~87.4% round trip, not the 95% the dead setting suggests. Fix: remove the dead key (and decide whether the config migration strips it from existing `config.yaml` files), and add `discharge_efficiency: 0.95` explicitly to `config.default.yaml`.
 
-#### [UI] Battery & Strategy Card Ignores The Price Reserve
-
-**Goal:** Show the real end-of-plan battery target on the Battery & Strategy card, including the price reserve, and explain why it is held.
-
-**Notes:** Found 2026-10-05 after the `d2-price-reserve` change. `frontend/src/components/BatteryStrategyCard.tsx:288` shows `safety_floor.calculated_floor_kwh` (deficit floor only), and "Tradable" (line 311) is derived from it, so both are wrong whenever the price reserve raises the target (`safety_floor.final_floor_kwh`). The "deficit" figure shows `base_reserve_kwh` before the risk cap, so "min 4.0 · deficit 20.1" can read as 24 kWh while the floor is 9.4 kWh. Fix: show `final_floor_kwh`, add a price reserve line using `price_reserve_applied_kwh` and `price_reserve_reason` (plain words, e.g. "Holding 16 kWh: Tuesday's cheapest charging ~1.40 vs 0.80 now"), show the capped deficit value, and follow `docs/design-system/AI_GUIDELINES.md`.
-
 ---
 
 ## 🔧 Improvements
@@ -104,6 +98,12 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 **Goal:** Make the load balancer's reaction time depend on how far a phase is over its limit, like a fuse's time-current curve: a small overshoot (e.g. 1–5% over) is tolerated for a while (e.g. ~30 s), while larger overshoots trigger throttling or 1-phase relief progressively faster. Short 10–20 s peaks slightly above the limit (microwave, kettle) should not cut EV charging immediately.
 
 **Notes:** Raised 2026-09-27 during `ev-planned-phase-switching`. Applies to house-load overload handling, not planned phase-mode targets (those are stable per slot). First step: check how the balancer currently times overload reduction and relief, then define the curve and safe upper bounds relative to the main fuse rating.
+
+#### [UI] User-Arranged Dashboard
+
+**Goal:** Let users choose which cards the dashboard shows and where, so optional features (load balancer, EV, water) get their own card only for users who have them.
+
+**Notes:** Raised 2026-10-05 during the Battery & Strategy card redesign. Idea: an edit mode on a grid where cards can be added, moved, resized and grouped into one cell as tabs (like `PowerFlowTabs`), with the layout saved per user. Likely needs a grid library such as `react-grid-layout` (new dependency, ask first). Main cost is not the grid but making every card work at any size, which also makes each later card change more expensive. A cheaper first step: a show/hide toggle for optional cards on the current fixed grid.
 
 ---
 

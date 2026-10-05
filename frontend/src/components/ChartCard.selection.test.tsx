@@ -78,7 +78,8 @@ function chart(): FakeChart {
 }
 
 function panel(container: HTMLElement): Element | null {
-    return container.querySelector('.bg-surface2.shadow-inner')
+    // The info panel is always shown; it is pinned to a slot only while one is selected
+    return container.querySelector('[data-slot-panel][data-pinned="true"]')
 }
 
 async function renderWithSelection(slots: ScheduleSlot[], index: number) {

@@ -11,9 +11,16 @@ import {
     Loader2,
 } from 'lucide-react'
 import Card from './Card'
-import { Api, type EVChargerState, type ConfigResponse, type LoadBalancerStatusResponse } from '../lib/api'
+import {
+    Api,
+    type EVChargerState,
+    type ConfigResponse,
+    type LoadBalancerStatusResponse,
+    type CostSeriesResponse,
+} from '../lib/api'
 import { useSocket } from '../lib/hooks'
 import EVChargerCard from './EVChargingCard'
+import CostSeriesChart from './CostSeriesChart'
 
 // --- Types ---
 interface GridCardProps {
@@ -145,6 +152,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
         slot_count: number
     } | null>(null)
     const [loading, setLoading] = useState(true)
+    const [costSeries, setCostSeries] = useState<CostSeriesResponse | null>(null)
 
     // Validation helper for custom date range: pure predicate lives in isValidDateRange,
     // this wrapper only adds the setDateError side effect.
@@ -173,6 +181,13 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
 
             try {
                 setFetchError(null)
+                Api.energyCostSeries(period, startDate, endDate)
+                    .then((series) => {
+                        if (!cancelled) setCostSeries(series)
+                    })
+                    .catch(() => {
+                        if (!cancelled) setCostSeries(null)
+                    })
                 const data = await Api.energyRange(period, startDate, endDate)
                 if (!cancelled) {
                     setRangeData({
@@ -217,8 +232,8 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
     const periods = [
         { key: 'today', label: 'Today' },
         { key: 'yesterday', label: 'Yesterday' },
-        { key: 'week', label: '7 Days' },
-        { key: 'month', label: '30 Days' },
+        { key: 'week', label: '7d' },
+        { key: 'month', label: '30d' },
         { key: 'custom', label: 'Custom' },
     ] as const
 
@@ -235,7 +250,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
             </div>
 
             {/* Period Toggle */}
-            <div className="flex gap-1 mb-2 relative z-10">
+            <div className="flex w-full mb-2 relative z-10 rounded-ds-sm border border-line/30 bg-surface2/50 p-0.5 gap-0.5">
                 {periods.map((p) => (
                     <button
                         key={p.key}
@@ -257,10 +272,10 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                             setPeriod(p.key)
                             setLoading(true)
                         }}
-                        className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition ${
+                        className={`flex-auto whitespace-nowrap px-2 py-1 text-[10px] font-medium rounded-ds-sm transition ${
                             period === p.key
-                                ? 'bg-accent/20 text-accent border border-accent/30'
-                                : 'bg-surface2/50 text-muted border border-line/30 hover:border-accent/50'
+                                ? 'bg-accent/20 text-accent'
+                                : 'text-muted hover:text-text hover:bg-surface2'
                         }`}
                     >
                         {p.label}
@@ -333,74 +348,89 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                 )}
             </div>
 
-            {/* Financial Breakdown */}
+            {/* Financial Breakdown: one row per figure, label left, amount right */}
             {rangeData && (
-                <div className="grid grid-cols-2 gap-1.5 mb-2 relative z-10 text-[10px]">
-                    <div className="col-span-2 p-1.5 rounded bg-surface2/30">
-                        <div className="flex justify-between">
+                <div className="flex flex-col gap-1 mb-2 relative z-10 text-[11px]">
+                    <div className="p-1.5 rounded bg-surface2/30">
+                        <div className="flex items-baseline justify-between gap-2">
                             <span className="text-muted">Grid Import</span>
-                            <span className="text-bad font-medium">-{rangeData.import_cost_sek.toFixed(1)} kr</span>
+                            <span className="text-bad font-medium tabular-nums whitespace-nowrap">
+                                {`-${rangeData.import_cost_sek.toFixed(1)} kr`}
+                            </span>
                         </div>
                         {/* EV sub-row: the EV's share of Grid Import. Shown whenever an EV charger is
                             configured (0 kr · 0 kWh on idle ranges); also kept when historical EV
                             energy exists after the charger was removed. */}
                         {(hasEvCharger || rangeData.ev_charging_kwh > 0) && (
                             <div
-                                className="flex justify-between gap-2 mt-1 pl-3"
+                                className="flex items-baseline justify-between gap-2 mt-1 pl-3"
                                 title="Grid import cost of EV charging in this period. Part of Grid Import above, not added to Net. Solar energy used by the EV is not given a price."
                             >
-                                <span className="text-muted">↳ of which EV</span>
-                                <span className="flex items-baseline gap-1.5 min-w-0">
+                                <span className="text-muted whitespace-nowrap">↳ of which EV</span>
+                                <span className="flex items-baseline justify-end gap-1.5 min-w-0 flex-wrap">
                                     {rangeData.ev_charging_kwh > 0 ? (
                                         <>
-                                            <span className="text-bad font-medium">
-                                                -{rangeData.ev_cost_sek.toFixed(1)} kr
+                                            <span className="text-bad font-medium tabular-nums whitespace-nowrap">
+                                                {`-${rangeData.ev_cost_sek.toFixed(1)} kr`}
                                             </span>
-                                            <span className="text-muted">
-                                                {rangeData.ev_charging_kwh.toFixed(1)} kWh
+                                            <span className="text-muted tabular-nums whitespace-nowrap">
+                                                {`${rangeData.ev_charging_kwh.toFixed(1)} kWh`}
                                             </span>
                                         </>
                                     ) : (
                                         <>
-                                            <span className="text-muted font-medium">0 kr</span>
-                                            <span className="text-muted">0 kWh</span>
+                                            <span className="text-muted font-medium tabular-nums whitespace-nowrap">
+                                                0 kr
+                                            </span>
+                                            <span className="text-muted tabular-nums whitespace-nowrap">0 kWh</span>
                                         </>
                                     )}
                                     {rangeData.ev_charging_kwh > 0 && rangeData.ev_solar_share != null && (
                                         <span
-                                            className="text-good cursor-help"
+                                            className="text-good cursor-help whitespace-nowrap"
                                             title="Share of EV energy that came from solar. For information only; solar energy has no cost in the EV figure."
                                         >
-                                            {Math.round(rangeData.ev_solar_share * 100)}% solar
+                                            {`${Math.round(rangeData.ev_solar_share * 100)}% solar`}
                                         </span>
                                     )}
                                 </span>
                             </div>
                         )}
                     </div>
-                    <div className="flex justify-between p-1.5 rounded bg-surface2/30">
+                    <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
                         <span className="text-muted">Export Rev</span>
-                        <span className="text-good font-medium">+{rangeData.export_revenue_sek.toFixed(1)} kr</span>
-                    </div>
-                    <div className="flex justify-between p-1.5 rounded bg-surface2/30">
-                        <span className="text-muted">Battery Charge</span>
-                        <span className="text-bad font-medium">-{rangeData.grid_charge_cost_sek.toFixed(1)} kr</span>
-                    </div>
-                    <div className="flex justify-between p-1.5 rounded bg-surface2/30">
-                        <span className="text-muted">Self-Use Saved</span>
-                        <span className="text-accent font-medium">
-                            {rangeData.self_consumption_savings_sek.toFixed(1)} kr
+                        <span className="text-good font-medium tabular-nums whitespace-nowrap">
+                            {`+${rangeData.export_revenue_sek.toFixed(1)} kr`}
                         </span>
                     </div>
-                    <div className="flex justify-between p-1.5 rounded bg-surface2/30">
+                    <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
+                        <span className="text-muted">Battery Charge</span>
+                        <span className="text-bad font-medium tabular-nums whitespace-nowrap">
+                            {`-${rangeData.grid_charge_cost_sek.toFixed(1)} kr`}
+                        </span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
+                        <span className="text-muted">Self-Use Saved</span>
+                        <span className="text-accent font-medium tabular-nums whitespace-nowrap">
+                            {`${rangeData.self_consumption_savings_sek.toFixed(1)} kr`}
+                        </span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
                         <span className="text-muted">Battery Wear</span>
-                        <span className="text-bad font-medium">-{rangeData.battery_wear_cost_sek.toFixed(1)} kr</span>
+                        <span className="text-bad font-medium tabular-nums whitespace-nowrap">
+                            {`-${rangeData.battery_wear_cost_sek.toFixed(1)} kr`}
+                        </span>
                     </div>
                 </div>
             )}
 
+            {/* Cost chart: fills the remaining card height */}
+            <div className="flex-1 flex flex-col relative z-10 mb-2">
+                <CostSeriesChart series={costSeries} loading={loading} />
+            </div>
+
             {/* Grid Flow Stats */}
-            <div className="grid grid-cols-2 gap-2 mt-auto relative z-10">
+            <div className="grid grid-cols-2 gap-2 relative z-10">
                 <div className="p-2 rounded-lg bg-surface2/40 border border-line/30">
                     <div className="flex items-center gap-1.5 text-bad mb-1">
                         <ArrowDownToLine className="h-3 w-3" />
@@ -436,10 +466,8 @@ export function ResourcesDomain({
     waterKwh,
     evChargingKwh,
     hasSolar = true,
-    hasBattery = true,
     hasWaterHeater = true,
     hasEvCharger = false,
-    batteryCapacity,
     config,
 }: ResourcesCardProps) {
     const [activeTab, setActiveTab] = useState<'metrics' | 'ev'>(() => {
@@ -476,9 +504,6 @@ export function ResourcesDomain({
                         <Zap className="h-4 w-4" />
                     </div>
                     <span className="text-sm font-medium text-text">Energy Resources</span>
-                    {hasBattery && batteryCapacity != null && batteryCapacity > 0 && (
-                        <span className="text-[9px] text-muted opacity-60 ml-2">({batteryCapacity} kWh Cap)</span>
-                    )}
                 </div>
                 {hasEvCharger && (
                     <div className="flex items-center bg-surface-elevated rounded-lg p-0.5 text-[10px] font-medium border border-line/20">
@@ -486,7 +511,7 @@ export function ResourcesDomain({
                             onClick={() => handleTabChange('metrics')}
                             className={`px-2 py-1 rounded-md transition-all ${
                                 activeTab === 'metrics'
-                                    ? 'bg-accent text-surface-elevated font-semibold'
+                                    ? 'bg-accent text-on-accent font-semibold'
                                     : 'text-muted hover:text-text'
                             }`}
                         >
@@ -496,7 +521,7 @@ export function ResourcesDomain({
                             onClick={() => handleTabChange('ev')}
                             className={`px-2 py-1 rounded-md transition-all ${
                                 activeTab === 'ev'
-                                    ? 'bg-accent text-surface-elevated font-semibold'
+                                    ? 'bg-accent text-on-accent font-semibold'
                                     : 'text-muted hover:text-text'
                             }`}
                         >
@@ -586,7 +611,9 @@ export function ResourcesDomain({
                     )}
                 </div>
             ) : (
-                <EVTabContent config={config ?? null} />
+                <div className="relative z-10 flex-1 flex flex-col min-h-0 lg:min-h-[320px]">
+                    <EVTabContent config={config ?? null} />
+                </div>
             )}
         </Card>
     )
@@ -695,10 +722,13 @@ function EVTabContent({ config }: { config: ConfigResponse | null }) {
     }
 
     return (
-        <div className="space-y-4 overflow-y-auto max-h-[360px] pr-1 relative z-10 custom-scrollbar">
+        // On desktop the list fills the grid cell without driving its height,
+        // and scrolls when several chargers do not fit.
+        <div className="flex flex-col gap-4 pr-1 custom-scrollbar max-h-[360px] overflow-y-auto lg:max-h-none lg:absolute lg:inset-0">
             {visibleChargers.map((charger) => (
                 <EVChargerCard
                     key={charger.id}
+                    fill={visibleChargers.length === 1}
                     charger={charger}
                     config={config}
                     loadBalancing={loadBalancing}

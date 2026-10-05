@@ -14,6 +14,7 @@ import { Banner, Badge } from '../components/ui/Banner'
 import Switch from '../components/ui/Switch'
 import SocStepper from '../components/ui/SocStepper'
 import QuickAction, { QuickActionChips, QuickActionSection } from '../components/ui/QuickAction'
+import CostSeriesChart from '../components/CostSeriesChart'
 import { BatteryCharging, Flame } from 'lucide-react'
 import { useToast } from '../lib/useToast'
 
@@ -318,72 +319,169 @@ export default function DesignSystem() {
                 </div>
             </section>
 
-            {/* Pixel Sparkline Showcase */}
+            {/* Price Sparkline Showcase */}
             <section>
-                <h2 className="text-2xl font-semibold text-text mb-4">Pixel Sparkline (Price Outlook)</h2>
+                <h2 className="text-2xl font-semibold text-text mb-4">Price Bars (Price Outlook)</h2>
                 <div className="grid md:grid-cols-2 gap-6">
                     <div className="bg-surface p-4 rounded-ds-lg flex flex-col gap-4">
                         <div className="text-sm text-muted">Varied Week (with reference line)</div>
                         <div className="price-sparkline">
-                            {/* Ref line at 60% */}
-                            <div className="price-sparkline-ref" style={{ top: '60%' }} />
-                            {/* Squares: 7 columns, spread out */}
-                            <div className="flex justify-around items-end h-full px-2">
-                                {[
-                                    { t: '10%', c: 'bg-bad' },
-                                    { t: '30%', c: 'bg-bad' },
-                                    { t: '55%', c: 'bg-warn' },
-                                    { t: '80%', c: 'bg-good' },
-                                    { t: '70%', c: 'bg-good' },
-                                    { t: '40%', c: 'bg-warn' },
-                                    { t: '20%', c: 'bg-bad' },
-                                ].map((s, i) => (
-                                    <div key={i} className="relative w-full flex justify-center h-full">
-                                        <div className={`price-sparkline-block ${s.c}`} style={{ top: s.t }} />
+                            <div className="price-sparkline-plot">
+                                <div className="price-sparkline-ref" style={{ bottom: '55%' }} />
+                                <div className="price-sparkline-bars">
+                                    <div key="0" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-bad" style={{ height: '100%' }} />
                                     </div>
-                                ))}
+                                    <div key="1" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-bad" style={{ height: '80%' }} />
+                                    </div>
+                                    <div key="2" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-warn" style={{ height: '55%' }} />
+                                    </div>
+                                    <div key="3" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-good" style={{ height: '14%' }} />
+                                    </div>
+                                    <div key="4" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-good" style={{ height: '30%' }} />
+                                    </div>
+                                    <div key="5" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-warn" style={{ height: '60%' }} />
+                                    </div>
+                                    <div key="6" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-bad" style={{ height: '85%' }} />
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div className="flex justify-around text-[9px] text-muted uppercase tracking-tighter">
-                            <span>Mon</span>
-                            <span>Tue</span>
-                            <span>Wed</span>
-                            <span>Thu</span>
-                            <span>Fri</span>
-                            <span>Sat</span>
-                            <span>Sun</span>
+                        <div className="price-sparkline-labels text-[9px] text-muted uppercase tracking-tighter">
+                            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                                <span key={d} className="text-center">
+                                    {d}
+                                </span>
+                            ))}
                         </div>
                     </div>
 
                     <div className="bg-surface p-4 rounded-ds-lg flex flex-col gap-4">
                         <div className="text-sm text-muted">Cheap Week (No reference line)</div>
                         <div className="price-sparkline">
-                            <div className="flex justify-around items-end h-full px-2">
-                                {[
-                                    { t: '70%', c: 'bg-good' },
-                                    { t: '75%', c: 'bg-good' },
-                                    { t: '80%', c: 'bg-good' },
-                                    { t: '85%', c: 'bg-good' },
-                                    { t: '90%', c: 'bg-good' },
-                                    { t: '80%', c: 'bg-good' },
-                                    { t: '75%', c: 'bg-good' },
-                                ].map((s, i) => (
-                                    <div key={i} className="relative w-full flex justify-center h-full">
-                                        <div className={`price-sparkline-block ${s.c}`} style={{ top: s.t }} />
+                            <div className="price-sparkline-plot">
+                                <div className="price-sparkline-bars">
+                                    <div key="0" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-good" style={{ height: '30%' }} />
                                     </div>
-                                ))}
+                                    <div key="1" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-good" style={{ height: '25%' }} />
+                                    </div>
+                                    <div key="2" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-good" style={{ height: '14%' }} />
+                                    </div>
+                                    <div key="3" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-good" style={{ height: '40%' }} />
+                                    </div>
+                                    <div key="4" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-good" style={{ height: '60%' }} />
+                                    </div>
+                                    <div key="5" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-good" style={{ height: '35%' }} />
+                                    </div>
+                                    <div key="6" className="price-sparkline-col">
+                                        <div className="price-sparkline-bar bg-good" style={{ height: '20%' }} />
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div className="flex justify-around text-[9px] text-muted uppercase tracking-tighter">
-                            <span>Mon</span>
-                            <span>Tue</span>
-                            <span>Wed</span>
-                            <span>Thu</span>
-                            <span>Fri</span>
-                            <span>Sat</span>
-                            <span>Sun</span>
+                        <div className="price-sparkline-labels text-[9px] text-muted uppercase tracking-tighter">
+                            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                                <span key={d} className="text-center">
+                                    {d}
+                                </span>
+                            ))}
                         </div>
                     </div>
+                </div>
+            </section>
+
+            {/* Battery Stack Showcase */}
+            <section>
+                <h2 className="text-2xl font-semibold text-text mb-4">Battery Stack</h2>
+                <div className="bg-surface p-4 rounded-ds-lg flex flex-col gap-3 max-w-xl">
+                    <div className="text-sm text-muted">
+                        Capacity split into held-back layers; tinted zones, solid fill up to the current SoC, gold
+                        target tick and a text-coloured floor tick.
+                    </div>
+                    <div className="battery-stack">
+                        <div className="battery-stack-track">
+                            {(
+                                [
+                                    ['--color-muted', 15, 100],
+                                    ['--color-warn', 20, 40],
+                                    ['--color-night', 5, 0],
+                                    ['--color-ai', 20, 0],
+                                    ['--color-good', 40, 0],
+                                ] as const
+                            ).map(([color, width, fill]) => (
+                                <div
+                                    key={color}
+                                    className="battery-stack-zone"
+                                    style={
+                                        { width: `${width}%`, '--zone-color': `var(${color})` } as React.CSSProperties
+                                    }
+                                >
+                                    <div className="battery-stack-fill" style={{ width: `${fill}%` }} />
+                                </div>
+                            ))}
+                        </div>
+                        <div className="battery-stack-marker bg-accent" style={{ left: '45%' }} />
+                        <div className="battery-stack-marker bg-text" style={{ left: '60%' }} />
+                    </div>
+                    <div className="flex flex-wrap gap-4 text-xs text-muted">
+                        {(
+                            [
+                                ['--color-muted', 'Min SoC'],
+                                ['--color-warn', 'Deficit'],
+                                ['--color-night', 'Weather'],
+                                ['--color-ai', 'Price'],
+                                ['--color-good', 'Tradable'],
+                            ] as const
+                        ).map(([color, label]) => (
+                            <span key={label} className="flex items-center gap-1.5">
+                                <span
+                                    className="battery-stack-swatch"
+                                    style={{ '--zone-color': `var(${color})` } as React.CSSProperties}
+                                />
+                                {label}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            </section>
+
+            {/* Cost Chart Showcase */}
+            <section>
+                <h2 className="text-2xl font-semibold text-text mb-4">Cost Chart</h2>
+                <div className="bg-surface p-4 rounded-ds-lg flex flex-col h-56 max-w-xl">
+                    <CostSeriesChart
+                        loading={false}
+                        series={{
+                            period: 'today',
+                            bucket: 'hour',
+                            points: [3, 5, 2, 0, 1, 6, 8, 4, 1, 0, 0, 2]
+                                .map((imp, h) => ({
+                                    start: `2026-10-05T${String(h).padStart(2, '0')}:00:00`,
+                                    import_cost_sek: imp,
+                                    export_revenue_sek: h > 8 ? 1.5 : 0,
+                                    net_cost_sek: imp - (h > 8 ? 1.5 : 0),
+                                    cumulative_net_cost_sek: 0,
+                                }))
+                                .map((p, i, all) => ({
+                                    ...p,
+                                    cumulative_net_cost_sek: all
+                                        .slice(0, i + 1)
+                                        .reduce((t, x) => t + x.net_cost_sek, 0),
+                                })),
+                        }}
+                    />
                 </div>
             </section>
 

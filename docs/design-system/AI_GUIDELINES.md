@@ -112,6 +112,35 @@ Command bar controls (`components/ui/QuickAction.tsx`, classes `.qa-*`). One but
 - `.qa-select` for dropdowns, `.qa-levels` / `.qa-level` for a tap-to-apply list (Risk / Water levels).
 - Touch targets: buttons, chips and rows are ≥ 44px high on mobile.
 
+### Text On Accent
+Gold (`bg-accent`) fills need dark text in both themes. Use `text-on-accent`, never `text-surface-elevated` or `text-canvas` (those turn white in light mode).
+```tsx
+<button className="bg-accent text-on-accent">Configure Goal</button>
+```
+
+### Battery Stack
+Horizontal capacity bar split into layers (`.battery-stack*`, used by the Battery & Strategy card). Each zone sets `--zone-color` to a colour variable; the zone is tinted, `.battery-stack-fill` is the solid part below the current SoC. Markers sit outside the track.
+```tsx
+<div className="battery-stack">
+  <div className="battery-stack-track">
+    <div className="battery-stack-zone" style={{ width: '20%', '--zone-color': 'var(--color-warn)' } as React.CSSProperties}>
+      <div className="battery-stack-fill" style={{ width: '40%' }} />
+    </div>
+  </div>
+  <div className="battery-stack-marker bg-accent" style={{ left: '45%' }} />
+</div>
+<span className="battery-stack-swatch" style={{ '--zone-color': 'var(--color-warn)' } as React.CSSProperties} />
+```
+
+### Price Bars
+7-day price outlook (`.price-sparkline`, `-plot`, `-bars`, `-col`, `-bar`, `-ref`, `-labels`). Bars are coloured by price level (`bg-good` cheap, `bg-warn` normal, `bg-bad` expensive, `bg-muted` unknown); `-ref` is the dashed average line. Add `.price-sparkline-fill` to let it grow into the remaining height of a flex column.
+
+### Cost Chart
+`components/CostSeriesChart.tsx` draws the running net cost (green when earning, red when paying) over faint import/export bars, from `/api/energy/cost-series`. Animations (`.cost-chart-reveal`, `.cost-chart-area`, `.cost-chart-bar`) are switched off under `prefers-reduced-motion`.
+
+### Charts On Canvas
+Canvas charts cannot use Tailwind classes. Read colours from the tokens at draw time with `lib/chartTokens.ts` (`token('good', alpha)`), and redraw when the `.dark` class on `<html>` changes. Glows (`shadowBlur`) only in dark mode. Times on axes and readouts are always 24h.
+
 ### Loading States
 ```tsx
 <div className="spinner" />

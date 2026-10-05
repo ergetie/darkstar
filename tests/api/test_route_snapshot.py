@@ -46,6 +46,7 @@ def test_route_snapshot(app_client):
         "DELETE /api/water/boost",
         "GET /api/energy/today",
         "GET /api/energy/range",
+        "GET /api/energy/cost-series",
         "GET /api/performance/data",
         "GET /api/ha-socket",
         "POST /api/ev/chargers/{id}/manual-charge",

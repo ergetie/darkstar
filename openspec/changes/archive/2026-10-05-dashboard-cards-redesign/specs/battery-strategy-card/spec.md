@@ -1,9 +1,5 @@
-# Battery Strategy Card
+## MODIFIED Requirements
 
-## Purpose
-
-TBD - Defines the BatteryStrategyCard component that displays battery state of charge, strategy metrics (S-Index, Cycles, Safety Floor, Tradable energy), and 7-day price outlook.
-## Requirements
 ### Requirement: BatteryStrategyCard displays current SoC and target with color coding
 The `BatteryStrategyCard` component (`frontend/src/components/BatteryStrategyCard.tsx`) SHALL display the current battery SoC (from `soc` prop) and the current slot target SoC (from `socTarget` prop) prominently, as large figures separated by an arrow. SoC SHALL be color-coded: green (`text-good`) when > 50%, amber (`text-warn`) when > 20%, red (`text-bad`) when ≤ 20%. Below the figures, the actual kWh SHALL be shown (e.g., "7.2 / 10.0 kWh"), with "—" for values that are unavailable.
 
@@ -72,23 +68,6 @@ The card SHALL display the S-Index value on a single row together with a compact
 - **WHEN** `plannerMeta` is null or `plannerMeta.s_index` has no `effective_load_margin` or `risk_factor`
 - **THEN** the card displays "—" for S-Index
 
-### Requirement: BatteryStrategyCard displays a SOC context line
-The card SHALL display a single-line context message below the SoC→Target display describing the current strategy intent. The message SHALL be derived from the schedule slot action and price outlook context. When insufficient data is available to derive a message, no context line SHALL be displayed.
-
-#### Scenario: Context line shows charging intent
-- **WHEN** the current slot action is `charge` and upcoming days have cheap prices
-- **THEN** the context line reads "charging ahead of cheap D1→D3" or similar
-
-#### Scenario: Context line shows discharge intent
-- **WHEN** the current slot action involves export or discharge and prices are high
-- **THEN** the context line indicates exporting or discharging
-
-#### Scenario: No context line when data insufficient
-- **WHEN** price outlook data is unavailable
-- **THEN** no context line is displayed
-
----
-
 ### Requirement: BatteryStrategyCard displays reference average in the sparkline
 When `priceOutlook.reference_avg` is present and non-null, the price bars SHALL display a dashed horizontal line at the vertical position corresponding to `reference_avg`, on the same height scale as the bars, spanning the full width of the plot. The `reference_avg` value SHALL NOT be shown as a text label.
 
@@ -101,12 +80,13 @@ When `priceOutlook.reference_avg` is present and non-null, the price bars SHALL 
 - **WHEN** `priceOutlook.reference_avg` is null
 - **THEN** no reference line is displayed
 
-### Requirement: BatteryStrategyCard shows all content without tab interaction
-The card SHALL display SoC, metrics, and price outlook all in a single scrollable view. There SHALL be no tab toggle, no hidden sections, and no click required to see any content.
+## REMOVED Requirements
 
-#### Scenario: All content visible on load
-- **WHEN** the user views the BatteryStrategyCard
-- **THEN** SoC, metrics grid, and price outlook are all visible without any click or tab selection
+### Requirement: BatteryStrategyCard displays Safety Floor with inline breakdown
+**Reason**: The deficit-only floor ignored the price reserve and showed the deficit before the risk cap. It is replaced by the battery stack and the "Held back" figure.
+**Migration**: See "BatteryStrategyCard displays a stacked battery bar of what is held back".
+
+## ADDED Requirements
 
 ### Requirement: BatteryStrategyCard displays a stacked battery bar of what is held back
 When `plannerMeta.s_index.safety_floor` has `min_soc_kwh` and `calculated_floor_kwh` and `batteryCapacity` > 0, the card SHALL display a horizontal battery bar whose width is the full battery capacity, split in this order into zones: Min SoC (`min_soc_kwh`), Deficit, Weather, Price, Tradable.

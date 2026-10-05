@@ -6,6 +6,7 @@ import { Api } from '../lib/api'
 vi.mock('../lib/api', () => ({
     Api: {
         energyRange: vi.fn(),
+        energyCostSeries: vi.fn().mockResolvedValue({ period: 'today', bucket: 'hour', points: [] }),
         ev: {
             chargers: vi.fn(),
         },

@@ -1,13 +1,6 @@
 import Card from './Card'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-    Chart as ChartJS,
-    ChartConfiguration,
-    ChartDataset,
-    Plugin,
-    ScriptableContext,
-    ScriptableLineSegmentContext,
-} from 'chart.js/auto'
+import { Chart as ChartJS, ChartConfiguration, ChartDataset, Plugin, ScriptableContext } from 'chart.js/auto'
 import type { Chart, Scale, Tick, ChartData } from 'chart.js/auto'
 import zoomPlugin from 'chartjs-plugin-zoom'
 ChartJS.register(zoomPlugin)
@@ -17,6 +10,22 @@ import type { ScheduleSlot } from '../lib/types'
 import { formatHour, DaySel, isToday, isTomorrow, wallClockParts } from '../lib/time'
 import { hourLabelStep, hourOfLabel } from '../lib/chartTicks'
 import { transferFeeAt, transferFeeConfigFromPricing, type TransferFeeConfig } from '../pages/settings/transferFees'
+import { gridAlpha, isDarkTheme, token, type ChartToken } from '../lib/chartTokens'
+import {
+    ACTION_TOKEN,
+    buildCompactLine,
+    buildSlotInfo,
+    estimatedRanges,
+    isEstimatedSlot,
+    type PriceSourceFields,
+    priceAxisMax,
+    slotMarkKinds,
+    splitActualPlan,
+    type ActionKind,
+    type ActionSeries,
+    type Series,
+    type SlotSeries,
+} from './ChartCard.logic'
 // Note: We use a custom plugin for the NOW marker to support zooming.
 // CSS overlays don't work well with pan/zoom.
 
@@ -102,102 +111,28 @@ function visibleHourCount(scale: Scale, ticks: Tick[]): number {
     return count
 }
 
+/** Height of the action strip drawn between the plot and the hour labels. */
+const STRIP_HEIGHT = 12
+const STRIP_GAP = 3
+
+/** Dash pattern of every plan line; actual lines are solid. */
+const PLAN_DASH = [6, 4]
+const ESTIMATED_LABEL = 'Estimated prices'
+
+const axisTick = {
+    color: () => token('muted'),
+    font: { family: 'monospace', size: 10 },
+}
+
 const chartOptions: ChartConfiguration['options'] = {
     maintainAspectRatio: false,
     animation: false,
+    // Hover details live in the info panel above the chart (no floating tooltip).
+    interaction: { mode: 'index', intersect: false, axis: 'x' },
+    layout: { padding: { top: 16 } },
     plugins: {
-        legend: {
-            display: false,
-            labels: {
-                color: '#e6e9ef',
-                boxWidth: 10,
-                font: { size: 12 },
-                filter: () => false,
-            },
-        },
-        tooltip: {
-            enabled: true,
-            mode: 'index',
-            intersect: false,
-            backgroundColor: 'rgba(30, 30, 46, 0.75)',
-            titleColor: '#e6e9ef',
-            bodyColor: '#a6b0bf',
-            borderColor: 'rgba(255, 255, 255, 0.1)',
-            borderWidth: 1,
-            padding: 12,
-            displayColors: true,
-            usePointStyle: true,
-            // Align tooltip to the left to avoid covering the graph
-            xAlign: 'right',
-            yAlign: 'bottom',
-            caretPadding: 8,
-            callbacks: {
-                labelPointStyle: function (context) {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const dataset = context.dataset as any
-                    // Dashed lines get filled circle markers
-                    if (dataset.borderDash && dataset.borderDash.length > 0) {
-                        return { pointStyle: 'circle', rotation: 0 }
-                    }
-                    // Solid lines get filled rect markers
-                    return { pointStyle: 'rectRounded', rotation: 0 }
-                },
-                labelColor: function (context) {
-                    // Return the dataset color for both border and background to make markers solid/filled
-                    const color = context.dataset.borderColor as string
-                    return {
-                        borderColor: color,
-                        backgroundColor: color,
-                        borderWidth: 0,
-                    }
-                },
-                title: function (context) {
-                    return context[0].label
-                },
-                label: function (context) {
-                    const datasetLabel = context.dataset.label || ''
-                    if (datasetLabel === 'EV Standby') {
-                        return 'EV Standby: Charger switch held on after target — car draws only what it needs'
-                    }
-                    if (datasetLabel === EV_AWAITING_PLUG_IN_LABEL && context.parsed.y != null) {
-                        return `${EV_AWAITING_PLUG_IN_LABEL}: ${context.parsed.y.toFixed(2)} kW — planned, starts once the car is plugged in`
-                    }
-                    const value = context.parsed.y
-                    if (value === null || value === undefined) return ''
-
-                    let formattedValue = value.toFixed(2)
-                    let unit = ''
-
-                    if (datasetLabel.includes('SEK/kWh')) {
-                        formattedValue = value.toFixed(2)
-                        unit = ' SEK/kWh'
-
-                        const data = context.chart.data as ExtendedChartData
-                        const pricing = data.pricingConfig
-
-                        // If we have pricing config, show breakdown
-                        const breakdown = splitPriceBreakdown(value, pricing, data.slotStarts?.[context.dataIndex])
-                        if (breakdown) {
-                            return [
-                                `${datasetLabel}: ${formattedValue}${unit}`,
-                                `(Spot: ${breakdown.spot.toFixed(2)} + Tax/Fees: ${breakdown.feesAndVat.toFixed(2)})`,
-                            ] as unknown as string[] // Chart.js allows string arrays for multiline
-                        }
-                    } else if (datasetLabel.includes('kW')) {
-                        formattedValue = value.toFixed(1)
-                        unit = ' kW'
-                    } else if (datasetLabel.includes('kWh')) {
-                        formattedValue = value.toFixed(2)
-                        unit = ' kWh'
-                    } else if (datasetLabel.includes('%')) {
-                        formattedValue = value.toFixed(1)
-                        unit = '%'
-                    }
-
-                    return `${datasetLabel}: ${formattedValue}${unit}`
-                },
-            },
-        },
+        legend: { display: false },
+        tooltip: { enabled: false },
         zoom: {
             pan: {
                 enabled: true,
@@ -216,20 +151,27 @@ const chartOptions: ChartConfiguration['options'] = {
     },
     scales: {
         x: {
+            offset: true,
+            // Faint vertical line at every full hour
             grid: {
-                display: false, // Disabled - using dot grid plugin instead
+                display: true,
+                drawTicks: false,
+                color: (ctx) => {
+                    const label = ctx.chart.data.labels?.[ctx.index]
+                    return hourOfLabel(label) !== null ? token('line', gridAlpha('hour', isDarkTheme())) : 'transparent'
+                },
             },
             ticks: {
-                color: '#6c7086',
-                font: {
-                    family: 'monospace',
-                    size: 10,
-                },
+                ...axisTick,
+                // Leave room under the plot for the action strip
+                padding: STRIP_HEIGHT + STRIP_GAP * 2,
                 maxRotation: 0,
                 autoSkip: false,
-                // Hour labels only; thinned to every 3rd (6th, 12th) hour when a label per
-                // hour does not fit the scale width. Hourly dots stay (dotGridPlugin).
-                callback: function (this: Scale, value: string | number, _index: number, ticks: Tick[]) {
+                // Hour labels only (24h); thinned to every 3rd (6th, 12th) hour when a label per
+                // hour does not fit the scale width.
+                callback: function (this: Scale, value: string | number, index: number, ticks: Tick[]) {
+                    // The plot runs edge to edge, so the leftmost label would be cut in half
+                    if (index === 0) return ''
                     const hh = hourOfLabel(this.getLabelForValue(value as number))
                     if (hh === null) return ''
                     const step = hourLabelStep(this.width, visibleHourCount(this, ticks))
@@ -237,562 +179,316 @@ const chartOptions: ChartConfiguration['options'] = {
                 },
             },
             border: { display: false },
+            // The hour axis reserves side room for its edge labels; drop it so the plot
+            // spans the full card width, matching the info panel above.
+            afterFit(scale: Scale) {
+                scale.paddingLeft = 0
+                scale.paddingRight = 0
+            },
         },
+        // Import price (left)
         y: {
-            position: 'right',
-            min: 0,
-            max: 8,
-            title: {
-                display: false,
-                text: 'SEK/kWh',
-            },
-            grid: {
-                display: false, // Disabled - using dot grid plugin instead
-            },
-            border: { display: false },
-            ticks: {
-                display: false,
-                color: '#6c7086',
-                font: { family: 'monospace', size: 10 },
-                callback: (val) => `${val} SEK`,
-            },
-        },
-        y1: {
             position: 'left',
-            min: 0,
-            max: 9,
-            title: { display: false, text: 'kW' },
+            beginAtZero: true,
             grid: { display: false },
-            ticks: { display: false },
             border: { display: false },
-        },
-        y2: {
-            position: 'left',
-            min: 0,
-            max: 9,
-            title: { display: false, text: 'kW' },
-            grid: { display: false },
+            // Headroom keeps the price area in the lower half; exact values are in the info panel
+            afterDataLimits(scale: Scale) {
+                scale.max = priceAxisMax(scale.max)
+            },
             ticks: { display: false },
-            border: { display: false },
-            display: false,
+            // Hidden labels still reserve width; collapse it so the plot spans the card
+            afterFit(scale: Scale) {
+                scale.width = 0
+            },
         },
+        // Power axes share a scale but are not shown
+        y1: { display: false, min: 0, max: 9 },
+        y2: { display: false, min: 0, max: 9 },
+        y4: { display: false, min: 0, max: 9 },
+        // Battery SoC (right)
         y3: {
             position: 'right',
             min: 0,
             max: 100,
-            title: { display: true, text: '%', color: '#a6b0bf' },
-            grid: { display: false },
-            ticks: { color: '#a6b0bf', font: { family: 'monospace', size: 10 } },
+            // The 25 % grid lines stay; the % labels are in the info panel
+            grid: { display: true, drawTicks: false, color: () => token('line', gridAlpha('soc', isDarkTheme())) },
             border: { display: false },
-            display: false,
-        },
-        y4: {
-            position: 'left',
-            min: 0,
-            max: 9,
-            title: { display: false, text: 'kW (PV)' },
-            grid: { display: false },
-            ticks: { display: false },
-            border: { display: false },
+            ticks: { display: false, stepSize: 25 },
+            afterFit(scale: Scale) {
+                scale.width = 0
+            },
         },
     },
 }
 
-type ChartValues = {
+type ChartValues = SlotSeries & {
     labels: string[]
-    price: (number | null)[]
-    pv: (number | null)[]
-    load: (number | null)[]
-    charge?: (number | null)[]
-    discharge?: (number | null)[]
-    export?: (number | null)[]
-    water?: (number | null)[]
+    price: Series
+    pv: Series
+    load: Series
     waterBoost?: (boolean | null)[]
-    customEntityActive?: (number | null)[]
-    evCharging?: (number | null)[]
-    evSurplus?: (number | null)[]
-    evKeepOn?: (number | null)[]
-    evAwaitingPlugIn?: (number | null)[]
-    socTarget?: (number | null)[]
-    socProjected?: (number | null)[]
-    socActual?: (number | null)[]
+    socTarget?: Series
     hasNoData?: boolean
     day?: DaySel
-    nowIndex?: number | null
     nowPct?: number | null
-    actualPv?: (number | null)[]
-    actualLoad?: (number | null)[]
-    actualCharge?: (number | null)[]
-    actualDischarge?: (number | null)[]
-    actualExport?: (number | null)[]
-    actualWater?: (number | null)[]
-    actualEvCharging?: (number | null)[]
+    /** Measured series take the full-weight role before "now" (the Actual overlay). */
+    showActual?: boolean
 }
 
 interface ExtendedChartData extends ChartData {
     nowIndex?: number | null
     nowPct?: number | null
     hasNoData?: boolean
-    plugins?: unknown
     pricingConfig?: PricingBreakdownConfig
     /** ISO start time per chart index (live data only), for per-slot fee breakdown. */
     slotStarts?: string[]
+    /** Per-slot arrays behind the info panel. */
+    series?: SlotSeries
 }
 
-const hexToRgba = (hex: string, alpha: number) => {
-    if (!hex || !hex.startsWith('#')) return hex
-    const r = parseInt(hex.slice(1, 3), 16)
-    const g = parseInt(hex.slice(3, 5), 16)
-    const b = parseInt(hex.slice(5, 7), 16)
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+/** Dataset fields the action strip plugin reads (such datasets are never drawn by Chart.js). */
+type ActionDatasetFields = { actionKind?: ActionKind; actionSource?: 'planned' | 'actual' }
+
+const hatchPatterns = new WeakMap<CanvasRenderingContext2D, { color: string; pattern: CanvasPattern }>()
+
+/** Diagonal-line pattern in `color`; falls back to a flat tint where offscreen canvases are unavailable. */
+function hatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
+    const cached = hatchPatterns.get(ctx)
+    if (cached && cached.color === color) return cached.pattern
+    if (typeof document === 'undefined') return color
+    const tile = document.createElement('canvas')
+    tile.width = 8
+    tile.height = 8
+    const tctx = tile.getContext('2d')
+    if (!tctx) return color
+    tctx.strokeStyle = color
+    tctx.lineWidth = 1
+    tctx.beginPath()
+    tctx.moveTo(-1, 9)
+    tctx.lineTo(9, -1)
+    tctx.moveTo(-1, 1)
+    tctx.lineTo(1, -1)
+    tctx.moveTo(7, 9)
+    tctx.lineTo(9, 7)
+    tctx.stroke()
+    const pattern = ctx.createPattern(tile, 'repeat')
+    if (!pattern) return color
+    hatchPatterns.set(ctx, { color, pattern })
+    return pattern
 }
 
 const createChartData = (
     values: ChartValues,
-    _themeColors: Record<string, string> = {}, // Deprecated - using Design System tokens directly
+    _themeColors: Record<string, string> = {}, // Deprecated - colours come from design tokens
     pricing?: PricingBreakdownConfig,
 ): ExtendedChartData => {
-    // Design System Colors (from index.css)
-    // Semantic mapping - APPROVED V2:
-    // - accent (gold): PV/Solar - it's the SUN
-    // - grid (grey): Import Price - neutral
-    // - house (cyan): Load - house consumption
-    // - good (green): Export - positive (selling)
-    // - bad (orange): Charge/Discharge - costs money
-    // - water (blue): Water heating
-    // - night (cyan): SoC lines
-    const DS = {
-        accent: '#FFCE59', // --color-accent: PV/Solar (SUN)
-        grid: '#64748B', // --color-grid: Import Price (neutral)
-        house: '#00B7B5', // --color-house: Load (cyan)
-        good: '#1FB256', // --color-good: Export
-        bad: '#F15132', // --color-bad: Charge (costs money)
-        peak: '#EC4899', // --color-peak: Discharge (pink)
-        ai: '#8B5CF6', // --color-ai: Violet
-        water: '#4EA8DE', // --color-water: Water heating
-        night: '#06B6D4', // --color-night: SoC lines
+    // One colour per series: actual = solid line, plan = dashed line. Before "now" the solid
+    // actual runs beside the dashed plan; after "now" only the dashed plan is drawn.
+    // Every action (charge/discharge/export/water/EV) is a mark on the strip (see actionStripPlugin).
+    // Colours are tokens resolved at draw time, so light/dark both work.
+    const empty: Series = values.labels.map(() => null)
+    const nowIdx = values.nowIndex ?? null
+    const estimated = values.estimated
+    const knownPrice = estimated ? values.price.map((p, i) => (estimated[i] ? null : p)) : values.price
+    const estimatedPrice = estimated ? values.price.map((p, i) => (estimated[i] ? p : null)) : empty
+
+    /** Dashed plan line: same colour as its actual counterpart. */
+    const planLine = (tk: ChartToken, alpha: number) => ({
+        borderColor: () => token(tk, alpha),
+        borderDash: PLAN_DASH,
+    })
+
+    const softFill = (tk: ChartToken, top: number) => (context: ScriptableContext<'line'>) => {
+        const area = context.chart.chartArea
+        if (!area) return 'transparent'
+        const gradient = context.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom)
+        gradient.addColorStop(0, token(tk, top))
+        gradient.addColorStop(1, token(tk, 0))
+        return gradient
     }
+
+    /** Diagonal hatch over the estimated price area, drawn in the muted token. */
+    const hatchFill = (context: ScriptableContext<'line'>) => hatchPattern(context.chart.ctx, token('grid', 0.4))
+
+    const actionDs = (
+        label: string,
+        data: Series,
+        kind: ActionKind,
+        yAxisID: string,
+        source: 'planned' | 'actual' = 'planned',
+    ) =>
+        ({
+            type: 'line',
+            label,
+            data,
+            yAxisID,
+            actionKind: kind,
+            actionSource: source,
+            borderColor: () => token(ACTION_TOKEN[kind]),
+            borderWidth: 0,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            order: 8,
+        }) as unknown as ChartDataset
+
+    const actualLine = (
+        label: string,
+        data: Series,
+        tk: ChartToken,
+        yAxisID: string,
+        stepped: boolean,
+        width: number,
+        glow = false,
+    ) =>
+        ({
+            type: 'line',
+            label,
+            data: splitActualPlan(data, nowIdx),
+            borderColor: () => token(tk),
+            borderWidth: width,
+            glow: glow ? tk : undefined,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            yAxisID,
+            ...(stepped ? { stepped: 'middle' } : { tension: 0.4 }),
+            order: 2,
+        }) as unknown as ChartDataset
 
     const baseData: ExtendedChartData = {
         labels: values.labels,
         datasets: [
+            // 0: import price (published prices), a soft area behind everything
             {
                 type: 'line',
                 label: 'Import Price (SEK/kWh)',
-                data: values.price,
-                borderColor: DS.grid, // Grey - neutral grid price
-                backgroundColor: (context: ScriptableContext<'line'>) => {
-                    const ctx = context.chart.ctx
-                    const isDark = document.documentElement.classList.contains('dark')
-                    const opacity = isDark ? 0.35 : 0.5 // Higher in light mode
-                    const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height)
-                    gradient.addColorStop(0, `rgba(100, 116, 139, ${opacity})`) // DS.grid
-                    gradient.addColorStop(1, 'rgba(100, 116, 139, 0)')
-                    return gradient
-                },
+                data: knownPrice,
+                borderColor: () => token('grid', 0.55),
+                backgroundColor: softFill('grid', 0.3),
                 fill: true,
                 yAxisID: 'y',
                 stepped: 'middle',
                 pointRadius: 0,
-                borderWidth: 3,
-                order: 1,
+                pointHoverRadius: 0,
+                borderWidth: 1.25,
+                order: 9,
             } as ChartDataset,
+            // 1: PV plan, dashed gold line over a soft vertical gradient
             {
                 type: 'line',
                 label: 'PV Forecast (kW)',
                 data: values.pv,
-                borderColor: DS.accent, // Gold - it's the SUN
-                backgroundColor: (context: ScriptableContext<'line'>) => {
-                    const ctx = context.chart.ctx
-                    const isDark = document.documentElement.classList.contains('dark')
-                    const opacity = isDark ? 0.2 : 0.65 // Higher in light mode
-                    const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height)
-                    gradient.addColorStop(0, `rgba(255, 206, 89, ${opacity})`) // DS.accent
-                    gradient.addColorStop(1, 'rgba(255, 206, 89, 0)')
-                    return gradient
-                },
+                ...planLine('accent', 0.95),
+                glow: 'accent',
+                backgroundColor: softFill('accent', 0.3),
                 fill: true,
                 yAxisID: 'y4',
                 tension: 0.4,
                 pointRadius: 0,
-                borderWidth: 3,
-                order: 20,
-            } as ChartDataset,
+                pointHoverRadius: 0,
+                borderWidth: 1.5,
+                order: 6,
+            } as unknown as ChartDataset,
+            // 2: load plan, dashed stepped outline
             {
-                type: 'bar',
+                type: 'line',
                 label: 'Load (kW)',
                 data: values.load,
-                backgroundColor: 'rgba(0, 183, 181, 0.25)', // DS.house cyan at 25%
-                borderColor: DS.house,
-                glow: false,
-                borderWidth: 0,
-                borderRadius: 2,
+                ...planLine('house', 0.9),
                 yAxisID: 'y1',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
-                order: 0, // Render in front of gradient lines
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
-            {
-                type: 'bar',
-                label: 'Charge (kW)',
-                data: values.charge ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(241, 81, 50, 0.25)', // DS.bad - grid charge costs money
-                borderColor: DS.bad,
-                glow: false,
-                borderWidth: 0,
-                borderRadius: 2,
-                hidden: true,
-                yAxisID: 'y1',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
-                order: 0,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
-            {
-                type: 'bar',
-                label: 'Discharge (kW)',
-                data: values.discharge ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(236, 72, 153, 0.25)', // DS.peak (pink) at 25%
-                borderColor: DS.peak,
-                glow: false,
-                borderWidth: 0,
-                borderRadius: 2,
-                hidden: true,
-                yAxisID: 'y1',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
-                order: 0,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
-            {
-                type: 'bar',
-                label: 'Export (kW)',
-                data: values.export ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(31, 178, 86, 0.3)', // DS.good - selling is positive!
-                borderColor: DS.good,
-                glow: false,
-                borderWidth: 0,
-                borderRadius: 2,
-                hidden: true,
-                yAxisID: 'y2',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
-                order: 0,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
-            {
-                type: 'bar',
-                label: 'Water Heating (kW)',
-                data: values.water ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(78, 168, 222, 0.25)',
-                borderColor: DS.water,
-                glow: false,
-                borderWidth: 0,
-                borderRadius: 2,
-                hidden: true,
-                yAxisID: 'y1',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
-                order: 0,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
-            {
-                type: 'bar',
-                label: 'Water Heating Boost (kW)',
-                data:
-                    values.waterBoost?.map((b, i) =>
-                        b && values.water && i < values.water.length ? values.water[i] : null,
-                    ) ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(0, 255, 200, 0.90)',
-                borderColor: '#00ffc8ff',
-                glow: true,
-                glowBlur: 20,
-                glowOpacity: 1.0,
-                borderWidth: 0,
-                borderRadius: 2,
-                hidden: true,
-                yAxisID: 'y1',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
-                order: 0,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
-            {
-                type: 'bar',
-                label: 'EV Charging (kW)',
-                data: values.evCharging ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(139, 92, 246, 0.25)', // DS.ai (violet) at 25%
-                borderColor: DS.ai,
-                glow: false,
-                borderWidth: 0,
-                borderRadius: 2,
-                yAxisID: 'y1',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
-                order: 0,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
-            {
-                type: 'bar',
-                label: 'EV Surplus Charging (kW)',
-                data: values.evSurplus ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(139, 92, 246, 0.90)', // DS.ai (violet) at 90%
-                borderColor: '#c084fc',
-                glow: true,
-                glowBlur: 20,
-                glowOpacity: 1.0,
-                borderWidth: 0,
-                borderRadius: 2,
-                yAxisID: 'y1',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
-                order: 0,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
-            {
-                type: 'bar',
-                label: 'Excess PV Sink (kW)',
-                data: values.customEntityActive ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(255, 182, 64, 0.90)',
-                borderColor: '#FF9F40',
-                glow: true,
-                glowBlur: 20,
-                glowOpacity: 1.0,
-                borderWidth: 0,
-                borderRadius: 2,
-                hidden: true,
-                yAxisID: 'y1',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
-                order: 0,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
+                stepped: 'middle',
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                borderWidth: 1.5,
+                order: 5,
+            } as unknown as ChartDataset,
+            // 3-10: planned actions, drawn as strip marks
+            actionDs('Charge (kW)', values.charge ?? empty, 'charge', 'y1'),
+            actionDs('Discharge (kW)', values.discharge ?? empty, 'discharge', 'y1'),
+            actionDs('Export (kW)', values.export ?? empty, 'export', 'y2'),
+            actionDs('Water Heating (kW)', values.water ?? empty, 'water', 'y1'),
+            actionDs(
+                'Water Heating Boost (kW)',
+                values.waterBoost?.map((b, i) =>
+                    b && values.water && i < values.water.length ? values.water[i] : null,
+                ) ?? empty,
+                'waterBoost',
+                'y1',
+            ),
+            actionDs('EV Charging (kW)', values.evCharging ?? empty, 'ev', 'y1'),
+            actionDs('EV Surplus Charging (kW)', values.evSurplus ?? empty, 'evSurplus', 'y1'),
+            actionDs('Excess PV Sink (kW)', values.customEntityActive ?? empty, 'excess', 'y1'),
+            // 11: SoC target, faint dotted
             {
                 type: 'line',
                 label: 'SoC Target (%)',
-                data: values.socTarget ?? values.labels.map(() => null),
-                borderColor: DS.night, // Cyan
-                borderDash: [0, 6], // Round dots (0 dash + round cap = dots)
-                borderCapStyle: 'round',
-                backgroundColor: (context: ScriptableContext<'line'>) => {
-                    const ctx = context.chart.ctx
-                    const isDark = document.documentElement.classList.contains('dark')
-                    const opacity = isDark ? 0.05 : 0.1 // Very subtle fill
-                    const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height)
-                    gradient.addColorStop(0, `rgba(6, 182, 212, ${opacity})`) // DS.night
-                    gradient.addColorStop(1, 'rgba(6, 182, 212, 0)')
-                    return gradient
-                },
-                fill: true,
-                // Dim historical segments (before nowIndex) to 50% opacity
-                segment: {
-                    borderColor: (ctx: ScriptableLineSegmentContext) => {
-                        const nowIdx = values.nowIndex ?? -1
-                        if (nowIdx >= 0 && ctx.p1DataIndex < nowIdx) {
-                            return 'rgba(6, 182, 212, 0.5)' // DS.night at 50%
-                        }
-                        return DS.night
-                    },
-                },
+                data: values.socTarget ?? empty,
+                borderColor: () => token('night', 0.55),
+                borderDash: [2, 4],
                 yAxisID: 'y3',
                 pointRadius: 0,
-                borderWidth: 3,
-                tension: 0,
+                pointHoverRadius: 0,
+                borderWidth: 1.25,
                 stepped: 'middle',
-                hidden: true,
-                order: 10, // Render behind other datasets (higher = further back)
+                order: 4,
             } as ChartDataset,
+            // 12: planned SoC, dashed, as strong as the actual line
             {
                 type: 'line',
                 label: 'SoC Projected (%)',
-                data: values.socProjected ?? values.labels.map(() => null),
-                borderColor: DS.night, // Cyan - solid line
-                // Dim historical segments (before nowIndex) to 50% opacity
-                segment: {
-                    borderColor: (ctx: ScriptableLineSegmentContext) => {
-                        const nowIdx = values.nowIndex ?? -1
-                        // If segment end point is before nowIndex, it's historical
-                        if (nowIdx >= 0 && ctx.p1DataIndex < nowIdx) {
-                            return 'rgba(6, 182, 212, 0.5)' // DS.night at 50%
-                        }
-                        return DS.night
-                    },
-                },
+                data: values.socProjected ?? empty,
+                ...planLine('night', 1),
+                glow: 'night',
                 yAxisID: 'y3',
                 pointRadius: 0,
+                pointHoverRadius: 0,
                 borderWidth: 3,
                 tension: 0.3,
-                hidden: true,
-            } as ChartDataset,
+                order: 1,
+            } as unknown as ChartDataset,
+            // 13: measured SoC, solid, before "now"
             {
                 type: 'line',
                 label: 'SoC Actual (%)',
-                data: values.socActual ?? values.labels.map(() => null),
-                borderColor: DS.night, // Cyan - dotted to differentiate
-                borderDash: [0, 6], // Round dots (same as SoC Target)
-                borderCapStyle: 'round',
+                data: splitActualPlan(values.socActual ?? empty, nowIdx),
+                borderColor: () => token('night'),
+                glow: 'night',
                 yAxisID: 'y3',
                 pointRadius: 0,
+                pointHoverRadius: 0,
                 borderWidth: 3,
                 tension: 0.3,
-                hidden: true,
-            } as ChartDataset,
-            {
-                type: 'line',
-                label: 'Actual PV (kW)',
-                data: values.actualPv ?? values.labels.map(() => null),
-                borderColor: DS.accent,
-                borderDash: [2, 4],
-                pointRadius: 0,
-                borderWidth: 2,
-                yAxisID: 'y4',
-                tension: 0.4,
-                hidden: true,
-                order: 1,
-            } as ChartDataset,
-            {
-                type: 'line',
-                label: 'Actual Load (kW)',
-                data: values.actualLoad ?? values.labels.map(() => null),
-                borderColor: DS.house,
-                borderDash: [2, 4],
-                pointRadius: 0,
-                borderWidth: 2,
-                yAxisID: 'y1',
-                stepped: 'middle',
-                hidden: true,
-                order: 1,
-            } as ChartDataset,
-            {
-                type: 'line',
-                label: 'Actual Charge (kW)',
-                data: values.actualCharge ?? values.labels.map(() => null),
-                borderColor: DS.bad,
-                borderDash: [2, 4],
-                pointRadius: 0,
-                borderWidth: 2,
-                yAxisID: 'y1',
-                stepped: 'middle',
-                hidden: true,
-                order: 1,
-            } as ChartDataset,
-            {
-                type: 'line',
-                label: 'Actual Discharge (kW)',
-                data: values.actualDischarge ?? values.labels.map(() => null),
-                borderColor: DS.peak,
-                borderDash: [2, 4],
-                pointRadius: 0,
-                borderWidth: 2,
-                yAxisID: 'y1',
-                stepped: 'middle',
-                hidden: true,
-                order: 1,
-            } as ChartDataset,
-            {
-                type: 'line',
-                label: 'Actual EV (kW)',
-                data: values.actualEvCharging ?? values.labels.map(() => null),
-                borderColor: DS.ai,
-                borderDash: [2, 4],
-                pointRadius: 0,
-                borderWidth: 2,
-                yAxisID: 'y1',
-                stepped: 'middle',
-                hidden: true,
-                order: 1,
-            } as ChartDataset,
-            {
-                type: 'line',
-                label: 'Actual Export (kW)',
-                data: values.actualExport ?? values.labels.map(() => null),
-                borderColor: DS.good,
-                borderDash: [2, 4],
-                pointRadius: 0,
-                borderWidth: 2,
-                yAxisID: 'y2',
-                stepped: 'middle',
-                hidden: true,
-                order: 1,
-            } as ChartDataset,
-            {
-                type: 'line',
-                label: 'Actual Water (kW)',
-                data: values.actualWater ?? values.labels.map(() => null),
-                borderColor: DS.water,
-                borderDash: [2, 4],
-                pointRadius: 0,
-                borderWidth: 2,
-                yAxisID: 'y1',
-                stepped: 'middle',
-                hidden: true,
-                order: 1,
-            } as ChartDataset,
-            {
-                type: 'bar',
-                label: 'EV Standby',
-                data: values.evKeepOn ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(139, 92, 246, 0.35)', // DS.ai (violet), muted vs. EV Charging
-                borderColor: '#8b5cf6',
-                borderDash: [3, 2],
-                glow: false,
-                borderWidth: 1,
-                borderRadius: 2,
-                yAxisID: 'y1',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
                 order: 0,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
+            } as ChartDataset,
+            // 14-15: measured PV / load lines
+            actualLine('Actual PV (kW)', values.actualPv ?? empty, 'accent', 'y4', false, 2, true),
+            actualLine('Actual Load (kW)', values.actualLoad ?? empty, 'house', 'y1', true, 2),
+            // 16-20: measured actions replace the plan on the strip before "now"
+            actionDs('Actual Charge (kW)', values.actualCharge ?? empty, 'charge', 'y1', 'actual'),
+            actionDs('Actual Discharge (kW)', values.actualDischarge ?? empty, 'discharge', 'y1', 'actual'),
+            actionDs('Actual EV (kW)', values.actualEvCharging ?? empty, 'ev', 'y1', 'actual'),
+            actionDs('Actual Export (kW)', values.actualExport ?? empty, 'export', 'y2', 'actual'),
+            actionDs('Actual Water (kW)', values.actualWater ?? empty, 'water', 'y1', 'actual'),
+            // 21-22: EV standby and planned-while-unplugged marks
+            actionDs('EV Standby', values.evKeepOn ?? empty, 'evStandby', 'y1'),
+            actionDs(EV_AWAITING_PLUG_IN_LABEL, values.evAwaitingPlugIn ?? empty, 'evPlanned', 'y1'),
+            // 23: price rests on a forecast (Nordpool not published): lighter, hatched, dashed
             {
-                // Planned goal charging for an unplugged car (assumed plugged):
-                // hollow dashed violet bars, distinct from actionable EV charging.
-                type: 'bar',
-                label: EV_AWAITING_PLUG_IN_LABEL,
-                data: values.evAwaitingPlugIn ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(139, 92, 246, 0.08)', // DS.ai (violet), faint fill
-                borderColor: DS.ai,
-                borderDash: [4, 3],
-                glow: false,
-                borderWidth: 1,
-                borderRadius: 2,
-                yAxisID: 'y1',
-                barPercentage: 0.85,
-                categoryPercentage: 0.9,
-                grouped: false,
-                order: 0,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
+                type: 'line',
+                label: 'Estimated Price (SEK/kWh)',
+                data: estimatedPrice,
+                borderColor: () => token('grid', 0.45),
+                borderDash: [3, 3],
+                backgroundColor: hatchFill,
+                fill: true,
+                yAxisID: 'y',
+                stepped: 'middle',
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                borderWidth: 1.25,
+                order: 9,
+            } as unknown as ChartDataset,
         ],
-    }
-
-    // Add no-data message if needed
-    if (values.hasNoData) {
-        // cast to ExtendedChartData here to avoid ChartData strictness while manipulating plugins
-        ;(baseData as ExtendedChartData).plugins = {
-            tooltip: {
-                enabled: true,
-                external: true,
-                callbacks: {
-                    title: () => (values.day === 'tomorrow' ? 'No Price Data' : 'No Data'),
-                    label: () =>
-                        values.day === 'tomorrow'
-                            ? 'Schedule data not available yet. Check back later for prices.'
-                            : 'No schedule data available.',
-                },
-            },
-        }
     }
 
     // Preserve nowIndex on the returned object so runtime
@@ -803,212 +499,228 @@ const createChartData = (
         nowPct: values.nowPct ?? null,
         hasNoData: !!values.hasNoData,
         pricingConfig: pricing,
+        series: values,
     }
 }
 
+/** Pixel x of "now" (interpolated inside its slot), or null when not on the chart. */
+function nowPixel(chart: Chart): number | null {
+    const data = chart.data as ExtendedChartData
+    const x = chart.scales.x
+    const total = data.labels?.length ?? 0
+    const pct = data.nowPct
+    if (!x || typeof pct !== 'number' || pct < 0 || pct > 1 || total < 2) return null
+    // Slot i is centred on tick i (offset axis), so a fractional slot position f sits at f - 0.5
+    const slotWidth = x.getPixelForValue(1) - x.getPixelForValue(0)
+    return x.getPixelForValue(0) + (pct * total - 0.5) * slotWidth
+}
+
+// "Now": past is tinted, a solid line marks the present with a small NOW label.
 const nowLinePlugin: Plugin = {
     id: 'nowLine',
-    afterDatasetsDraw(chart) {
-        const {
-            ctx,
-            chartArea: { top, bottom },
-            scales: { x },
-        } = chart
-        const data = chart.data as ExtendedChartData
-        const nowPct = data.nowPct
-
-        if (typeof nowPct !== 'number' || nowPct < 0 || nowPct > 1) return
-
-        const totalLabels = data.labels?.length || 0
-        if (totalLabels < 2) return
-
-        // Calculate fractional index position
-        // nowPct is linear 0..1 fraction of the total domain duration
-        // For a time axis where labels represent intervals (e.g. 00:00 start),
-        // the full 24h duration corresponds to 'totalLabels' slots conceptually.
-        // (totalLabels - 1) ends at the *start* of the last slot.
-        // We want 1.0 to mapped to the end of the last slot.
-        const fractionalIndex = nowPct * totalLabels
-        const idx1 = Math.floor(fractionalIndex)
-        const idx2 = Math.ceil(fractionalIndex)
-        const ratio = fractionalIndex - idx1
-
-        const x1 = x.getPixelForValue(idx1)
-        const x2 = x.getPixelForValue(idx2)
-        const xPos = x1 + (x2 - x1) * ratio
-
-        // Check if visible (within current zoom)
-        if (xPos < x.left || xPos > x.right) return
-
-        ctx.save()
-        ctx.beginPath()
-        ctx.strokeStyle = '#e879f9'
-        ctx.lineWidth = 1.5
-        ctx.shadowColor = '#e879f9'
-        ctx.shadowBlur = 10
-        ctx.setLineDash([4, 4])
-        ctx.moveTo(xPos, top)
-        ctx.lineTo(xPos, bottom)
-        ctx.stroke()
-        ctx.setLineDash([])
-
-        // Draw "NOW" Label with Glow
-        ctx.fillStyle = '#e879f9'
-        ctx.textAlign = 'center'
-        ctx.font = 'bold 10px monospace'
-        ctx.fillText('NOW', xPos, top - 8)
-
-        ctx.restore()
-    },
-}
-
-// Mobile tap-to-select: vertical band drawn at selected slot's x-position.
-// Per-instance plugin options are used (chart.options.plugins.selectionBand)
-// so there is no module-level mutable state and multiple ChartCard instances
-// never bleed into each other.
-const selectionBandPlugin: Plugin = {
-    id: 'selectionBand',
     beforeDatasetsDraw(chart) {
-        // Read per-instance options set by the component
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const opts = (chart.options.plugins as any)?.selectionBand as
-            { mobile?: boolean; index?: number | null } | undefined
-        if (!opts?.mobile) return
-        const idx = opts.index
-        if (idx === null || idx === undefined) return
-
-        const {
-            ctx,
-            chartArea: { top, bottom },
-            scales: { x },
-        } = chart
-
-        if (!x) return
-
-        const xPos = x.getPixelForValue(idx)
-        if (xPos < x.left || xPos > x.right) return
-
-        // Width of one slot in pixels for the band
-        const slotWidth =
-            chart.data.labels && chart.data.labels.length > 1
-                ? Math.abs(x.getPixelForValue(1) - x.getPixelForValue(0))
-                : 8
-
-        ctx.save()
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)'
-        ctx.fillRect(xPos - slotWidth / 2, top, slotWidth, bottom - top)
-
-        // Vertical accent line at centre of selected slot
-        ctx.beginPath()
-        ctx.strokeStyle = 'rgba(255, 206, 89, 0.7)' // --color-accent at 70%
-        ctx.lineWidth = 1.5
-        ctx.shadowColor = 'rgba(255, 206, 89, 0.5)'
-        ctx.shadowBlur = 6
-        ctx.moveTo(xPos, top)
-        ctx.lineTo(xPos, bottom)
-        ctx.stroke()
-        ctx.restore()
-    },
-}
-
-// Production-grade dot grid plugin - aligns with data slots, zoom-adaptive
-const dotGridPlugin: Plugin = {
-    id: 'dotGrid',
-    beforeDraw(chart) {
-        const { ctx, chartArea, scales } = chart
-        if (!chartArea || !scales.x) return
-
-        const { left, right, top, bottom } = chartArea
-        const xScale = scales.x
-        const dotRadius = 1
-        const yDotSpacing = 30 // Visual spacing in pixels for Y axis
-
-        ctx.save()
-        ctx.fillStyle = 'rgba(100, 116, 139, 0.4)' // --color-grid at 40% opacity (increased for visibility)
-
-        const totalLabels = chart.data.labels?.length || 0
-        if (totalLabels < 2) {
-            ctx.restore()
-            return
-        }
-
-        // Calculate pixels per slot to determine zoom level
-        const firstX = xScale.getPixelForValue(0)
-        const secondX = xScale.getPixelForValue(1)
-        const pixelsPerSlot = Math.abs(secondX - firstX)
-
-        // Adaptive step: if zoomed out (small pixels/slot), show hourly (every 4 slots for 15-min data)
-        // If zoomed in (large pixels/slot), show every slot
-        let step = 1
-        if (pixelsPerSlot < 8) {
-            step = 4 // Hourly when very zoomed out
-        } else if (pixelsPerSlot < 15) {
-            step = 2 // Every 30 min when moderately zoomed out
-        }
-
-        // Draw dots at each visible data slot position (X) and at regular Y intervals
-        for (let i = 0; i < totalLabels; i += step) {
-            const x = xScale.getPixelForValue(i)
-
-            // Skip if outside visible area
-            if (x < left - 5 || x > right + 5) continue
-
-            // Draw dots vertically at regular intervals
-            for (let y = top; y <= bottom; y += yDotSpacing) {
-                ctx.beginPath()
-                ctx.arc(x, y, dotRadius, 0, Math.PI * 2)
-                ctx.fill()
-            }
-        }
-
-        ctx.restore()
-    },
-}
-
-// Custom plugin for OLED-like glow effects
-const glowPlugin: Plugin = {
-    id: 'glowEffects',
-    beforeDatasetsDraw(chart) {
+        const xPos = nowPixel(chart)
+        const { left, right, top, bottom } = chart.chartArea
+        if (xPos === null || xPos <= left) return
         const { ctx } = chart
         ctx.save()
-        // Default shadow settings
-        ctx.shadowBlur = 0
-        ctx.shadowColor = 'transparent'
+        ctx.fillStyle = token('muted', isDarkTheme() ? 0.07 : 0.035)
+        ctx.fillRect(left, top, Math.min(xPos, right) - left, bottom - top)
+        ctx.restore()
+    },
+    afterDatasetsDraw(chart) {
+        const xPos = nowPixel(chart)
+        const { left, right, top, bottom } = chart.chartArea
+        if (xPos === null || xPos < left || xPos > right) return
+        const { ctx } = chart
+
+        ctx.save()
+        ctx.beginPath()
+        ctx.strokeStyle = token('accent', 0.9)
+        ctx.lineWidth = 1.25
+        ctx.moveTo(xPos, top)
+        ctx.lineTo(xPos, bottom)
+        ctx.stroke()
+
+        // Small pill label above the plot
+        ctx.font = 'bold 9px monospace'
+        const width = ctx.measureText('NOW').width + 10
+        const height = 12
+        const pillX = Math.min(Math.max(xPos - width / 2, left), right - width)
+        const pillY = top - height - 2
+        ctx.fillStyle = token('accent')
+        ctx.beginPath()
+        ctx.roundRect(pillX, pillY, width, height, 6)
+        ctx.fill()
+        ctx.fillStyle = token('canvas')
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText('NOW', pillX + width / 2, pillY + height / 2 + 0.5)
+        ctx.restore()
+    },
+}
+
+// Soft glow on datasets tagged with `glow: <token>`; dark mode only (light mode stays flat).
+const lineGlowPlugin: Plugin = {
+    id: 'lineGlow',
+    beforeDatasetDraw(chart, args) {
+        const tk = (chart.data.datasets[args.index] as unknown as { glow?: ChartToken }).glow
+        if (!tk || !isDarkTheme()) return
+        chart.ctx.save()
+        chart.ctx.shadowColor = token(tk, 0.6)
+        chart.ctx.shadowBlur = 8
     },
     afterDatasetDraw(chart, args) {
-        const { ctx } = chart
-        const dataset = chart.data.datasets[args.index] as unknown as {
-            glow?: boolean
-            borderColor?: string
-        }
+        const tk = (chart.data.datasets[args.index] as unknown as { glow?: ChartToken }).glow
+        if (!tk || !isDarkTheme()) return
+        chart.ctx.restore()
+    },
+}
 
-        // Only restore if we saved in beforeDatasetDraw
-        if (dataset.glow) {
+// Estimated prices: a faint band over the slots priced from a forecast, with a small label at its top.
+const estimatedBandPlugin: Plugin = {
+    id: 'estimatedBand',
+    beforeDatasetsDraw(chart) {
+        const x = chart.scales.x
+        const flags = (chart.data as ExtendedChartData).series?.estimated
+        if (!x || !flags) return
+        const { left, right, top, bottom } = chart.chartArea
+        const half = Math.abs(x.getPixelForValue(1) - x.getPixelForValue(0)) / 2
+        const { ctx } = chart
+        for (const range of estimatedRanges(flags)) {
+            const from = Math.max(left, x.getPixelForValue(range.from) - half)
+            const to = Math.min(right, x.getPixelForValue(range.to) + half)
+            if (to <= from) continue
+            ctx.save()
+            ctx.fillStyle = token('muted', 0.06)
+            ctx.fillRect(from, top, to - from, bottom - top)
+            ctx.strokeStyle = token('muted', 0.45)
+            ctx.lineWidth = 1
+            ctx.setLineDash([3, 3])
+            ctx.beginPath()
+            ctx.moveTo(from, top)
+            ctx.lineTo(from, bottom)
+            ctx.stroke()
+            ctx.setLineDash([])
+            ctx.font = '9px monospace'
+            ctx.fillStyle = token('muted')
+            ctx.textAlign = 'left'
+            ctx.textBaseline = 'top'
+            const label = ESTIMATED_LABEL.toUpperCase()
+            if (ctx.measureText(label).width + 10 <= to - from) ctx.fillText(label, from + 5, top + 4)
             ctx.restore()
         }
     },
-    beforeDatasetDraw(chart, args) {
-        const { ctx } = chart
-        const dataset = chart.data.datasets[args.index] as unknown as {
-            glow?: boolean
-            borderColor?: string
-            glowBlur?: number
-            glowOpacity?: number
-        }
+}
 
-        if (dataset.glow) {
-            ctx.save()
-            const isDark = document.documentElement.classList.contains('dark')
-            const opacity = dataset.glowOpacity ?? (isDark ? 0.4 : 0.25)
-            ctx.shadowColor = hexToRgba(dataset.borderColor as string, opacity)
-            ctx.shadowBlur = dataset.glowBlur ?? (isDark ? 30 : 20)
-            ctx.shadowOffsetX = 0
-            ctx.shadowOffsetY = 0
+// Hover/tap guide: a vertical line (and faint band) on the slot shown in the info panel.
+// Per-instance plugin options (chart.options.plugins.slotGuide) keep instances independent.
+const slotGuidePlugin: Plugin = {
+    id: 'slotGuide',
+    afterDatasetsDraw(chart) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const opts = (chart.options.plugins as any)?.slotGuide as { index?: number | null } | undefined
+        const idx = opts?.index
+        const x = chart.scales.x
+        if (idx === null || idx === undefined || !x) return
+        const { left, right, top, bottom } = chart.chartArea
+        const xPos = x.getPixelForValue(idx)
+        if (xPos < left || xPos > right) return
+        const slotWidth = Math.abs(x.getPixelForValue(1) - x.getPixelForValue(0))
+        const { ctx } = chart
+        ctx.save()
+        ctx.fillStyle = token('text', 0.06)
+        ctx.fillRect(xPos - slotWidth / 2, top, slotWidth, bottom - top)
+        ctx.beginPath()
+        ctx.strokeStyle = token('text', 0.55)
+        ctx.lineWidth = 1
+        ctx.moveTo(xPos, top)
+        ctx.lineTo(xPos, bottom)
+        ctx.stroke()
+        ctx.restore()
+    },
+}
+
+// Action strip: charge / discharge / export / water / EV as small coloured marks in a thin
+// lane under the plot. Datasets tagged with an `actionKind` hold the values (so overlays and
+// the info panel keep working) but are never drawn by Chart.js itself.
+const actionStripPlugin: Plugin = {
+    id: 'actionStrip',
+    beforeDatasetDraw(chart, args) {
+        const ds = chart.data.datasets[args.index] as unknown as ActionDatasetFields
+        if (ds.actionKind) return false
+    },
+    afterDatasetsDraw(chart) {
+        const x = chart.scales.x
+        const total = chart.data.labels?.length ?? 0
+        if (!x || total < 2) return
+        const { left, right, bottom } = chart.chartArea
+
+        const planned: ActionSeries = {}
+        const actual: ActionSeries = {}
+        chart.data.datasets.forEach((raw, i) => {
+            const ds = raw as unknown as ActionDatasetFields & { data: Series }
+            if (!ds.actionKind || !chart.isDatasetVisible(i)) return
+            ;(ds.actionSource === 'actual' ? actual : planned)[ds.actionKind] = ds.data
+        })
+        const nowIndex = (chart.data as ExtendedChartData).nowIndex
+
+        const top = bottom + STRIP_GAP
+        const slotWidth = Math.abs(x.getPixelForValue(1) - x.getPixelForValue(0))
+        const markWidth = Math.max(1, slotWidth - Math.min(1.5, slotWidth * 0.2))
+        const { ctx } = chart
+
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(left, top - 1, right - left, STRIP_HEIGHT + 2)
+        ctx.clip()
+        // Lane track
+        ctx.fillStyle = token('muted', 0.1)
+        ctx.fillRect(left, top, right - left, STRIP_HEIGHT)
+
+        const first = Math.max(0, Math.floor(x.min))
+        const last = Math.min(total - 1, Math.ceil(x.max))
+        for (let i = first; i <= last; i++) {
+            const kinds = slotMarkKinds(i, nowIndex, planned, actual)
+            if (!kinds.length) continue
+            const rowHeight = (STRIP_HEIGHT - (kinds.length - 1)) / kinds.length
+            const markX = x.getPixelForValue(i) - markWidth / 2
+            kinds.forEach((kind, row) => {
+                const y = top + row * (rowHeight + 1)
+                const color = ACTION_TOKEN[kind]
+                if (kind === 'evPlanned') {
+                    ctx.strokeStyle = token(color, 0.9)
+                    ctx.lineWidth = 1
+                    ctx.strokeRect(markX + 0.5, y + 0.5, Math.max(0, markWidth - 1), Math.max(0, rowHeight - 1))
+                    return
+                }
+                ctx.fillStyle = token(color, kind === 'evStandby' ? 0.45 : 0.95)
+                ctx.fillRect(markX, y, markWidth, rowHeight)
+            })
         }
+        ctx.restore()
     },
 }
 
 // Chart configuration helpers removed and consolidated into applyData
+
+const DETAILS_KEY = 'darkstar-chart-details'
+
+function readDetailsPref(): boolean {
+    try {
+        return localStorage.getItem(DETAILS_KEY) === 'true'
+    } catch {
+        return false
+    }
+}
+
+function writeDetailsPref(value: boolean): void {
+    try {
+        localStorage.setItem(DETAILS_KEY, String(value))
+    } catch {
+        // Storage unavailable (private window): the choice just does not persist
+    }
+}
 
 type ChartCardProps = {
     day?: DaySel
@@ -1065,62 +777,34 @@ export default function ChartCard({
         return () => document.removeEventListener('click', handler, true)
     }, [isMobile])
 
-    // Build formatted slot data for the selection panel from stable React state (S2b).
-    // Keyed on liveChartData (updated whenever chart data is swapped) + effectiveSelectedIndex,
-    // so the panel never reads a mutating ref mid-render.
-    const selectedSlotPanel = useMemo(() => {
-        if (effectiveSelectedIndex === null || !liveChartData) return null
-        const data = liveChartData
-        if (!data.labels || effectiveSelectedIndex >= data.labels.length) return null
+    // Desktop hover: slot under the cursor (null when the pointer is outside the plot)
+    const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+    // Slot the info panel shows: tapped slot on mobile, hovered slot on desktop, else the current slot
+    const pinnedIndex = isMobile ? effectiveSelectedIndex : hoverIndex
+    const guideIndexRef = useRef(pinnedIndex)
+    const infoSeries = liveChartData?.series
+    const shownIndex = pinnedIndex ?? liveChartData?.nowIndex ?? null
 
-        const label = data.labels[effectiveSelectedIndex] as string
-        const pricing = data.pricingConfig
-
-        const rows: { label: string; value: string; color: string }[] = []
-
-        for (const ds of data.datasets) {
-            if (ds.hidden) continue
-            const raw = ds.data[effectiveSelectedIndex]
-            if (raw === null || raw === undefined) continue
-            const value = typeof raw === 'number' ? raw : null
-            if (value === null) continue
-
-            const dsLabel = ds.label || ''
-            let formattedValue = value.toFixed(2)
-            let unit = ''
-            let extra: string | null = null
-
-            if (dsLabel.includes('SEK/kWh')) {
-                formattedValue = value.toFixed(2)
-                unit = ' SEK/kWh'
-                const breakdown = splitPriceBreakdown(value, pricing, data.slotStarts?.[effectiveSelectedIndex])
-                if (breakdown) {
-                    extra = `Spot: ${breakdown.spot.toFixed(2)} + Tax/Fees: ${breakdown.feesAndVat.toFixed(2)}`
-                }
-            } else if (dsLabel.includes('kW')) {
-                formattedValue = value.toFixed(1)
-                unit = ' kW'
-            } else if (dsLabel.includes('kWh')) {
-                formattedValue = value.toFixed(2)
-                unit = ' kWh'
-            } else if (dsLabel.includes('%')) {
-                formattedValue = value.toFixed(1)
-                unit = '%'
-            }
-
-            const color = typeof ds.borderColor === 'string' ? ds.borderColor : '#e6e9ef'
-            rows.push({ label: dsLabel, value: `${formattedValue}${unit}`, color })
-            if (extra) {
-                rows.push({ label: '', value: extra, color: 'transparent' })
-            }
-        }
-
-        return { label, rows }
-    }, [effectiveSelectedIndex, liveChartData])
+    // Info panel content, built from stable React state (liveChartData is a snapshot of the
+    // data pushed to the chart, never the mutating chart ref).
+    const slotInfo = useMemo(() => {
+        if (shownIndex === null || !infoSeries) return null
+        const price = infoSeries.price?.[shownIndex]
+        const breakdown =
+            typeof price === 'number'
+                ? splitPriceBreakdown(price, liveChartData?.pricingConfig, liveChartData?.slotStarts?.[shownIndex])
+                : null
+        return buildSlotInfo(infoSeries, shownIndex, { breakdown })
+    }, [shownIndex, infoSeries, liveChartData?.pricingConfig, liveChartData?.slotStarts])
+    const compact = useMemo(
+        () => (shownIndex === null || !infoSeries ? null : buildCompactLine(infoSeries, shownIndex)),
+        [shownIndex, infoSeries],
+    )
+    const hasEstimated = useMemo(() => estimatedRanges(infoSeries?.estimated).length > 0, [infoSeries])
     const [overlays, setOverlays] = useState(() => {
         // Load from localStorage if available, otherwise use defaults
         const STORAGE_KEY = 'darkstar-chart-overlays'
-        const STORAGE_VERSION = 5 // Increment to force migration
+        const STORAGE_VERSION = 6 // Increment to force migration
 
         try {
             const saved = localStorage.getItem(STORAGE_KEY)
@@ -1139,14 +823,14 @@ export default function ChartCard({
                         charge: true,
                         discharge: true,
                         export: true,
-                        water: false,
-                        ev: false,
+                        water: true,
+                        ev: true,
                         evKeepOn: false,
                         excessPvSink: false,
                         socTarget: false,
-                        socProjected: false,
+                        socProjected: true,
                         socActual: true,
-                        showActual: false,
+                        showActual: true,
                     }
                     // Save migrated version immediately
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(newDefaults))
@@ -1168,7 +852,7 @@ export default function ChartCard({
                     socTarget: parsed.socTarget ?? false,
                     socProjected: parsed.socProjected ?? false,
                     socActual: parsed.socActual ?? true,
-                    showActual: parsed.showActual ?? false,
+                    showActual: parsed.showActual ?? true,
                 }
             }
         } catch (e) {
@@ -1182,17 +866,23 @@ export default function ChartCard({
             charge: true,
             discharge: true,
             export: true,
-            water: false,
-            ev: false,
+            water: true,
+            ev: true,
             evKeepOn: false,
             excessPvSink: false,
             socTarget: false,
-            socProjected: false,
+            socProjected: true,
             socActual: true,
-            showActual: false,
+            showActual: true,
         }
     })
     const [showOverlayMenu, setShowOverlayMenu] = useState(false)
+    const [showDetails, setShowDetails] = useState(readDetailsPref)
+    const toggleDetails = () => {
+        const next = !showDetails
+        setShowDetails(next)
+        writeDetailsPref(next)
+    }
     const [pricingConfig, setPricingConfig] = useState<PricingBreakdownConfig | undefined>()
     const [excessPvPowerKw, setExcessPvPowerKw] = useState(1.0)
     const [scaling, setScaling] = useState({
@@ -1250,7 +940,7 @@ export default function ChartCard({
                 // For NEW users (no localStorage), enable all overlays by default
                 if (!hasStoredPreferences) {
                     setOverlays({
-                        _version: 5,
+                        _version: 6,
                         price: true,
                         pv: true,
                         load: true,
@@ -1264,7 +954,7 @@ export default function ChartCard({
                         socTarget: true,
                         socProjected: true,
                         socActual: true,
-                        showActual: false,
+                        showActual: true,
                     })
                 }
             })
@@ -1312,13 +1002,8 @@ export default function ChartCard({
             ),
             options: {
                 ...chartOptions,
-                // On mobile: disable built-in floating tooltip (replaced by tap-panel below)
                 plugins: {
                     ...chartOptions?.plugins,
-                    tooltip: {
-                        ...chartOptions?.plugins?.tooltip,
-                        enabled: !isMobile,
-                    },
                     zoom: {
                         ...chartOptions?.plugins?.zoom,
                         zoom: {
@@ -1336,11 +1021,35 @@ export default function ChartCard({
                             },
                         },
                     },
-                    // Per-instance plugin options for the selection band (B1/S1)
-                    // Seeded from the current selection: it survives data refreshes, so a re-created chart must keep the band
-                    selectionBand: { mobile: isMobile, index: effectiveSelectedIndex },
+                    // Per-instance guide line options; seeded from the current slot because the
+                    // selection survives data refreshes, so a re-created chart must keep its guide
+                    slotGuide: { index: guideIndexRef.current },
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 } as any,
+                // Desktop hover feeds the info panel; touch devices use tap-to-select instead
+                onHover: (event, _elements, chart) => {
+                    if (isMobileRef.current) return
+                    const x = chart.scales.x
+                    const area = chart.chartArea
+                    const px = event.x
+                    const py = event.y
+                    if (
+                        event.type === 'mouseout' ||
+                        !x ||
+                        px === null ||
+                        py === null ||
+                        px < area.left ||
+                        px > area.right ||
+                        py < area.top ||
+                        py > area.bottom
+                    ) {
+                        setHoverIndex(null)
+                        return
+                    }
+                    const idx = Math.round(x.getValueForPixel(px) ?? -1)
+                    const slotCount = chart.data.labels?.length ?? 0
+                    setHoverIndex(idx >= 0 && idx < slotCount ? idx : null)
+                },
                 // Always register onClick but guard on isMobileRef so crossing 768px mid-session
                 // works without recreating the chart (N1).
                 onClick: (_event, elements) => {
@@ -1368,7 +1077,7 @@ export default function ChartCard({
                     },
                 },
             },
-            plugins: [dotGridPlugin, nowLinePlugin, selectionBandPlugin, glowPlugin],
+            plugins: [nowLinePlugin, estimatedBandPlugin, lineGlowPlugin, slotGuidePlugin, actionStripPlugin],
         }
         chartRef.current = new ChartJS(ref.current, cfg)
 
@@ -1378,44 +1087,22 @@ export default function ChartCard({
                 chartRef.current = null
             }
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [themeColors, pricingConfig, hasRealData, scaling.gridMaxKw, scaling.inverterMaxKw, scaling.solarKwp]) // Re-create chart only for initial creation or theme/pricing changes (but not after real data loads)
 
-    // Mobile: push current selection into per-instance plugin options and redraw (B1/S1/S3).
-    // Dependency array is [effectiveSelectedIndex] so it only runs when the (mobile-gated) selection actually changes.
+    // Push the hovered/tapped slot into per-instance plugin options and redraw the guide line.
+    // Also runs when the viewport crosses the mobile breakpoint, since that switches which
+    // interaction (hover or tap) drives the guide.
+    const guideIndex = pinnedIndex
     useEffect(() => {
+        guideIndexRef.current = guideIndex
         if (!chartRef.current) return
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pluginsOpts = chartRef.current.options.plugins as any
         if (pluginsOpts) {
-            pluginsOpts.selectionBand = {
-                mobile: isMobileRef.current,
-                index: effectiveSelectedIndex,
-            }
+            pluginsOpts.slotGuide = { index: guideIndex }
         }
         chartRef.current.draw()
-    }, [effectiveSelectedIndex])
-
-    // Mobile: update chart tooltip enabled state when viewport changes.
-    // Also updates the per-instance selectionBand plugin option so the band is
-    // disabled the moment the viewport crosses to desktop (N1/S1). Selection itself
-    // is cleared via effectiveSelectedIndex (derived from isMobile) rather than a
-    // setState call here — the redraw effect above repaints the band to cleared.
-    useEffect(() => {
-        if (!chartRef.current) return
-        if (chartRef.current.options?.plugins?.tooltip) {
-            chartRef.current.options.plugins.tooltip.enabled = !isMobile
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pluginsOpts = chartRef.current.options.plugins as any
-        if (pluginsOpts) {
-            pluginsOpts.selectionBand = {
-                mobile: isMobile,
-                index: effectiveSelectedIndex,
-            }
-        }
-        chartRef.current.update('none')
-    }, [isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [guideIndex])
 
     // Dynamically update chart scales when scaling configuration changes
     // This prevents chart re-initialization and preserves loaded data
@@ -1440,6 +1127,17 @@ export default function ChartCard({
         }
     }, [scaling.gridMaxKw, scaling.inverterMaxKw, scaling.solarKwp, hasRealData])
 
+    // Theme switch (`.dark` on <html>): colours are tokens resolved at draw time, so a redraw
+    // is all it takes to repaint grid, tint, glow and lines with the new theme.
+    useEffect(() => {
+        const observer = new MutationObserver(() => {
+            const chart = chartRef.current
+            if (chart) chart.update('none')
+        })
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+        return () => observer.disconnect()
+    }, [])
+
     const isChartUsable = (chartInstance: Chart | null) => {
         if (!chartInstance) return false
         const anyChart = chartInstance as unknown as { _destroyed?: boolean; _plugins?: unknown; $plugins?: unknown }
@@ -1460,6 +1158,7 @@ export default function ChartCard({
                 pricingConfig,
                 excessPvPowerKw,
                 evAwaitingKey ? evAwaitingKey.split(',') : [],
+                overlays.showActual,
             )
             if (!liveData) return
 
@@ -1567,9 +1266,27 @@ export default function ChartCard({
     return (
         // Outer wrapper holds ref for click-away detection (clears selection when tapping outside card on mobile)
         <div ref={cardRef}>
-            <Card className={`p-4 md:p-6 ${isMobile && !!selectedSlotPanel ? '' : 'h-[380px]'}`}>
+            <Card className="p-4 md:p-6">
                 <div className="flex items-baseline justify-between pb-2">
-                    <div className="text-sm text-muted">Schedule Overview</div>
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <div className="text-sm text-muted">Schedule Overview</div>
+                        <div className="sched-legend" aria-label="Solid line is actual, dashed line is plan">
+                            <span className="sched-legend__item">
+                                <span className="sched-legend__swatch" data-form="actual" />
+                                actual
+                            </span>
+                            <span className="sched-legend__item">
+                                <span className="sched-legend__swatch" data-form="plan" />
+                                plan
+                            </span>
+                            {hasEstimated && (
+                                <span className="sched-legend__item">
+                                    <span className="sched-legend__swatch" data-form="estimated" />
+                                    est. price
+                                </span>
+                            )}
+                        </div>
+                    </div>
                     <div className="flex items-center gap-2">
                         {isZoomed && (
                             <button
@@ -1585,6 +1302,13 @@ export default function ChartCard({
                                 Reset Zoom
                             </button>
                         )}
+                        <button
+                            className="rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide border border-line/60 text-muted hover:border-accent hover:text-accent transition"
+                            onClick={toggleDetails}
+                            aria-pressed={showDetails}
+                        >
+                            Details
+                        </button>
                         <button
                             className="rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide border border-line/60 text-muted hover:border-accent hover:text-accent transition"
                             onClick={() => setShowOverlayMenu((v) => !v)}
@@ -1646,7 +1370,55 @@ export default function ChartCard({
                         </button>
                     </div>
                 )}
-                <div className="h-[310px] relative mt-1">
+                {slotInfo && compact && (
+                    <div
+                        className="sched-panel mt-1"
+                        data-slot-panel
+                        data-phase={slotInfo.phase}
+                        data-estimated={slotInfo.estimated ? 'true' : 'false'}
+                        data-expanded={showDetails ? 'true' : 'false'}
+                        data-pinned={pinnedIndex !== null ? 'true' : 'false'}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="sched-panel__head">
+                            <span
+                                className="sched-panel__phase"
+                                data-phase={compact.estimated ? 'estimated' : compact.phase}
+                            >
+                                {compact.badge}
+                            </span>
+                            <span className="sched-panel__time">{slotInfo.range}</span>
+                            {showDetails ? (
+                                <span className="sched-panel__action">{slotInfo.action}</span>
+                            ) : (
+                                <span className="sched-panel__summary">{compact.parts.join(' · ')}</span>
+                            )}
+                        </div>
+                        {showDetails && (
+                            <div className="sched-panel__groups">
+                                {slotInfo.groups.map((group) => (
+                                    <div key={group.title} className="sched-panel__group">
+                                        <div className="sched-panel__title">{group.title}</div>
+                                        {group.rows.map((row) => (
+                                            <div key={row.key} className="sched-panel__row">
+                                                <span className="sched-panel__dot" data-tone={row.tone} />
+                                                <span className="sched-panel__label">{row.label}</span>
+                                                <span className="sched-panel__value">
+                                                    {row.value}
+                                                    {row.plan && (
+                                                        <span className="sched-panel__plan"> plan {row.plan}</span>
+                                                    )}
+                                                </span>
+                                            </div>
+                                        ))}
+                                        {group.note && <div className="sched-panel__note">{group.note}</div>}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+                <div className="h-[300px] md:h-[320px] relative mt-2">
                     {hasNoDataMessage && (
                         <div className="absolute inset-0 flex items-center justify-center bg-surface/90 rounded-lg">
                             <div className="text-center">
@@ -1659,35 +1431,6 @@ export default function ChartCard({
                     )}
                     <canvas ref={ref} style={{ display: hasNoDataMessage ? 'none' : 'block' }} />
                 </div>
-                {/* Mobile tap-to-select info panel — only rendered when a slot is selected on mobile */}
-                {isMobile && selectedSlotPanel && (
-                    <div
-                        className="mt-2 rounded-xl border border-line/50 bg-surface2 px-3 py-2.5 shadow-inner"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="text-[11px] font-semibold text-accent font-mono mb-1.5">
-                            {selectedSlotPanel.label}
-                        </div>
-                        <div className="flex flex-col gap-0.5">
-                            {selectedSlotPanel.rows.map((row, i) => (
-                                <div key={i} className="flex items-baseline gap-1.5 text-[11px]">
-                                    {row.label ? (
-                                        <>
-                                            <span
-                                                className="inline-block w-2 h-2 rounded-sm flex-shrink-0 mt-0.5"
-                                                style={{ backgroundColor: row.color }}
-                                            />
-                                            <span className="text-muted flex-1 truncate">{row.label}:</span>
-                                            <span className="text-text font-mono">{row.value}</span>
-                                        </>
-                                    ) : (
-                                        <span className="text-muted/70 font-mono pl-3.5 text-[10px]">{row.value}</span>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
             </Card>
         </div>
     )
@@ -1701,6 +1444,7 @@ export function buildLiveData(
     pricing?: PricingBreakdownConfig,
     excessPvPowerKw: number = 1.0,
     evAwaitingPlugInIds: string[] = [],
+    showActual: boolean = false,
 ): (ExtendedChartData & { hasTomorrowPrices: boolean }) | null {
     const hasTomorrowPrices = slots.some((slot) => isTomorrow(slot.start_time) && slot.import_price_sek_kwh != null)
     const filtered = slots.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
@@ -1791,6 +1535,7 @@ export function buildLiveData(
     const labels: string[] = []
     const slotStarts: string[] = []
     const price: (number | null)[] = []
+    const estimated: boolean[] = []
     const pv: (number | null)[] = []
     const load: (number | null)[] = []
     const charge: (number | null)[] = []
@@ -1814,6 +1559,7 @@ export function buildLiveData(
     const actualExport: (number | null)[] = []
     const actualWater: (number | null)[] = []
     const actualEvCharging: (number | null)[] = []
+    const gridImport: (number | null)[] = []
 
     let nowIndex: number | null = null
     const now = new Date()
@@ -1830,6 +1576,7 @@ export function buildLiveData(
             const hourFraction = resolutionMinutes / 60
 
             price.push(slot.import_price_sek_kwh ?? null)
+            estimated.push(isEstimatedSlot(slot as ScheduleSlot & PriceSourceFields))
             // Main bars: always show planned/forecasted values
             // Actuals are shown in overlay lines
             const rawPvKwh = slot.pv_forecast_kwh ?? null
@@ -1886,8 +1633,16 @@ export function buildLiveData(
             actualExport.push(slot.actual_export_kw ?? null)
             actualWater.push(slot.actual_water_kw ?? null)
             actualEvCharging.push(slot.actual_ev_charging_kw ?? null)
+
+            // Planned grid import: the backend writes it per slot but it is not in the ScheduleSlot type
+            const { grid_import_kw: importKw, import_kwh: importKwh } = slot as ScheduleSlot & {
+                grid_import_kw?: number
+                import_kwh?: number
+            }
+            gridImport.push(importKw ?? (importKwh != null ? importKwh / hourFrac : null))
         } else {
             price.push(null)
+            estimated.push(false)
             pv.push(null)
             load.push(null)
             charge.push(null)
@@ -1910,6 +1665,7 @@ export function buildLiveData(
             actualExport.push(null)
             actualWater.push(null)
             actualEvCharging.push(null)
+            gridImport.push(null)
         }
 
         if (now >= bucketStart && now < bucketEnd) {
@@ -1931,6 +1687,7 @@ export function buildLiveData(
             {
                 labels,
                 price,
+                estimated,
                 pv,
                 load,
                 charge,
@@ -1954,7 +1711,11 @@ export function buildLiveData(
                 actualExport,
                 actualWater,
                 actualEvCharging,
+                gridImport,
+                resolutionMinutes,
+                slotStarts,
                 nowPct,
+                showActual,
             },
             themeColors,
             pricing,

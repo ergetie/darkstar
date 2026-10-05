@@ -161,6 +161,29 @@ async def get_energy_today(
     }
 
 
+def _resolve_period(
+    period: str, start_date: str | None, end_date: str | None, today_local: date
+) -> tuple[date, date]:
+    """Inclusive local date range for a period name (today, yesterday, week, month, custom)."""
+    if period == "custom" and start_date and end_date:
+        try:
+            custom_start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            custom_end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except ValueError as e:
+            raise ValueError("Invalid date format. Use YYYY-MM-DD") from e
+        if custom_end < custom_start:
+            raise ValueError("End date must be after start date")
+        return custom_start, custom_end
+    if period == "yesterday":
+        yesterday = today_local - timedelta(days=1)
+        return yesterday, yesterday
+    if period == "week":
+        return today_local - timedelta(days=6), today_local
+    if period == "month":
+        return today_local - timedelta(days=29), today_local
+    return today_local, today_local
+
+
 @router.get(
     "/energy/range",
     summary="Get Energy Range",
@@ -185,37 +208,7 @@ async def get_energy_range(
         now_local = datetime.now(tz)
         today_local = now_local.date()
 
-        # Determine date range based on period or custom dates
-        query_start: date = today_local
-        query_end: date = today_local
-
-        if period == "custom" and start_date and end_date:
-            # Parse custom dates (YYYY-MM-DD format)
-            try:
-                custom_start = datetime.strptime(start_date, "%Y-%m-%d").date()
-                custom_end = datetime.strptime(end_date, "%Y-%m-%d").date()
-
-                # Validate date range
-                if custom_end < custom_start:
-                    raise ValueError("End date must be after start date")
-
-                query_start = custom_start
-                query_end = custom_end
-            except ValueError as e:
-                if "does not match format" in str(e):
-                    raise ValueError("Invalid date format. Use YYYY-MM-DD") from e
-                raise
-        elif period == "today":
-            query_start = query_end = today_local
-        elif period == "yesterday":
-            query_end = today_local - timedelta(days=1)
-            query_start = query_end
-        elif period == "week":
-            query_end = today_local
-            query_start = today_local - timedelta(days=6)
-        elif period == "month":
-            query_end = today_local
-            query_start = today_local - timedelta(days=29)
+        query_start, query_end = _resolve_period(period, start_date, end_date, today_local)
 
         # Optimize query: filter by string range to use index
         day_start = tz.localize(datetime(query_start.year, query_start.month, query_start.day))
@@ -384,3 +377,93 @@ async def get_energy_range(
             "slot_count": 0,
             "error": str(e),
         }
+
+
+@router.get(
+    "/energy/cost-series",
+    summary="Get Cost Series",
+    description=(
+        "Import cost, export revenue and running net cost over a period, bucketed by hour "
+        "for a single day and by day for longer periods. Same pricing as /api/energy/range."
+    ),
+)
+async def get_cost_series(
+    period: str = "today",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    store: LearningStore = Depends(get_learning_store),
+) -> dict[str, Any]:
+    """Cost per bucket from SlotObservation, with the cumulative net cost."""
+    import pytz
+    from sqlalchemy import select
+
+    from backend.learning.models import SlotObservation
+
+    config = load_yaml("config.yaml")
+    tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
+    now_local = datetime.now(tz)
+
+    try:
+        query_start, query_end = _resolve_period(period, start_date, end_date, now_local.date())
+    except ValueError as e:
+        return {"period": period, "bucket": "hour", "points": [], "error": str(e)}
+
+    hourly = query_start == query_end
+    day_start = tz.localize(datetime(query_start.year, query_start.month, query_start.day))
+    day_end_excl = tz.localize(
+        datetime(query_end.year, query_end.month, query_end.day)
+    ) + timedelta(days=1)
+
+    async with store.AsyncSession() as session:
+        result = await session.execute(
+            select(
+                SlotObservation.slot_start,
+                SlotObservation.import_kwh,
+                SlotObservation.import_price_sek_kwh,
+                SlotObservation.export_kwh,
+                SlotObservation.export_price_sek_kwh,
+            ).where(
+                SlotObservation.slot_start >= day_start.isoformat(),
+                # Only slots that have started: the recorder can hold rows for
+                # future slots, which would flatten the line out to midnight.
+                SlotObservation.slot_start < min(day_end_excl, now_local).isoformat(),
+            )
+        )
+        rows = result.fetchall()
+
+    buckets: dict[datetime, list[float]] = {}
+    for slot_start, imp_kwh, imp_price, exp_kwh, exp_price in rows:
+        try:
+            start = datetime.fromisoformat(str(slot_start))
+        except ValueError:
+            continue
+        local = start.astimezone(tz) if start.tzinfo else tz.localize(start)
+        key = local.replace(minute=0, second=0, microsecond=0)
+        if not hourly:
+            key = key.replace(hour=0)
+        bucket = buckets.setdefault(key, [0.0, 0.0])
+        bucket[0] += float(imp_kwh or 0.0) * float(imp_price or 0.0)
+        bucket[1] += float(exp_kwh or 0.0) * float(exp_price or 0.0)
+
+    points: list[dict[str, Any]] = []
+    cumulative = 0.0
+    for key in sorted(buckets):
+        import_cost, export_rev = buckets[key]
+        cumulative += import_cost - export_rev
+        points.append(
+            {
+                "start": key.isoformat(),
+                "import_cost_sek": round(import_cost, 3),
+                "export_revenue_sek": round(export_rev, 3),
+                "net_cost_sek": round(import_cost - export_rev, 3),
+                "cumulative_net_cost_sek": round(cumulative, 3),
+            }
+        )
+
+    return {
+        "period": period,
+        "start_date": query_start.isoformat(),
+        "end_date": query_end.isoformat(),
+        "bucket": "hour" if hourly else "day",
+        "points": points,
+    }

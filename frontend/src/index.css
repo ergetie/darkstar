@@ -202,6 +202,11 @@ body::before {
         color: #100f0e;
     }
 
+    /* Text on an accent (gold) fill; dark in both themes, same as .btn-primary */
+    .text-on-accent {
+        color: #100f0e;
+    }
+
     .btn-primary:hover:not(:disabled) {
         background: rgb(var(--color-accent2));
     }
@@ -268,21 +273,157 @@ body::before {
         overflow: hidden;
     }
 
-    .price-sparkline-block {
+    /* Fills the remaining height of a flex column instead of the fixed 100px */
+    .price-sparkline-fill {
+        flex: 1;
+        height: auto;
+        min-height: 100px;
+    }
+
+    /* Plot area shared by bars and the reference line (same percent scale) */
+    .price-sparkline-plot {
         position: absolute;
-        width: 10px;
-        height: 10px;
-        border-radius: var(--radius-sm);
-        transition: top 0.3s ease-in-out;
+        inset: 0.5rem 0.5rem 0.5rem 0.5rem;
+    }
+
+    .price-sparkline-bars {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-around;
+        gap: 0.375rem;
+        height: 100%;
+    }
+
+    .price-sparkline-col {
+        flex: 1 1 0;
+        min-width: 0;
+        height: 100%;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+    }
+
+    .price-sparkline-bar {
+        width: 100%;
+        max-width: 2.25rem;
+        border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+        transition: height 0.3s ease-in-out;
+    }
+
+    /* Day label + price row under the bars; aligned with the bar columns */
+    .price-sparkline-labels {
+        display: flex;
+        gap: 0.375rem;
+        padding: 0 0.5rem;
+    }
+
+    .price-sparkline-labels > * {
+        flex: 1 1 0;
+        min-width: 0;
     }
 
     .price-sparkline-ref {
         position: absolute;
         left: 0;
         right: 0;
-        border-top: 1px dashed rgba(var(--color-line), 0.4);
+        border-top: 1px dashed rgb(var(--color-line) / 0.6);
         pointer-events: none;
         z-index: 5;
+    }
+
+    /* ========== BATTERY STACK ========== */
+    /* Horizontal capacity bar split into floor layers; each zone is tinted,
+       the part below the current SoC is filled solid. */
+    .battery-stack {
+        position: relative;
+        height: 36px;
+        width: 100%;
+    }
+
+    .battery-stack-track {
+        display: flex;
+        height: 100%;
+        overflow: hidden;
+        border-radius: var(--radius-sm);
+        background-color: rgb(var(--color-surface2));
+    }
+
+    .battery-stack-zone {
+        position: relative;
+        height: 100%;
+        background-color: rgb(var(--zone-color) / 0.18);
+    }
+
+    .battery-stack-zone:not(:last-child)::after {
+        content: '';
+        position: absolute;
+        inset: 0 0 0 auto;
+        width: 2px;
+        background-color: rgb(var(--color-surface));
+    }
+
+    .battery-stack-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        background-color: rgb(var(--zone-color));
+        transition: width 0.4s ease-out;
+    }
+
+    .battery-stack-marker {
+        position: absolute;
+        top: -4px;
+        bottom: -4px;
+        width: 2px;
+        border-radius: 1px;
+        transform: translateX(-1px);
+        pointer-events: none;
+    }
+
+    .battery-stack-swatch {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background-color: rgb(var(--zone-color));
+    }
+
+    /* ========== COST CHART ========== */
+    /* Line and area reveal left to right. A clip, not a stroke dash: dash
+       lengths break with vector-effect: non-scaling-stroke. */
+    .cost-chart-reveal {
+        animation: cost-chart-reveal 0.9s ease-out both;
+    }
+
+    .cost-chart-area {
+        opacity: 0;
+        animation: fade-in 0.6s ease-out 0.4s forwards;
+    }
+
+    .cost-chart-bar {
+        transform-box: fill-box;
+        transform-origin: bottom;
+        animation: cost-chart-grow 0.5s ease-out both;
+    }
+
+    @keyframes cost-chart-reveal {
+        from {
+            clip-path: inset(0 100% 0 0);
+        }
+    }
+
+    @keyframes cost-chart-grow {
+        from {
+            transform: scaleY(0);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .cost-chart-reveal,
+        .cost-chart-area,
+        .cost-chart-bar {
+            animation: none;
+            opacity: 1;
+        }
     }
 
     /* ========== BANNERS / ALERTS ========== */
@@ -1540,4 +1681,201 @@ body::before {
 
 .no-spinner {
     -moz-appearance: textfield;
+}
+
+/* ========== SCHEDULE CHART ========== */
+/* Info panel above the Schedule Overview chart (hover / tap details). */
+.sched-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid rgb(var(--color-line) / 0.4);
+    border-radius: var(--radius-md);
+    background: rgb(var(--color-surface2));
+}
+
+/* Legend: solid = actual, dashed = plan */
+.sched-legend {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.125rem 0.75rem;
+    font-family: ui-monospace, monospace;
+    font-size: 0.625rem;
+    color: rgb(var(--color-muted));
+}
+
+.sched-legend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.sched-legend__swatch {
+    display: inline-block;
+    width: 1.25rem;
+    height: 0;
+    border-top: 2px solid currentColor;
+}
+
+.sched-legend__swatch[data-form='plan'] {
+    border-top-style: dashed;
+}
+
+.sched-legend__swatch[data-form='estimated'] {
+    height: 0.5rem;
+    border-top: 1px dashed currentColor;
+    background: repeating-linear-gradient(135deg, currentColor 0 1px, transparent 1px 4px);
+    opacity: 0.7;
+}
+
+.sched-panel__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.625rem;
+    min-width: 0;
+}
+
+.sched-panel__time {
+    font-family: ui-monospace, monospace;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: rgb(var(--color-text));
+}
+
+.sched-panel__phase {
+    padding: 0 0.4rem;
+    border-radius: var(--radius-pill);
+    border: 1px solid rgb(var(--color-line));
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgb(var(--color-muted));
+}
+
+.sched-panel__phase[data-phase='now'] {
+    border-color: rgb(var(--color-accent));
+    background: rgb(var(--color-accent));
+    color: rgb(var(--color-canvas));
+}
+
+.sched-panel__phase[data-phase='estimated'] {
+    border-color: rgb(var(--color-warn));
+    color: rgb(var(--color-warn));
+}
+
+/* Compact one-line summary; wraps at phone width instead of overflowing */
+.sched-panel__summary {
+    flex: 1 1 12rem;
+    min-width: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: rgb(var(--color-text));
+    overflow-wrap: anywhere;
+}
+
+.sched-panel__action {
+    min-width: 0;
+    font-size: 0.75rem;
+    color: rgb(var(--color-muted));
+    overflow-wrap: anywhere;
+}
+
+.sched-panel__groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 0.5rem 1rem;
+}
+
+.sched-panel__group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+}
+
+.sched-panel__title {
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(var(--color-muted));
+}
+
+.sched-panel__row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.375rem;
+    min-width: 0;
+    font-size: 0.6875rem;
+}
+
+.sched-panel__dot {
+    flex: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    align-self: center;
+    border-radius: 2px;
+    background: rgb(var(--color-muted));
+}
+
+.sched-panel__dot[data-tone='grid'] {
+    background: rgb(var(--color-grid));
+}
+.sched-panel__dot[data-tone='night'] {
+    background: rgb(var(--color-night));
+}
+.sched-panel__dot[data-tone='bad'] {
+    background: rgb(var(--color-bad));
+}
+.sched-panel__dot[data-tone='peak'] {
+    background: rgb(var(--color-peak));
+}
+.sched-panel__dot[data-tone='accent'] {
+    background: rgb(var(--color-accent));
+}
+.sched-panel__dot[data-tone='house'] {
+    background: rgb(var(--color-house));
+}
+.sched-panel__dot[data-tone='good'] {
+    background: rgb(var(--color-good));
+}
+.sched-panel__dot[data-tone='water'] {
+    background: rgb(var(--color-water));
+}
+.sched-panel__dot[data-tone='ai'] {
+    background: rgb(var(--color-ai));
+}
+.sched-panel__dot[data-tone='warn'] {
+    background: rgb(var(--color-warn));
+}
+
+.sched-panel__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgb(var(--color-muted));
+}
+
+.sched-panel__value {
+    flex: none;
+    font-family: ui-monospace, monospace;
+    color: rgb(var(--color-text));
+}
+
+.sched-panel__plan {
+    color: rgb(var(--color-muted));
+}
+
+.sched-panel__note {
+    padding-left: 0.875rem;
+    font-family: ui-monospace, monospace;
+    font-size: 0.625rem;
+    color: rgb(var(--color-muted));
 }

@@ -153,6 +153,14 @@ def test_smoke_energy_range(client):
     assert resp.status_code == 200
 
 
+def test_smoke_energy_cost_series(client):
+    resp = client.get("/api/energy/cost-series?period=today")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["bucket"] == "hour"
+    assert isinstance(body["points"], list)
+
+
 def test_smoke_performance_data(client):
     resp = client.get("/api/performance/data")
     assert resp.status_code == 200

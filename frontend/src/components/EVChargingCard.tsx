@@ -49,8 +49,8 @@ const EV_BALANCER_STATE_LABELS: Record<string, string> = {
 }
 
 const EV_BALANCER_STATE_COLORS: Record<string, string> = {
-    throttling: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-    paused: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+    throttling: 'bg-warn/10 text-warn border border-warn/30',
+    paused: 'bg-water/10 text-water border border-water/30',
     stale_fallback: 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
 }
 
@@ -108,7 +108,7 @@ export function deriveChargerStatus(
         statusColor = balancerOverrideColor
     } else if (charger.status === 'on_track') {
         statusText = 'On track'
-        statusColor = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+        statusColor = 'bg-good/10 text-good border border-good/30'
     } else if (charger.status === 'at_risk') {
         statusText = 'At risk'
         statusColor = 'bg-warn/10 text-warn border border-warn/20'
@@ -117,7 +117,7 @@ export function deriveChargerStatus(
         statusColor = 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
     } else if (charger.status === 'complete') {
         statusText = 'Complete'
-        statusColor = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+        statusColor = 'bg-good/15 text-good border border-good/40'
     } else if (charger.status === 'idle') {
         statusText = 'Idle'
         statusColor = 'bg-surface2 text-muted'
@@ -154,7 +154,9 @@ export default function EVChargingCard({
     config,
     loadBalancing,
     onRefresh,
+    fill = false,
 }: {
+    fill?: boolean
     charger: EVChargerState
     config: ConfigResponse | null
     loadBalancing: LoadBalancerStatusResponse | null
@@ -303,7 +305,11 @@ export default function EVChargingCard({
     const socUnavailableText = describeSocUnavailable(charger)
 
     return (
-        <div className="bg-surface2/30 rounded-xl p-3 border border-line/10 relative overflow-hidden transition-all duration-300">
+        <div
+            className={`bg-surface2/30 rounded-xl p-3 border border-line/10 relative overflow-hidden transition-all duration-300 flex flex-col ${
+                fill ? 'flex-1' : ''
+            }`}
+        >
             {/* Charger Info Header */}
             <div className="flex items-center justify-between mb-3">
                 <div>
@@ -322,7 +328,7 @@ export default function EVChargingCard({
                 {!isEditing && (
                     <div className="flex items-center gap-1.5">
                         {charger.source === 'ha' && (
-                            <span className="text-[9px] px-2 py-0.5 rounded-full font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 uppercase">
+                            <span className="text-[9px] px-2 py-0.5 rounded-full font-semibold bg-water/10 text-water border border-water/30 uppercase">
                                 HA-Driven
                             </span>
                         )}
@@ -519,7 +525,7 @@ export default function EVChargingCard({
                         <button
                             type="submit"
                             disabled={submitting}
-                            className="flex-1 bg-accent hover:bg-accent2 text-surface-elevated py-1 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+                            className="flex-1 bg-accent hover:bg-accent2 text-on-accent py-1 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
                         >
                             {submitting ? (
                                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -534,7 +540,7 @@ export default function EVChargingCard({
                 </form>
             ) : (
                 /* Viewing Active Goal */
-                <div className="space-y-3">
+                <div className="flex-1 flex flex-col gap-3">
                     {planPending ? (
                         <p className="text-[10px] text-muted italic" data-testid="ev-replanning-note">
                             Updating the plan for this goal…
@@ -596,8 +602,8 @@ export default function EVChargingCard({
                             </span>
                         </div>
                         {keepOn && (
-                            <div className="flex items-center gap-1 text-emerald-400/80">
-                                <span className="h-1 w-1 rounded-full bg-emerald-400" />
+                            <div className="flex items-center gap-1 text-good">
+                                <span className="h-1 w-1 rounded-full bg-good" />
                                 <span>Keep enabled</span>
                             </div>
                         )}
@@ -646,12 +652,12 @@ export default function EVChargingCard({
                     {/* Surplus PV Hint (Decision 7) */}
                     {charger.type === 'current' ? (
                         isSurplusPriority ? (
-                            <div className="text-[9px] text-emerald-400 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20 flex items-center gap-1">
+                            <div className="text-[9px] text-good bg-good/10 p-2 rounded-lg border border-good/30 flex items-center gap-1">
                                 <Sun className="h-3 w-3 animate-spin-slow" />
                                 <span>Charges from surplus PV when available</span>
                             </div>
                         ) : (
-                            <div className="text-[9px] text-amber-300 bg-amber-500/10 p-2 rounded-lg border border-amber-500/25 flex items-start gap-1">
+                            <div className="text-[9px] text-warn bg-warn/10 p-2 rounded-lg border border-warn/30 flex items-start gap-1">
                                 <span>⚠️</span>
                                 <div>
                                     Surplus absorption off —{' '}
@@ -671,7 +677,7 @@ export default function EVChargingCard({
                     )}
 
                     {/* Action buttons */}
-                    <div className="flex gap-2 pt-1">
+                    <div className="flex gap-2 pt-1 mt-auto">
                         <button
                             onClick={handleClear}
                             disabled={submitting}
@@ -682,7 +688,7 @@ export default function EVChargingCard({
                         </button>
                         <button
                             onClick={() => setManualEdit(true)}
-                            className="flex-1 bg-accent hover:bg-accent2 text-surface-elevated py-1 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+                            className="flex-1 bg-accent hover:bg-accent2 text-on-accent py-1 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
                         >
                             Configure Goal
                         </button>
