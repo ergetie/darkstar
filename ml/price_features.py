@@ -102,6 +102,7 @@ def build_price_features(
     temperature_c: float | None = None,
     cloud_cover: float | None = None,
     radiation_wm2: float | None = None,
+    known_spot: dict[datetime, float] | None = None,
 ) -> dict[str, Any]:
     """
     Build feature dictionary for price forecasting.
@@ -114,6 +115,8 @@ def build_price_features(
         temperature_c: Temperature in Celsius
         cloud_cover: Cloud cover percentage
         radiation_wm2: Shortwave radiation in W/m²
+        known_spot: Published Nordpool spot prices (SEK/kWh) keyed by tz-aware slot
+            start. Used for lag source slots that have no observation row.
 
     Returns:
         Dictionary with feature names and values
@@ -134,7 +137,7 @@ def build_price_features(
 
     # Price lag features (query from database if session provided)
     if db_session is not None:
-        price_lags = _get_price_lags(slot_start, db_session)
+        price_lags = _get_price_lags(slot_start, db_session, known_spot)
         features.update(price_lags)
     else:
         # Set to NaN if no database session
@@ -158,22 +161,25 @@ def build_price_features(
 def _get_price_lags(
     slot_start: datetime,
     db_session: Session,
+    known_spot: dict[datetime, float] | None = None,
 ) -> dict[str, float]:
     """
-    Query price lags from slot_observations.
+    Resolve price lags from slot_observations, then from published spot prices.
 
     Returns price lags for:
     - price_lag_1d: Same hour yesterday
     - price_lag_7d: Same hour last week
     - price_lag_24h_avg: Trailing 24-hour average
 
-    Missing values are returned as NaN.
+    A source slot without an observation row falls back to ``known_spot``
+    (published Nordpool prices) when provided. Missing values are NaN.
     """
     lags: dict[str, float] = {
         "price_lag_1d": float("nan"),
         "price_lag_7d": float("nan"),
         "price_lag_24h_avg": float("nan"),
     }
+    published = known_spot or {}
 
     try:
         # Price lag 1 day ago (same hour)
@@ -188,6 +194,8 @@ def _get_price_lags(
 
         if result and result.export_price_sek_kwh is not None:
             lags["price_lag_1d"] = result.export_price_sek_kwh
+        elif lag_1d_time in published:
+            lags["price_lag_1d"] = published[lag_1d_time]
 
         # Price lag 7 days ago (same hour)
         lag_7d_time = slot_start - timedelta(days=7)
@@ -201,6 +209,8 @@ def _get_price_lags(
 
         if result and result.export_price_sek_kwh is not None:
             lags["price_lag_7d"] = result.export_price_sek_kwh
+        elif lag_7d_time in published:
+            lags["price_lag_7d"] = published[lag_7d_time]
 
         # Trailing 24-hour average
         # Get all slots in the 24 hours before lag_1d_time
@@ -217,10 +227,19 @@ def _get_price_lags(
             .all()
         )
 
-        if results:
-            prices = [r.export_price_sek_kwh for r in results if r.export_price_sek_kwh is not None]
-            if prices:
-                lags["price_lag_24h_avg"] = sum(prices) / len(prices)
+        prices = [r.export_price_sek_kwh for r in results if r.export_price_sek_kwh is not None]
+
+        if published:
+            observed_slots = {datetime.fromisoformat(r.slot_start) for r in results}
+            cursor = trailing_start
+            quarter = timedelta(minutes=15)
+            while cursor <= lag_1d_time:
+                if cursor not in observed_slots and cursor in published:
+                    prices.append(published[cursor])
+                cursor += quarter
+
+        if prices:
+            lags["price_lag_24h_avg"] = sum(prices) / len(prices)
 
     except Exception as exc:
         # Log error but return NaN values
@@ -235,6 +254,7 @@ def build_price_features_batch(
     days_ahead: int,
     db_session: Session | None = None,
     weather_df: pd.DataFrame | None = None,
+    known_spot: dict[datetime, float] | None = None,
 ) -> pd.DataFrame:
     """
     Build price features for a range of slots.
@@ -245,6 +265,7 @@ def build_price_features_batch(
         days_ahead: Number of days ahead these forecasts are for
         db_session: SQLAlchemy session for querying price lags
         weather_df: DataFrame with weather features (wind_index, temp_c, cloud_cover, radiation)
+        known_spot: Published spot prices used for lag slots without observations
 
     Returns:
         DataFrame with one row per slot and columns for each feature
@@ -295,6 +316,7 @@ def build_price_features_batch(
             temperature_c=temp_c,
             cloud_cover=cloud_cover,
             radiation_wm2=radiation,
+            known_spot=known_spot,
         )
 
         features["slot_start"] = slot.isoformat()

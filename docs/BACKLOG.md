@@ -55,6 +55,18 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Reported on Discord 2026-09-24: after turning "Smart water heater" off and on, saving is blocked by a "VVB switch is wrong" error, and the Water tab cannot be reached to fix it. Likely trigger, not confirmed: the save-blocking validation in `backend/api/routers/config.py` for a `switch.*` target with control type `temperature`. Needs a reproduction; the exact error was in a screenshot.
 
+#### [Config] Dead Round-Trip Efficiency Setting And Implicit Discharge Efficiency
+
+**Goal:** Make the battery efficiency settings honest: remove the setting that does nothing and state the discharge efficiency the planner actually uses.
+
+**Notes:** Verified 2026-10-04. `battery.roundtrip_efficiency_percent` (`config.default.yaml:54`, 95.0) is read by no application code; its comment says "used only in planner/simulation.py", which no longer exists. Remaining references: `samples/config.sample.json`, `scripts/test_edge_cases.py`, `scripts/test_bulk_mode.py`. Separately, `config.default.yaml` sets `charge_efficiency: 0.92` but has no `discharge_efficiency`, so the solver uses the code default of 0.95 (`planner/solver/adapter.py:494`) and plans with ~87.4% round trip, not the 95% the dead setting suggests. Fix: remove the dead key (and decide whether the config migration strips it from existing `config.yaml` files), and add `discharge_efficiency: 0.95` explicitly to `config.default.yaml`.
+
+#### [UI] Battery & Strategy Card Ignores The Price Reserve
+
+**Goal:** Show the real end-of-plan battery target on the Battery & Strategy card, including the price reserve, and explain why it is held.
+
+**Notes:** Found 2026-10-05 after the `d2-price-reserve` change. `frontend/src/components/BatteryStrategyCard.tsx:288` shows `safety_floor.calculated_floor_kwh` (deficit floor only), and "Tradable" (line 311) is derived from it, so both are wrong whenever the price reserve raises the target (`safety_floor.final_floor_kwh`). The "deficit" figure shows `base_reserve_kwh` before the risk cap, so "min 4.0 · deficit 20.1" can read as 24 kWh while the floor is 9.4 kWh. Fix: show `final_floor_kwh`, add a price reserve line using `price_reserve_applied_kwh` and `price_reserve_reason` (plain words, e.g. "Holding 16 kWh: Tuesday's cheapest charging ~1.40 vs 0.80 now"), show the capped deficit value, and follow `docs/design-system/AI_GUIDELINES.md`.
+
 ---
 
 ## 🔧 Improvements

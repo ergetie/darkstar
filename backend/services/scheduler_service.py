@@ -11,7 +11,7 @@ import logging
 import random
 from collections.abc import Coroutine, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,6 +26,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger("darkstar.services.scheduler")
 
 _SKIP_LOG_INTERVAL_S = 300
+
+# Post-publication price forecast: polled from this local hour until midnight,
+# at most once per interval.
+POST_PUBLICATION_EARLIEST_HOUR = 12
+POST_PUBLICATION_CHECK_INTERVAL = timedelta(minutes=10)
+_SLOT = timedelta(minutes=15)
 
 # Goal-change replan requests are collapsed over this window so a burst of goal
 # edits (e.g. HA writing target SoC and ready-by as two events) yields one run.
@@ -64,6 +70,7 @@ class SchedulerStatus:
     price_forecast_enabled: bool = False
     last_price_forecast_at: datetime | None = None
     next_price_forecast_at: datetime | None = None
+    last_post_publication_forecast_at: datetime | None = None
 
 
 class SchedulerService:
@@ -80,6 +87,8 @@ class SchedulerService:
         self.main_loop: asyncio.AbstractEventLoop | None = None
         self._goal_debounce_task: asyncio.Task[None] | None = None
         self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._last_post_publication_check: datetime | None = None
+        self._post_publication_wait_logged_for: date | None = None
 
     def _log_skip(self, reason: str, due_at: datetime | None) -> None:
         """Log a planning skip immediately on reason changes and periodically after."""
@@ -267,6 +276,10 @@ class SchedulerService:
                     ):
                         await self._run_price_forecast_daily(config.get("price_forecast", {}))
 
+                # Check post-publication price forecast (once tomorrow's prices are out)
+                if self._status.price_forecast_enabled and self._status.current_task == "idle":
+                    await self._check_post_publication_forecast()
+
             except asyncio.CancelledError:
                 logger.info("Scheduler loop cancelled")
                 break
@@ -448,6 +461,113 @@ class SchedulerService:
         self._status.current_task = "idle"
         # Schedule next run for tomorrow at 06:00
         self._status.next_price_forecast_at = self._compute_next_price_forecast(config)
+
+    async def _check_post_publication_forecast(self, now: datetime | None = None) -> None:
+        """Run the D+2..D+7 price forecast once tomorrow's prices are published.
+
+        Polled by the scheduler loop; acts only from POST_PUBLICATION_EARLIEST_HOUR
+        local time, at most every POST_PUBLICATION_CHECK_INTERVAL, and at most once
+        per local day. The once-per-day guarantee comes from the persisted forecast
+        rows (a row issued today whose published-price horizon reaches the end of
+        tomorrow), so restarts never repeat the run. Never raises.
+        """
+        import pytz
+
+        from backend.core.prices import get_known_spot_by_slot
+        from backend.learning import get_learning_engine
+        from ml.price_forecast import generate_price_forecasts
+
+        now_utc = now or datetime.now(UTC)
+        try:
+            tz = pytz.timezone(self._load_global_config().get("timezone", "Europe/Stockholm"))
+            now_local = now_utc.astimezone(tz)
+            if now_local.hour < POST_PUBLICATION_EARLIEST_HOUR:
+                return
+            if (
+                self._last_post_publication_check is not None
+                and now_utc - self._last_post_publication_check < POST_PUBLICATION_CHECK_INTERVAL
+            ):
+                return
+            self._last_post_publication_check = now_utc
+
+            today = now_local.date()
+            today_start = tz.localize(datetime.combine(today, datetime.min.time()))
+            tomorrow_start = tz.localize(
+                datetime.combine(today + timedelta(days=1), datetime.min.time())
+            )
+            tomorrow_end = tz.localize(
+                datetime.combine(today + timedelta(days=2), datetime.min.time())
+            )
+
+            engine = get_learning_engine()
+            db_path = str(engine.db_path)
+            if await asyncio.to_thread(
+                self._post_publication_forecast_done, db_path, today_start, tomorrow_end
+            ):
+                return
+
+            known_spot = await get_known_spot_by_slot()
+            slot = tomorrow_start.astimezone(UTC)
+            end = tomorrow_end.astimezone(UTC)
+            published = True
+            while slot < end:
+                if slot not in known_spot:
+                    published = False
+                    break
+                slot += _SLOT
+            if not published:
+                if self._post_publication_wait_logged_for != today:
+                    logger.info(
+                        "Post-publication price forecast waiting: tomorrow's prices unpublished"
+                    )
+                    self._post_publication_wait_logged_for = today
+                return
+
+            logger.info("Tomorrow's prices are published, running post-publication price forecast")
+            self._status.current_task = "price_forecast"
+            try:
+                engine.reload_config_if_changed()
+                forecasts = await generate_price_forecasts(
+                    config=engine.config,
+                    db_path=db_path,
+                    model_path=None,
+                    days_ahead_range=range(2, 8),
+                )
+                self._status.last_post_publication_forecast_at = datetime.now(UTC)
+                logger.info(
+                    "Post-publication price forecast completed: %d records generated",
+                    len(forecasts),
+                )
+            finally:
+                self._status.current_task = "idle"
+        except Exception as e:
+            logger.error(f"Post-publication price forecast failed: {e}")
+
+    @staticmethod
+    def _post_publication_forecast_done(
+        db_path: str, today_start: datetime, tomorrow_end: datetime
+    ) -> bool:
+        """True if a forecast issued today already covers published prices through tomorrow."""
+        from sqlalchemy import create_engine, text
+
+        engine = create_engine(f"sqlite:///{db_path}")
+        try:
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        "SELECT DISTINCT issue_timestamp, known_prices_until FROM price_forecasts "
+                        "WHERE known_prices_until IS NOT NULL AND issue_timestamp >= :since"
+                    ),
+                    {"since": (today_start - timedelta(days=1)).isoformat()},
+                ).fetchall()
+        finally:
+            engine.dispose()
+        for issued, known_until in rows:
+            if datetime.fromisoformat(issued) >= today_start and (
+                datetime.fromisoformat(known_until) >= tomorrow_end
+            ):
+                return True
+        return False
 
     def _compute_next_price_forecast(self, config: dict[str, Any]) -> datetime:
         """Calculate next price forecast time at 06:00 local time."""

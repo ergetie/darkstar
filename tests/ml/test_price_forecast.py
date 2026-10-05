@@ -1,7 +1,7 @@
 """Tests for price forecast inference with weather-only row support."""
 
-from datetime import date, timedelta
-from unittest.mock import patch
+from datetime import date, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pandas as pd
 import pytest
@@ -15,6 +15,13 @@ from ml.price_forecast import (
     get_d1_price_forecast_fallback,
     get_price_forecasts_from_db,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_published_prices():
+    """Keep generation tests off the network: no published prices by default."""
+    with patch("ml.price_forecast.get_known_spot_by_slot", new=AsyncMock(return_value={})) as mock:
+        yield mock
 
 
 @pytest.fixture
@@ -346,7 +353,9 @@ async def test_generate_price_forecasts_repeated_runs_do_not_grow_rows(tmp_db, p
     """Two generation runs should keep one row per overlapping natural key."""
     db_path, engine = tmp_db
 
-    def build_features(start_time, end_time, days_ahead, weather_df, db_session=None):
+    def build_features(
+        start_time, end_time, days_ahead, weather_df, db_session=None, known_spot=None
+    ):
         return pd.DataFrame(
             {
                 "hour": [start_time.hour],
@@ -614,3 +623,100 @@ async def test_d1_fallback_keeps_future_slots(mock_get_forecasts, price_config, 
 
     assert result is not None
     assert len(result) == 24
+
+
+def _stub_generation_inputs():
+    """Patches for generation: weather-only rows, one feature row per day."""
+
+    def build_features(
+        start_time, end_time, days_ahead, weather_df, db_session=None, known_spot=None
+    ):
+        return pd.DataFrame(
+            {
+                "hour": [start_time.hour],
+                "price_lag_1d": [0.5],
+                "wind_index": [1.0],
+                "temperature_c": [5.0],
+                "cloud_cover": [50.0],
+                "radiation_wm2": [100.0],
+            },
+            index=pd.DatetimeIndex([start_time]),
+        )
+
+    return (
+        patch("pathlib.Path.exists", return_value=False),
+        patch(
+            "ml.price_forecast.get_regional_weather",
+            return_value={"coord1": pd.DataFrame({"temp_c": [5.0]})},
+        ),
+        patch("ml.price_forecast.compute_regional_wind_index", return_value=pd.Series([1.0])),
+        patch("ml.price_forecast.build_price_features_batch", side_effect=build_features),
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_persists_known_prices_until(tmp_db, price_config, no_published_prices):
+    """The end of the last published slot is stored on every record."""
+    import pytz
+
+    db_path, engine = tmp_db
+    tz = pytz.timezone("Europe/Stockholm")
+    last_published = tz.localize(
+        datetime.combine(date.today() + timedelta(days=1), datetime.min.time())
+    )
+    last_published += timedelta(hours=23, minutes=45)
+    no_published_prices.return_value = {last_published: 0.4}
+
+    p1, p2, p3, p4 = _stub_generation_inputs()
+    with p1, p2, p3, p4 as mock_build:
+        forecasts = await generate_price_forecasts(price_config, db_path=db_path)
+
+    expected = (last_published + timedelta(minutes=15)).isoformat()
+    assert {f["known_prices_until"] for f in forecasts} == {expected}
+    assert {r.known_prices_until for r in _fetch_persisted_forecasts(engine)} == {expected}
+    assert mock_build.call_args.kwargs["known_spot"] == {last_published: 0.4}
+
+
+@pytest.mark.asyncio
+async def test_generate_without_published_prices_stores_null_horizon(tmp_db, price_config):
+    db_path, engine = tmp_db
+    p1, p2, p3, p4 = _stub_generation_inputs()
+    with p1, p2, p3, p4:
+        forecasts = await generate_price_forecasts(price_config, db_path=db_path)
+
+    assert {f["known_prices_until"] for f in forecasts} == {None}
+    assert {r.known_prices_until for r in _fetch_persisted_forecasts(engine)} == {None}
+
+
+@pytest.mark.asyncio
+async def test_generate_continues_when_published_price_load_fails(
+    tmp_db, price_config, no_published_prices
+):
+    no_published_prices.side_effect = RuntimeError("nordpool down")
+    db_path, _engine = tmp_db
+    p1, p2, p3, p4 = _stub_generation_inputs()
+    with p1, p2, p3, p4:
+        forecasts = await generate_price_forecasts(price_config, db_path=db_path)
+
+    assert len(forecasts) == 7
+    assert {f["known_prices_until"] for f in forecasts} == {None}
+
+
+@pytest.mark.asyncio
+async def test_post_publication_run_replaces_only_requested_horizons(tmp_db, price_config):
+    """A D+2..D+7 run leaves the D+1 rows untouched and overwrites D+2..D+7."""
+    db_path, engine = tmp_db
+    p1, p2, p3, p4 = _stub_generation_inputs()
+    with p1, p2, p3, p4:
+        morning = await generate_price_forecasts(price_config, db_path=db_path)
+        later = await generate_price_forecasts(
+            price_config, db_path=db_path, days_ahead_range=range(2, 8)
+        )
+
+    assert {f["days_ahead"] for f in later} == set(range(2, 8))
+    rows = _fetch_persisted_forecasts(engine)
+    assert len(rows) == 7
+    assert len({(r.slot_start, r.days_ahead) for r in rows}) == 7
+    by_horizon = {r.days_ahead: r.issue_timestamp for r in rows}
+    assert by_horizon[1] == morning[0]["issue_timestamp"]
+    assert {by_horizon[d] for d in range(2, 8)} == {later[0]["issue_timestamp"]}

@@ -17,7 +17,7 @@ import pandas as pd
 import pytz
 
 if TYPE_CHECKING:
-    from datetime import date, datetime
+    from datetime import datetime
 
 
 from backend.core.ev_goal import (
@@ -44,17 +44,21 @@ from planner.solver.adapter import (
     config_to_kepler_config,
     kepler_result_to_dataframe,
     planner_to_kepler_input,
+    resolve_battery_power_limits,
 )
 from planner.solver.kepler import KeplerSolver
 from planner.strategy.ev_deferral import (
+    SLOT_MINUTES,
     DeferralPlan,
     build_deferral_plan,
     fetch_forecast_spot_sync,
     fetch_trailing_import_avg_sync,
     planned_by_day,
     read_deferral_settings,
+    spot_to_import_price,
 )
 from planner.strategy.manual_plan import apply_manual_plan
+from planner.strategy.price_reserve import PriceReserveInputs, ReserveSlot
 from planner.strategy.s_index import (
     calculate_dynamic_s_index,
     calculate_probabilistic_s_index,
@@ -865,158 +869,160 @@ def _persist_ev_multi_day_state(
 
 logger = logging.getLogger("darkstar.planner")
 
+# A price-reserve strategy event is logged only when the applied reserve moves by this much.
+PRICE_RESERVE_EVENT_DELTA_KWH = 1.0
 
-def _fetch_price_floor_inputs_sync(
-    db_path: str,
-    timezone_name: str,
-    known_spot: dict[datetime, float] | None = None,
-    now: datetime | None = None,
-) -> tuple[dict[int, float], float | None, dict[int, tuple[int, int]]]:
-    """
-    Fetch price floor inputs for the S-Index from the learning DB (Module 3).
 
-    Args:
-        known_spot: Published Nordpool spot (SEK/kWh) keyed by tz-aware slot
-            start. Where present it wins over the forecast for that slot.
-        now: Reference time (defaults to the current time in ``timezone_name``).
+def _fetch_unseen_forecast_sync(
+    db_path: str, start: datetime, end: datetime, tz: pytz.BaseTzInfo
+) -> tuple[dict[datetime, float], str | None]:
+    """Latest-issue ``spot_p50`` per slot start in ``[start, end)`` plus the latest issue used.
 
-    Returns:
-        Tuple of (upcoming_daily_avg_spots, trailing_avg_spot, source_counts):
-        - upcoming_daily_avg_spots: days-ahead offset (int) -> daily avg spot
-          for D+0..D+7. Each slot uses the known spot if published, else the
-          latest-issue forecast spot_p50; grouped by calendar date in the
-          configured timezone.
-        - trailing_avg_spot: 14-day trailing average of export_price_sek_kwh from
-          slot_observations (>=2 distinct calendar days required); None if absent.
-        - source_counts: days-ahead offset -> (known_slots, forecast_slots).
+    Raises on DB errors so the caller can degrade to the deficit-based floor.
     """
     import sqlite3
-    from datetime import datetime, time, timedelta
 
-    tz = pytz.timezone(timezone_name)
-    now = now.astimezone(tz) if now is not None else datetime.now(tz)
-    today = now.date()
-
-    upcoming: dict[int, float] = {}
-    trailing: float | None = None
-    source_counts: dict[int, tuple[int, int]] = {}
-
+    spots = fetch_forecast_spot_sync(db_path, start, end, tz)
+    if not spots:
+        return spots, None
+    conn = sqlite3.connect(db_path, timeout=30)
     try:
-        conn = sqlite3.connect(db_path, timeout=30)
-    except Exception as exc:
-        logger.warning("Price floor inputs: cannot open DB: %s", exc)
-        return upcoming, trailing, source_counts
-
-    try:
-        conn.row_factory = sqlite3.Row
-
-        # --- Today's (offset 0) remaining-slots avg spot p50, plus D+1..D+7 ---
-        start_local = tz.localize(datetime.combine(today, time.min))
-        end_local = tz.localize(datetime.combine(today + timedelta(days=8), time.min))
-        start_iso = start_local.isoformat()
-        end_iso = end_local.isoformat()
-
-        cursor = conn.execute(
+        row = conn.execute(
             """
-            SELECT slot_start, issue_timestamp, spot_p50
+            SELECT MAX(issue_timestamp)
             FROM price_forecasts
-            WHERE slot_start >= ? AND slot_start < ?
-              AND spot_p50 IS NOT NULL
-            ORDER BY slot_start
+            WHERE slot_start >= ? AND slot_start < ? AND spot_p50 IS NOT NULL
             """,
-            (start_iso, end_iso),
-        )
-        best_per_slot: dict[str, dict[str, Any]] = {}
-        for r in cursor.fetchall():
-            key = r["slot_start"]
-            existing = best_per_slot.get(key)
-            if existing is None or (r["issue_timestamp"] or "") > existing["issue_timestamp"]:
-                best_per_slot[key] = {
-                    "slot_start": key,
-                    "issue_timestamp": r["issue_timestamp"] or "",
-                    "spot_p50": float(r["spot_p50"]),
-                }
-
-        # Merge per slot: published spot wins, forecast fills the rest.
-        # Keys are tz-aware datetimes, which compare by instant, so forecast
-        # ISO strings and Nordpool datetimes line up across DST changes.
-        merged: dict[datetime, tuple[float, bool]] = {}
-        for row in best_per_slot.values():
-            try:
-                slot_dt = datetime.fromisoformat(row["slot_start"]).astimezone(tz)
-            except (TypeError, ValueError):
-                continue
-            merged[slot_dt] = (row["spot_p50"], False)
-        for slot_dt, spot in (known_spot or {}).items():
-            merged[slot_dt.astimezone(tz)] = (float(spot), True)
-
-        # Group by calendar date (local tz), then average per day. Offset 0
-        # (today) only counts remaining slots (slot_start >= now) — past
-        # cheap morning slots must not inflate today's attractiveness.
-        per_day: dict[int, list[float]] = {}
-        counts: dict[int, list[int]] = {}
-        for slot_dt, (spot, is_known) in merged.items():
-            offset = (slot_dt.date() - today).days
-            if offset == 0 and slot_dt < now:
-                continue
-            if 0 <= offset <= 7:
-                per_day.setdefault(offset, []).append(spot)
-                counts.setdefault(offset, [0, 0])[0 if is_known else 1] += 1
-
-        for offset, spots in per_day.items():
-            if spots:
-                upcoming[offset] = sum(spots) / len(spots)
-        source_counts = {offset: (c[0], c[1]) for offset, c in counts.items()}
-
-        # --- Trailing 14-day avg export price_sek_kwh (>=2 distinct days) ---
-        trailing_start = (today - timedelta(days=14)).isoformat()
-        cursor = conn.execute(
-            """
-            SELECT slot_start, export_price_sek_kwh
-            FROM slot_observations
-            WHERE slot_start >= ? AND export_price_sek_kwh IS NOT NULL
-            """,
-            (trailing_start,),
-        )
-        values: list[float] = []
-        distinct_dates: set[date] = set()
-        for r in cursor.fetchall():
-            try:
-                slot_dt = datetime.fromisoformat(r["slot_start"])
-                distinct_dates.add(slot_dt.astimezone(tz).date())
-            except (TypeError, ValueError):
-                continue
-            values.append(float(r["export_price_sek_kwh"]))
-
-        if len(distinct_dates) >= 2 and values:
-            trailing = sum(values) / len(values)
-    except Exception as exc:
-        logger.warning("Price floor inputs: DB query failed: %s", exc)
-        return upcoming, trailing, source_counts
+            (start.isoformat(), end.isoformat()),
+        ).fetchone()
     finally:
         conn.close()
+    return spots, (str(row[0]) if row and row[0] else None)
 
-    return upcoming, trailing, source_counts
 
+async def build_price_reserve_inputs(
+    active_config: dict[str, Any],
+    df: pd.DataFrame,
+    now_slot: pd.Timestamp,
+    price_horizon_end: pd.Timestamp | None,
+    timezone_name: str,
+    current_soc_kwh: float,
+) -> PriceReserveInputs | None:
+    """Gather the price reserve inputs; ``None`` when price forecasting is disabled.
 
-async def fetch_price_floor_inputs(
-    db_path: str, timezone_name: str
-) -> tuple[dict[int, float], float | None, dict[int, tuple[int, int]]]:
+    Known-window slots are the planner's own import prices from the current slot to
+    the end of the published-price horizon. Unseen-window prices are the latest
+    ``spot_p50`` forecasts for the 24 h after that horizon, converted with the
+    user's pricing (VAT, tax, flat or time-of-use transfer fee). The forecast read
+    runs off the event loop; a failure is reported through ``error`` (the run
+    continues with the deficit-based floor).
     """
-    Async wrapper around the synchronous price-floor-inputs DB query.
+    if not active_config.get("price_forecast", {}).get("enabled", False):
+        return None
 
-    Published Nordpool prices are resolved first (empty map on failure, which
-    degrades to forecast-only). The synchronous query is then offloaded to a
-    thread (matching the established `asyncio.to_thread` pattern used by the
-    price-forecast API router) so the event loop is never blocked on a
-    long-running SQLite read.
-    """
-    from backend.core.prices import get_known_spot_by_slot
+    battery_cfg = active_config.get("system", {}).get("battery", active_config.get("battery", {}))
+    max_charge_kw, max_discharge_kw = resolve_battery_power_limits(active_config)
+    slot_hours = SLOT_MINUTES / 60.0
+    common: dict[str, Any] = {
+        "current_soc_kwh": current_soc_kwh,
+        "max_charge_kw": max_charge_kw,
+        "max_discharge_kw": max_discharge_kw,
+        "charge_efficiency": float(battery_cfg.get("charge_efficiency", 0.95)),
+        "discharge_efficiency": float(battery_cfg.get("discharge_efficiency", 0.95)),
+        "wear_cost_sek_kwh": float(
+            active_config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0)
+        ),
+        "slot_hours": slot_hours,
+    }
 
-    known_spot = await get_known_spot_by_slot()
-    return await asyncio.to_thread(
-        _fetch_price_floor_inputs_sync, db_path, timezone_name, known_spot
+    known_df = df[df.index >= now_slot]
+    known_index = cast("pd.DatetimeIndex", known_df.index)
+    known_slots = [
+        ReserveSlot(start=ts.to_pydatetime(), hours=slot_hours, price=float(price))
+        for ts, price in zip(known_index, known_df["import_price_sek_kwh"], strict=True)
+    ]
+    if not known_slots or price_horizon_end is None:
+        return PriceReserveInputs(known_slots=[], unseen_prices={}, **common)
+
+    from datetime import timedelta
+
+    tz = pytz.timezone(timezone_name)
+    slot = timedelta(minutes=SLOT_MINUTES)
+    window_start = price_horizon_end.to_pydatetime() + slot
+    window_end = window_start + timedelta(hours=24)
+    db_path = active_config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+    try:
+        spots, issue_timestamp = await asyncio.to_thread(
+            _fetch_unseen_forecast_sync, db_path, window_start, window_end, tz
+        )
+    except Exception as exc:
+        logger.warning("Price reserve: forecast read failed (%s); using deficit floor only", exc)
+        return PriceReserveInputs(
+            known_slots=known_slots, unseen_prices={}, error="forecast_read_error", **common
+        )
+
+    unseen_prices = {
+        slot_dt: spot_to_import_price(spot, active_config, slot_dt)
+        for slot_dt, spot in spots.items()
+    }
+    return PriceReserveInputs(
+        known_slots=known_slots,
+        unseen_prices=unseen_prices,
+        forecast_issue_timestamp=issue_timestamp,
+        **common,
     )
+
+
+def _log_price_reserve_event(debug: dict[str, Any]) -> None:
+    """Append a deduplicated price-reserve strategy event.
+
+    Logged only when the applied reserve moved by at least ``PRICE_RESERVE_EVENT_DELTA_KWH``
+    versus the last price-reserve event, or when it switched between active and
+    inactive. Never raises: failures are logged as warnings.
+    """
+    try:
+        from backend.strategy.history import append_strategy_event, get_strategy_history
+
+        applied = float(debug.get("price_reserve_applied_kwh") or 0.0)
+        active = applied > 0.0
+        prev_details: dict[str, Any] = {}
+        for event in get_strategy_history(limit=100):
+            details: dict[str, Any] = event.get("details") or {}
+            if details.get("kind") == "price_reserve":
+                prev_details = details
+                break
+        prev_active = bool(prev_details.get("active", False))
+        prev_applied = float(prev_details.get("price_reserve_applied_kwh", 0.0))
+        if active == prev_active and abs(applied - prev_applied) < PRICE_RESERVE_EVENT_DELTA_KWH:
+            return
+
+        if active:
+            known_cost = debug.get("known_cost_sek_kwh")
+            own_cost = debug.get("own_day_cost_sek_kwh")
+            message = (
+                f"Price reserve: SoC target raised by {applied:.1f} kWh to charge in the "
+                f"cheapest known hours ({known_cost:.2f} SEK/kWh) before a pricier unseen day "
+                f"(own cheapest {own_cost:.2f} SEK/kWh)"
+            )
+        else:
+            message = f"Price reserve inactive ({debug.get('price_reserve_reason')})"
+        append_strategy_event(
+            event_type="STRATEGY_CHANGE",
+            message=message,
+            details={
+                "kind": "price_reserve",
+                "active": active,
+                "price_reserve_applied_kwh": applied,
+                "price_reserve_kwh": debug.get("price_reserve_kwh"),
+                "price_reserve_reason": debug.get("price_reserve_reason"),
+                "known_cost_sek_kwh": debug.get("known_cost_sek_kwh"),
+                "own_day_cost_sek_kwh": debug.get("own_day_cost_sek_kwh"),
+                "unseen_window_start": debug.get("unseen_window_start"),
+                "unseen_window_end": debug.get("unseen_window_end"),
+            },
+        )
+    except Exception as exc:
+        logger.warning("Failed to log price reserve event: %s", exc)
 
 
 def _calculate_excess_pv_flags(
@@ -1415,6 +1421,15 @@ class PlannerPipeline:
             previous_schedule, enabled_heater_ids, now_slot, tz
         )
 
+        # Current real SoC from Home Assistant (price reserve and Kepler both start from it)
+        initial_state = input_data.get("initial_state", {})
+        initial_soc_kwh = float(
+            initial_state.get("battery_kwh", initial_state.get("battery_soc_kwh", 0.0))
+        )
+        if initial_soc_kwh == 0.0 and "battery_soc_percent" in initial_state:
+            cap = float(active_config.get("battery", {}).get("capacity_kwh", 0.0))
+            initial_soc_kwh = (float(initial_state["battery_soc_percent"]) / 100.0) * cap
+
         # 3. Strategy (S-Index & Safety Margins)
         s_index_debug: dict[str, Any] = {}
         effective_load_margin = 1.0
@@ -1483,16 +1498,15 @@ class PlannerPipeline:
 
             soc_debug: dict[str, Any] = {}
 
-            # Module 3: fetch price forecast data for the Layer 2 safety floor addon.
-            upcoming_spots: dict[int, float] | None = None
-            trailing_spot: float | None = None
-            if active_config.get("price_forecast", {}).get("enabled", False):
-                _db_path = active_config.get("learning", {}).get(
-                    "sqlite_path", "data/planner_learning.db"
-                )
-                upcoming_spots, trailing_spot, _ = await fetch_price_floor_inputs(
-                    _db_path, timezone_name
-                )
+            # Price reserve for the first unseen day (None when price forecasting is off).
+            price_reserve_inputs = await build_price_reserve_inputs(
+                active_config,
+                df,
+                now_slot,
+                price_horizon_end,
+                timezone_name,
+                initial_soc_kwh,
+            )
 
             target_soc_kwh, soc_debug = calculate_safety_floor(
                 df,
@@ -1504,9 +1518,10 @@ class PlannerPipeline:
                 ),
                 full_forecast_df=full_forecast_df,
                 price_horizon_end=price_horizon_end,
-                upcoming_daily_avg_spots=upcoming_spots,
-                trailing_avg_spot=trailing_spot,
+                price_reserve_inputs=price_reserve_inputs,
             )
+            if price_reserve_inputs is not None:
+                _log_price_reserve_event(soc_debug)
 
             # Derive percentage for UI/Legacy compatibility
             battery_cap = float(active_config.get("battery", {}).get("capacity_kwh", 13.5) or 13.5)
@@ -1543,7 +1558,6 @@ class PlannerPipeline:
             df["adjusted_load_kwh"] = df["load_forecast_kwh"]
 
         # 4. Per-device today's energy tracking (task 3.2)
-        initial_state = input_data.get("initial_state", {})
         # Look for per-device states first, fall back to distributing aggregate
         ha_water_states_raw: list[dict[str, Any]] = initial_state.get("water_heater_states", [])
         ha_water_today_total = float(initial_state.get("water_heated_today_kwh", 0.0))
@@ -1562,14 +1576,6 @@ class PlannerPipeline:
         # 5. Run Solver (Kepler)
         # CRITICAL: Only pass FUTURE slots to Kepler, starting from NOW with CURRENT real SoC
         # This ensures replanning during the day uses actual battery state, not midnight projection
-
-        # Get current real SoC from Home Assistant
-        initial_soc_kwh = float(
-            initial_state.get("battery_kwh", initial_state.get("battery_soc_kwh", 0.0))
-        )
-        if initial_soc_kwh == 0.0 and "battery_soc_percent" in initial_state:
-            cap = float(active_config.get("battery", {}).get("capacity_kwh", 0.0))
-            initial_soc_kwh = (float(initial_state["battery_soc_percent"]) / 100.0) * cap
 
         logger.info("Pipeline initial_soc_kwh: %.3f (real SoC from HA)", initial_soc_kwh)
 

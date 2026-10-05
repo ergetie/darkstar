@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import lightgbm as lgb
 import numpy as np
@@ -23,10 +23,13 @@ import pytz
 from sqlalchemy import create_engine, func, tuple_
 from sqlalchemy.orm import sessionmaker
 
-from backend.core.prices import calculate_import_export_prices
+from backend.core.prices import calculate_import_export_prices, get_known_spot_by_slot
 from backend.learning.models import PriceForecast
 from ml.price_features import build_price_features_batch
 from ml.weather import compute_regional_wind_index, get_regional_weather
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -80,14 +83,20 @@ async def generate_price_forecasts(
     config: dict[str, Any],
     db_path: str = "data/planner_learning.db",
     model_path: Path | None = None,
+    days_ahead_range: Iterable[int] = range(1, 8),
 ) -> list[dict[str, Any]]:
     """
-    Generate price forecasts for D+1 through D+7.
+    Generate price forecasts for the requested horizons (default D+1 through D+7).
+
+    Published Nordpool prices available at issue time feed the price lags of
+    slots whose source slot has no observation yet, and the end of the published
+    horizon is stored on every record as ``known_prices_until``.
 
     Args:
         config: Configuration dictionary
         db_path: Path to SQLite database for persisting forecasts
         model_path: Path to trained price model (if None, uses config)
+        days_ahead_range: Horizons (days ahead) to generate, e.g. ``range(2, 8)``
 
     Returns:
         List of forecast records with spot prices and weather features
@@ -139,12 +148,17 @@ async def generate_price_forecasts(
     all_forecasts: list[dict[str, Any]] = []
     issue_timestamp = now.isoformat()
 
+    known_spot = await _load_known_spot()
+    known_prices_until = (
+        (max(known_spot) + timedelta(minutes=15)).astimezone(tz).isoformat() if known_spot else None
+    )
+
     engine = create_engine(f"sqlite:///{db_path}")
     SessionLocal = sessionmaker(bind=engine)
     lag_session = SessionLocal()
 
     try:
-        for days_ahead in range(1, 8):  # D+1 to D+7
+        for days_ahead in days_ahead_range:
             forecast_date = now.date() + timedelta(days=days_ahead)
             start_time = datetime.combine(forecast_date, datetime.min.time())
             start_time = tz.localize(start_time)
@@ -194,6 +208,7 @@ async def generate_price_forecasts(
                     days_ahead=days_ahead,
                     db_session=lag_session,
                     weather_df=weather_df,
+                    known_spot=known_spot,
                 )
 
                 if feature_df.empty:
@@ -257,6 +272,7 @@ async def generate_price_forecasts(
                         "temperature_c": row.get("temperature_c"),
                         "cloud_cover": row.get("cloud_cover"),
                         "radiation_wm2": row.get("radiation_wm2"),
+                        "known_prices_until": known_prices_until,
                     }
 
                     all_forecasts.append(forecast_record)
@@ -273,6 +289,15 @@ async def generate_price_forecasts(
         logger.info("Generated and persisted %d price forecasts", len(all_forecasts))
 
     return all_forecasts
+
+
+async def _load_known_spot() -> dict[datetime, float]:
+    """Published spot prices at issue time; empty when unavailable."""
+    try:
+        return await get_known_spot_by_slot()
+    except Exception as exc:
+        logger.warning("Published prices unavailable for price lags: %s", exc)
+        return {}
 
 
 def _persist_forecasts(forecasts: list[dict[str, Any]], db_path: str) -> None:
@@ -303,6 +328,7 @@ def _persist_forecasts(forecasts: list[dict[str, Any]], db_path: str) -> None:
                 temperature_c=forecast.get("temperature_c"),
                 cloud_cover=forecast.get("cloud_cover"),
                 radiation_wm2=forecast.get("radiation_wm2"),
+                known_prices_until=forecast.get("known_prices_until"),
             )
             session.add(pf)
 

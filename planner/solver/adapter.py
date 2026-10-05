@@ -431,6 +431,34 @@ def resolve_solver_time_limit_s(kepler_section: dict[str, Any]) -> int:
     return clamped
 
 
+def resolve_battery_power_limits(planner_config: dict[str, Any]) -> tuple[float, float]:
+    """
+    Resolve the battery (charge_kw, discharge_kw) limits the solver plans with.
+
+    Single source of truth shared by the solver adapter and the price reserve.
+    Watt control unit uses ``max_charge_w`` / ``max_discharge_w``; Ampere mode
+    (default) multiplies ``max_charge_a`` / ``max_discharge_a`` by the battery's
+    nominal voltage (48 V when unset). Missing limits resolve to 0.0.
+    """
+    system = planner_config.get("system", {})
+    battery = system.get("battery", planner_config.get("battery", {}))
+    inverter_cfg = planner_config.get("executor", {}).get("inverter", {})
+    control_unit = inverter_cfg.get("control_unit", "A")
+
+    if control_unit == "W":
+        return (
+            float(battery.get("max_charge_w", 0.0)) / 1000.0,
+            float(battery.get("max_discharge_w", 0.0)) / 1000.0,
+        )
+
+    # Amps mode - use nominal voltage for planning
+    voltage = float(battery.get("nominal_voltage_v", battery.get("system_voltage_v", 48.0)))
+    return (
+        float(battery.get("max_charge_a", 0.0)) * voltage / 1000.0,
+        float(battery.get("max_discharge_a", 0.0)) * voltage / 1000.0,
+    )
+
+
 def config_to_kepler_config(
     planner_config: dict[str, Any],
     overrides: dict[str, Any] | None = None,
@@ -497,19 +525,8 @@ def config_to_kepler_config(
     )
     resolved_wear_cost = get_val("wear_cost_sek_per_kwh", battery_cycle_cost_kwh)
 
-    # Dynamic Power Limits (Rev F17)
-    # Hardware limits (Amps or Watts) drive the Optimizer limits (kW)
-    inverter_cfg = planner_config.get("executor", {}).get("inverter", {})
-    control_unit = inverter_cfg.get("control_unit", "A")
-
-    if control_unit == "W":
-        max_charge_kw = float(battery.get("max_charge_w", 0.0)) / 1000.0
-        max_discharge_kw = float(battery.get("max_discharge_w", 0.0)) / 1000.0
-    else:
-        # Amps mode - use nominal voltage for planning
-        voltage = float(battery.get("nominal_voltage_v", battery.get("system_voltage_v", 48.0)))
-        max_charge_kw = (float(battery.get("max_charge_a", 0.0)) * voltage) / 1000.0
-        max_discharge_kw = (float(battery.get("max_discharge_a", 0.0)) * voltage) / 1000.0
+    # Dynamic Power Limits (Rev F17): hardware limits (Amps or Watts) drive the optimizer (kW)
+    max_charge_kw, max_discharge_kw = resolve_battery_power_limits(planner_config)
 
     kepler_cfg = KeplerConfig(
         capacity_kwh=capacity,

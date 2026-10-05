@@ -1,10 +1,34 @@
-# S-Index Price Awareness
+## REMOVED Requirements
 
-## Purpose
+### Requirement: Price floor addon calculation
+**Reason**: The daily-average spread signal was measured on production data to be worth ~0 SEK/month and to lose money on ~40% of days; it is replaced by the first-unseen-day price reserve.
+**Migration**: None for users. The price-driven part of the target SoC is now computed by "Price reserve for the first unseen day".
 
-Store cheap energy for the first day the planner cannot see prices for, by raising the end-of-horizon SoC target (price reserve) when forecast prices show that charging in the cheapest known hours beats buying later, sized from the user's own battery, fee and risk settings and combined with the deficit-based safety floor.
+### Requirement: Proximity-weighted peak price signal
+**Reason**: Replaced; the new rule uses only the first unseen day's cheapest charging hours, not a weighted 7-day spread.
+**Migration**: None.
 
-## Requirements
+### Requirement: Two-tier safety floor architecture (asymmetric, additive only)
+**Reason**: The additive combination is replaced by a max() combination that cannot double-count energy already reserved by the deficit floor.
+**Migration**: See "Combination with the deficit-based safety floor".
+
+### Requirement: Risk-level scaling via RISK_PRICE_KW_FRACTION
+**Reason**: Replaced by a risk-dependent profitability threshold.
+**Migration**: See "Risk-dependent profitability threshold".
+
+### Requirement: Price floor addon debug output
+**Reason**: Replaced by price reserve debug output.
+**Migration**: See "Price reserve debug output". The `price_addon_*`, `price_spread_sek`, `raw_spread_sek`, `driving_day_offset`, `proximity_weight`, `peak_upcoming_spot_sek`, `trailing_avg_spot_sek` and `price_reserve_fraction` debug keys are removed.
+
+### Requirement: Strategy event logging for significant price-driven floor increases
+**Reason**: Logged on every planner run (event spam); replaced by a deduplicated event.
+**Migration**: See "Deduplicated price reserve strategy event".
+
+### Requirement: Pipeline integration for price forecast data
+**Reason**: The daily-average and trailing-average inputs are no longer used.
+**Migration**: See "Pipeline integration of the price reserve".
+
+## ADDED Requirements
 
 ### Requirement: Price reserve for the first unseen day
 On every planner run in `full` mode with `price_forecast.enabled: true`, the system SHALL compute a price reserve (kWh, battery-side) for the **unseen window**: the 24 hours immediately after the end of the published-price horizon (the same window the deficit-based safety floor looks at). The reserve SHALL use, for every unseen-window slot, the latest-issue `spot_p50` forecast converted to an import price with the user's own pricing configuration (VAT, energy tax, flat or time-of-use transfer fee for that slot), and, for every **known-window** slot (from the current slot to the end of the published-price horizon), the planner's own import price.

@@ -183,5 +183,63 @@ def test_add_price_lag_features_masks_by_issue_time_knowability(tmp_path):
     assert row_b["price_lag_7d"] == pytest.approx(0.5)
 
 
+def _seed_observations(db_path, timestamps):
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    for ts in timestamps:
+        session.add(
+            SlotObservation(
+                slot_start=ts.isoformat(),
+                slot_end=(ts + pd.Timedelta(minutes=15)).isoformat(),
+                export_price_sek_kwh=0.5,
+            )
+        )
+    session.commit()
+    session.close()
+    engine.dispose()
+
+
+def test_add_price_lag_features_uses_known_prices_until(tmp_path):
+    """A lag whose source slot is after issue time but before known_prices_until is
+    knowable (published); null known_prices_until keeps the legacy issue-time rule."""
+    db_path = str(tmp_path / "test.db")
+    tz = pytz.timezone("Europe/Stockholm")
+    slot = tz.localize(pd.Timestamp(2026, 4, 12, 12).to_pydatetime())
+    issue = tz.localize(pd.Timestamp(2026, 4, 10, 13, 30).to_pydatetime())
+    source_1d = slot - pd.Timedelta(days=1)  # D+1 slot, published at issue
+    end_of_d1 = tz.localize(pd.Timestamp(2026, 4, 12, 0).to_pydatetime())
+
+    _seed_observations(
+        db_path,
+        [source_1d, slot - pd.Timedelta(days=7), source_1d - pd.Timedelta(hours=1)],
+    )
+
+    df = pd.DataFrame(
+        {
+            "slot_start": [slot, slot, slot],
+            "issue_timestamp": [issue, issue, issue],
+            "known_prices_until": [
+                pd.Timestamp(end_of_d1),  # covers source_1d (2026-04-11 12:00)
+                pd.NaT,  # legacy row
+                pd.Timestamp(tz.localize(pd.Timestamp(2026, 4, 11, 12).to_pydatetime())),
+            ],
+            "days_ahead": [2, 2, 2],
+        }
+    )
+    result = _add_price_lag_features(df, db_path)
+
+    published, legacy, boundary = result.iloc[0], result.iloc[1], result.iloc[2]
+    assert published["price_lag_1d"] == pytest.approx(0.5)
+    assert published["price_lag_24h_avg"] == pytest.approx(0.5)
+    assert pd.isna(legacy["price_lag_1d"])
+    assert pd.isna(legacy["price_lag_24h_avg"])
+    # Horizon end is exclusive: a source starting exactly at known_prices_until is unknowable
+    assert pd.isna(boundary["price_lag_1d"])
+    # 7-day lag precedes issue time in every case
+    assert published["price_lag_7d"] == pytest.approx(0.5)
+    assert legacy["price_lag_7d"] == pytest.approx(0.5)
+
+
 if __name__ == "__main__":
     unittest.main()

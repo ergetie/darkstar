@@ -238,6 +238,8 @@ class PriceForecast(Base):
     temperature_c: Mapped[float | None] = mapped_column(Float)
     cloud_cover: Mapped[float | None] = mapped_column(Float)
     radiation_wm2: Mapped[float | None] = mapped_column(Float)
+    # End (exclusive, ISO) of the published-price horizon available at issue time
+    known_prices_until: Mapped[str | None] = mapped_column(String, nullable=True)
 
     __table_args__ = (
         sa.Index("ix_price_forecasts_slot_start_issue_timestamp", "slot_start", "issue_timestamp"),

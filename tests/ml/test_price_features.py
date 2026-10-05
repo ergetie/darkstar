@@ -232,5 +232,67 @@ def test_inference_wiring_populates_lag_from_observation(db_session):
     assert pd.isna(row_missing["price_lag_1d"])
 
 
+def test_published_d1_prices_feed_d2_lags(db_session):
+    """A D+2 slot whose D+1 source slot is published but not observed uses the
+    published spot for price_lag_1d and the 24h average; an unpublished source stays NaN."""
+    tz = pytz.timezone("Europe/Stockholm")
+    d2_slot = tz.localize(datetime(2026, 4, 12, 12, 0))
+    d1_source = d2_slot - timedelta(days=1)
+    known_spot = {}
+    cursor = d1_source - timedelta(hours=23)
+    while cursor <= d1_source:
+        known_spot[cursor] = 0.30
+        cursor += timedelta(minutes=15)
+    known_spot[d1_source] = 0.60
+
+    df = build_price_features_batch(
+        start_time=d2_slot,
+        end_time=d2_slot + timedelta(minutes=15),
+        days_ahead=2,
+        db_session=db_session,
+        known_spot=known_spot,
+    )
+    row = df.loc[d2_slot.isoformat()]
+    assert row["price_lag_1d"] == pytest.approx(0.60)
+    assert not pd.isna(row["price_lag_24h_avg"])
+    assert 0.30 < row["price_lag_24h_avg"] < 0.60
+    # Nothing published a week earlier and nothing observed
+    assert pd.isna(row["price_lag_7d"])
+
+    # D+3 slot: its source (D+2) is neither observed nor published
+    d3_slot = d2_slot + timedelta(days=1)
+    df_d3 = build_price_features_batch(
+        start_time=d3_slot,
+        end_time=d3_slot + timedelta(minutes=15),
+        days_ahead=3,
+        db_session=db_session,
+        known_spot=known_spot,
+    )
+    assert pd.isna(df_d3.loc[d3_slot.isoformat()]["price_lag_1d"])
+
+
+def test_observation_wins_over_published_price(db_session):
+    tz = pytz.timezone("Europe/Stockholm")
+    slot = tz.localize(datetime(2026, 4, 12, 12, 0))
+    source = slot - timedelta(days=1)
+    db_session.add(
+        SlotObservation(
+            slot_start=source.isoformat(),
+            slot_end=(source + timedelta(minutes=15)).isoformat(),
+            export_price_sek_kwh=0.42,
+        )
+    )
+    db_session.commit()
+
+    df = build_price_features_batch(
+        start_time=slot,
+        end_time=slot + timedelta(minutes=15),
+        days_ahead=1,
+        db_session=db_session,
+        known_spot={source: 0.99},
+    )
+    assert df.loc[slot.isoformat()]["price_lag_1d"] == pytest.approx(0.42)
+
+
 if __name__ == "__main__":
     unittest.main()

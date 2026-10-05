@@ -15,6 +15,7 @@ from planner.solver.adapter import (
     build_water_heater_inputs,
     config_to_kepler_config,
     planner_to_kepler_input,
+    resolve_battery_power_limits,
 )
 
 
@@ -226,7 +227,12 @@ class TestBuildEvChargerInputs:
                 "rated_power_kw": 11.0,
                 "battery_capacity_kwh": 82.0,
             },
-            {"id": "charger_b", "enabled": True, "rated_power_kw": 7.4, "battery_capacity_kwh": 40.0},
+            {
+                "id": "charger_b",
+                "enabled": True,
+                "rated_power_kw": 7.4,
+                "battery_capacity_kwh": 40.0,
+            },
         ]
         states = [
             {"id": "charger_a", "soc_percent": 75.0, "plugged_in": True},
@@ -561,7 +567,10 @@ class TestKeplerConfigWithARC15:
 
         kepler_cfg = config_to_kepler_config(config)
 
-        assert kepler_cfg.wear_cost_sek_per_kwh >= config["battery_economics"]["battery_cycle_cost_kwh"]
+        assert (
+            kepler_cfg.wear_cost_sek_per_kwh
+            >= config["battery_economics"]["battery_cycle_cost_kwh"]
+        )
 
 
 class TestKeplerInputConversion:
@@ -679,3 +688,48 @@ class TestKeplerInputConversion:
         assert result.slots[0].pv_kwh == 2.0, (
             f"PV should not be clipped, expected 2.0 kWh, got {result.slots[0].pv_kwh}"
         )
+
+
+class TestResolveBatteryPowerLimits:
+    """The shared resolver gives the solver and the price reserve the same limits."""
+
+    def test_ampere_mode_uses_nominal_voltage(self):
+        config = {
+            "executor": {"inverter": {"control_unit": "A"}},
+            "system": {
+                "battery": {"max_charge_a": 185, "max_discharge_a": 166, "nominal_voltage_v": 48}
+            },
+        }
+        charge_kw, discharge_kw = resolve_battery_power_limits(config)
+        assert charge_kw == pytest.approx(8.88)
+        assert discharge_kw == pytest.approx(7.968)
+
+    def test_ampere_mode_is_default_and_voltage_defaults_to_48(self):
+        config = {"battery": {"max_charge_a": 100, "max_discharge_a": 50}}
+        assert resolve_battery_power_limits(config) == pytest.approx((4.8, 2.4))
+
+    def test_watt_mode(self):
+        config = {
+            "executor": {"inverter": {"control_unit": "W"}},
+            "system": {"battery": {"max_charge_w": 5000, "max_discharge_w": 4000}},
+        }
+        assert resolve_battery_power_limits(config) == (5.0, 4.0)
+
+    def test_missing_values_resolve_to_zero(self):
+        assert resolve_battery_power_limits({}) == (0.0, 0.0)
+        assert resolve_battery_power_limits({"executor": {"inverter": {"control_unit": "W"}}}) == (
+            0.0,
+            0.0,
+        )
+
+    def test_adapter_uses_the_shared_resolver(self):
+        config = {
+            "executor": {"inverter": {"control_unit": "A"}},
+            "system": {
+                "battery": {"max_charge_a": 185, "max_discharge_a": 166, "nominal_voltage_v": 48}
+            },
+        }
+        kepler = config_to_kepler_config(config)
+        charge_kw, discharge_kw = resolve_battery_power_limits(config)
+        assert kepler.max_charge_power_kw == charge_kw
+        assert kepler.max_discharge_power_kw == discharge_kw

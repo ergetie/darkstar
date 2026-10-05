@@ -139,6 +139,7 @@ def _build_training_dataset(db_path: str) -> pd.DataFrame | None:
                 pf.temperature_c,
                 pf.cloud_cover,
                 pf.radiation_wm2,
+                pf.known_prices_until,
                 so.export_price_sek_kwh
             FROM price_forecasts pf
             INNER JOIN slot_observations so ON pf.slot_start = so.slot_start
@@ -163,6 +164,7 @@ def _build_training_dataset(db_path: str) -> pd.DataFrame | None:
                 "temperature_c",
                 "cloud_cover",
                 "radiation_wm2",
+                "known_prices_until",
                 "export_price_sek_kwh",
             ],
         )
@@ -172,6 +174,9 @@ def _build_training_dataset(db_path: str) -> pd.DataFrame | None:
         # Parse timestamps
         df["slot_start"] = pd.to_datetime(df["slot_start"], format="ISO8601", utc=True)
         df["issue_timestamp"] = pd.to_datetime(df["issue_timestamp"], format="ISO8601", utc=True)
+        df["known_prices_until"] = pd.to_datetime(
+            df["known_prices_until"], format="ISO8601", utc=True
+        )
 
         # Add calendar features
         df = _add_calendar_features(df)
@@ -203,9 +208,10 @@ def _add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
 def _add_price_lag_features(df: pd.DataFrame, db_path: str) -> pd.DataFrame:
     """Add price lag features (1d, 7d, 24h avg) from slot_observations.
 
-    Each lag is masked to NaN unless its source timestamp strictly precedes
-    the row's issue_timestamp, so training never sees a value that wouldn't
-    have been knowable at forecast issue time.
+    Each lag is masked to NaN unless its source timestamp was knowable when the
+    row was issued: it strictly precedes the row's issue_timestamp, or the row
+    recorded a published-price horizon (known_prices_until) that covers it.
+    Rows without known_prices_until (legacy rows) use the issue_timestamp rule only.
     """
     df = df.copy()
 
@@ -222,10 +228,11 @@ def _add_price_lag_features(df: pd.DataFrame, db_path: str) -> pd.DataFrame:
         for idx, row in df.iterrows():
             slot_start = row["slot_start"]
             issue_timestamp = row["issue_timestamp"]
+            known_until = row.get("known_prices_until")
 
-            # Price lag 1 day ago — only knowable if its timestamp precedes issue time
+            # Price lag 1 day ago — only knowable if observed or published at issue time
             lag_1d = slot_start - timedelta(days=1)
-            lag_1d_knowable = lag_1d < issue_timestamp
+            lag_1d_knowable = _lag_knowable(lag_1d, issue_timestamp, known_until)
             if lag_1d_knowable:
                 result = (
                     session.query(SlotObservation)
@@ -235,9 +242,9 @@ def _add_price_lag_features(df: pd.DataFrame, db_path: str) -> pd.DataFrame:
                 if result and result.export_price_sek_kwh is not None:
                     df.at[idx, "price_lag_1d"] = result.export_price_sek_kwh
 
-            # Price lag 7 days ago — only knowable if its timestamp precedes issue time
+            # Price lag 7 days ago — only knowable if observed or published at issue time
             lag_7d = slot_start - timedelta(days=7)
-            if lag_7d < issue_timestamp:
+            if _lag_knowable(lag_7d, issue_timestamp, known_until):
                 result = (
                     session.query(SlotObservation)
                     .filter(SlotObservation.slot_start == lag_7d.isoformat())
@@ -246,7 +253,7 @@ def _add_price_lag_features(df: pd.DataFrame, db_path: str) -> pd.DataFrame:
                 if result and result.export_price_sek_kwh is not None:
                     df.at[idx, "price_lag_7d"] = result.export_price_sek_kwh
 
-            # Trailing 24-hour average — whole window masked unless its end (lag_1d) precedes issue time
+            # Trailing 24-hour average — whole window masked unless its end (lag_1d) was knowable at issue time
             if lag_1d_knowable:
                 trailing_start = lag_1d - timedelta(hours=23)
                 results = (
@@ -273,6 +280,21 @@ def _add_price_lag_features(df: pd.DataFrame, db_path: str) -> pd.DataFrame:
         print(f"Warning: Error computing price lags: {exc}")
 
     return df
+
+
+def _lag_knowable(
+    source: pd.Timestamp,
+    issue_timestamp: pd.Timestamp,
+    known_prices_until: pd.Timestamp | None,
+) -> bool:
+    """Whether a lag source slot was knowable when the forecast row was issued."""
+    if source < issue_timestamp:
+        return True
+    return (
+        known_prices_until is not None
+        and not pd.isna(known_prices_until)
+        and (source < known_prices_until)
+    )
 
 
 def _is_swedish_holiday(dt: datetime) -> bool:

@@ -13,27 +13,18 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 import pytz
 
+from planner.strategy.price_reserve import (
+    PriceReserveResult,
+    evaluate_price_reserve,
+    inactive_price_reserve,
+    reserve_threshold_sek,
+)
 from utils.time_utils import dst_safe_localize
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-
-# Risk-level scaling for the price floor addon (Module 3, design Decision 4).
-# Fraction of battery capacity added to the safety floor per 1 SEK/kWh weighted
-# spread. Risk appetite is the single user-facing lever — no config knob.
-RISK_PRICE_KW_FRACTION: dict[int, float] = {
-    1: 0.15,  # Safety:       15% of capacity per SEK/kWh weighted spread
-    2: 0.12,  # Conservative: 12% of capacity per SEK/kWh weighted spread
-    3: 0.10,  # Neutral:      10% of capacity per SEK/kWh weighted spread
-    4: 0.05,  # Aggressive:    5% of capacity per SEK/kWh weighted spread
-    5: 0.02,  # Gambler:       2% of capacity per SEK/kWh weighted spread
-}
-
-# Time-proximity decay for the price signal: weight(d) = 0.5 ** ((d - 1) / half_life).
-# Half-life 2 days matches the battery's realistic 1-2 day bridging horizon
-# (a spike counts fully at D+1, half at D+3, ~13% at D+7). See design Decision 2.
-PRICE_PROXIMITY_HALF_LIFE_DAYS: float = 2.0
+    from planner.strategy.price_reserve import PriceReserveInputs
 
 
 async def calculate_dynamic_s_index(
@@ -378,91 +369,6 @@ def calculate_temporal_deficit(df: pd.DataFrame) -> float:
     return float(slot_deficit.sum())
 
 
-def calculate_price_floor_addon(
-    upcoming_daily_avg_spots: dict[int, float],  # days-ahead (1..7) -> avg spot p50 (SEK/kWh)
-    trailing_avg_spot: float | None,  # 14-day trailing avg (SEK/kWh)
-    capacity_kwh: float,
-    risk_appetite: int,
-) -> tuple[float, dict[str, Any]]:
-    """
-    Compute the price-driven safety floor addon (Module 3, design Decision 2/3/4).
-
-    The addon is `capacity_kwh * weighted_spread_sek * risk_fraction`, where the
-    weighted spread is the maximum proximity-weighted daily spread across forecast
-    days D+1..D+7 against the trailing 14-day average. The signal may be negative
-    (cheap period ahead) — the caller clamps it to zero effect (additive only).
-
-    Args:
-        upcoming_daily_avg_spots: days-ahead offset (int) -> daily avg spot p50.
-        trailing_avg_spot: 14-day trailing average spot price (SEK/kWh), or None.
-        capacity_kwh: Battery capacity in kWh.
-        risk_appetite: Risk appetite level (1..5).
-
-    Returns:
-        Tuple of (price_addon_kwh, debug_dict). The addon may be negative; it is
-        the caller's responsibility to clamp it asymmetrically when applying it to
-        the safety floor. The debug dict reports ``price_adjustment_active`` and
-        either the full computation details or a reason for inactivity.
-    """
-    if not upcoming_daily_avg_spots:
-        return 0.0, {
-            "price_adjustment_active": False,
-            "price_adjustment_reason": "insufficient_forecast_data",
-        }
-    if trailing_avg_spot is None or trailing_avg_spot <= 0:
-        return 0.0, {
-            "price_adjustment_active": False,
-            "price_adjustment_reason": "insufficient_historical_data",
-        }
-
-    driving_day = 0
-    raw_spread_sek = 0.0
-    proximity_weight = 0.0
-    weighted_spread_sek: float | None = None
-    driving_day_spot = 0.0
-
-    for d, spot in upcoming_daily_avg_spots.items():
-        try:
-            d_int = int(d)
-            spot_f = float(spot)
-        except (TypeError, ValueError):
-            continue
-        if d_int <= 0 or spot_f < 0:
-            continue
-
-        weight_d = 0.5 ** ((d_int - 1) / PRICE_PROXIMITY_HALF_LIFE_DAYS)
-        spread_d = (spot_f - trailing_avg_spot) * weight_d
-
-        if weighted_spread_sek is None or spread_d > weighted_spread_sek:
-            weighted_spread_sek = spread_d
-            driving_day = d_int
-            raw_spread_sek = spot_f - trailing_avg_spot
-            proximity_weight = weight_d
-            driving_day_spot = spot_f
-
-    if weighted_spread_sek is None:
-        return 0.0, {
-            "price_adjustment_active": False,
-            "price_adjustment_reason": "insufficient_forecast_data",
-        }
-
-    risk_fraction = RISK_PRICE_KW_FRACTION.get(risk_appetite, 0.10)
-    price_addon_kwh = capacity_kwh * weighted_spread_sek * risk_fraction
-
-    debug: dict[str, Any] = {
-        "price_adjustment_active": True,
-        "price_spread_sek": weighted_spread_sek,
-        "raw_spread_sek": raw_spread_sek,
-        "driving_day_offset": driving_day,
-        "proximity_weight": proximity_weight,
-        "peak_upcoming_spot_sek": driving_day_spot,
-        "trailing_avg_spot_sek": trailing_avg_spot,
-        "price_addon_kwh": price_addon_kwh,
-        "price_reserve_fraction": risk_fraction,
-    }
-    return price_addon_kwh, debug
-
-
 def calculate_safety_floor(
     df: pd.DataFrame,
     battery_config: dict[str, Any],
@@ -471,8 +377,7 @@ def calculate_safety_floor(
     fetch_temperature_fn: Callable[[list[int], Any], Any] | None = None,
     full_forecast_df: pd.DataFrame | None = None,
     price_horizon_end: datetime | pd.Timestamp | None = None,
-    upcoming_daily_avg_spots: dict[int, float] | None = None,  # days-ahead (1..7) -> avg spot p50
-    trailing_avg_spot: float | None = None,
+    price_reserve_inputs: PriceReserveInputs | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """
     Calculate the Safety Floor (Min kWh) based on Temporal Deficit.
@@ -493,16 +398,14 @@ def calculate_safety_floor(
         fetch_temperature_fn: Callback for weather data
         full_forecast_df: Full forecast DataFrame extending beyond price horizon
         price_horizon_end: Timestamp where price data ends (start of look-ahead window)
-        upcoming_daily_avg_spots: Optional days-ahead (1..7) -> daily avg spot p50 map.
-            When provided alongside ``trailing_avg_spot`` and ``price_forecast.enabled``
-            is true, a Layer 2 price addon is applied to the capped safety floor.
-            The addon is additive only (negative addons clamp to zero effect).
-        trailing_avg_spot: Optional 14-day trailing average spot price (SEK/kWh).
+        price_reserve_inputs: Inputs for the first-unseen-day price reserve, or None
+            when price forecasting is disabled (the reserve is then 0).
 
     Returns:
-        Tuple of (final_floor_kwh, debug_data). When price data is provided the
-        returned value includes the Layer 2 addon; otherwise it equals the existing
-        Layer 1 ``safety_floor_kwh`` byte-for-byte.
+        Tuple of (final_floor_kwh, debug_data). The final floor is
+        ``max(safety_floor, min_soc + price_reserve)`` clamped to
+        ``[min_soc, max_soc]``: the reserve never lowers the deficit-based floor
+        and is never added on top of it.
     """
     import logging
 
@@ -512,6 +415,8 @@ def calculate_safety_floor(
     capacity_kwh = float(battery_config.get("capacity_kwh", 13.5))
     min_soc_pct = float(battery_config.get("min_soc_percent", 5.0))
     min_soc_kwh = (min_soc_pct / 100.0) * capacity_kwh
+
+    max_soc_kwh = (float(battery_config.get("max_soc_percent", 100.0)) / 100.0) * capacity_kwh
 
     risk_appetite = int(s_index_cfg.get("risk_appetite", 3))
 
@@ -575,8 +480,15 @@ def calculate_safety_floor(
             "min_soc_kwh": round(min_soc_kwh, 2),
             "calculated_floor_kwh": round(safety_floor_kwh, 2),
             "fallback": "no_data",
-            "price_adjustment_active": False,
-            "price_adjustment_reason": "disabled_or_no_data",
+            **_price_reserve_debug(
+                inactive_price_reserve("no_known_window"),
+                risk_appetite,
+                None,
+                None,
+                safety_floor_kwh,
+                safety_floor_kwh,
+                None,
+            ),
         }
     else:
         # Has data but no DatetimeIndex (e.g., test DataFrames)
@@ -706,53 +618,61 @@ def calculate_safety_floor(
         "calculated_floor_kwh": round(safety_floor_kwh, 2),
     }
 
-    # Layer 2: price floor addon (applied after existing 20% cap, additive only).
-    # The price signal can only RAISE the floor, never lower it. A negative addon
-    # (cheap period ahead) is computed for debug visibility but clamped to zero
-    # effect so price optimisation never undercuts the deficit-based safety floor.
-    final_floor_kwh = safety_floor_kwh
-    if upcoming_daily_avg_spots is not None and trailing_avg_spot is not None:
-        price_addon_kwh, price_debug = calculate_price_floor_addon(
-            upcoming_daily_avg_spots, trailing_avg_spot, capacity_kwh, risk_appetite
-        )
-        # Asymmetric clamp: lower bound is the Layer 1 safety floor, not min_soc.
-        final_floor_kwh = max(
+    # Price reserve for the first unseen day (the 24 h after the price horizon, the
+    # same window as the deficit above). Combined with max(), never added: the
+    # deficit floor already reserves energy for that same window.
+    reserve = evaluate_price_reserve(
+        price_reserve_inputs,
+        full_forecast_df,
+        lookahead_start,
+        lookahead_end,
+        risk_appetite=risk_appetite,
+        min_soc_kwh=min_soc_kwh,
+        max_soc_kwh=max_soc_kwh,
+    )
+    final_floor_kwh = max(
+        min_soc_kwh, min(max_soc_kwh, max(safety_floor_kwh, min_soc_kwh + reserve.reserve_kwh))
+    )
+
+    debug.update(
+        _price_reserve_debug(
+            reserve,
+            risk_appetite,
+            lookahead_start,
+            lookahead_end,
             safety_floor_kwh,
-            min(safety_floor_kwh + price_addon_kwh, 0.80 * capacity_kwh),
+            final_floor_kwh,
+            price_reserve_inputs.forecast_issue_timestamp if price_reserve_inputs else None,
         )
-        debug.update(price_debug)
-        debug["price_addon_applied_kwh"] = final_floor_kwh - safety_floor_kwh
-        debug["final_floor_kwh"] = round(final_floor_kwh, 2)
-
-        # Strategy log: only when the floor is meaningfully raised (negative addons
-        # produce no event since they have no effect on the floor).
-        if price_addon_kwh >= 0.5:
-            try:
-                from backend.strategy.history import append_strategy_event
-
-                peak_upcoming_sek = float(price_debug.get("peak_upcoming_spot_sek", 0.0))
-                raw_spread_sek = float(price_debug.get("raw_spread_sek", 0.0))
-                weighted_spread_sek = float(price_debug.get("price_spread_sek", 0.0))
-                driving_day = int(price_debug.get("driving_day_offset", 0))
-                append_strategy_event(
-                    event_type="STRATEGY_CHANGE",
-                    message=(
-                        f"Price signal: {peak_upcoming_sek:.2f} SEK/kWh forecast in D+{driving_day} "
-                        f"({raw_spread_sek:+.2f} vs trailing avg, {weighted_spread_sek:+.2f} weighted) "
-                        f"→ floor raised by {price_addon_kwh:.1f} kWh"
-                    ),
-                    details={
-                        "price_spread_sek": weighted_spread_sek,
-                        "raw_spread_sek": raw_spread_sek,
-                        "driving_day_offset": driving_day,
-                        "price_addon_kwh": price_addon_kwh,
-                        "peak_upcoming_spot_sek": peak_upcoming_sek,
-                    },
-                )
-            except Exception as exc:
-                logger.warning("Failed to log price strategy event: %s", exc)
-    else:
-        debug["price_adjustment_active"] = False
-        debug["price_adjustment_reason"] = "disabled_or_no_data"
+    )
 
     return final_floor_kwh, debug
+
+
+def _price_reserve_debug(
+    reserve: PriceReserveResult,
+    risk_appetite: int,
+    window_start: datetime | pd.Timestamp | None,
+    window_end: datetime | pd.Timestamp | None,
+    safety_floor_kwh: float,
+    final_floor_kwh: float,
+    forecast_issue_timestamp: str | None,
+) -> dict[str, Any]:
+    """Price reserve debug fields; every key is present whether or not the reserve is active."""
+    applied = max(0.0, final_floor_kwh - safety_floor_kwh)
+    debug: dict[str, Any] = {
+        "price_reserve_active": reserve.active,
+        "price_reserve_reason": reserve.reason,
+        "price_reserve_threshold_sek": reserve_threshold_sek(risk_appetite),
+        "unseen_window_start": str(window_start) if window_start is not None else None,
+        "unseen_window_end": str(window_end) if window_end is not None else None,
+        "known_cost_sek_kwh": reserve.known_cost_sek_kwh,
+        "own_day_cost_sek_kwh": reserve.own_day_cost_sek_kwh,
+        "price_reserve_kwh": round(reserve.reserve_kwh, 3),
+        "price_reserve_applied_kwh": round(applied, 3),
+        "forecast_issue_timestamp": forecast_issue_timestamp,
+        "final_floor_kwh": round(final_floor_kwh, 2),
+    }
+    if reserve.capped_by is not None:
+        debug["price_reserve_capped_by"] = reserve.capped_by
+    return debug
