@@ -241,6 +241,105 @@ system:
         assert template_cfg["system"]["id"] == "user_id"
 
 
+class TestTemplateMergeSizeStable:
+    """Repeated template merges must be byte-stable and take comments only from the template."""
+
+    EMPTY_PRIORITY = "    priority: []"
+    POPULATED_PRIORITY = "    priority:\n      - type: water_heater_boost"
+    EXAMPLE_MARKER = "# Example showing all three entry types"
+
+    @staticmethod
+    def _yaml():
+        from ruamel.yaml import YAML
+
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        yaml.indent(mapping=2, sequence=4, offset=2)
+        yaml.width = 4096
+        return yaml
+
+    @classmethod
+    def _merge_cycle(cls, template_text: str, user_text: str) -> str:
+        import io
+
+        from backend.config_migration import template_aware_merge
+
+        yaml = cls._yaml()
+        template_cfg = yaml.load(template_text)
+        user_cfg = yaml.load(user_text)
+        template_aware_merge(template_cfg, user_cfg)
+        buf = io.StringIO()
+        yaml.dump(template_cfg, buf)
+        return buf.getvalue()
+
+    @classmethod
+    def _template_text(cls) -> str:
+        return (Path(__file__).resolve().parents[2] / "config.default.yaml").read_text(
+            encoding="utf-8"
+        )
+
+    @classmethod
+    def _populated_user_text(cls, template_text: str) -> str:
+        assert cls.EMPTY_PRIORITY in template_text
+        return template_text.replace(cls.EMPTY_PRIORITY, cls.POPULATED_PRIORITY, 1)
+
+    def test_repeated_merges_are_byte_stable(self):
+        template_text = self._template_text()
+        user_text = self._populated_user_text(template_text)
+
+        first = self._merge_cycle(template_text, user_text)
+        current = first
+        for _ in range(4):
+            current = self._merge_cycle(template_text, current)
+            assert current == first
+
+        assert first.count(self.EXAMPLE_MARKER) == 1
+
+    def test_bloated_config_self_heals(self):
+        template_text = self._template_text()
+        user_text = self._populated_user_text(template_text)
+        baseline = self._merge_cycle(template_text, user_text)
+
+        # Rebuild the duplicated comment block that earlier versions wrote.
+        lines = template_text.splitlines()
+        start = lines.index(self.EMPTY_PRIORITY) + 1
+        end = start
+        while lines[end].startswith("    #"):
+            end += 1
+        block = "\n".join(lines[start:end]) + "\n"
+        assert self.EXAMPLE_MARKER in block
+        bloated = user_text.replace(
+            self.POPULATED_PRIORITY + "\n",
+            self.POPULATED_PRIORITY + "\n" + block * 3,
+            1,
+        )
+        assert bloated.count(self.EXAMPLE_MARKER) == 4
+
+        healed = self._merge_cycle(template_text, bloated)
+
+        assert healed.count(self.EXAMPLE_MARKER) == 1
+        assert healed == baseline
+        yaml = self._yaml()
+        assert yaml.load(healed)["executor"]["excess_pv"]["priority"] == [
+            {"type": "water_heater_boost"}
+        ]
+
+    def test_quoted_strings_and_lists_preserved(self):
+        template_text = "# Top\nsystem:\n  # Name comment\n  name: 'default'\n  tags: []\n"
+        user_text = 'system:\n  name: "Quoted Name"\n  tags:\n    - "a b"\n    - c\n'
+
+        first = self._merge_cycle(template_text, user_text)
+        second = self._merge_cycle(template_text, first)
+
+        assert second == first
+        assert '"Quoted Name"' in first
+        assert '"a b"' in first
+        loaded = self._yaml().load(first)
+        assert loaded["system"]["name"] == "Quoted Name"
+        assert loaded["system"]["tags"] == ["a b", "c"]
+        assert first.count("# Name comment") == 1
+
+
 class TestFullMigrationFlow:
     """Test the complete migration pipeline."""
 

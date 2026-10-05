@@ -1080,15 +1080,33 @@ def validate_config_for_write(config: dict[str, Any], strict: bool = True) -> bo
     return True
 
 
+def _to_plain_data(value: Any) -> Any:
+    """Recursively rebuild mappings as dict and sequences as list.
+
+    Drops the comment tokens carried by ruamel round-trip containers. Scalars are
+    returned unchanged so quoted-string scalar types keep their quote style.
+    """
+    if isinstance(value, dict):
+        return {key: _to_plain_data(item) for key, item in cast("dict[Any, Any]", value).items()}
+    if isinstance(value, list):
+        return [_to_plain_data(item) for item in cast("list[Any]", value)]
+    return value
+
+
 def template_aware_merge(default_cfg: dict[str, Any], user_cfg: dict[str, Any]) -> None:
     """
     Uses default_cfg as the BASE (template).
     Overwrites values from user_cfg.
     Appends extra keys from user_cfg (recursively).
-    Modifies default_cfg IN PLACE.
+    Modifies default_cfg IN PLACE; user_cfg is not modified.
+
+    Only values are taken from user_cfg. All comments come from the template, so
+    repeated merges are size-stable and comment blocks already duplicated in a user
+    file collapse to a single copy.
 
     Fixed array handling - merge arrays by unique ID instead of overwriting.
     """
+    user_cfg = _to_plain_data(user_cfg)
 
     ARRAY_UNIQUE_KEYS = {
         "solar_arrays": "name",
