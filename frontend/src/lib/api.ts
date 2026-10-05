@@ -551,6 +551,19 @@ export type CostSeriesPoint = {
     export_revenue_sek: number
     net_cost_sek: number
     cumulative_net_cost_sek: number
+    /** Running grid net cost of the plain self-use baseline; absent without a battery. */
+    baseline_cumulative_net_cost_sek?: number
+}
+
+export type CostSeriesBaseline = {
+    net_cost_sek: number
+    battery_wear_cost_sek: number
+    net_cost_incl_wear_sek: number
+    saving_incl_wear_sek: number
+    /** Real minus simulated energy left in the battery at the end of the period; null if the real end SoC is unknown. */
+    stored_energy_difference_kwh?: number | null
+    /** That difference valued at the period's average import price; already included in the saving. */
+    stored_energy_value_sek?: number | null
 }
 
 export type CostSeriesResponse = {
@@ -559,6 +572,8 @@ export type CostSeriesResponse = {
     end_date?: string
     bucket: 'hour' | 'day'
     points: CostSeriesPoint[]
+    /** "Without Darkstar" comparison; null without a battery or recorded slots. */
+    baseline?: CostSeriesBaseline | null
     error?: string
 }
 

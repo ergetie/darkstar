@@ -479,6 +479,9 @@ export default function DesignSystem() {
                                     cumulative_net_cost_sek: all
                                         .slice(0, i + 1)
                                         .reduce((t, x) => t + x.net_cost_sek, 0),
+                                    baseline_cumulative_net_cost_sek: all
+                                        .slice(0, i + 1)
+                                        .reduce((t, x) => t + x.net_cost_sek * 1.3, 0),
                                 })),
                         }}
                     />

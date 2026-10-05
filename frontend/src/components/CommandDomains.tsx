@@ -47,6 +47,20 @@ interface ResourcesCardProps {
     config?: ConfigResponse | null
 }
 
+// --- Helpers ---
+const BASELINE_EXPLANATION =
+    'What the same period would have cost with a plain self-use inverter and the same battery: solar charges the battery, the battery covers the load, no grid charging and no battery export. The saving includes battery wear. EV charging and water heating are counted at the hours they really ran, so the saving is conservative.'
+
+/** Explanation for the "Without Darkstar" line, with the value of the battery charge left at the end of the period. */
+function baselineTooltip(baseline: NonNullable<CostSeriesResponse['baseline']>): string {
+    const diffKwh = baseline.stored_energy_difference_kwh
+    const valueSek = baseline.stored_energy_value_sek
+    if (diffKwh == null || valueSek == null || diffKwh === 0) return BASELINE_EXPLANATION
+    const kr = `${valueSek < 0 ? '-' : '+'}${Math.abs(valueSek).toFixed(1)} kr`
+    const energy = `${Math.abs(diffKwh).toFixed(1)} kWh ${diffKwh > 0 ? 'more' : 'less'}`
+    return `${BASELINE_EXPLANATION} Includes ${kr} for ${energy} energy left in the battery at the end of the period.`
+}
+
 // --- Helper Components ---
 const ProgressBar = ({ value, total, colorClass }: { value: number; total: number; colorClass: string }) => {
     const pct = total > 0 ? Math.min(100, (value / total) * 100) : 0
@@ -344,6 +358,28 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                             {Math.abs(rangeData.net_cost_incl_wear_sek).toFixed(2)}
                         </span>
                         <span className="text-[9px] text-muted">kr incl. battery wear</span>
+                    </div>
+                )}
+                {costSeries?.baseline != null && (
+                    <div
+                        className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5"
+                        title={baselineTooltip(costSeries.baseline)}
+                    >
+                        <span className="text-[9px] text-muted uppercase tracking-wider">Without Darkstar</span>
+                        <span className="text-sm font-medium text-muted tabular-nums">
+                            {costSeries.baseline.net_cost_sek > 0 ? '-' : '+'}
+                            {Math.abs(costSeries.baseline.net_cost_sek).toFixed(2)}
+                        </span>
+                        <span className="text-[9px] text-muted">kr</span>
+                        {costSeries.baseline.saving_incl_wear_sek >= 0 ? (
+                            <span className="text-[11px] font-medium text-good tabular-nums">
+                                {`saves ${costSeries.baseline.saving_incl_wear_sek.toFixed(2)} kr`}
+                            </span>
+                        ) : (
+                            <span className="text-[11px] text-muted tabular-nums">
+                                {`Darkstar cost ${Math.abs(costSeries.baseline.saving_incl_wear_sek).toFixed(2)} kr more`}
+                            </span>
+                        )}
                     </div>
                 )}
             </div>

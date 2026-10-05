@@ -10,6 +10,8 @@ export interface CostChartGeometry {
     slots: number
     bars: { index: number; importH: number; exportH: number }[]
     line: { x: number; y: number }[]
+    /** Same x positions as `line`; null when the points carry no baseline. */
+    baseline: { x: number; y: number }[] | null
     zeroY: number
 }
 
@@ -17,7 +19,8 @@ const BAR_ZONE = 0.35 // bars use the bottom 35% of the chart, the net line the 
 
 /** Positions in a 0..100 box: one slot per hour of the day (or per day of the
  * period), faint import/export bars on their own scale and the running net cost
- * as a line scaled to its own range, with zero always inside it. */
+ * as a line scaled to its own range, with zero always inside it. The without-Darkstar
+ * running total shares that range so the two lines are comparable. */
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
 export function computeCostChartGeometry(series: CostSeriesResponse): CostChartGeometry {
     const indexOf = (iso: string) => {
@@ -37,9 +40,12 @@ export function computeCostChartGeometry(series: CostSeriesResponse): CostChartG
     const slots = series.bucket === 'hour' ? 24 : Math.max(1, days)
 
     const barMax = Math.max(1e-6, ...series.points.map((p) => Math.max(p.import_cost_sek, p.export_revenue_sek)))
+    const hasBaseline =
+        series.points.length > 0 && series.points.every((p) => p.baseline_cumulative_net_cost_sek != null)
     const cum = series.points.map((p) => p.cumulative_net_cost_sek)
-    const hi = Math.max(0, ...cum)
-    const lo = Math.min(0, ...cum)
+    const baselineCum = hasBaseline ? series.points.map((p) => p.baseline_cumulative_net_cost_sek as number) : []
+    const hi = Math.max(0, ...cum, ...baselineCum)
+    const lo = Math.min(0, ...cum, ...baselineCum)
     const span = hi - lo || 1
     const pad = 8
     const yOf = (v: number) => pad + ((hi - v) / span) * (100 - 2 * pad)
@@ -54,8 +60,17 @@ export function computeCostChartGeometry(series: CostSeriesResponse): CostChartG
         y: yOf(p.cumulative_net_cost_sek),
     }))
     if (line.length > 0) line.unshift({ x: (bars[0].index / slots) * 100, y: yOf(0) })
+    const baseline = hasBaseline
+        ? [
+              { x: line[0].x, y: yOf(0) },
+              ...series.points.map((p, i) => ({
+                  x: line[i + 1].x,
+                  y: yOf(p.baseline_cumulative_net_cost_sek as number),
+              })),
+          ]
+        : null
 
-    return { slots, bars, line, zeroY: yOf(0) }
+    return { slots, bars, line, baseline, zeroY: yOf(0) }
 }
 
 function formatKr(v: number): string {
@@ -80,6 +95,7 @@ export default function CostSeriesChart({ series, loading }: Props) {
     const slotW = 100 / geo.slots
     const path = geo.line.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
     const last = geo.line[geo.line.length - 1]
+    const baselinePath = geo.baseline?.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
     const area = `${path} L${last.x},${geo.zeroY} L${geo.line[0].x},${geo.zeroY} Z`
     const finalNet = series.points[series.points.length - 1].cumulative_net_cost_sek
     // Full class names so Tailwind can see them
@@ -96,12 +112,13 @@ export default function CostSeriesChart({ series, loading }: Props) {
 
     return (
         <div className={`flex-1 flex flex-col min-h-[120px] ${loading ? 'opacity-60' : ''} transition-opacity`}>
-            <div className="flex items-baseline justify-between text-xs mb-1 h-4">
-                <span className="text-muted uppercase tracking-wider">
+            <div className="text-xs mb-1" data-testid="cost-chart-header">
+                <div className="h-4 whitespace-nowrap text-muted uppercase tracking-wider">
                     {series.bucket === 'hour' ? 'Cost so far' : 'Cost per day'}
-                </span>
+                </div>
+                {/* Own row below the heading: the legend (or hover readout) is too long to share a line at card width */}
                 {hovered ? (
-                    <span className="tabular-nums text-muted">
+                    <div className="min-h-4 tabular-nums text-muted">
                         {series.bucket === 'hour'
                             ? new Date(hovered.start).toLocaleTimeString([], {
                                   hour: '2-digit',
@@ -115,19 +132,30 @@ export default function CostSeriesChart({ series, loading }: Props) {
                         <span className="text-good">+{hovered.export_revenue_sek.toFixed(2)}</span>
                         {' · total '}
                         <span className="text-text">{formatKr(hovered.cumulative_net_cost_sek)}</span>
-                    </span>
+                        {hovered.baseline_cumulative_net_cost_sek != null && (
+                            <>
+                                {' · no Darkstar '}
+                                <span className="text-text">{formatKr(hovered.baseline_cumulative_net_cost_sek)}</span>
+                            </>
+                        )}
+                    </div>
                 ) : (
-                    <span className="flex items-center gap-3 text-muted">
-                        <span className="flex items-center gap-1">
+                    <div className="flex min-h-4 flex-wrap items-center gap-x-3 gap-y-0.5 text-muted">
+                        <span className="flex items-center gap-1 whitespace-nowrap">
                             <span className="h-2 w-2 rounded-sm bg-bad/60" /> import
                         </span>
-                        <span className="flex items-center gap-1">
+                        <span className="flex items-center gap-1 whitespace-nowrap">
                             <span className="h-2 w-2 rounded-sm bg-good/60" /> export
                         </span>
-                        <span className="flex items-center gap-1">
+                        <span className="flex items-center gap-1 whitespace-nowrap">
                             <span className={`h-0.5 w-3 rounded-full ${tone.bg}`} /> net
                         </span>
-                    </span>
+                        {baselinePath && (
+                            <span className="flex items-center gap-1 whitespace-nowrap">
+                                <span className="w-3 border-t-2 border-dashed border-muted" /> no Darkstar
+                            </span>
+                        )}
+                    </div>
                 )}
             </div>
 
@@ -174,6 +202,17 @@ export default function CostSeriesChart({ series, loading }: Props) {
                         vectorEffect="non-scaling-stroke"
                     />
                     <path d={area} fill="url(#cost-area)" className="cost-chart-area" />
+                    {baselinePath && (
+                        <path
+                            d={baselinePath}
+                            fill="none"
+                            className="stroke-muted"
+                            strokeWidth="1.5"
+                            strokeDasharray="4 3"
+                            strokeLinejoin="round"
+                            vectorEffect="non-scaling-stroke"
+                        />
+                    )}
                     <path
                         d={path}
                         fill="none"

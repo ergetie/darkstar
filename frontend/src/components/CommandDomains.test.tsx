@@ -175,3 +175,99 @@ describe('GridDomain EV sub-row under Grid Import', () => {
         expect(screen.queryByText(/of which EV/)).not.toBeInTheDocument()
     })
 })
+
+describe('GridDomain without-Darkstar baseline', () => {
+    const baseline = {
+        net_cost_sek: 26.4,
+        battery_wear_cost_sek: 1,
+        net_cost_incl_wear_sek: 27.4,
+        saving_incl_wear_sek: 7.7,
+    }
+    const seriesWith = (b: unknown) => ({ period: 'today', bucket: 'hour', points: [], baseline: b }) as never
+
+    it('shows the baseline net and the saving in the good colour', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(baseline))
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        expect(await screen.findByText('Without Darkstar')).toBeInTheDocument()
+        expect(screen.getByText('-26.40')).toBeInTheDocument()
+        const saving = screen.getByText('saves 7.70 kr')
+        expect(saving).toHaveClass('text-good')
+        expect(screen.getByText('Without Darkstar').parentElement).toHaveAttribute(
+            'title',
+            expect.stringMatching(/self-use inverter.*includes battery wear.*conservative/),
+        )
+    })
+
+    it('says Darkstar cost more, muted, for a negative saving', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith({ ...baseline, saving_incl_wear_sek: -2.1 }))
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        const text = await screen.findByText('Darkstar cost 2.10 kr more')
+        expect(text).toHaveClass('text-muted')
+        expect(text).not.toHaveClass('text-good')
+    })
+
+    it('explains stored energy left in the battery when the real battery holds more', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith({ ...baseline, stored_energy_difference_kwh: 4.6, stored_energy_value_sek: 11.7 }),
+        )
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        const title = (await screen.findByText('Without Darkstar')).parentElement?.getAttribute('title')
+        expect(title).toContain(
+            'Includes +11.7 kr for 4.6 kWh more energy left in the battery at the end of the period',
+        )
+    })
+
+    it('uses "less" wording and a minus sign when the real battery holds less', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith({ ...baseline, stored_energy_difference_kwh: -1.24, stored_energy_value_sek: -3.2 }),
+        )
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        const title = (await screen.findByText('Without Darkstar')).parentElement?.getAttribute('title')
+        expect(title).toContain('Includes -3.2 kr for 1.2 kWh less energy left in the battery at the end of the period')
+    })
+
+    it('omits the stored-energy sentence when the real end state of charge is unknown', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith({ ...baseline, stored_energy_difference_kwh: null, stored_energy_value_sek: null }),
+        )
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        const title = (await screen.findByText('Without Darkstar')).parentElement?.getAttribute('title')
+        expect(title).toMatch(/conservative\.$/)
+        expect(title).not.toMatch(/Includes/)
+    })
+
+    it('is hidden without a baseline', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(null))
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        expect(await screen.findByText('Grid Import')).toBeInTheDocument()
+        expect(screen.queryByText('Without Darkstar')).not.toBeInTheDocument()
+    })
+
+    it('keeps the headline Net unchanged', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(baseline))
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        await screen.findByText('Without Darkstar')
+        expect(screen.getAllByText('-37.00').length).toBeGreaterThan(0)
+    })
+})

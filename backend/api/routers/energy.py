@@ -5,6 +5,7 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends
 
 from backend.api.deps import get_learning_store
+from backend.baseline import BaselineBattery, BaselineSlot, simulate_self_use_with_end_state
 from backend.core.secrets import load_yaml
 from backend.learning.store import LearningStore
 
@@ -379,6 +380,30 @@ async def get_energy_range(
         }
 
 
+def _baseline_battery(config: dict[str, Any]) -> BaselineBattery | None:
+    """Battery for the without-Darkstar baseline, or None when there is no usable battery."""
+    system_cfg = config.get("system", {})
+    if not system_cfg.get("has_battery", True):
+        return None
+    cfg = system_cfg.get("battery", config.get("battery", {}))
+    battery = BaselineBattery(
+        capacity_kwh=float(cfg.get("capacity_kwh", 0.0)),
+        min_soc_percent=float(cfg.get("min_soc_percent", 0.0)),
+        max_soc_percent=float(cfg.get("max_soc_percent", 100.0)),
+        max_charge_w=float(cfg.get("max_charge_w", 0.0)),
+        max_discharge_w=float(cfg.get("max_discharge_w", 0.0)),
+        charge_efficiency=float(cfg.get("charge_efficiency", 0.95)),
+        discharge_efficiency=float(cfg.get("discharge_efficiency", 0.95)),
+    )
+    if (
+        battery.capacity_kwh <= 0
+        or battery.charge_efficiency <= 0
+        or battery.discharge_efficiency <= 0
+    ):
+        return None
+    return battery
+
+
 @router.get(
     "/energy/cost-series",
     summary="Get Cost Series",
@@ -414,6 +439,8 @@ async def get_cost_series(
         datetime(query_end.year, query_end.month, query_end.day)
     ) + timedelta(days=1)
 
+    battery = _baseline_battery(config)
+
     async with store.AsyncSession() as session:
         result = await session.execute(
             select(
@@ -422,6 +449,13 @@ async def get_cost_series(
                 SlotObservation.import_price_sek_kwh,
                 SlotObservation.export_kwh,
                 SlotObservation.export_price_sek_kwh,
+                SlotObservation.pv_kwh,
+                SlotObservation.load_kwh,
+                SlotObservation.water_kwh,
+                SlotObservation.ev_charging_kwh,
+                SlotObservation.batt_charge_kwh,
+                SlotObservation.batt_discharge_kwh,
+                SlotObservation.soc_end_percent,
             ).where(
                 SlotObservation.slot_start >= day_start.isoformat(),
                 # Only slots that have started: the recorder can hold rows for
@@ -430,35 +464,125 @@ async def get_cost_series(
             )
         )
         rows = result.fetchall()
+        prior_soc: float | None = None
+        if battery is not None and rows:
+            # Real SoC at the start of the period: the slot right before the first one.
+            prior_start = day_start - timedelta(minutes=15)
+            prior_result = await session.execute(
+                select(SlotObservation.soc_end_percent).where(
+                    SlotObservation.slot_start >= prior_start.isoformat(),
+                    SlotObservation.slot_start < day_start.isoformat(),
+                )
+            )
+            prior_row = prior_result.first()
+            prior_soc = None if prior_row is None else prior_row[0]
 
-    buckets: dict[datetime, list[float]] = {}
-    for slot_start, imp_kwh, imp_price, exp_kwh, exp_price in rows:
+    # Parse once and order chronologically (not by string, so DST changes sort correctly).
+    slots: list[tuple[datetime, Any]] = []
+    for row in rows:
         try:
-            start = datetime.fromisoformat(str(slot_start))
+            start = datetime.fromisoformat(str(row[0]))
         except ValueError:
             continue
         local = start.astimezone(tz) if start.tzinfo else tz.localize(start)
+        slots.append((local, row))
+    slots.sort(key=lambda item: item[0])
+
+    # Per bucket: import cost, export revenue, baseline import cost, baseline export revenue.
+    buckets: dict[datetime, list[float]] = {}
+    real_charge_kwh = real_discharge_kwh = 0.0
+    for local, row in slots:
         key = local.replace(minute=0, second=0, microsecond=0)
         if not hourly:
             key = key.replace(hour=0)
-        bucket = buckets.setdefault(key, [0.0, 0.0])
-        bucket[0] += float(imp_kwh or 0.0) * float(imp_price or 0.0)
-        bucket[1] += float(exp_kwh or 0.0) * float(exp_price or 0.0)
+        bucket = buckets.setdefault(key, [0.0, 0.0, 0.0, 0.0])
+        bucket[0] += float(row[1] or 0.0) * float(row[2] or 0.0)
+        bucket[1] += float(row[3] or 0.0) * float(row[4] or 0.0)
+        real_charge_kwh += float(row[9] or 0.0)
+        real_discharge_kwh += float(row[10] or 0.0)
+
+    baseline_summary: dict[str, float | None] | None = None
+    if battery is not None and slots:
+        simulation = simulate_self_use_with_end_state(
+            [
+                BaselineSlot(
+                    pv_kwh=float(row[5] or 0.0),
+                    load_kwh=float(row[6] or 0.0),
+                    water_kwh=float(row[7] or 0.0),
+                    ev_kwh=float(row[8] or 0.0),
+                    soc_end_percent=None if row[11] is None else float(row[11]),
+                )
+                for _, row in slots
+            ],
+            battery,
+            prior_soc,
+        )
+        flows = simulation.flows
+        baseline_charge_kwh = baseline_discharge_kwh = 0.0
+        for (local, row), flow in zip(slots, flows, strict=True):
+            key = local.replace(minute=0, second=0, microsecond=0)
+            if not hourly:
+                key = key.replace(hour=0)
+            bucket = buckets[key]
+            bucket[2] += flow.import_kwh * float(row[2] or 0.0)
+            bucket[3] += flow.export_kwh * float(row[4] or 0.0)
+            baseline_charge_kwh += flow.charge_kwh
+            baseline_discharge_kwh += flow.discharge_kwh
+
+        cycle_cost_kwh = float(
+            config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0)
+        )
+        baseline_net = sum(b[2] - b[3] for b in buckets.values())
+        baseline_wear = (baseline_charge_kwh + baseline_discharge_kwh) * cycle_cost_kwh * 0.5
+        real_net = sum(b[0] - b[1] for b in buckets.values())
+        real_wear = (real_charge_kwh + real_discharge_kwh) * cycle_cost_kwh * 0.5
+
+        # Energy left in the battery at the end of the period is worth something: value the
+        # difference between the real and the simulated end state at the period's average
+        # import price, net of the discharge loss. Unknown real end SoC means no adjustment.
+        real_end_soc = next((float(r[11]) for _, r in reversed(slots) if r[11] is not None), None)
+        stored_diff_kwh: float | None = None
+        stored_value_sek: float | None = None
+        if real_end_soc is not None:
+            stored_diff_kwh = (
+                (real_end_soc - simulation.end_soc_percent) / 100.0 * battery.capacity_kwh
+            )
+            prices = [float(r[2]) for _, r in slots if r[2] is not None]
+            avg_import_price = sum(prices) / len(prices) if prices else 0.0
+            stored_value_sek = stored_diff_kwh * avg_import_price * battery.discharge_efficiency
+        baseline_summary = {
+            "net_cost_sek": round(baseline_net, 3),
+            "battery_wear_cost_sek": round(baseline_wear, 3),
+            "net_cost_incl_wear_sek": round(baseline_net + baseline_wear, 3),
+            "saving_incl_wear_sek": round(
+                (baseline_net + baseline_wear) - (real_net + real_wear) + (stored_value_sek or 0.0),
+                3,
+            ),
+            "stored_energy_difference_kwh": (
+                None if stored_diff_kwh is None else round(stored_diff_kwh, 3)
+            ),
+            "stored_energy_value_sek": (
+                None if stored_value_sek is None else round(stored_value_sek, 3)
+            ),
+        }
 
     points: list[dict[str, Any]] = []
     cumulative = 0.0
+    baseline_cumulative = 0.0
     for key in sorted(buckets):
-        import_cost, export_rev = buckets[key]
+        import_cost, export_rev, baseline_import_cost, baseline_export_rev = buckets[key]
         cumulative += import_cost - export_rev
-        points.append(
-            {
-                "start": key.isoformat(),
-                "import_cost_sek": round(import_cost, 3),
-                "export_revenue_sek": round(export_rev, 3),
-                "net_cost_sek": round(import_cost - export_rev, 3),
-                "cumulative_net_cost_sek": round(cumulative, 3),
-            }
-        )
+        point: dict[str, Any] = {
+            "start": key.isoformat(),
+            "import_cost_sek": round(import_cost, 3),
+            "export_revenue_sek": round(export_rev, 3),
+            "net_cost_sek": round(import_cost - export_rev, 3),
+            "cumulative_net_cost_sek": round(cumulative, 3),
+        }
+        if baseline_summary is not None:
+            baseline_cumulative += baseline_import_cost - baseline_export_rev
+            point["baseline_cumulative_net_cost_sek"] = round(baseline_cumulative, 3)
+        points.append(point)
 
     return {
         "period": period,
@@ -466,4 +590,5 @@ async def get_cost_series(
         "end_date": query_end.isoformat(),
         "bucket": "hour" if hourly else "day",
         "points": points,
+        "baseline": baseline_summary,
     }
