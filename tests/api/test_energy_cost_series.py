@@ -188,6 +188,8 @@ async def test_baseline_fields_present_with_battery(store):
         baseline["net_cost_incl_wear_sek"] - real_incl_wear + baseline["stored_energy_value_sek"],
         abs=0.01,
     )
+    assert series["battery_comparison"]["status"] == "incomplete_period"
+    assert series["battery_comparison"]["reason"] in {"missing_completed_slot", "missing_start_soc"}
 
 
 @pytest.mark.asyncio
@@ -211,6 +213,7 @@ async def test_no_baseline_without_battery(store):
         series = await get_cost_series(period="yesterday", store=store)
     assert series["baseline"] is None
     assert all("baseline_cumulative_net_cost_sek" not in p for p in series["points"])
+    assert series["battery_comparison"]["status"] == "no_battery"
 
 
 @pytest.mark.asyncio
@@ -219,6 +222,7 @@ async def test_no_baseline_without_slots(store):
         series = await get_cost_series(period="yesterday", store=store)
     assert series["points"] == []
     assert series["baseline"] is None
+    assert series["battery_comparison"]["status"] == "no_data"
 
 
 @pytest.mark.asyncio

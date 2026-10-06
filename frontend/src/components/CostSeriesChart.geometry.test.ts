@@ -39,7 +39,7 @@ describe('computeCostChartGeometry', () => {
         expect(g.bars[0].index).toBe(6)
     })
 
-    describe('without-Darkstar baseline', () => {
+    describe('legacy baseline compatibility fields', () => {
         const withBaseline = (cum: number[]): CostSeriesResponse => ({
             period: 'today',
             bucket: 'hour',
@@ -49,7 +49,7 @@ describe('computeCostChartGeometry', () => {
             ],
         })
 
-        it('has no baseline line when the points carry no baseline', () => {
+        it('never draws or scales the actual chart from the legacy baseline', () => {
             const g = computeCostChartGeometry({
                 period: 'today',
                 bucket: 'hour',
@@ -58,21 +58,7 @@ describe('computeCostChartGeometry', () => {
             expect(g.baseline).toBeNull()
         })
 
-        it('uses the net line x positions and starts at zero', () => {
-            const g = computeCostChartGeometry(withBaseline([5, 6]))
-            expect(g.baseline).toHaveLength(g.line.length)
-            expect(g.baseline?.map((p) => p.x)).toEqual(g.line.map((p) => p.x))
-            expect(g.baseline?.[0].y).toBeCloseTo(g.zeroY)
-        })
-
-        it('extends the vertical range to the baseline maximum', () => {
-            const g = computeCostChartGeometry(withBaseline([10, 12]))
-            // The highest baseline value sits at the top padding, above the net line.
-            expect(g.baseline?.[2].y).toBeCloseTo(8)
-            expect(g.line[1].y).toBeGreaterThan(8)
-        })
-
-        it('leaves the net line unchanged when the baseline stays inside its range', () => {
+        it('leaves the actual net line unchanged regardless of legacy values', () => {
             const plain = computeCostChartGeometry({
                 period: 'today',
                 bucket: 'hour',
@@ -81,6 +67,7 @@ describe('computeCostChartGeometry', () => {
             const g = computeCostChartGeometry(withBaseline([3, 1]))
             expect(g.line).toEqual(plain.line)
             expect(g.zeroY).toBeCloseTo(plain.zeroY)
+            expect(g.baseline).toBeNull()
         })
     })
 })

@@ -13,6 +13,12 @@ from backend.core.ev_live_state import remember_soc, stale_soc_episodes
 NOW = datetime.now(UTC)
 
 
+@pytest.fixture(autouse=True)
+def refresh_test_clock(monkeypatch):
+    # Collection may precede execution by minutes in the full suite.
+    monkeypatch.setattr(__import__(__name__, fromlist=["NOW"]), "NOW", datetime.now(UTC))
+
+
 def _persisted() -> dict:
     return {
         "target_soc_percent": 80,
@@ -48,7 +54,9 @@ async def _get(monkeypatch, soc: float | None, plug: str = "on") -> dict:
     with (
         patch("backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0)),
         patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=soc)),
-        patch("backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": plug})),
+        patch(
+            "backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": plug})
+        ),
     ):
         (charger,) = await ev_router.get_ev_chargers()
     return charger

@@ -47,20 +47,6 @@ interface ResourcesCardProps {
     config?: ConfigResponse | null
 }
 
-// --- Helpers ---
-const BASELINE_EXPLANATION =
-    'What the same period would have cost with a plain self-use inverter and the same battery: solar charges the battery, the battery covers the load, no grid charging and no battery export. The saving includes battery wear. EV charging and water heating are counted at the hours they really ran, so the saving is conservative.'
-
-/** Explanation for the "Without Darkstar" line, with the value of the battery charge left at the end of the period. */
-function baselineTooltip(baseline: NonNullable<CostSeriesResponse['baseline']>): string {
-    const diffKwh = baseline.stored_energy_difference_kwh
-    const valueSek = baseline.stored_energy_value_sek
-    if (diffKwh == null || valueSek == null || diffKwh === 0) return BASELINE_EXPLANATION
-    const kr = `${valueSek < 0 ? '-' : '+'}${Math.abs(valueSek).toFixed(1)} kr`
-    const energy = `${Math.abs(diffKwh).toFixed(1)} kWh ${diffKwh > 0 ? 'more' : 'less'}`
-    return `${BASELINE_EXPLANATION} Includes ${kr} for ${energy} energy left in the battery at the end of the period.`
-}
-
 // --- Helper Components ---
 const ProgressBar = ({ value, total, colorClass }: { value: number; total: number; colorClass: string }) => {
     const pct = total > 0 ? Math.min(100, (value / total) * 100) : 0
@@ -193,16 +179,17 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                 return
             }
 
+            setCostSeries(null)
             try {
                 setFetchError(null)
-                Api.energyCostSeries(period, startDate, endDate)
-                    .then((series) => {
-                        if (!cancelled) setCostSeries(series)
-                    })
-                    .catch(() => {
-                        if (!cancelled) setCostSeries(null)
-                    })
-                const data = await Api.energyRange(period, startDate, endDate)
+                const [seriesResult, rangeResult] = await Promise.allSettled([
+                    Api.energyCostSeries(period, startDate, endDate),
+                    Api.energyRange(period, startDate, endDate),
+                ])
+                if (cancelled) return
+                setCostSeries(seriesResult.status === 'fulfilled' ? seriesResult.value : null)
+                if (rangeResult.status === 'rejected') throw rangeResult.reason
+                const data = rangeResult.value
                 if (!cancelled) {
                     setRangeData({
                         import_cost_sek: data.import_cost_sek,
@@ -328,8 +315,8 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
             <div className="mb-3 relative z-10">
                 <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">
                     {period === 'custom'
-                        ? 'Custom Period'
-                        : `Net ${
+                        ? 'Actual electricity cost · Custom Period'
+                        : `Actual electricity cost · ${
                               period === 'today'
                                   ? 'Today'
                                   : period === 'yesterday'
@@ -360,28 +347,87 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                         <span className="text-[9px] text-muted">kr incl. battery wear</span>
                     </div>
                 )}
-                {costSeries?.baseline != null && (
-                    <div
-                        className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5"
-                        title={baselineTooltip(costSeries.baseline)}
-                    >
-                        <span className="text-[9px] text-muted uppercase tracking-wider">Without Darkstar</span>
-                        <span className="text-sm font-medium text-muted tabular-nums">
-                            {costSeries.baseline.net_cost_sek > 0 ? '-' : '+'}
-                            {Math.abs(costSeries.baseline.net_cost_sek).toFixed(2)}
-                        </span>
-                        <span className="text-[9px] text-muted">kr</span>
-                        {costSeries.baseline.saving_incl_wear_sek >= 0 ? (
-                            <span className="text-[11px] font-medium text-good tabular-nums">
-                                {`saves ${costSeries.baseline.saving_incl_wear_sek.toFixed(2)} kr`}
-                            </span>
-                        ) : (
-                            <span className="text-[11px] text-muted tabular-nums">
-                                {`Darkstar cost ${Math.abs(costSeries.baseline.saving_incl_wear_sek).toFixed(2)} kr more`}
-                            </span>
-                        )}
-                    </div>
-                )}
+                {costSeries?.battery_comparison?.status === 'available' &&
+                    costSeries.battery_comparison.darkstar &&
+                    costSeries.battery_comparison.self_use && (
+                        <div className="mt-2 rounded-ds-sm border border-line/30 bg-surface2/30 p-2 text-[10px]">
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                                <span className="text-muted uppercase tracking-wider">
+                                    {costSeries.battery_comparison.saving_sek! >= 0
+                                        ? 'Estimated battery savings'
+                                        : 'Estimated additional battery cost'}
+                                </span>
+                                <span
+                                    className={`font-semibold tabular-nums ${costSeries.battery_comparison.saving_sek! >= 0 ? 'text-good' : 'text-bad'}`}
+                                >
+                                    {costSeries.battery_comparison.saving_sek! >= 0
+                                        ? `${costSeries.battery_comparison.saving_sek!.toFixed(2)} kr`
+                                        : `Additional estimated cost ${Math.abs(costSeries.battery_comparison.saving_sek!).toFixed(2)} kr`}
+                                </span>
+                            </div>
+                            <div className="flex flex-wrap justify-between gap-x-3 text-muted mt-1">
+                                <span>
+                                    Darkstar comparison:{' '}
+                                    {costSeries.battery_comparison.darkstar.comparison_cost_sek.toFixed(2)} kr
+                                </span>
+                                <span>
+                                    Self-use comparison:{' '}
+                                    {costSeries.battery_comparison.self_use.comparison_cost_sek.toFixed(2)} kr
+                                </span>
+                            </div>
+                            {costSeries.battery_comparison.through && (
+                                <div className="text-muted mt-1">
+                                    Completed through{' '}
+                                    {new Date(costSeries.battery_comparison.through).toLocaleString([], {
+                                        hour12: false,
+                                        dateStyle: 'short',
+                                        timeStyle: 'short',
+                                    })}
+                                </div>
+                            )}
+                            <div className="text-muted mt-1">
+                                Same recorded EV/water timing; self-use battery discharge serves only house/water
+                                demand. PV may supply the EV. Losses are modeled on both sides. Wear and remaining
+                                battery energy are included. 15-minute totals cannot reproduce exact inverter responses
+                                within each slot. EV/water scheduling savings are excluded.
+                            </div>
+                            <details className="mt-1 text-muted">
+                                <summary className="cursor-pointer">Cost adjustments and assumptions</summary>
+                                <div className="mt-1 pl-2">Comparison cost = grid + wear − stored energy value.</div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 mt-1 pl-2">
+                                    <span>Common energy price</span>
+                                    <span className="tabular-nums">
+                                        {costSeries.battery_comparison.reference_price_sek_kwh?.toFixed(3)} kr/kWh
+                                    </span>
+                                    <span>Darkstar grid / wear / stored energy</span>
+                                    <span className="tabular-nums">
+                                        {costSeries.battery_comparison.darkstar.grid_cost_sek.toFixed(2)} /{' '}
+                                        {costSeries.battery_comparison.darkstar.wear_cost_sek.toFixed(2)} /{' '}
+                                        {costSeries.battery_comparison.darkstar.stored_energy_value_sek.toFixed(2)} kr
+                                    </span>
+                                    <span>Self-use grid / wear / stored energy</span>
+                                    <span className="tabular-nums">
+                                        {costSeries.battery_comparison.self_use.grid_cost_sek.toFixed(2)} /{' '}
+                                        {costSeries.battery_comparison.self_use.wear_cost_sek.toFixed(2)} /{' '}
+                                        {costSeries.battery_comparison.self_use.stored_energy_value_sek.toFixed(2)} kr
+                                    </span>
+                                </div>
+                            </details>
+                        </div>
+                    )}
+                {costSeries?.battery_comparison &&
+                    costSeries.battery_comparison.status !== 'available' &&
+                    costSeries.battery_comparison.status !== 'no_battery' && (
+                        <div className="mt-2 text-[10px] text-muted" role="status">
+                            {costSeries.battery_comparison.status === 'insufficient_data'
+                                ? 'Not enough reliable history for a battery comparison.'
+                                : costSeries.battery_comparison.status === 'unreliable_model'
+                                  ? 'The battery comparison estimate did not pass its accuracy checks.'
+                                  : costSeries.battery_comparison.status === 'incomplete_period'
+                                    ? 'Battery comparison unavailable because the selected period has missing or incomplete observations.'
+                                    : 'No completed observations are available for a battery comparison.'}
+                        </div>
+                    )}
             </div>
 
             {/* Financial Breakdown: one row per figure, label left, amount right */}

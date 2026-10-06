@@ -566,6 +566,31 @@ export type CostSeriesBaseline = {
     stored_energy_value_sek?: number | null
 }
 
+export type CostSeriesBatterySide = {
+    grid_cost_sek: number
+    wear_cost_sek: number
+    stored_energy_change_kwh: number
+    stored_energy_value_sek: number
+    comparison_cost_sek: number
+}
+
+export type CostSeriesBatteryComparison = {
+    status: 'available' | 'insufficient_data' | 'unreliable_model' | 'incomplete_period' | 'no_battery' | 'no_data'
+    reason: string
+    method_version?: string
+    through?: string
+    calibration?: Record<string, number | string>
+    darkstar?: CostSeriesBatterySide
+    self_use?: CostSeriesBatterySide
+    saving_sek?: number
+    reference_price_sek_kwh?: number
+    points?: {
+        start: string
+        darkstar_cumulative_comparison_cost_sek: number
+        self_use_cumulative_comparison_cost_sek: number
+    }[]
+}
+
 export type CostSeriesResponse = {
     period: string
     start_date?: string
@@ -574,6 +599,8 @@ export type CostSeriesResponse = {
     points: CostSeriesPoint[]
     /** "Without Darkstar" comparison; null without a battery or recorded slots. */
     baseline?: CostSeriesBaseline | null
+    /** Validated installation-specific estimate; absent amounts indicate unavailable status. */
+    battery_comparison?: CostSeriesBatteryComparison
     error?: string
 }
 

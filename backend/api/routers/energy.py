@@ -1,15 +1,84 @@
+import asyncio
+import hashlib
+import json
 import logging
+import time
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends
 
 from backend.api.deps import get_learning_store
 from backend.baseline import BaselineBattery, BaselineSlot, simulate_self_use_with_end_state
+from backend.battery_comparison import (
+    METHOD_VERSION,
+    CalibrationResult,
+    ComparisonBattery,
+    RecordedObservation,
+    build_comparison,
+    fit_calibration,
+)
 from backend.core.secrets import load_yaml
 from backend.learning.store import LearningStore
 
 logger = logging.getLogger("darkstar.api.energy")
+
+_BATTERY_FIT_CACHE: dict[str, tuple[float, CalibrationResult]] = {}
+_BATTERY_FIT_CACHE_TTL_SECONDS = 900
+_BATTERY_FIT_CACHE_LIMIT = 16
+
+
+def _cached_fit_key(
+    store: LearningStore,
+    battery: BaselineBattery,
+    config: dict[str, Any],
+    latest: datetime,
+    end: datetime,
+) -> str:
+    try:
+        db_stat = Path(store.db_path).stat()
+        database_identity: tuple[int, int, int, int] | None = (
+            db_stat.st_dev,
+            db_stat.st_ino,
+            db_stat.st_size,
+            db_stat.st_mtime_ns,
+        )
+    except OSError:
+        database_identity = None
+    relevant = {
+        "db": str(store.db_path),
+        "db_identity": database_identity,
+        "battery": battery.__dict__,
+        "sensors": config.get("input_sensors", {}),
+        "meter": config.get("meter", config.get("system", {}).get("meter")),
+        "method": METHOD_VERSION,
+        "latest": latest.astimezone(UTC).isoformat(),
+        "end": end.astimezone(UTC).isoformat(),
+    }
+    return hashlib.sha256(json.dumps(relevant, sort_keys=True, default=str).encode()).hexdigest()
+
+
+async def _calibrated_fit(
+    store: LearningStore,
+    battery: BaselineBattery,
+    config: dict[str, Any],
+    observations: list[RecordedObservation],
+    end: datetime,
+    latest: datetime,
+) -> CalibrationResult:
+    key = _cached_fit_key(store, battery, config, latest, end)
+    now = time.monotonic()
+    cached = _BATTERY_FIT_CACHE.get(key)
+    if cached is not None and now - cached[0] < _BATTERY_FIT_CACHE_TTL_SECONDS:
+        return cached[1]
+    result = await asyncio.to_thread(fit_calibration, observations, battery.capacity_kwh, end)
+    _BATTERY_FIT_CACHE[key] = (time.monotonic(), result)
+    while len(_BATTERY_FIT_CACHE) > _BATTERY_FIT_CACHE_LIMIT:
+        oldest = min(_BATTERY_FIT_CACHE, key=lambda item: _BATTERY_FIT_CACHE[item][0])
+        del _BATTERY_FIT_CACHE[oldest]
+    return result
+
 
 router = APIRouter(prefix="/api", tags=["energy"])
 
@@ -435,11 +504,26 @@ async def get_cost_series(
 
     hourly = query_start == query_end
     day_start = tz.localize(datetime(query_start.year, query_start.month, query_start.day))
-    day_end_excl = tz.localize(
-        datetime(query_end.year, query_end.month, query_end.day)
-    ) + timedelta(days=1)
+    next_day = query_end + timedelta(days=1)
+    day_end_excl = tz.localize(datetime(next_day.year, next_day.month, next_day.day))
 
     battery = _baseline_battery(config)
+
+    compare_end_local = min(day_end_excl, now_local)
+    compare_end_utc = compare_end_local.astimezone(UTC)
+    # Only complete 15-minute slots enter calibration and comparison. Keep the
+    # legacy cash-flow series' started-slot coverage below unchanged.
+    complete_boundary_utc = now_local.astimezone(UTC).replace(
+        minute=now_local.astimezone(UTC).minute - now_local.astimezone(UTC).minute % 15,
+        second=0,
+        microsecond=0,
+    )
+    comparison_cutoff = min(compare_end_utc, complete_boundary_utc)
+    read_start_utc = min(
+        day_start.astimezone(UTC) - timedelta(days=1),
+        compare_end_utc - timedelta(days=31),
+    )
+    read_end_utc = compare_end_utc + timedelta(days=1)
 
     async with store.AsyncSession() as session:
         result = await session.execute(
@@ -455,27 +539,26 @@ async def get_cost_series(
                 SlotObservation.ev_charging_kwh,
                 SlotObservation.batt_charge_kwh,
                 SlotObservation.batt_discharge_kwh,
+                SlotObservation.soc_start_percent,
                 SlotObservation.soc_end_percent,
+                SlotObservation.quality_flags,
             ).where(
-                SlotObservation.slot_start >= day_start.isoformat(),
-                # Only slots that have started: the recorder can hold rows for
-                # future slots, which would flatten the line out to midnight.
-                SlotObservation.slot_start < min(day_end_excl, now_local).isoformat(),
+                # Wide ISO bounds keep offset-formatted rows around DST; precise
+                # selected-period and completed-slot filtering happens in UTC below.
+                SlotObservation.slot_start >= read_start_utc.astimezone(tz).isoformat(),
+                SlotObservation.slot_start < read_end_utc.astimezone(tz).isoformat(),
             )
         )
         rows = result.fetchall()
-        prior_soc: float | None = None
-        if battery is not None and rows:
-            # Real SoC at the start of the period: the slot right before the first one.
-            prior_start = day_start - timedelta(minutes=15)
-            prior_result = await session.execute(
-                select(SlotObservation.soc_end_percent).where(
-                    SlotObservation.slot_start >= prior_start.isoformat(),
-                    SlotObservation.slot_start < day_start.isoformat(),
-                )
+        # Include the single immediately preceding completed slot when the first
+        # selected observation has no start SoC. Comparison code verifies contiguity.
+        prior_result = await session.execute(
+            select(SlotObservation.slot_start, SlotObservation.soc_end_percent).where(
+                SlotObservation.slot_start >= (day_start - timedelta(minutes=30)).isoformat(),
+                SlotObservation.slot_start < day_start.isoformat(),
             )
-            prior_row = prior_result.first()
-            prior_soc = None if prior_row is None else prior_row[0]
+        )
+        prior_rows = prior_result.fetchall()
 
     # Parse once and order chronologically (not by string, so DST changes sort correctly).
     slots: list[tuple[datetime, Any]] = []
@@ -487,6 +570,68 @@ async def get_cost_series(
         local = start.astimezone(tz) if start.tzinfo else tz.localize(start)
         slots.append((local, row))
     slots.sort(key=lambda item: item[0])
+
+    def observation(row: Any, local: datetime) -> RecordedObservation:
+        return RecordedObservation(
+            start=local,
+            import_kwh=None if row[1] is None else float(row[1]),
+            import_price=None if row[2] is None else float(row[2]),
+            export_kwh=None if row[3] is None else float(row[3]),
+            export_price=None if row[4] is None else float(row[4]),
+            pv_kwh=None if row[5] is None else float(row[5]),
+            load_kwh=None if row[6] is None else float(row[6]),
+            water_kwh=None if row[7] is None else float(row[7]),
+            ev_kwh=None if row[8] is None else float(row[8]),
+            charge_kwh=None if row[9] is None else float(row[9]),
+            discharge_kwh=None if row[10] is None else float(row[10]),
+            soc_start_percent=None if row[11] is None else float(row[11]),
+            soc_end_percent=None if row[12] is None else float(row[12]),
+            quality_flags=row[13],
+        )
+
+    selected_slots = [
+        (local, row)
+        for local, row in slots
+        if local.date() >= query_start
+        and local.date() <= query_end
+        and local.astimezone(UTC) < compare_end_utc
+    ]
+    selected_complete = [
+        (local, row)
+        for local, row in selected_slots
+        if local.astimezone(UTC) + timedelta(minutes=15) <= comparison_cutoff
+    ]
+    expected_starts: list[datetime] = []
+    expected_cursor = day_start.astimezone(UTC)
+    while expected_cursor < comparison_cutoff:
+        expected_starts.append(expected_cursor)
+        expected_cursor += timedelta(minutes=15)
+    selected_start_keys = {local.astimezone(UTC) for local, _ in selected_complete}
+    missing_completed_slot = any(start not in selected_start_keys for start in expected_starts)
+    all_observations = [observation(row, local) for local, row in slots]
+    prior_soc: float | None = None
+    if selected_complete:
+        first_utc = selected_complete[0][0].astimezone(UTC)
+        candidate_prior = [
+            (local, float(row[12]))
+            for local, row in slots
+            if row[12] is not None and local.astimezone(UTC) + timedelta(minutes=15) == first_utc
+        ]
+        if candidate_prior:
+            prior_soc = candidate_prior[-1][1]
+        else:
+            for raw_start, raw_soc in prior_rows:
+                try:
+                    parsed = datetime.fromisoformat(str(raw_start))
+                    parsed = parsed.astimezone(tz) if parsed.tzinfo else tz.localize(parsed)
+                except (ValueError, TypeError):
+                    continue
+                if (
+                    parsed.astimezone(UTC) + timedelta(minutes=15) == first_utc
+                    and raw_soc is not None
+                ):
+                    prior_soc = float(raw_soc)
+    slots = selected_slots
 
     # Per bucket: import cost, export revenue, baseline import cost, baseline export revenue.
     buckets: dict[datetime, list[float]] = {}
@@ -510,7 +655,7 @@ async def get_cost_series(
                     load_kwh=float(row[6] or 0.0),
                     water_kwh=float(row[7] or 0.0),
                     ev_kwh=float(row[8] or 0.0),
-                    soc_end_percent=None if row[11] is None else float(row[11]),
+                    soc_end_percent=None if row[12] is None else float(row[12]),
                 )
                 for _, row in slots
             ],
@@ -540,7 +685,7 @@ async def get_cost_series(
         # Energy left in the battery at the end of the period is worth something: value the
         # difference between the real and the simulated end state at the period's average
         # import price, net of the discharge loss. Unknown real end SoC means no adjustment.
-        real_end_soc = next((float(r[11]) for _, r in reversed(slots) if r[11] is not None), None)
+        real_end_soc = next((float(r[12]) for _, r in reversed(slots) if r[12] is not None), None)
         stored_diff_kwh: float | None = None
         stored_value_sek: float | None = None
         if real_end_soc is not None:
@@ -565,6 +710,96 @@ async def get_cost_series(
                 None if stored_value_sek is None else round(stored_value_sek, 3)
             ),
         }
+
+    battery_comparison: dict[str, Any]
+    if battery is None:
+        battery_comparison = {
+            "status": "no_battery",
+            "reason": "battery_not_configured",
+            "method_version": METHOD_VERSION,
+        }
+    elif not expected_starts or not selected_complete:
+        battery_comparison = {
+            "status": "no_data",
+            "reason": "no_completed_observations",
+            "method_version": METHOD_VERSION,
+        }
+    elif missing_completed_slot:
+        battery_comparison = {
+            "status": "incomplete_period",
+            "reason": "missing_completed_slot",
+            "method_version": METHOD_VERSION,
+            "through": (
+                comparison_cutoff.isoformat()
+                if comparison_cutoff > day_start.astimezone(UTC)
+                else None
+            ),
+        }
+    else:
+        fit_end = comparison_cutoff
+        latest_completed = max(
+            (item.start for item in all_observations if item.start.astimezone(UTC) < fit_end),
+            default=None,
+        )
+        fit = await _calibrated_fit(
+            store,
+            battery,
+            config,
+            all_observations,
+            fit_end,
+            latest_completed or fit_end,
+        )
+        if fit.status != "available" or fit.diagnostics is None:
+            battery_comparison = {
+                "status": fit.status,
+                "reason": fit.reason,
+                "method_version": METHOD_VERSION,
+                "through": (
+                    selected_complete[-1][0].astimezone(UTC) + timedelta(minutes=15)
+                ).isoformat(),
+            }
+            if fit.diagnostics is not None:
+                battery_comparison["calibration"] = fit.diagnostics.as_dict()
+        else:
+            comp_battery = ComparisonBattery(
+                capacity_kwh=battery.capacity_kwh,
+                min_soc_percent=battery.min_soc_percent,
+                max_soc_percent=battery.max_soc_percent,
+                max_charge_w=battery.max_charge_w,
+                max_discharge_w=battery.max_discharge_w,
+            )
+
+            def comparison_bucket(start: datetime) -> str:
+                local = start.astimezone(tz)
+                key = local.replace(minute=0, second=0, microsecond=0)
+                if not hourly:
+                    key = tz.localize(datetime(local.year, local.month, local.day))
+                return key.isoformat()
+
+            comparison, failure_reason = build_comparison(
+                [observation(row, local) for local, row in selected_complete],
+                prior_soc,
+                comp_battery,
+                fit.diagnostics,
+                float(config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0)),
+                comparison_bucket,
+            )
+            if comparison is None:
+                battery_comparison = {
+                    "status": (
+                        "unreliable_model"
+                        if failure_reason == "period_validation_failed"
+                        else "incomplete_period"
+                    ),
+                    "reason": failure_reason or "period_invalid",
+                    "method_version": METHOD_VERSION,
+                    "through": (
+                        selected_complete[-1][0].astimezone(UTC) + timedelta(minutes=15)
+                    ).isoformat(),
+                    "calibration": fit.diagnostics.as_dict(),
+                }
+            else:
+                battery_comparison = comparison
 
     points: list[dict[str, Any]] = []
     cumulative = 0.0
@@ -591,4 +826,5 @@ async def get_cost_series(
         "bucket": "hour" if hourly else "day",
         "points": points,
         "baseline": baseline_summary,
+        "battery_comparison": battery_comparison,
     }

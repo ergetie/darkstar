@@ -1,10 +1,5 @@
-# No Darkstar Baseline
+## MODIFIED Requirements
 
-## Purpose
-
-Defines the "without Darkstar" baseline: a replay of the period's recorded slots through a plain self-use inverter with the same battery, priced and worn like the real figures, used to show what Darkstar saves.
-
-## Requirements
 ### Requirement: Baseline simulates a plain self-use inverter
 The validated battery comparison SHALL replay the period's completed recorded slots through a plain self-use inverter with the same battery and calibrated model. Demand SHALL be `load_kwh + water_kwh + ev_charging_kwh` at the recorded times and amounts on both sides. Effective surplus SHALL be `eta_out * pv_kwh - demand`. Positive surplus SHALL charge up to battery room and configured charge power; battery discharge SHALL be capped by `max(0, load_kwh + water_kwh - eta_out * pv_kwh) / eta_out`, usable stored energy and configured discharge power. Remaining energy SHALL be priced through the shared grid model. The self-use battery SHALL NOT grid-charge or export from the battery, regardless of prices. It SHALL supply household/water deficits only. PV SHALL serve household/water demand first, then may supply EV demand; EV energy not supplied by PV SHALL import from the grid. It SHALL NOT copy Darkstar's blanket discharge block into mixed household/EV slots. The comparison SHALL NOT claim savings from scheduling these loads.
 
@@ -119,13 +114,6 @@ Both comparison sides SHALL value their stored-energy change from the common sta
 - **WHEN** the mean import price is negative
 - **THEN** the stored-energy reference price remains negative and is explained as a valuation assumption
 
-### Requirement: Simulation exposes the final state of charge
-The baseline simulation SHALL expose the simulated state of charge after the last slot in addition to the per-slot flows, without changing the per-slot flows.
-
-#### Scenario: Final state of charge
-- **WHEN** a 10 kWh battery starts at 50 %, charges 0.6 kWh and then discharges 1.0 kWh at efficiency 1.0
-- **THEN** the simulated final state of charge is 46 %
-
 ### Requirement: Baseline is unavailable without a battery
 When `system.has_battery` is false, no battery comparison SHALL be computed or shown. Empty periods SHALL have no comparison amounts. Insufficient calibration, failed validation or incomplete selected-period observations SHALL expose an explicit unavailable status and no estimated saving. Actual metered costs SHALL remain available regardless of comparison availability.
 
@@ -140,6 +128,9 @@ When `system.has_battery` is false, no battery comparison SHALL be computed or s
 #### Scenario: Unreliable data
 - **WHEN** calibration or selected-period validation fails
 - **THEN** the UI presents a plain-language unavailable reason alongside actual metered information
+
+
+## ADDED Requirements
 
 ### Requirement: Self-use battery discharge excludes EV demand
 The validated self-use simulation SHALL retain recorded EV energy in total grid demand while restricting battery discharge to the remaining non-EV deficit. Converted PV SHALL serve household/water demand first; its remainder SHALL be allowed to supply the EV. Mixed EV/household demand SHALL permit house-only discharge within calibrated losses and configured limits.

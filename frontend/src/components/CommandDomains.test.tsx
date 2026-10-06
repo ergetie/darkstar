@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { GridDomain, ResourcesDomain } from './CommandDomains'
 import { Api } from '../lib/api'
@@ -176,98 +176,129 @@ describe('GridDomain EV sub-row under Grid Import', () => {
     })
 })
 
-describe('GridDomain without-Darkstar baseline', () => {
-    const baseline = {
-        net_cost_sek: 26.4,
-        battery_wear_cost_sek: 1,
-        net_cost_incl_wear_sek: 27.4,
-        saving_incl_wear_sek: 7.7,
+describe('GridDomain validated battery comparison', () => {
+    const darkstar = {
+        grid_cost_sek: 30,
+        wear_cost_sek: 1,
+        stored_energy_change_kwh: 1,
+        stored_energy_value_sek: 2,
+        comparison_cost_sek: 29,
     }
-    const seriesWith = (b: unknown) => ({ period: 'today', bucket: 'hour', points: [], baseline: b }) as never
+    const selfUse = {
+        grid_cost_sek: 38,
+        wear_cost_sek: 1.5,
+        stored_energy_change_kwh: 0,
+        stored_energy_value_sek: 0,
+        comparison_cost_sek: 39.5,
+    }
+    const seriesWith = (comparison: unknown) =>
+        ({
+            period: 'today',
+            bucket: 'hour',
+            points: [],
+            baseline: { net_cost_sek: 0, saving_incl_wear_sek: 999 },
+            battery_comparison: comparison,
+        }) as never
 
-    it('shows the baseline net and the saving in the good colour', async () => {
-        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
-        vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(baseline))
-
-        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
-
-        expect(await screen.findByText('Without Darkstar')).toBeInTheDocument()
-        expect(screen.getByText('-26.40')).toBeInTheDocument()
-        const saving = screen.getByText('saves 7.70 kr')
-        expect(saving).toHaveClass('text-good')
-        expect(screen.getByText('Without Darkstar').parentElement).toHaveAttribute(
-            'title',
-            expect.stringMatching(/self-use inverter.*includes battery wear.*conservative/),
-        )
-    })
-
-    it('says Darkstar cost more, muted, for a negative saving', async () => {
-        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
-        vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith({ ...baseline, saving_incl_wear_sek: -2.1 }))
-
-        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
-
-        const text = await screen.findByText('Darkstar cost 2.10 kr more')
-        expect(text).toHaveClass('text-muted')
-        expect(text).not.toHaveClass('text-good')
-    })
-
-    it('explains stored energy left in the battery when the real battery holds more', async () => {
+    it('shows separate comparable totals and estimated savings, never legacy savings', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(
-            seriesWith({ ...baseline, stored_energy_difference_kwh: 4.6, stored_energy_value_sek: 11.7 }),
+            seriesWith({
+                status: 'available',
+                reason: 'validated',
+                darkstar,
+                self_use: selfUse,
+                saving_sek: 10.5,
+                reference_price_sek_kwh: 2.1,
+                through: '2026-10-05T12:00:00Z',
+                points: [],
+            }),
         )
 
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
 
-        const title = (await screen.findByText('Without Darkstar')).parentElement?.getAttribute('title')
-        expect(title).toContain(
-            'Includes +11.7 kr for 4.6 kWh more energy left in the battery at the end of the period',
-        )
+        expect(await screen.findByText('Estimated battery savings')).toBeInTheDocument()
+        expect(screen.getByText('10.50 kr')).toHaveClass('text-good')
+        expect(screen.getByText('Darkstar comparison: 29.00 kr')).toBeInTheDocument()
+        expect(screen.getByText('Self-use comparison: 39.50 kr')).toBeInTheDocument()
+        expect(screen.queryByText(/999/)).not.toBeInTheDocument()
     })
 
-    it('uses "less" wording and a minus sign when the real battery holds less', async () => {
+    it('withholds the previous estimate while a new period is loading', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValueOnce(
+            seriesWith({
+                status: 'available',
+                reason: 'validated',
+                darkstar,
+                self_use: selfUse,
+                saving_sek: 10.5,
+                points: [],
+            }),
+        )
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+        expect(await screen.findByText('10.50 kr')).toBeInTheDocument()
+        let complete: (value: never) => void = () => undefined
+        vi.mocked(Api.energyCostSeries).mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    complete = resolve
+                }),
+        )
+        fireEvent.click(screen.getByRole('button', { name: 'Yesterday' }))
+        expect(screen.queryByText('10.50 kr')).not.toBeInTheDocument()
+        await act(async () => complete(seriesWith({ status: 'unreliable_model', reason: 'holdout_validation_failed' })))
+        expect(
+            await screen.findByText('The battery comparison estimate did not pass its accuracy checks.'),
+        ).toBeInTheDocument()
+        expect(screen.queryByText('10.50 kr')).not.toBeInTheDocument()
+    })
+
+    it('describes negative saving as additional estimated cost', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(
-            seriesWith({ ...baseline, stored_energy_difference_kwh: -1.24, stored_energy_value_sek: -3.2 }),
+            seriesWith({
+                status: 'available',
+                reason: 'validated',
+                darkstar,
+                self_use: selfUse,
+                saving_sek: -2.1,
+                reference_price_sek_kwh: 0,
+                points: [],
+            }),
         )
 
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
 
-        const title = (await screen.findByText('Without Darkstar')).parentElement?.getAttribute('title')
-        expect(title).toContain('Includes -3.2 kr for 1.2 kWh less energy left in the battery at the end of the period')
+        const text = await screen.findByText('Additional estimated cost 2.10 kr')
+        expect(text).toHaveClass('text-bad')
     })
 
-    it('omits the stored-energy sentence when the real end state of charge is unknown', async () => {
+    it('shows a plain-language unavailable state without legacy fallback', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(
-            seriesWith({ ...baseline, stored_energy_difference_kwh: null, stored_energy_value_sek: null }),
+            seriesWith({ status: 'unreliable_model', reason: 'holdout_validation_failed' }),
         )
 
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
 
-        const title = (await screen.findByText('Without Darkstar')).parentElement?.getAttribute('title')
-        expect(title).toMatch(/conservative\.$/)
-        expect(title).not.toMatch(/Includes/)
+        expect(
+            await screen.findByText('The battery comparison estimate did not pass its accuracy checks.'),
+        ).toBeInTheDocument()
+        expect(screen.queryByText('Estimated battery savings')).not.toBeInTheDocument()
+        expect(screen.queryByText(/999/)).not.toBeInTheDocument()
     })
 
-    it('is hidden without a baseline', async () => {
+    it('hides comparison when no battery is configured', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
-        vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(null))
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith({ status: 'no_battery', reason: 'battery_not_configured' }),
+        )
 
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
 
         expect(await screen.findByText('Grid Import')).toBeInTheDocument()
-        expect(screen.queryByText('Without Darkstar')).not.toBeInTheDocument()
-    })
-
-    it('keeps the headline Net unchanged', async () => {
-        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
-        vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(baseline))
-
-        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
-
-        await screen.findByText('Without Darkstar')
-        expect(screen.getAllByText('-37.00').length).toBeGreaterThan(0)
+        expect(screen.queryByText('Estimated battery savings')).not.toBeInTheDocument()
+        expect(screen.queryByRole('group', { name: 'Cost chart view' })).not.toBeInTheDocument()
     })
 })

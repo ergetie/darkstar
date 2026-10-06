@@ -15,6 +15,7 @@ import Switch from '../components/ui/Switch'
 import SocStepper from '../components/ui/SocStepper'
 import QuickAction, { QuickActionChips, QuickActionSection } from '../components/ui/QuickAction'
 import CostSeriesChart from '../components/CostSeriesChart'
+import type { CostSeriesResponse } from '../lib/api'
 import { BatteryCharging, Flame } from 'lucide-react'
 import { useToast } from '../lib/useToast'
 
@@ -26,6 +27,58 @@ export default function DesignSystem() {
     const [accordionOpen, setAccordionOpen] = useState(false)
     const [modalOpen, setModalOpen] = useState(false)
     const [searchValue, setSearchValue] = useState('')
+    const costPoints = [
+        {
+            start: '2026-10-05T00:00:00+02:00',
+            import_cost_sek: 4,
+            export_revenue_sek: 0,
+            net_cost_sek: 4,
+            cumulative_net_cost_sek: 4,
+        },
+        {
+            start: '2026-10-05T01:00:00+02:00',
+            import_cost_sek: 1,
+            export_revenue_sek: 2,
+            net_cost_sek: -1,
+            cumulative_net_cost_sek: 3,
+        },
+    ]
+    const comparisonPoints = [
+        {
+            start: '2026-10-05T00:00:00+02:00',
+            darkstar_cumulative_comparison_cost_sek: 3.5,
+            self_use_cumulative_comparison_cost_sek: 4.5,
+        },
+        {
+            start: '2026-10-05T01:00:00+02:00',
+            darkstar_cumulative_comparison_cost_sek: 8,
+            self_use_cumulative_comparison_cost_sek: 10,
+        },
+    ]
+    const costChartFixtures: { label: string; comparison: CostSeriesResponse['battery_comparison'] }[] = [
+        {
+            label: 'Available · positive estimate',
+            comparison: { status: 'available', reason: 'validated', saving_sek: 2, points: comparisonPoints },
+        },
+        {
+            label: 'Available · negative estimate',
+            comparison: {
+                status: 'available',
+                reason: 'validated',
+                saving_sek: -2,
+                points: comparisonPoints.map((point) => ({
+                    ...point,
+                    darkstar_cumulative_comparison_cost_sek: point.self_use_cumulative_comparison_cost_sek,
+                    self_use_cumulative_comparison_cost_sek: point.darkstar_cumulative_comparison_cost_sek,
+                })),
+            },
+        },
+        {
+            label: 'Unavailable · insufficient data',
+            comparison: { status: 'insufficient_data', reason: 'too_few_grid_observations' },
+        },
+        { label: 'No battery', comparison: { status: 'no_battery', reason: 'battery_not_configured' } },
+    ]
 
     return (
         <main className="mx-auto max-w-6xl px-6 py-10 space-y-12">
@@ -460,31 +513,25 @@ export default function DesignSystem() {
             {/* Cost Chart Showcase */}
             <section>
                 <h2 className="text-2xl font-semibold text-text mb-4">Cost Chart</h2>
-                <div className="bg-surface p-4 rounded-ds-lg flex flex-col h-56 max-w-xl">
-                    <CostSeriesChart
-                        loading={false}
-                        series={{
-                            period: 'today',
-                            bucket: 'hour',
-                            points: [3, 5, 2, 0, 1, 6, 8, 4, 1, 0, 0, 2]
-                                .map((imp, h) => ({
-                                    start: `2026-10-05T${String(h).padStart(2, '0')}:00:00`,
-                                    import_cost_sek: imp,
-                                    export_revenue_sek: h > 8 ? 1.5 : 0,
-                                    net_cost_sek: imp - (h > 8 ? 1.5 : 0),
-                                    cumulative_net_cost_sek: 0,
-                                }))
-                                .map((p, i, all) => ({
-                                    ...p,
-                                    cumulative_net_cost_sek: all
-                                        .slice(0, i + 1)
-                                        .reduce((t, x) => t + x.net_cost_sek, 0),
-                                    baseline_cumulative_net_cost_sek: all
-                                        .slice(0, i + 1)
-                                        .reduce((t, x) => t + x.net_cost_sek * 1.3, 0),
-                                })),
-                        }}
-                    />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {costChartFixtures.map(({ label, comparison }) => (
+                        <div key={label} className="bg-surface p-4 rounded-ds-lg flex flex-col h-56">
+                            <div className="text-xs text-muted mb-2">{label}</div>
+                            <CostSeriesChart
+                                loading={false}
+                                series={
+                                    {
+                                        period: 'today',
+                                        start_date: '2026-10-05',
+                                        end_date: '2026-10-05',
+                                        bucket: 'hour',
+                                        points: costPoints,
+                                        battery_comparison: comparison,
+                                    } as CostSeriesResponse
+                                }
+                            />
+                        </div>
+                    ))}
                 </div>
             </section>
 
