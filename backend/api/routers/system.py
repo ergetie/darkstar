@@ -1,13 +1,21 @@
 import asyncio
+import contextlib
 import json
 import logging
+import os
+import sqlite3
+import tempfile
+import zipfile
 from collections.abc import Coroutine  # noqa: TC003
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
+from backend.api.deps import get_learning_store
 from backend.api.models.system import (
     LogInfoResponse,
     StatusResponse,
@@ -18,6 +26,7 @@ from backend.core.ev_plug import DEFAULT_EV_PLUGGED_IN_STATES
 from backend.core.ha_client import get_ha_bool, get_ha_sensor_float, get_ha_sensor_kw_normalized
 from backend.core.secrets import load_yaml
 from backend.core.version import get_version as _get_git_version
+from backend.learning.store import LearningStore
 
 logger = logging.getLogger("darkstar.api.system")
 router = APIRouter(tags=["system"])
@@ -316,4 +325,215 @@ async def get_system_health() -> SystemHealthResponse:
         planner=planner_health,
         forecast=forecast_health,
         system=system_metrics,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics export (database snapshot + diagnostics bundle)
+# ---------------------------------------------------------------------------
+
+_SQLITE_BUSY_TIMEOUT_S = 30.0
+# One lock for the snapshot and the bundle, since both run the database backup.
+_export_lock = asyncio.Lock()
+
+
+def _utc_stamp(now: datetime) -> str:
+    return now.strftime("%Y%m%d-%H%M%S")
+
+
+def _remove_file(path: Path) -> None:
+    """Delete a temporary file, ignoring a file that is already gone."""
+    with contextlib.suppress(OSError):
+        path.unlink(missing_ok=True)
+
+
+def _temp_file(directory: Path, prefix: str, suffix: str) -> Path:
+    """Create an empty temporary file, preferably next to the database."""
+    target_dir = directory if directory.is_dir() else None
+    fd, name = tempfile.mkstemp(dir=target_dir, prefix=prefix, suffix=suffix)
+    os.close(fd)
+    return Path(name)
+
+
+def _snapshot_database_sync(db_path: Path) -> Path:
+    """Copy the database with SQLite's online backup into a temporary file.
+
+    The live database is opened read-only. The returned file is a single,
+    self-contained SQLite file; the caller must delete it.
+    """
+    if not db_path.is_file():
+        raise FileNotFoundError(f"Database file not found: {db_path}")
+
+    dest = _temp_file(db_path.parent, ".db-snapshot-", ".db")
+    try:
+        src = sqlite3.connect(
+            f"{db_path.resolve().as_uri()}?mode=ro", uri=True, timeout=_SQLITE_BUSY_TIMEOUT_S
+        )
+        try:
+            dst = sqlite3.connect(dest)
+            try:
+                src.backup(dst, pages=1024, sleep=0.01)
+                # The copy inherits WAL mode from the source; make it one plain file.
+                dst.execute("PRAGMA journal_mode=DELETE")
+            finally:
+                dst.close()
+        finally:
+            src.close()
+    except BaseException:
+        _remove_file(dest)
+        _remove_file(dest.with_name(dest.name + "-wal"))
+        _remove_file(dest.with_name(dest.name + "-shm"))
+        raise
+    return dest
+
+
+async def _snapshot_database(db_path: Path) -> Path:
+    """Run the backup in a worker thread (shared by the snapshot and the bundle)."""
+    return await asyncio.to_thread(_snapshot_database_sync, db_path)
+
+
+def _reject_if_busy() -> None:
+    if _export_lock.locked():
+        raise HTTPException(status_code=409, detail="Another export is already in progress")
+
+
+@router.get(
+    "/api/system/db-snapshot",
+    summary="Download Database Snapshot",
+    description=(
+        "Returns a transactionally consistent snapshot of planner_learning.db taken with "
+        "SQLite's online backup, while Darkstar keeps running."
+    ),
+)
+async def download_db_snapshot(
+    store: LearningStore = Depends(get_learning_store),
+) -> FileResponse:
+    """Download a consistent snapshot of the learning database."""
+    _reject_if_busy()
+    async with _export_lock:
+        try:
+            snapshot = await _snapshot_database(Path(store.db_path))
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail="Database file not found") from e
+        except Exception as e:
+            logger.error(f"Database snapshot failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Database snapshot failed: {e}") from e
+
+    filename = f"planner_learning-{_utc_stamp(datetime.now(UTC))}.db"
+    return FileResponse(
+        path=snapshot,
+        filename=filename,
+        media_type="application/vnd.sqlite3",
+        background=BackgroundTask(_remove_file, snapshot),
+    )
+
+
+def _json_bytes(data: Any) -> bytes:
+    if hasattr(data, "model_dump"):
+        data = data.model_dump(mode="json")
+    return json.dumps(data, indent=2, default=str).encode("utf-8")
+
+
+def _read_file(path: Path) -> bytes:
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} not found")
+    return path.read_bytes()
+
+
+def _write_bundle_sync(
+    zip_path: Path,
+    snapshot: Path | None,
+    json_payloads: dict[str, bytes],
+    manifest_base: dict[str, Any],
+    items: dict[str, str],
+) -> None:
+    """Write the zip. ``items`` maps item name to ``included`` or an error text."""
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        if snapshot is not None:
+            zf.write(snapshot, "planner_learning.db")
+        for name, path in (
+            ("config.yaml", Path("config.yaml")),
+            ("darkstar.log", Path("data/darkstar.log")),
+            ("schedule.json", Path("data/schedule.json")),
+        ):
+            try:
+                zf.writestr(name, _read_file(path))
+                items[name] = "included"
+            except Exception as e:
+                items[name] = f"error: {e}"
+        for name, payload in json_payloads.items():
+            zf.writestr(name, payload)
+        manifest = {**manifest_base, "items": items}
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+
+
+@router.get(
+    "/api/system/diagnostics",
+    summary="Export Diagnostics Bundle",
+    description=(
+        "Returns one zip with a consistent database snapshot, config.yaml as stored on disk, "
+        "the log, schedule.json, version/status/health/monitors output and a manifest. "
+        "Never includes secrets.yaml."
+    ),
+)
+async def export_diagnostics(
+    store: LearningStore = Depends(get_learning_store),
+) -> FileResponse:
+    """Download a diagnostics bundle. Every item fails independently."""
+    _reject_if_busy()
+    async with _export_lock:
+        now = datetime.now(UTC)
+        version = _get_git_version()
+        items: dict[str, str] = {}
+
+        snapshot: Path | None = None
+        try:
+            snapshot = await _snapshot_database(Path(store.db_path))
+            items["planner_learning.db"] = "included"
+        except Exception as e:
+            logger.error(f"Diagnostics: database snapshot failed: {e}")
+            items["planner_learning.db"] = f"error: {e}"
+
+        try:
+            json_payloads: dict[str, bytes] = {}
+            sources: dict[str, Any] = {
+                "version.json": get_version,
+                "status.json": get_system_status,
+                "health.json": get_system_health,
+                "monitors.json": get_invariant_monitors,
+            }
+            for name, handler in sources.items():
+                try:
+                    json_payloads[name] = _json_bytes(await handler())
+                    items[name] = "included"
+                except Exception as e:
+                    logger.error(f"Diagnostics: {name} failed: {e}")
+                    items[name] = f"error: {e}"
+
+            zip_path = _temp_file(Path(store.db_path).parent, ".diagnostics-", ".zip")
+            try:
+                await asyncio.to_thread(
+                    _write_bundle_sync,
+                    zip_path,
+                    snapshot,
+                    json_payloads,
+                    {"version": version, "exported_at_utc": now.isoformat()},
+                    items,
+                )
+            except Exception as e:
+                _remove_file(zip_path)
+                logger.error(f"Diagnostics bundle failed: {e}")
+                raise HTTPException(
+                    status_code=500, detail=f"Diagnostics export failed: {e}"
+                ) from e
+        finally:
+            if snapshot is not None:
+                _remove_file(snapshot)
+
+    safe_version = "".join(c if c.isalnum() or c in ".-_" else "_" for c in str(version))
+    return FileResponse(
+        path=zip_path,
+        filename=f"darkstar-diagnostics-{safe_version}-{_utc_stamp(now)}.zip",
+        media_type="application/zip",
+        background=BackgroundTask(_remove_file, zip_path),
     )

@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Terminal, Activity, Download, Trash2, RefreshCw, ShieldCheck } from 'lucide-react'
+import { Terminal, Activity, Download, Loader2, Trash2, RefreshCw, ShieldCheck } from 'lucide-react'
 import Card from '../components/Card'
 import MonitorStatusCard from '../components/MonitorStatusCard'
+import { downloadFile } from '../lib/download'
+import { useToast } from '../lib/useToast'
 import { Api, type DebugLogsResponse, type LogInfoResponse, type LoadsDebugResponse } from '../lib/api'
 
 type LogLevelFilter = 'all' | 'warn_error' | 'error'
 type LogTimeRange = 'all' | '1h' | '6h' | '24h'
+type DownloadKind = 'db' | 'bundle'
+
+const DOWNLOAD_BTN =
+    'rounded-pill border px-3 py-1 flex items-center gap-1.5 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed'
 
 function LogsView({
     logs,
@@ -36,6 +42,28 @@ function LogsView({
 }) {
     const logContainerRef = useRef<HTMLDivElement>(null)
     const [now, setNow] = useState(() => Date.now())
+    const { toast } = useToast()
+    const [busy, setBusy] = useState<DownloadKind | null>(null)
+    const busyRef = useRef(false)
+
+    // Slow downloads (DB snapshot, bundle): busy from click until the browser has the file or it failed.
+    const runDownload = async (kind: DownloadKind, url: string, fallbackName: string) => {
+        if (busyRef.current) return
+        busyRef.current = true
+        setBusy(kind)
+        try {
+            await downloadFile(url, fallbackName)
+        } catch (err) {
+            toast({
+                variant: 'error',
+                message: kind === 'bundle' ? 'Export failed' : 'Database download failed',
+                description: err instanceof Error ? err.message : 'Unknown error',
+            })
+        } finally {
+            busyRef.current = false
+            setBusy(null)
+        }
+    }
 
     // Autoscroll
     useEffect(() => {
@@ -80,11 +108,11 @@ function LogsView({
     return (
         <div className="grid gap-6 lg:grid-cols-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
             <Card className="p-5 lg:col-span-2">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3">
                     <div className="text-sm text-muted">Logs</div>
-                    <div className="flex items-center gap-2 text-[11px] text-muted">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
                         <button
-                            className={`rounded-pill border px-3 py-1 transition-colors text-[11px] ${
+                            className={`rounded-pill border px-3 py-1 transition-colors text-[11px] whitespace-nowrap ${
                                 isLive
                                     ? 'bg-accent/10 border-accent text-accent'
                                     : 'border-line/60 hover:border-accent text-muted'
@@ -94,7 +122,7 @@ function LogsView({
                             {isLive ? '● Live' : 'Go Live'}
                         </button>
                         <button
-                            className="rounded-pill border border-line/60 px-3 py-1 hover:border-accent disabled:opacity-40 flex items-center gap-1.5"
+                            className="rounded-pill border border-line/60 px-3 py-1 hover:border-accent disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap"
                             onClick={() => loadLogs()}
                             disabled={loading}
                         >
@@ -102,7 +130,7 @@ function LogsView({
                             {loading ? 'Refreshing…' : 'Refresh'}
                         </button>
                         <button
-                            className="rounded-pill border border-sky-500/60 px-3 py-1 hover:border-sky-500 hover:bg-sky-500/10 text-sky-400 flex items-center gap-1.5"
+                            className="rounded-pill border border-sky-500/60 px-3 py-1 hover:border-sky-500 hover:bg-sky-500/10 text-sky-400 flex items-center gap-1.5 whitespace-nowrap"
                             onClick={() => {
                                 window.location.href = 'api/system/logs'
                             }}
@@ -111,7 +139,7 @@ function LogsView({
                             Logs
                         </button>
                         <button
-                            className="rounded-pill border border-accent/60 px-3 py-1 hover:border-accent hover:bg-accent/10 text-accent flex items-center gap-1.5"
+                            className="rounded-pill border border-accent/60 px-3 py-1 hover:border-accent hover:bg-accent/10 text-accent flex items-center gap-1.5 whitespace-nowrap"
                             onClick={() => {
                                 window.location.href = 'api/config/download'
                             }}
@@ -120,14 +148,36 @@ function LogsView({
                             Config
                         </button>
                         <button
-                            className="rounded-pill border border-rose-500/40 px-3 py-1 hover:border-rose-500 text-rose-300 disabled:opacity-40 flex items-center gap-1.5"
+                            className={`${DOWNLOAD_BTN} border-accent/60 hover:border-accent hover:bg-accent/10 text-accent`}
+                            onClick={() => runDownload('db', 'api/system/db-snapshot', 'planner_learning.db')}
+                            disabled={busy !== null}
+                            aria-busy={busy === 'db'}
+                        >
+                            {busy === 'db' ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+                            {busy === 'db' ? 'Preparing…' : 'Database'}
+                        </button>
+                        <button
+                            className={`${DOWNLOAD_BTN} border-accent/60 hover:border-accent hover:bg-accent/10 text-accent`}
+                            onClick={() => runDownload('bundle', 'api/system/diagnostics', 'darkstar-diagnostics.zip')}
+                            disabled={busy !== null}
+                            aria-busy={busy === 'bundle'}
+                        >
+                            {busy === 'bundle' ? (
+                                <Loader2 size={10} className="animate-spin" />
+                            ) : (
+                                <Download size={10} />
+                            )}
+                            {busy === 'bundle' ? 'Exporting…' : 'Export bundle'}
+                        </button>
+                        <button
+                            className="rounded-pill border border-rose-500/40 px-3 py-1 hover:border-rose-500 text-rose-300 disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap"
                             onClick={clearLogs}
                         >
                             <Trash2 size={10} />
                             Clear
                         </button>
                         <select
-                            className="rounded-md bg-surface2 border border-line/60 px-2 py-1 text-[11px]"
+                            className="rounded-md bg-surface2 border border-line/60 px-2 py-1 text-[11px] shrink-0"
                             value={timeRange}
                             onChange={(e) => setTimeRange(e.target.value as LogTimeRange)}
                         >
@@ -137,7 +187,7 @@ function LogsView({
                             <option value="24h">Last 24 hours</option>
                         </select>
                         <select
-                            className="rounded-md bg-surface2 border border-line/60 px-2 py-1 text-[11px]"
+                            className="rounded-md bg-surface2 border border-line/60 px-2 py-1 text-[11px] shrink-0"
                             value={levelFilter}
                             onChange={(e) => setLevelFilter(e.target.value as LogLevelFilter)}
                         >
