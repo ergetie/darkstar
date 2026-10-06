@@ -240,6 +240,41 @@ class TestParseSlotPlan:
         assert slot.discharge_kw == 0.0
         assert slot.soc_target == 80
 
+    @pytest.mark.parametrize(
+        "source_fields,expected",
+        [
+            ({"charge_kw": 0.0, "grid_import_kw": 2.0}, 0.0),
+            ({"charge_kw": 1.0}, 1.0),
+            ({"grid_import_kw": 0.0}, 0.0),
+            ({"grid_import_kw": 5.0}, 3.0),
+            ({"import_kwh": 0.0}, 0.0),
+            ({"import_kwh": 0.25}, 1.0),
+            ({"charge_kw": None, "grid_import_kw": 0.0}, 0.0),
+            ({"charge_kw": None, "grid_import_kw": None, "import_kwh": 0.0}, 0.0),
+            ({"charge_kw": None, "grid_import_kw": None, "import_kwh": None}, None),
+            ({}, None),
+        ],
+    )
+    def test_preserves_grid_charging_source(self, engine, source_fields, expected):
+        from executor.controller import Controller
+
+        slot = engine._parse_slot_plan({"battery_charge_kw": 3.0, **source_fields})
+
+        assert slot.charge_kw == 3.0
+        assert slot.grid_charge_kw == expected
+        decision = Controller(ControllerConfig(), InverterConfig()).decide(slot, SystemState())
+        assert decision.mode_intent == ("self_consumption" if expected == 0 else "charge")
+
+    def test_source_less_solar_export_keeps_legacy_mode(self, engine):
+        from executor.controller import Controller
+
+        slot = engine._parse_slot_plan({"battery_charge_kw": 3.0, "export_kwh": 0.25})
+
+        assert slot.grid_charge_kw is None
+        assert slot.export_kw == 1.0
+        decision = Controller(ControllerConfig(), InverterConfig()).decide(slot, SystemState())
+        assert decision.mode_intent == "self_consumption"
+
     def test_parses_export_slot(self, engine):
         """Parses an export slot correctly (kWh to kW conversion)."""
         slot_data = {
@@ -525,6 +560,28 @@ class TestRunOnce:
 
         assert result["success"] is True
         assert len(result["actions"]) > 0
+
+    @pytest.mark.parametrize("grid_charge_kw", [0.0, 1.0, None])
+    async def test_ev_isolation_preserves_charging_source(
+        self, engine, temp_schedule, grid_charge_kw
+    ):
+        """Blocking battery discharge to an EV must not change solar/grid intent."""
+        from executor.controller import make_decision
+
+        now = datetime.now(pytz.timezone("Europe/Stockholm"))
+        slot_data = make_slot(now - timedelta(minutes=5), charge_kw=3.0, soc_target=80)
+        slot_data.update({"charge_kw": grid_charge_kw, "ev_charging_kw": 7.4})
+        Path(temp_schedule).write_text(json.dumps(make_schedule([slot_data])))
+
+        with patch("executor.engine.make_decision", wraps=make_decision) as decide:
+            result = await engine.run_once()
+
+        assert result["success"] is True
+        isolated_slot = decide.call_args.args[0]
+        assert isolated_slot.grid_charge_kw == grid_charge_kw
+        assert isolated_slot.discharge_kw == 0.0
+        decision = make_decision(*decide.call_args.args, **decide.call_args.kwargs)
+        assert decision.mode_intent == ("self_consumption" if grid_charge_kw == 0 else "charge")
 
     async def test_force_charge_cleared_when_target_reached(self, engine, temp_schedule):
         """Top Up ends at its target SoC and the tick follows the schedule."""

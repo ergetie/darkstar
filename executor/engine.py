@@ -1890,6 +1890,7 @@ class ExecutorEngine:
                 # Force zero discharge to prevent battery → EV energy flow
                 slot = SlotPlan(
                     charge_kw=slot.charge_kw,
+                    grid_charge_kw=slot.grid_charge_kw,
                     discharge_kw=0.0,  # Block discharge
                     export_kw=slot.export_kw,
                     load_kw=slot.load_kw,
@@ -2442,6 +2443,15 @@ class ExecutorEngine:
         """Parse a schedule slot into a SlotPlan object."""
         # Handle both kW and kWh fields
         charge_kw = float(slot_data.get("battery_charge_kw", 0.0) or 0.0)
+        # The planner's charge_kw is the grid-supplied part of battery charging,
+        # while battery_charge_kw includes solar. Preserve explicit zero.
+        grid_charge_kw = None
+        if slot_data.get("charge_kw") is not None:
+            grid_charge_kw = float(slot_data["charge_kw"])
+        elif slot_data.get("grid_import_kw") is not None:
+            grid_charge_kw = min(charge_kw, float(slot_data["grid_import_kw"]))
+        elif slot_data.get("import_kwh") is not None:
+            grid_charge_kw = min(charge_kw, float(slot_data["import_kwh"]) * 4)
         discharge_kw = float(slot_data.get("battery_discharge_kw", 0.0) or 0.0)
         export_kw = float(slot_data.get("export_kwh", 0.0) or 0.0) * 4  # kWh to kW
         # Load forecast: convert kWh per slot to kW (multiply by 4 for 15-min slots)
@@ -2506,6 +2516,7 @@ class ExecutorEngine:
 
         return SlotPlan(
             charge_kw=charge_kw,
+            grid_charge_kw=grid_charge_kw,
             discharge_kw=discharge_kw,
             export_kw=export_kw,
             load_kw=load_kw,

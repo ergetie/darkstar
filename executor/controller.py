@@ -196,6 +196,11 @@ class Controller:
 
     def _follow_plan(self, slot: SlotPlan, state: SystemState) -> ControllerDecision:
         """Follow the slot plan for normal operation using 4 mode intents."""
+        grid_charge_planned = (
+            slot.grid_charge_kw > 0
+            if slot.grid_charge_kw is not None
+            else slot.charge_kw > 0 and slot.export_kw == 0
+        )
         # Determine mode intent based on slot plan
         # Order matters: export > charge > idle > self_consumption
         #
@@ -205,12 +210,11 @@ class Controller:
         if slot.export_kw > 0 and slot.discharge_kw > 0:
             # Battery discharge to grid - use export mode
             mode_intent = "export"
-        elif slot.charge_kw > 0 and slot.export_kw == 0:
-            # Grid charging (no PV surplus) - use charge mode with grid_charging ON
+        elif slot.charge_kw > 0 and grid_charge_planned:
+            # Enable grid charging only when the plan calls for it.
             mode_intent = "charge"
         elif slot.charge_kw > 0:
-            # PV surplus (charge_kw > 0 AND export_kw > 0 AND discharge_kw == 0)
-            # Charge battery from PV while exporting excess - use self_consumption
+            # Solar charging can consume all surplus, with zero grid export.
             mode_intent = "self_consumption"
         elif round(state.current_soc_percent) <= slot.soc_target:
             # At or below SoC target - use idle to hold battery

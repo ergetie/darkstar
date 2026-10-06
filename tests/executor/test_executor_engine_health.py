@@ -6,6 +6,7 @@ import pytest
 from executor.actions import ActionResult
 from executor.config import ExecutorConfig
 from executor.engine import ExecutorEngine
+from executor.override import SystemState
 
 
 @pytest.fixture
@@ -58,7 +59,6 @@ async def test_executor_engine_captures_action_errors(engine):
     # _load_config is SYNC, so use MagicMock
     # _gather_system_state is ASYNC, so use AsyncMock
     engine._load_config = MagicMock()
-    from executor.override import SystemState
     engine._gather_system_state = AsyncMock(return_value=SystemState())
 
     await engine._tick()
@@ -80,7 +80,7 @@ async def test_executor_engine_ignores_skipped_actions(engine):
     engine.dispatcher.execute.return_value = [skipped_result]
 
     engine._load_config = MagicMock()
-    engine._gather_system_state = AsyncMock()
+    engine._gather_system_state = AsyncMock(return_value=SystemState())
     engine._get_planner_decision = AsyncMock(return_value=MagicMock())
     engine.history = MagicMock()
 

@@ -108,6 +108,31 @@ class TestControllerFollowPlan:
 
         assert decision.mode_intent == "charge"
 
+    @pytest.mark.parametrize("export_kw", [0.0, 1.0])
+    def test_solar_charge_never_enables_grid_charging(self, controller, export_kw):
+        """Zero export must not turn an explicit solar-only plan into grid charging."""
+        slot = SlotPlan(charge_kw=3.0, grid_charge_kw=0.0, export_kw=export_kw)
+
+        decision = controller.decide(slot, SystemState(current_soc_percent=20))
+
+        assert decision.mode_intent == "self_consumption"
+        assert decision.charge_value > 0
+
+    @pytest.mark.parametrize("grid_charge_kw", [1.0, 3.0])
+    def test_explicit_grid_charge_remains_enabled(self, controller, grid_charge_kw):
+        """Mixed solar/grid and grid-only charging retain the charge command."""
+        slot = SlotPlan(charge_kw=3.0, grid_charge_kw=grid_charge_kw)
+
+        assert controller.decide(slot, SystemState()).mode_intent == "charge"
+
+    @pytest.mark.parametrize("grid_charge_kw", [0.0, 1.0])
+    def test_battery_export_precedes_explicit_charge_source(self, controller, grid_charge_kw):
+        slot = SlotPlan(
+            charge_kw=3.0, grid_charge_kw=grid_charge_kw, export_kw=2.0, discharge_kw=2.0
+        )
+
+        assert controller.decide(slot, SystemState()).mode_intent == "export"
+
     def test_idle_mode_when_at_soc_target(self, controller):
         """When at or below SoC target, use idle mode intent."""
         slot = SlotPlan(export_kw=0.0, charge_kw=0.0, soc_target=50)
@@ -316,6 +341,20 @@ class TestControllerApplyOverride:
         assert decision.soc_target == 30
         assert decision.source == "override"
 
+    def test_force_charge_override_precedes_solar_only_plan(self, controller):
+        slot = SlotPlan(charge_kw=3.0, grid_charge_kw=0.0)
+        override = OverrideResult(
+            override_needed=True,
+            override_type=OverrideType.FORCE_CHARGE,
+            actions={"soc_target": 80},
+        )
+
+        decision = controller.decide(slot, SystemState(), override)
+
+        assert decision.mode_intent == "charge"
+        assert decision.source == "override"
+        assert decision.soc_target == 80
+
     def test_override_source_is_override(self, controller):
         """Decision source is 'override' when override is active."""
         slot = SlotPlan()
@@ -359,6 +398,7 @@ class TestControllerApplyOverride:
 
         assert decision.source == "plan"
         assert decision.mode_intent == "export"
+
 
 class TestCalculateChargeCurrent:
     """Test Controller._calculate_charge_current."""

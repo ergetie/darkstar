@@ -109,6 +109,9 @@ class SlotPlan:
     ev_surplus_kw: dict[str, float] = field(default_factory=lambda: {})
     # Per-charger: charger_id -> switch held on past target, no planned energy
     ev_keep_on: dict[str, bool] = field(default_factory=lambda: {})
+    # Separate from total battery charging; None preserves legacy schedules that
+    # do not identify the charging source. Explicit zero means solar-only.
+    grid_charge_kw: float | None = None
 
 
 class OverrideEvaluator:
