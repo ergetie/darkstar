@@ -907,8 +907,8 @@ export const batterySections: SettingsSection[] = [
         fields: [
             {
                 key: 'battery.capacity_kwh',
-                label: 'Battery capacity (kWh)',
-                helper: 'Total usable capacity of your battery bank.',
+                label: 'Full battery capacity (kWh)',
+                helper: 'Full rated capacity of your entire battery bank. Minimum and maximum charge limits are applied separately; do not subtract reserves or losses.',
                 path: ['battery', 'capacity_kwh'],
                 type: 'number',
             },
