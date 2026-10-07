@@ -225,3 +225,308 @@ async def test_store_slot_observations_missing_measurement_keeps_existing(learni
         row = conn.execute("SELECT load_kwh, pv_kwh FROM slot_observations").fetchone()
 
     assert row == pytest.approx((4.0, 1.5))
+
+
+def _provenance_flags(source: str, components: dict[str, dict[str, str]]) -> dict:
+    return {
+        "source": source,
+        "exclude": True,
+        "recording": {
+            "schema_version": 1,
+            "semantics": "slot-energy-v1",
+            "boundary_fingerprint": "a" * 64,
+            "algorithm": "power-history-step-zoh-v1",
+            "components": components,
+            "soc": {"source": "live", "owner": source},
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_partial_live_correction_merges_only_accepted_component_provenance(learning_engine):
+    slot_start = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
+    initial_flags = _provenance_flags(
+        "recorder",
+        {
+            "pv": {"method": "power_history", "owner": "recorder"},
+            "load": {"method": "power_history", "owner": "recorder"},
+            "battery_charge": {"method": "power_history", "owner": "recorder"},
+        },
+    )
+    correction_flags = _provenance_flags(
+        "recorder",
+        {
+            "pv": {"method": "snapshot", "owner": "recorder"},
+        },
+    )
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "pv_kwh": 1.0,
+                    "load_kwh": 2.0,
+                    "batt_charge_kwh": 0.5,
+                    "quality_flags": initial_flags,
+                }
+            ]
+        )
+    )
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        current_flags = json.loads(
+            conn.execute("SELECT quality_flags FROM slot_observations").fetchone()[0]
+        )
+        current_flags["exclude"] = True
+        conn.execute(
+            "UPDATE slot_observations SET quality_flags = ?",
+            (json.dumps(current_flags),),
+        )
+        conn.commit()
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "pv_kwh": 0.0,
+                    "quality_flags": correction_flags,
+                }
+            ]
+        )
+    )
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        row = conn.execute(
+            "SELECT pv_kwh, load_kwh, batt_charge_kwh, quality_flags FROM slot_observations"
+        ).fetchone()
+    flags = json.loads(row[3])
+    assert row[:3] == pytest.approx((0.0, 2.0, 0.5))
+    assert flags["exclude"] is True
+    assert flags["recording"]["components"]["pv"]["method"] == "snapshot"
+    assert flags["recording"]["components"]["load"]["owner"] == "recorder"
+    assert flags["recording"]["components"]["battery_charge"]["method"] == "power_history"
+
+
+@pytest.mark.asyncio
+async def test_backfill_fills_missing_component_as_backfill_owned_and_refreshes_own_values(
+    learning_engine,
+):
+    slot_start = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
+    recorder_flags = _provenance_flags(
+        "recorder",
+        {
+            "pv": {"method": "power_history", "owner": "recorder"},
+        },
+    )
+    backfill_flags = _provenance_flags(
+        "backfill",
+        {
+            "battery_charge": {"method": "power_history", "owner": "backfill"},
+        },
+    )
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "pv_kwh": 1.0,
+                    "quality_flags": recorder_flags,
+                }
+            ]
+        )
+    )
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "batt_charge_kwh": 0.5,
+                    "quality_flags": backfill_flags,
+                }
+            ]
+        ),
+        authoritative=False,
+    )
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        row = conn.execute(
+            "SELECT batt_charge_kwh, quality_flags FROM slot_observations"
+        ).fetchone()
+    flags = json.loads(row[1])
+    assert row[0] == pytest.approx(0.5)
+    assert flags["source"] == "recorder"
+    assert flags["recording"]["components"]["battery_charge"]["owner"] == "backfill"
+
+    backfill_start = slot_start + timedelta(minutes=15)
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": backfill_start,
+                    "slot_end": backfill_start + timedelta(minutes=15),
+                    "batt_charge_kwh": 0.0,
+                    "quality_flags": backfill_flags,
+                }
+            ]
+        ),
+        authoritative=False,
+    )
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": backfill_start,
+                    "slot_end": backfill_start + timedelta(minutes=15),
+                    "batt_charge_kwh": 0.7,
+                    "quality_flags": backfill_flags,
+                }
+            ]
+        ),
+        authoritative=False,
+    )
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        corrected = conn.execute(
+            "SELECT batt_charge_kwh FROM slot_observations WHERE slot_start = ?",
+            (backfill_start.isoformat(),),
+        ).fetchone()
+    assert corrected[0] == pytest.approx(0.7)
+
+
+@pytest.mark.asyncio
+async def test_partial_soc_correction_preserves_each_endpoint_and_new_exclusion(learning_engine):
+    slot_start = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
+    flags = _provenance_flags("recorder", {"pv": {"method": "power_history", "owner": "recorder"}})
+    flags["recording"]["soc"]["source"] = "cached"
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "pv_kwh": 1,
+                    "soc_start_percent": 40,
+                    "soc_end_percent": 41,
+                    "quality_flags": flags,
+                }
+            ]
+        )
+    )
+    live = _provenance_flags("recorder", {})
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "soc_end_percent": 42,
+                    "quality_flags": live,
+                }
+            ]
+        )
+    )
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        row = conn.execute(
+            "SELECT soc_start_percent,soc_end_percent,quality_flags FROM slot_observations"
+        ).fetchone()
+    metadata = json.loads(row[2])
+    assert row[:2] == (40, 42)
+    assert metadata["exclude"] is True
+    assert metadata["recording"]["soc"]["start"]["source"] == "cached"
+    assert metadata["recording"]["soc"]["end"]["source"] == "live"
+
+
+@pytest.mark.asyncio
+async def test_partial_current_correction_cannot_promote_retained_unsupported_algorithm(
+    learning_engine,
+):
+    slot_start = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
+    flags = _provenance_flags(
+        "recorder",
+        {
+            "pv": {"method": "power_history", "owner": "recorder"},
+            "battery_charge": {"method": "power_history", "owner": "recorder"},
+        },
+    )
+    flags["recording"]["algorithm"] = "future-energy-v2"
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "pv_kwh": 1,
+                    "batt_charge_kwh": 0.5,
+                    "quality_flags": flags,
+                }
+            ]
+        )
+    )
+    current = _provenance_flags(
+        "recorder", {"pv": {"method": "power_history", "owner": "recorder"}}
+    )
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "pv_kwh": 2,
+                    "quality_flags": current,
+                }
+            ]
+        )
+    )
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        metadata = json.loads(
+            conn.execute("SELECT quality_flags FROM slot_observations").fetchone()[0]
+        )
+    assert metadata["recording"]["algorithm"] == "mixed"
+    assert metadata["recording"]["components"]["battery_charge"]["algorithm"] == "future-energy-v2"
+    assert metadata["recording"]["components"]["pv"]["algorithm"] == "power-history-step-zoh-v1"
+
+
+@pytest.mark.asyncio
+async def test_incoming_exclusion_overrides_old_false_and_price_change_invalidates_attestation(
+    learning_engine,
+):
+    slot = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot,
+                    "slot_end": slot + timedelta(minutes=15),
+                    "pv_kwh": 1.0,
+                    "import_price_sek_kwh": 1.0,
+                    "quality_flags": {"exclude": False, "custom": "retained"},
+                }
+            ]
+        )
+    )
+    with sqlite3.connect(learning_engine.db_path) as connection:
+        flags = json.loads(
+            connection.execute("SELECT quality_flags FROM slot_observations").fetchone()[0]
+        )
+        flags["legacy_attestation"] = {"schema_version": 1}
+        connection.execute("UPDATE slot_observations SET quality_flags=?", (json.dumps(flags),))
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot,
+                    "slot_end": slot + timedelta(minutes=15),
+                    "import_price_sek_kwh": 2.0,
+                    "quality_flags": {"exclude": True},
+                }
+            ]
+        )
+    )
+    with sqlite3.connect(learning_engine.db_path) as connection:
+        row = connection.execute(
+            "SELECT pv_kwh,import_price_sek_kwh,quality_flags FROM slot_observations"
+        ).fetchone()
+    flags = json.loads(row[2])
+    assert row[:2] == (1.0, 2.0)
+    assert flags["exclude"] is True and flags["custom"] == "retained"
+    assert "legacy_attestation" not in flags

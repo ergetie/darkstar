@@ -189,7 +189,8 @@ async def test_baseline_fields_present_with_battery(store):
         abs=0.01,
     )
     assert series["battery_comparison"]["status"] == "incomplete_period"
-    assert series["battery_comparison"]["reason"] in {"missing_completed_slot", "missing_start_soc"}
+    # Rows without recorder provenance are ineligible, so no usable run exists.
+    assert series["battery_comparison"]["reason"] == "unsupported_period_measurements"
 
 
 @pytest.mark.asyncio

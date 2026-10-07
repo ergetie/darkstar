@@ -574,12 +574,43 @@ export type CostSeriesBatterySide = {
     comparison_cost_sek: number
 }
 
+export type CostSeriesComparisonCoverage = {
+    covered_slots: number
+    total_slots: number
+    excluded_slots: number
+}
+
 export type CostSeriesBatteryComparison = {
-    status: 'available' | 'insufficient_data' | 'unreliable_model' | 'incomplete_period' | 'no_battery' | 'no_data'
+    status:
+        | 'available'
+        | 'estimated'
+        | 'insufficient_data'
+        | 'unreliable_model'
+        | 'incomplete_period'
+        | 'no_battery'
+        | 'no_data'
     reason: string
     method_version?: string
+    basis?: 'configured_losses' | 'calibrated'
+    label?: string
+    calibration_status?: string
+    calibration_reason?: string
+    input_assumptions?: {
+        legacy_recording_slots: number
+        legacy_soc_mapping_slots: number
+    }
     through?: string
+    /** Completed 15-minute slots of the period that entered the comparison. Slots that are
+     * missing or fail the measurement checks are excluded, not fatal. */
+    coverage?: CostSeriesComparisonCoverage
     calibration?: Record<string, number | string>
+    history?: {
+        cohort_id?: string | null
+        cohort_start?: string | null
+        considered_count?: number
+        eligible_count?: number
+        exclusions?: Record<string, number>
+    }
     darkstar?: CostSeriesBatterySide
     self_use?: CostSeriesBatterySide
     saving_sek?: number
@@ -599,7 +630,7 @@ export type CostSeriesResponse = {
     points: CostSeriesPoint[]
     /** "Without Darkstar" comparison; null without a battery or recorded slots. */
     baseline?: CostSeriesBaseline | null
-    /** Validated installation-specific estimate; absent amounts indicate unavailable status. */
+    /** Configured-loss estimate or verified installation-specific comparison. */
     battery_comparison?: CostSeriesBatteryComparison
     error?: string
 }

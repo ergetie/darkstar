@@ -200,28 +200,191 @@ describe('GridDomain validated battery comparison', () => {
             battery_comparison: comparison,
         }) as never
 
-    it('shows separate comparable totals and estimated savings, never legacy savings', async () => {
+    const openPanel = () => fireEvent.click(screen.getByRole('button', { name: 'How this is calculated' }))
+
+    it('shows one compact saving line with the amount and a Verified chip, never legacy savings', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(
             seriesWith({
                 status: 'available',
                 reason: 'validated',
+                basis: 'calibrated',
                 darkstar,
                 self_use: selfUse,
                 saving_sek: 10.5,
                 reference_price_sek_kwh: 2.1,
-                through: '2026-10-05T12:00:00Z',
+                through: '2026-10-05T12:30:00',
                 points: [],
             }),
         )
 
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
 
-        expect(await screen.findByText('Estimated battery savings')).toBeInTheDocument()
+        expect(await screen.findByText('Darkstar saved you')).toBeInTheDocument()
         expect(screen.getByText('10.50 kr')).toHaveClass('text-good')
-        expect(screen.getByText('Darkstar comparison: 29.00 kr')).toBeInTheDocument()
-        expect(screen.getByText('Self-use comparison: 39.50 kr')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'How this is calculated' })).toHaveTextContent('Verified')
+        // Details stay hidden until the info button is used.
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        expect(screen.queryByText(/Darkstar comparison:/)).not.toBeInTheDocument()
         expect(screen.queryByText(/999/)).not.toBeInTheDocument()
+        expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Actual' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Comparison' })).not.toBeInTheDocument()
+    })
+
+    it('opens an opaque details panel with explanation, completed-through time and cost breakdown', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith({
+                status: 'available',
+                reason: 'validated',
+                basis: 'calibrated',
+                darkstar,
+                self_use: selfUse,
+                saving_sek: 10.5,
+                reference_price_sek_kwh: 2.1,
+                through: '2026-10-05T12:30:00',
+                points: [],
+            }),
+        )
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+        await screen.findByText('Darkstar saved you')
+
+        openPanel()
+
+        const panel = screen.getByRole('dialog')
+        expect(panel).toHaveClass('bg-surface')
+        expect(panel).toHaveTextContent(/plain self-use inverter/)
+        expect(panel).toHaveTextContent('Completed through 2026-10-05 12:30')
+        expect(panel).toHaveTextContent('Verified: the model passed its accuracy checks.')
+        expect(panel).toHaveTextContent('Cost adjustments and assumptions')
+        expect(panel).toHaveTextContent('2.100 kr/kWh')
+        expect(panel).toHaveTextContent('30.00 / 1.00 / 2.00 kr')
+        expect(panel).toHaveTextContent('38.00 / 1.50 / 0.00 kr')
+        expect(panel).not.toHaveTextContent(/of the period|Based on/)
+    })
+
+    it('toggles the panel with the info button, and closes it on outside click and Escape', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith({
+                status: 'available',
+                reason: 'validated',
+                basis: 'calibrated',
+                darkstar,
+                self_use: selfUse,
+                saving_sek: 10.5,
+                reference_price_sek_kwh: 2.1,
+                through: '2026-10-05T12:30:00',
+                points: [],
+            }),
+        )
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+        await screen.findByText('Darkstar saved you')
+        const button = screen.getByRole('button', { name: 'How this is calculated' })
+        expect(button).toHaveAttribute('aria-expanded', 'false')
+
+        fireEvent.click(button)
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+        expect(button).toHaveAttribute('aria-expanded', 'true')
+
+        // Interacting inside the panel keeps it open.
+        fireEvent.mouseDown(screen.getByRole('dialog'))
+        fireEvent.pointerDown(screen.getByRole('dialog'))
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+        fireEvent.click(button)
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+        fireEvent.click(button)
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+        fireEvent.mouseDown(document.body)
+        fireEvent.pointerDown(document.body)
+        fireEvent.touchStart(document.body)
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+        fireEvent.click(button)
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+        fireEvent.keyDown(document, { key: 'Escape' })
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        expect(button).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    describe('coverage', () => {
+        const partial = (covered: number, total: number) =>
+            seriesWith({
+                status: 'available',
+                reason: 'validated',
+                basis: 'calibrated',
+                darkstar,
+                self_use: selfUse,
+                saving_sek: 10.5,
+                points: [],
+                coverage: { covered_slots: covered, total_slots: total, excluded_slots: total - covered },
+            })
+
+        it('adds a muted percent suffix and a coverage sentence in the panel when coverage is partial', async () => {
+            vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+            vi.mocked(Api.energyCostSeries).mockResolvedValue(partial(90, 96))
+            render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+            // 90 / 96 = 93.75 -> floored to 93
+            const suffix = await screen.findByText('· 93% of the period')
+            expect(suffix).toHaveClass('text-muted')
+            expect(screen.queryByText(/Based on/)).not.toBeInTheDocument()
+
+            openPanel()
+            expect(screen.getByRole('dialog')).toHaveTextContent(
+                'Based on 90 of 96 completed 15-minute slots (6 left out because they are missing or could not be compared reliably).',
+            )
+        })
+
+        it('never rounds up to 100% while slots are excluded', async () => {
+            vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+            vi.mocked(Api.energyCostSeries).mockResolvedValue(partial(1999, 2000))
+            render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+            expect(await screen.findByText('· 99% of the period')).toBeInTheDocument()
+        })
+
+        it('shows no suffix or sentence when every slot is covered', async () => {
+            vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+            vi.mocked(Api.energyCostSeries).mockResolvedValue(partial(96, 96))
+            render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+            await screen.findByText('Darkstar saved you')
+
+            expect(screen.queryByText(/of the period/)).not.toBeInTheDocument()
+            openPanel()
+            expect(screen.getByRole('dialog')).not.toHaveTextContent(/Based on/)
+        })
+    })
+
+    it('labels configured-loss amounts with an Estimate chip and explains verification state in the panel', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith({
+                status: 'estimated',
+                reason: 'configured_losses',
+                basis: 'configured_losses',
+                label: 'Estimate based on configured losses',
+                calibration_status: 'insufficient_data',
+                calibration_reason: 'unverified_history',
+                darkstar,
+                self_use: selfUse,
+                saving_sek: 10.5,
+            }),
+        )
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        expect(await screen.findByText('Darkstar saved you')).toBeInTheDocument()
+        const chip = screen.getByRole('button', { name: 'How this is calculated' })
+        expect(chip).toHaveTextContent('Estimate')
+        expect(chip).not.toHaveTextContent('Verified')
+        openPanel()
+        const panel = screen.getByRole('dialog')
+        expect(panel).toHaveTextContent('Not enough reliable history to verify; configured battery losses are used.')
+        expect(panel).not.toHaveTextContent('Verified: the model passed')
+        expect(panel).not.toHaveTextContent(/unverified_history/)
     })
 
     it('withholds the previous estimate while a new period is loading', async () => {
@@ -254,7 +417,7 @@ describe('GridDomain validated battery comparison', () => {
         expect(screen.queryByText('10.50 kr')).not.toBeInTheDocument()
     })
 
-    it('describes negative saving as additional estimated cost', async () => {
+    it('says Darkstar cost you extra when the saving is negative', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(
             seriesWith({
@@ -270,8 +433,11 @@ describe('GridDomain validated battery comparison', () => {
 
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
 
-        const text = await screen.findByText('Additional estimated cost 2.10 kr')
-        expect(text).toHaveClass('text-bad')
+        const amount = await screen.findByText('2.10 kr')
+        expect(screen.getByText('Darkstar cost you extra')).toBeInTheDocument()
+        expect(screen.queryByText('Darkstar saved you')).not.toBeInTheDocument()
+        expect(amount).toHaveClass('text-bad')
+        expect(screen.getByRole('button', { name: 'How this is calculated' })).toHaveTextContent('Verified')
     })
 
     it('shows a plain-language unavailable state without legacy fallback', async () => {
@@ -285,8 +451,87 @@ describe('GridDomain validated battery comparison', () => {
         expect(
             await screen.findByText('The battery comparison estimate did not pass its accuracy checks.'),
         ).toBeInTheDocument()
-        expect(screen.queryByText('Estimated battery savings')).not.toBeInTheDocument()
+        // Only the single muted status line: no amount, chip, or details panel.
+        expect(screen.getByRole('status')).toHaveTextContent(
+            'The battery comparison estimate did not pass its accuracy checks.',
+        )
+        expect(screen.queryByText('Darkstar saved you')).not.toBeInTheDocument()
+        expect(screen.queryByText('Darkstar cost you extra')).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'How this is calculated' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
         expect(screen.queryByText(/999/)).not.toBeInTheDocument()
+    })
+
+    it('explains collecting history and unsupported periods without amounts', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith({ status: 'insufficient_data', reason: 'unverified_history', history: { eligible_count: 0 } }),
+        )
+        const { rerender } = render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+        expect(
+            await screen.findByText(
+                'Battery comparison needs more reliable history to estimate battery losses, even when viewing today.',
+            ),
+        ).toBeInTheDocument()
+        expect(screen.queryByText('Darkstar saved you')).not.toBeInTheDocument()
+        expect(screen.queryByText(/999/)).not.toBeInTheDocument()
+
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith({ status: 'incomplete_period', reason: 'unsupported_period_measurements' }),
+        )
+        rerender(<GridDomain key="unsupported-period" netCost={null} importKwh={null} exportKwh={null} />)
+        expect(
+            await screen.findByText('This period includes measurements that cannot be compared reliably.'),
+        ).toBeInTheDocument()
+        expect(screen.queryByText('Darkstar saved you')).not.toBeInTheDocument()
+    })
+
+    it.each([undefined, Number.NaN, Number.POSITIVE_INFINITY])(
+        'withholds malformed saving %s without crashing',
+        async (saving) => {
+            vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+            vi.mocked(Api.energyCostSeries).mockResolvedValue(
+                seriesWith({
+                    status: 'estimated',
+                    basis: 'configured_losses',
+                    darkstar,
+                    self_use: selfUse,
+                    saving_sek: saving,
+                }),
+            )
+            render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+            expect(await screen.findByText('Grid Import')).toBeInTheDocument()
+            expect(screen.queryByText('Darkstar saved you')).not.toBeInTheDocument()
+            expect(screen.queryByText(/NaN|Infinity|999/)).not.toBeInTheDocument()
+        },
+    )
+
+    it.each([
+        [0, 'Darkstar saved you', 'text-good'],
+        [2.1, 'Darkstar saved you', 'text-good'],
+        [-2.1, 'Darkstar cost you extra', 'text-bad'],
+    ])('shows configured-estimate sign %s consistently', async (saving, wording, tone) => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith({
+                status: 'estimated',
+                basis: 'configured_losses',
+                darkstar,
+                self_use: selfUse,
+                saving_sek: saving,
+                calibration_status: 'unreliable_model',
+                calibration_reason: 'holdout_validation_failed',
+            }),
+        )
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+        expect(await screen.findByText(wording)).toBeInTheDocument()
+        expect(screen.getByText(`${Math.abs(saving).toFixed(2)} kr`)).toHaveClass(tone)
+        expect(screen.getByRole('button', { name: 'How this is calculated' })).toHaveTextContent('Estimate')
+        openPanel()
+        expect(screen.getByRole('dialog')).toHaveTextContent(
+            'Calibration checks did not pass; configured battery losses are used.',
+        )
+        expect(screen.queryByText(/holdout_validation_failed|Verified battery savings/)).not.toBeInTheDocument()
     })
 
     it('hides comparison when no battery is configured', async () => {
@@ -298,7 +543,7 @@ describe('GridDomain validated battery comparison', () => {
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
 
         expect(await screen.findByText('Grid Import')).toBeInTheDocument()
-        expect(screen.queryByText('Estimated battery savings')).not.toBeInTheDocument()
-        expect(screen.queryByRole('group', { name: 'Cost chart view' })).not.toBeInTheDocument()
+        expect(screen.queryByText('Darkstar saved you')).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'How this is calculated' })).not.toBeInTheDocument()
     })
 })

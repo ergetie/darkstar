@@ -12,9 +12,41 @@ from backend.battery_comparison import (
     GridModel,
     RecordedObservation,
     build_comparison,
+    build_estimated_comparison,
+    estimate_row_eligible,
     fit_calibration,
+    observation_value_digest,
     simulate_self_use,
+    trusted_row_provenance,
+    trusted_soc_endpoint,
 )
+from backend.measurement_provenance import ENERGY_SEMANTICS
+
+
+def trusted_flags() -> dict:
+    return {
+        "source": "recorder",
+        "recording": {
+            "schema_version": 1,
+            "semantics": ENERGY_SEMANTICS,
+            "boundary_fingerprint": "a" * 64,
+            "algorithm": "power-history-step-zoh-v1",
+            "components": {
+                name: {"method": "power_history", "owner": "recorder"}
+                for name in (
+                    "import",
+                    "export",
+                    "pv",
+                    "load",
+                    "water",
+                    "ev",
+                    "battery_charge",
+                    "battery_discharge",
+                )
+            },
+            "soc": {"source": "live", "owner": "recorder"},
+        },
+    }
 
 
 def recording(
@@ -51,7 +83,7 @@ def recording(
                 discharge_kwh=discharge,
                 soc_start_percent=soc_start,
                 soc_end_percent=state,
-                quality_flags={"source": "recorder"},
+                quality_flags=trusted_flags(),
             )
         )
     return rows
@@ -75,7 +107,7 @@ def test_calibration_fits_bounded_shared_model_and_negative_price_data() -> None
 def test_calibration_excludes_backfilled_and_explicitly_excluded_rows() -> None:
     rows = recording()
     rows[0] = replace(rows[0], quality_flags={"source": "backfill"})
-    rows[1] = replace(rows[1], quality_flags={"source": "recorder", "exclude": True})
+    rows[1] = replace(rows[1], quality_flags={**trusted_flags(), "exclude": True})
     result = fit_calibration(rows, 10.0, rows[-1].start + timedelta(minutes=15))
     assert result.status == "available"
     assert result.diagnostics is not None
@@ -83,6 +115,263 @@ def test_calibration_excludes_backfilled_and_explicitly_excluded_rows() -> None:
         result.diagnostics.grid_training_samples + result.diagnostics.grid_validation_samples
         == 1198
     )
+
+
+def test_snapshot_fallback_is_excluded_before_the_fit_split():
+    rows = recording()
+    flags = trusted_flags()
+    flags["recording"]["components"]["pv"]["method"] = "snapshot"
+    rows[0] = replace(rows[0], quality_flags=flags)
+    result = fit_calibration(rows, 10.0, rows[-1].start + timedelta(minutes=15), "a" * 64)
+    assert result.status == "available"
+    assert result.history is not None
+    assert result.history["eligible_count"] == 1199
+    assert result.history["exclusions"]["snapshot_or_mixed"] == 1
+
+
+def test_unknown_legacy_rows_are_never_certified_by_a_good_fit():
+    rows = [replace(row, quality_flags={"source": "recorder"}) for row in recording()]
+    result = fit_calibration(rows, 10.0, rows[-1].start + timedelta(minutes=15))
+    assert result.status == "insufficient_data"
+    assert result.reason == "unverified_history"
+    assert result.history is not None and result.history["eligible_count"] == 0
+
+
+def test_explicit_legacy_attestation_makes_compatible_measured_history_eligible():
+    rows = recording()
+    attestation = {
+        "schema_version": 1,
+        "disposition": "verified_measured_energy",
+        "semantics": ENERGY_SEMANTICS,
+        "boundary_fingerprint": "a" * 64,
+        "methods": dict.fromkeys(
+            (
+                "import",
+                "export",
+                "pv",
+                "load",
+                "water",
+                "ev",
+                "battery_charge",
+                "battery_discharge",
+            ),
+            "cumulative_meter_energy",
+        ),
+        "evidence_digest": "b" * 64,
+    }
+    rows = [
+        replace(
+            row,
+            quality_flags={
+                "source": "recorder",
+                "comparison_history": {
+                    "schema_version": 1,
+                    "disposition": "verified_measured_energy",
+                    "evidence_digest": "b" * 64,
+                },
+                "legacy_attestation": {
+                    **attestation,
+                    "soc_method": "live_soc_history",
+                    "affected_measurement_digest": observation_value_digest(row),
+                },
+            },
+        )
+        for row in rows
+    ]
+    result = fit_calibration(rows, 10.0, rows[-1].start + timedelta(minutes=15), "a" * 64)
+    assert result.status == "available"
+    assert result.history is not None
+    assert result.history["cohort_id"].startswith("measured:")
+
+
+def test_attested_legacy_and_observed_measured_energy_share_registered_cohort():
+    rows = recording()
+    methods = dict.fromkeys(
+        ("import", "export", "pv", "load", "water", "ev", "battery_charge", "battery_discharge"),
+        "cumulative_meter_energy",
+    )
+    for index, row in enumerate(rows[:600]):
+        digest = "b" * 64
+        flags = {
+            "source": "recorder",
+            "comparison_history": {
+                "schema_version": 1,
+                "disposition": "verified_measured_energy",
+                "evidence_digest": digest,
+            },
+            "legacy_attestation": {
+                "schema_version": 1,
+                "disposition": "verified_measured_energy",
+                "semantics": ENERGY_SEMANTICS,
+                "boundary_fingerprint": "a" * 64,
+                "methods": methods,
+                "soc_method": "live_soc_history",
+                "evidence_digest": digest,
+                "affected_measurement_digest": observation_value_digest(row),
+            },
+        }
+        rows[index] = replace(row, quality_flags=flags)
+    rows[600] = replace(rows[600], quality_flags={**trusted_flags(), "app_version": "new-release"})
+    result = fit_calibration(rows, 10.0, rows[-1].start + timedelta(minutes=15), "a" * 64)
+    assert result.status == "available"
+    assert result.history is not None and result.history["eligible_count"] == 1200
+    assert result.history["cohort_id"].startswith("measured:")
+
+
+def test_exclusion_counts_include_rows_from_an_older_incompatible_boundary():
+    rows = recording()
+    for index, row in enumerate(rows[-100:], start=len(rows) - 100):
+        flags = trusted_flags()
+        flags["recording"]["boundary_fingerprint"] = "c" * 64
+        rows[index] = replace(row, quality_flags=flags)
+    result = fit_calibration(rows, 10.0, rows[-1].start + timedelta(minutes=15))
+    assert result.status == "insufficient_data"
+    assert result.history is not None
+    assert result.history["eligible_count"] == 100
+    assert result.history["exclusions"]["incompatible_cohort"] == 1100
+    assert result.history["considered_count"] == result.history["eligible_count"] + sum(
+        result.history["exclusions"].values()
+    )
+
+
+def test_newest_algorithm_cohort_does_not_fall_back_to_older_supported_cohort():
+    rows = recording()
+    new_cohort = []
+    for row in rows[-100:]:
+        flags = trusted_flags()
+        flags["recording"]["algorithm"] = "future-semantics-v2"
+        new_cohort.append(replace(row, quality_flags=flags))
+    rows[-100:] = new_cohort
+    result = fit_calibration(rows, 10.0, rows[-1].start + timedelta(minutes=15), "a" * 64)
+    assert result.status == "insufficient_data"
+    assert result.reason == "unverified_history"
+    assert result.history is not None and result.history["eligible_count"] == 0
+
+
+def test_cached_soc_and_changed_sensor_boundary_are_not_current_cohort_rows():
+    rows = recording()
+    cached = trusted_flags()
+    cached["recording"]["soc"]["source"] = "cached"
+    rows[0] = replace(rows[0], quality_flags=cached)
+    other_boundary = trusted_flags()
+    other_boundary["recording"]["boundary_fingerprint"] = "c" * 64
+    rows[1] = replace(rows[1], quality_flags=other_boundary)
+    result = fit_calibration(rows, 10.0, rows[-1].start + timedelta(minutes=15), "a" * 64)
+    assert result.status == "available"
+    assert result.history is not None
+    assert result.history["eligible_count"] == 1198
+    assert result.history["exclusions"]["cached_soc"] == 1
+    assert result.history["exclusions"]["boundary_mismatch"] == 1
+    assert result.history["considered_count"] == result.history["eligible_count"] + sum(
+        result.history["exclusions"].values()
+    )
+
+
+def test_estimate_accepts_only_assumed_legacy_or_supported_live_rows():
+    row = recording(1)[0]
+    legacy = replace(row, quality_flags='{"source":"recorder"}')
+    assert estimate_row_eligible(legacy, "a" * 64)
+
+    unsupported = trusted_flags()
+    unsupported["recording"]["components"]["pv"]["method"] = "snapshot"
+    assert not estimate_row_eligible(replace(row, quality_flags=unsupported), "a" * 64)
+
+    cached = trusted_flags()
+    cached["recording"]["soc"]["source"] = "cached"
+    assert not estimate_row_eligible(replace(row, quality_flags=cached), "a" * 64)
+    assert not estimate_row_eligible(replace(row, quality_flags={"source": "backfill"}))
+    assert not estimate_row_eligible(
+        replace(row, quality_flags={"source": "recorder", "recording": {"schema_version": 2}})
+    )
+
+
+def test_configured_estimate_returns_amounts_without_synthetic_calibration_diagnostics():
+    row = replace(recording(1)[0], quality_flags='{"source":"recorder"}')
+    result, reason = build_estimated_comparison(
+        [row],
+        50.0,
+        ComparisonBattery(10.0, 10.0, 95.0, 2000.0, 2000.0),
+        GridModel(1.0, 1.0),
+        BatteryModel(0.95, 0.95),
+        0.2,
+        lambda start: start.isoformat(),
+    )
+    assert reason is None
+    assert result is not None
+    assert result["status"] == "estimated"
+    assert result["basis"] == "configured_losses"
+    assert "calibration" not in result
+    assert result["points"]
+
+    invalid, invalid_reason = build_estimated_comparison(
+        [replace(row, import_price=float("nan"))],
+        50.0,
+        ComparisonBattery(10.0, 10.0, 95.0, 2000.0, 2000.0),
+        GridModel(1.0, 1.0),
+        BatteryModel(0.95, 0.95),
+        0.2,
+        lambda start: start.isoformat(),
+    )
+    assert invalid is None and invalid_reason == "missing_price"
+
+
+@pytest.mark.parametrize(
+    ("battery", "grid", "storage", "cycle_cost"),
+    [
+        (
+            ComparisonBattery(float("nan"), 10.0, 95.0, 2000.0, 2000.0),
+            GridModel(1.0, 1.0),
+            BatteryModel(0.95, 0.95),
+            0.2,
+        ),
+        (
+            ComparisonBattery(10.0, 95.0, 10.0, 2000.0, 2000.0),
+            GridModel(1.0, 1.0),
+            BatteryModel(0.95, 0.95),
+            0.2,
+        ),
+        (
+            ComparisonBattery(10.0, 10.0, 95.0, -1.0, 2000.0),
+            GridModel(1.0, 1.0),
+            BatteryModel(0.95, 0.95),
+            0.2,
+        ),
+        (
+            ComparisonBattery(10.0, 10.0, 95.0, 2000.0, 2000.0),
+            GridModel(float("nan"), 1.0),
+            BatteryModel(0.95, 0.95),
+            0.2,
+        ),
+        (
+            ComparisonBattery(10.0, 10.0, 95.0, 2000.0, 2000.0),
+            GridModel(1.0, 1.0),
+            BatteryModel(1.01, 0.95),
+            0.2,
+        ),
+        (
+            ComparisonBattery(10.0, 10.0, 95.0, 2000.0, 2000.0),
+            GridModel(1.0, 1.0),
+            BatteryModel(0.95, 0.95),
+            float("inf"),
+        ),
+    ],
+)
+def test_configured_estimate_rejects_invalid_model_configuration(
+    battery: ComparisonBattery,
+    grid: GridModel,
+    storage: BatteryModel,
+    cycle_cost: float,
+):
+    result, reason = build_estimated_comparison(
+        [replace(recording(1)[0], quality_flags='{"source":"recorder"}')],
+        50.0,
+        battery,
+        grid,
+        storage,
+        cycle_cost,
+        lambda start: start.isoformat(),
+    )
+    assert result is None and reason == "invalid_configuration"
 
 
 def test_ac_like_unity_and_deye_like_synthetic_boundaries_fit_independently() -> None:
@@ -153,6 +442,7 @@ def test_comparison_identical_actions_have_zero_saving_and_reconciled_endpoints(
                 0.5,
                 state,
                 next_state,
+                quality_flags=trusted_flags(),
             )
         )
         state = next_state
@@ -181,7 +471,9 @@ def test_comparison_rejects_missing_start_soc_and_interior_gap() -> None:
         grid, storage, 960, 240, 200, 50, "a", "b", "c", "d", 0, 0, 0, 0, 0, 1
     )
     start = datetime(2026, 9, 12, tzinfo=UTC)
-    row = RecordedObservation(start, 0.2, 0, 1, 1, 0, 0.2, 0, 0, 0, 0, None, 50)
+    row = RecordedObservation(
+        start, 0.2, 0, 1, 1, 0, 0.2, 0, 0, 0, 0, None, 50, quality_flags=trusted_flags()
+    )
     battery = ComparisonBattery(10, 10, 95, 2000, 2000)
     result, reason = build_comparison(
         [row], None, battery, diagnostics, 0.2, lambda dt: dt.isoformat()
@@ -220,6 +512,7 @@ def test_self_use_applies_pv_conversion_and_separate_power_limits() -> None:
         0,
         50,
         50,
+        quality_flags=trusted_flags(),
     )
     battery = ComparisonBattery(10, 10, 95, 400, 2000)
     grid = GridModel(0.95, 0.9)
@@ -260,6 +553,7 @@ def test_negative_reference_price_preserves_stored_energy_valuation_sign() -> No
         0,
         50,
         60,
+        quality_flags=trusted_flags(),
     )
     result, reason = build_comparison(
         [row],
@@ -308,6 +602,7 @@ def test_overlap_is_netted_on_both_comparison_sides() -> None:
         0,
         50,
         50,
+        quality_flags=trusted_flags(),
     )
     result, reason = build_comparison(
         [row],
@@ -353,7 +648,9 @@ def test_comparison_points_keep_repeated_dst_hours_distinct_and_utc_ordered() ->
     )
 
     def row(start: datetime) -> RecordedObservation:
-        return RecordedObservation(start, 0, 0, 1, 1, 1, 0.8, 0, 0, 0, 0, 50, 50)
+        return RecordedObservation(
+            start, 0, 0, 1, 1, 1, 0.8, 0, 0, 0, 0, 50, 50, quality_flags=trusted_flags()
+        )
 
     result, reason = build_comparison(
         [row(first), row(second)],
@@ -462,7 +759,20 @@ def test_large_meter_overlap_does_not_fail_selected_period_net_cost_gate() -> No
         20,
     )
     row = RecordedObservation(
-        datetime(2026, 9, 12, tzinfo=UTC), 5.3, 5, 2, 1, 0, 0.3, 0, 0, 0, 0, 50, 50
+        datetime(2026, 9, 12, tzinfo=UTC),
+        5.3,
+        5,
+        2,
+        1,
+        0,
+        0.3,
+        0,
+        0,
+        0,
+        0,
+        50,
+        50,
+        quality_flags=trusted_flags(),
     )
     result, reason = build_comparison(
         [row],
@@ -489,7 +799,20 @@ def test_self_use_never_discharges_battery_into_ev(
     load, water, ev, pv, expected_discharge, expected_grid
 ):
     row = RecordedObservation(
-        datetime(2026, 9, 12, tzinfo=UTC), 0, 0, 1, 0.5, pv, load, water, ev, 0, 0, 95, 95
+        datetime(2026, 9, 12, tzinfo=UTC),
+        0,
+        0,
+        1,
+        0.5,
+        pv,
+        load,
+        water,
+        ev,
+        0,
+        0,
+        95,
+        95,
+        quality_flags=trusted_flags(),
     )
     flow = simulate_self_use(
         row,
@@ -502,3 +825,168 @@ def test_self_use_never_discharges_battery_into_ev(
     assert flow.grid_net_kwh == pytest.approx(expected_grid)
     if expected_discharge == 0:
         assert flow.stored_kwh == pytest.approx(9.5)
+
+
+@pytest.mark.parametrize("field", ["boundary_fingerprint", "semantics", "algorithm"])
+def test_component_and_soc_identities_cannot_borrow_the_row_summary(field):
+    row = recording(1)[0]
+    for target in ("pv", "soc"):
+        flags = trusted_flags()
+        metadata = (
+            flags["recording"]["soc"]
+            if target == "soc"
+            else flags["recording"]["components"][target]
+        )
+        metadata[field] = "unsupported-identity"
+        assert trusted_row_provenance(replace(row, quality_flags=flags)) is None
+
+
+def test_retained_cached_start_soc_is_not_certified_by_live_end_soc():
+    row = recording(1)[0]
+    flags = trusted_flags()
+    flags["recording"]["soc"].update(
+        {
+            "start": {"source": "cached", "owner": "recorder"},
+            "end": {"source": "live", "owner": "recorder"},
+        }
+    )
+    row = replace(row, quality_flags=flags)
+    assert trusted_row_provenance(row) is not None
+    assert not trusted_soc_endpoint(row, "start")
+    assert trusted_soc_endpoint(row, "end")
+    diagnostics = FitDiagnostics(
+        GridModel(0.94, 0.90),
+        BatteryModel(0.92, 0.94),
+        960,
+        240,
+        200,
+        50,
+        "a",
+        "b",
+        "c",
+        "d",
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+    )
+    result, reason = build_comparison(
+        [row],
+        None,
+        ComparisonBattery(10, 10, 95, 2000, 2000),
+        diagnostics,
+        0.2,
+        lambda dt: dt.isoformat(),
+    )
+    assert result is None and reason == "missing_start_soc"
+
+
+def test_unsupported_latest_schema_does_not_fall_back_to_old_fit():
+    rows = recording()
+    flags = trusted_flags()
+    flags["recording"]["schema_version"] = 99
+    rows[-1] = replace(rows[-1], quality_flags=flags)
+    result = fit_calibration(rows, 10, rows[-1].start + timedelta(minutes=15), "a" * 64)
+    assert result.status == "insufficient_data"
+    assert result.history["eligible_count"] == 0
+    assert result.history["considered_count"] == sum(result.history["exclusions"].values())
+
+
+def test_legacy_attestation_is_invalidated_by_manual_numeric_correction():
+    row = recording(1)[0]
+    attestation = {
+        "schema_version": 1,
+        "disposition": "verified_measured_energy",
+        "semantics": ENERGY_SEMANTICS,
+        "boundary_fingerprint": "a" * 64,
+        "methods": dict.fromkeys(
+            (
+                "import",
+                "export",
+                "pv",
+                "load",
+                "water",
+                "ev",
+                "battery_charge",
+                "battery_discharge",
+            ),
+            "cumulative_meter_energy",
+        ),
+        "soc_method": "live_soc_history",
+        "evidence_digest": "b" * 64,
+        "affected_measurement_digest": observation_value_digest(row),
+    }
+    flags = {
+        "source": "recorder",
+        "legacy_attestation": attestation,
+        "comparison_history": {
+            "schema_version": 1,
+            "disposition": "verified_measured_energy",
+            "evidence_digest": "b" * 64,
+        },
+    }
+    row = replace(row, quality_flags=flags)
+    assert trusted_row_provenance(row) is not None
+    assert trusted_row_provenance(replace(row, pv_kwh=2)) is None
+
+
+def test_disabled_zeros_qualify_but_enabled_unconfigured_zeros_do_not():
+    row = recording(1)[0]
+    flags = trusted_flags()
+    flags["recording"]["components"]["ev"]["method"] = "disabled_zero"
+    assert trusted_row_provenance(replace(row, quality_flags=flags)) is not None
+    flags["recording"]["components"]["ev"]["method"] = "unconfigured_zero"
+    assert trusted_row_provenance(replace(row, quality_flags=flags)) is None
+
+
+@pytest.mark.parametrize(
+    "target,value",
+    [
+        ("method", []),
+        ("owner", {}),
+        ("algorithm", []),
+        ("boundary_fingerprint", {}),
+        ("schema_version", True),
+    ],
+)
+def test_malformed_provenance_values_are_unknown_without_crashing(target, value):
+    row = recording(1)[0]
+    flags = trusted_flags()
+    if target in {"method", "owner"}:
+        flags["recording"]["components"]["pv"][target] = value
+    else:
+        flags["recording"][target] = value
+    assert trusted_row_provenance(replace(row, quality_flags=flags)) is None
+    result = fit_calibration(
+        [replace(row, quality_flags=flags)], 10, row.start + timedelta(minutes=15), "a" * 64
+    )
+    assert result.status == "insufficient_data"
+
+
+@pytest.mark.parametrize("taint", ["snapshot", "exclusion", "backfill", "cached", "unsupported"])
+def test_estimate_builder_itself_rejects_known_unusable_provenance(taint):
+    row = recording(1)[0]
+    flags = trusted_flags()
+    if taint == "snapshot":
+        flags["recording"]["components"]["pv"]["method"] = "snapshot"
+    elif taint == "exclusion":
+        flags["comparison_history"] = {"disposition": "exclude_from_comparison"}
+    elif taint == "backfill":
+        flags["recording"]["components"]["battery_charge"]["owner"] = "backfill"
+    elif taint == "cached":
+        flags["recording"]["soc"]["source"] = "cached"
+    else:
+        flags["recording"]["schema_version"] = 2
+    result, reason = build_estimated_comparison(
+        [replace(row, quality_flags=flags)],
+        50,
+        ComparisonBattery(10, 10, 95, 2000, 2000),
+        GridModel(1, 1),
+        BatteryModel(0.95, 0.95),
+        0.2,
+        lambda start: start.isoformat(),
+        "a" * 64,
+    )
+    assert result is None and reason == "unsupported_period_measurements"

@@ -57,14 +57,23 @@ export default function DesignSystem() {
     ]
     const costChartFixtures: { label: string; comparison: CostSeriesResponse['battery_comparison'] }[] = [
         {
-            label: 'Available · positive estimate',
-            comparison: { status: 'available', reason: 'validated', saving_sek: 2, points: comparisonPoints },
+            label: 'Estimated · configured losses',
+            comparison: {
+                status: 'estimated',
+                reason: 'configured_losses',
+                basis: 'configured_losses',
+                label: 'Estimate based on configured losses',
+                saving_sek: 2,
+                points: comparisonPoints,
+            },
         },
         {
-            label: 'Available · negative estimate',
+            label: 'Verified · negative result',
             comparison: {
                 status: 'available',
                 reason: 'validated',
+                basis: 'calibrated',
+                label: 'Verified',
                 saving_sek: -2,
                 points: comparisonPoints.map((point) => ({
                     ...point,
@@ -75,7 +84,15 @@ export default function DesignSystem() {
         },
         {
             label: 'Unavailable · insufficient data',
-            comparison: { status: 'insufficient_data', reason: 'too_few_grid_observations' },
+            comparison: {
+                status: 'insufficient_data',
+                reason: 'insufficient_compatible_history',
+                history: { considered_count: 2880, eligible_count: 720, exclusions: { unknown_provenance: 2160 } },
+            },
+        },
+        {
+            label: 'Unavailable · unsupported selected period',
+            comparison: { status: 'incomplete_period', reason: 'unsupported_period_measurements' },
         },
         { label: 'No battery', comparison: { status: 'no_battery', reason: 'battery_not_configured' } },
     ]

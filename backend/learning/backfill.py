@@ -17,6 +17,7 @@ from backend.core.slot_energy import (
     isolate_base_load,
 )
 from backend.learning import get_learning_engine
+from backend.measurement_provenance import metadata_object, recording_metadata
 from backend.validation import get_max_energy_per_slot, validate_energy_values
 
 # Configure logging
@@ -98,6 +99,77 @@ class BackfillEngine:
             None if energy.load is None else isolate_base_load(energy.load, ev_kwh, water_kwh)
         )
 
+        system = metadata_object(self.config.get("system"))
+
+        def component(
+            value: float | None, configured: bool, enabled: bool = True
+        ) -> dict[str, str]:
+            method = (
+                "disabled_zero"
+                if not enabled
+                else "unconfigured_zero"
+                if not configured
+                else "power_history"
+                if value is not None
+                else "unknown"
+            )
+            return {"method": method, "owner": "backfill"}
+
+        components = {
+            "pv": component(energy.pv, bool(sources.pv), bool(system.get("has_solar", True))),
+            "import": component(
+                energy.import_kwh,
+                bool(sources.grid_import if sources.meter_type == "dual" else sources.grid),
+            ),
+            "export": component(
+                energy.export_kwh,
+                bool(sources.grid_export if sources.meter_type == "dual" else sources.grid),
+            ),
+            "load": component(load_kwh, bool(sources.load)),
+            "water": component(
+                water_kwh, bool(sources.water_heaters), bool(system.get("has_water_heater", True))
+            ),
+            "ev": component(
+                ev_kwh, bool(sources.ev_chargers), bool(system.get("has_ev_charger", False))
+            ),
+            "battery_charge": component(
+                energy.batt_charge, bool(sources.battery), bool(system.get("has_battery", True))
+            ),
+            "battery_discharge": component(
+                energy.batt_discharge, bool(sources.battery), bool(system.get("has_battery", True))
+            ),
+        }
+        for name, device_values in (("ev", energy.ev), ("water", energy.water)):
+            configured_devices = self.config.get(
+                "ev_chargers" if name == "ev" else "water_heaters", []
+            )
+            enabled_devices = [item for item in configured_devices if item.get("enabled", True)]
+            if configured_devices and not enabled_devices:
+                components[name]["method"] = "disabled_zero"
+            if components[name]["method"] == "power_history" and any(
+                value is None for value in device_values.values()
+            ):
+                components[name]["method"] = "mixed"
+            if components[name]["method"] == "power_history" and any(
+                not item.get("sensor") for item in enabled_devices
+            ):
+                components[name]["method"] = "mixed"
+        if components["load"]["method"] == "power_history":
+            components["load"]["method"] = (
+                "mixed"
+                if any(
+                    components[name]["method"] in {"mixed", "unknown", "unconfigured_zero"}
+                    for name in ("ev", "water")
+                )
+                else "derived_history"
+            )
+        recording = recording_metadata(
+            self.config,
+            components,
+            "power_history" if self._value_at(soc_points, slot_end) is not None else "unavailable",
+            owner="backfill",
+        )
+
         return {
             "slot_start": slot_start,
             "slot_end": slot_end,
@@ -112,6 +184,7 @@ class BackfillEngine:
             "soc_start_percent": self._value_at(soc_points, slot_start),
             "soc_end_percent": self._value_at(soc_points, slot_end),
             "duration_minutes": SLOT_MINUTES,
+            "quality_flags": {"source": "backfill", "recording": recording},
         }
 
     def integrate_slots(
@@ -137,7 +210,22 @@ class BackfillEngine:
         for slot_start in slot_starts:
             record = self._build_record(sources, series, soc_points, slot_start)
             if max_kwh is not None:
+                original_record = record
                 record = validate_energy_values(record, max_kwh)
+                for field, component_name in {
+                    "pv_kwh": "pv",
+                    "load_kwh": "load",
+                    "import_kwh": "import",
+                    "export_kwh": "export",
+                    "water_kwh": "water",
+                    "ev_charging_kwh": "ev",
+                    "batt_charge_kwh": "battery_charge",
+                    "batt_discharge_kwh": "battery_discharge",
+                }.items():
+                    if record.get(field) != original_record.get(field):
+                        record["quality_flags"]["recording"]["components"][component_name][
+                            "method"
+                        ] = "unknown"
             records.append(record)
         return records
 

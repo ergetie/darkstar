@@ -93,52 +93,97 @@ Each point SHALL contain `start` (local ISO time of the bucket), `import_cost_se
 - **THEN** the response has an empty `points` list and an `error` message
 
 ### Requirement: Cost series endpoint returns the without-Darkstar baseline
-`GET /api/energy/cost-series` SHALL preserve its existing actual metered `import_cost_sek`, `export_revenue_sek`, `net_cost_sek` and `cumulative_net_cost_sek` fields and legacy `baseline` fields for compatibility. It SHALL add a separately named `battery_comparison` object for the validated estimate defined by `no-darkstar-baseline` and `battery-comparison-calibration`. Legacy baseline data SHALL NOT be represented as a validated estimate or used as a fallback for the new comparison.
+GET /api/energy/cost-series SHALL preserve its existing actual metered import_cost_sek, export_revenue_sek, net_cost_sek and cumulative_net_cost_sek fields and legacy baseline fields for compatibility. It SHALL add a separately named battery_comparison object for the comparison defined by no-darkstar-baseline and battery-comparison-calibration. Legacy baseline data SHALL NOT be represented as a validated or configured-loss comparison or used as a fallback for battery_comparison.
 
-`battery_comparison` SHALL carry `status`, stable `reason` code, `method_version`, `through`, and available calibration diagnostics, including factors, training/validation windows, sample counts and validation errors. Status SHALL be one of `available`, `insufficient_data`, `unreliable_model`, `incomplete_period`, `no_battery`, or `no_data`. When available it SHALL contain `darkstar` and `self_use` summaries, each with `grid_cost_sek`, `wear_cost_sek`, `stored_energy_change_kwh`, `stored_energy_value_sek` and `comparison_cost_sek`, plus `saving_sek`, `reference_price_sek_kwh`, and bucketed comparison `points`. Each point SHALL contain bucket `start`, `darkstar_cumulative_comparison_cost_sek` and `self_use_cumulative_comparison_cost_sek`. When unavailable, summaries, savings and comparison points SHALL be absent rather than zero-filled.
+battery_comparison SHALL carry status, stable reason code, method_version, through, `coverage` and any real calibration diagnostics, including factors, training/validation windows, sample counts and validation errors. Status SHALL be one of available, estimated, insufficient_data, unreliable_model, incomplete_period, no_battery, or no_data. An available result SHALL have basis calibrated; an estimated result SHALL have basis configured_losses and preserve the actual calibration status/reason and only diagnostics from a real fit. Both amount-bearing statuses SHALL contain Darkstar and self-use summaries, each with grid_cost_sek, wear_cost_sek, stored_energy_change_kwh, stored_energy_value_sek and comparison_cost_sek, plus saving_sek, reference_price_sek_kwh and bucketed comparison points. Each point SHALL contain bucket start, darkstar_cumulative_comparison_cost_sek and self_use_cumulative_comparison_cost_sek. An estimated result SHALL be explicitly identified as an estimate and SHALL NOT imply calibration passed. For unavailable statuses, summaries, savings and comparison points SHALL be absent rather than zero-filled.
 
-Comparison points SHALL cumulatively include modeled grid cost, wear and stored-energy valuation using the same period reference price at every boundary. Final endpoints SHALL equal their corresponding summary comparison costs, and saving SHALL equal their difference, within rounding. Original cash-flow points SHALL retain original accounting and started-slot coverage; comparison points SHALL include only completed observations and valid measured end SoC at each bucket boundary. Single-day estimates SHALL bucket by local hour and longer estimates by local day, retaining distinct UTC identities across DST.
+`coverage` SHALL be `{covered_slots, total_slots, excluded_slots}` for the selected period's completed slots, and SHALL also be present on unavailable responses (with covered_slots 0 when no usable run exists). The comparison is segmented per no-darkstar-baseline: invalid, unsupported or missing slots are excluded and counted in coverage instead of making the period unavailable, and the amounts, points and `through` describe the covered runs. An available (calibrated) result SHALL be returned only when excluded_slots is 0 and the slots form a single run; otherwise the amounts SHALL be a segmented estimate. Invalid or unsupported selected-period inputs SHALL NOT produce amounts for the excluded slots, and a period with no usable run SHALL be unavailable.
+
+Comparison points SHALL cumulatively include modeled grid cost, wear and stored-energy valuation using the same period reference price at every boundary. Across runs, points SHALL be offset so the final endpoints equal the summed summary comparison costs, and saving SHALL equal their difference, within rounding; a bucket containing no covered slot SHALL have no point. Original cash-flow points SHALL retain original accounting and started-slot coverage; comparison points SHALL include only completed observations and valid required state-of-charge endpoints at each bucket boundary, subject to the estimate and calibration eligibility rules. Single-day comparisons SHALL bucket by local hour and longer comparisons by local day, retaining distinct UTC identities across DST.
 
 #### Scenario: Baseline fields present with a battery
 - **WHEN** a battery installation has recorded slots
 - **THEN** existing legacy baseline fields retain compatibility
-- **AND** the response independently reports availability of `battery_comparison`
+- **AND** the response independently reports whether battery_comparison is available, estimated or unavailable
 
 #### Scenario: Last baseline cumulative matches the baseline total
-- **WHEN** legacy baseline points are returned
-- **THEN** the final legacy cumulative continues to equal legacy `baseline.net_cost_sek`
-- **AND** each validated comparison endpoint equals its respective comparison summary
+- **WHEN** legacy baseline points or amount-bearing comparison points are returned
+- **THEN** the final legacy cumulative continues to equal legacy baseline.net_cost_sek
+- **AND** each comparison endpoint equals its respective active-basis summary
 
 #### Scenario: Saving matches the definition
-- **WHEN** validated self-use and Darkstar comparison totals are 40 kr and 30 kr
-- **THEN** `battery_comparison.saving_sek` is 10 kr
+- **WHEN** self-use comparison cost is 40 kr and Darkstar comparison cost is 30 kr on either supported comparison basis
+- **THEN** battery_comparison.saving_sek is 10 kr
 - **AND** the difference between final comparison endpoints is 10 kr
 
 #### Scenario: Stored-energy fields
 - **WHEN** Darkstar retains 0.4 kWh more and the common reference price is 2.0 kr/kWh
 - **THEN** the difference between stored-energy adjustments is 0.8 kr in Darkstar's favour
 
-#### Scenario: Real end state of charge unknown
-- **WHEN** the final completed slot lacks valid real SoC
-- **THEN** `battery_comparison.status` is `incomplete_period`
-- **AND** no comparison amounts are exposed
+#### Scenario: Required end state of charge is unknown
+- **WHEN** a slot lacks a valid required end state of charge
+- **THEN** that slot is excluded and counted in coverage, and the remaining runs yield an estimate
+- **AND** battery_comparison.status is incomplete_period with no amounts only when no usable run remains
+
+#### Scenario: Gap in the middle of the period
+- **WHEN** one hour of a 96-slot day was never recorded
+- **THEN** battery_comparison.status is estimated with basis configured_losses and coverage 92 covered, 96 total, 4 excluded
+- **AND** the hour has no comparison point, and the final points equal the summed totals
+- **AND** the actual cash-flow points are unchanged
 
 #### Scenario: Chart lines exclude the stored-energy value
 - **WHEN** a stored-energy adjustment is non-zero
 - **THEN** legacy cash-flow lines continue to exclude it for compatibility
-- **AND** separately named validated comparison lines include it
+- **AND** separately named comparison lines include it for either amount-bearing basis
 
 #### Scenario: No battery
-- **WHEN** `system.has_battery` is false
-- **THEN** legacy `baseline` is null with no legacy baseline points
-- **AND** `battery_comparison.status` is `no_battery`
+- **WHEN** system.has_battery is false
+- **THEN** legacy baseline is null with no legacy baseline points
+- **AND** battery_comparison.status is no_battery
 
 #### Scenario: Existing fields unchanged
-- **WHEN** validated comparison data is added to a response
+- **WHEN** comparison data is added to a response
 - **THEN** actual cash-flow fields and amounts are unchanged
 
 #### Scenario: Current period has a started but unfinished slot
 - **WHEN** the current 15-minute slot has not completed
 - **THEN** it is excluded from comparison data
-- **AND** `through` identifies the last completed comparison boundary
+- **AND** through identifies the last completed comparison boundary
 - **AND** metered started-slot coverage remains unchanged
+
+### Requirement: Comparison diagnostics explain trustworthy history coverage
+The cost-series `battery_comparison` SHALL add a separate history diagnostic object with selected cohort identity/start when known, considered/eligible counts and exclusive exclusion counts. It SHALL be returned for provenance-related unavailable states even when no numerical calibration diagnostics exist. Existing calibration/unavailable statuses SHALL remain unchanged; stable reasons SHALL distinguish unverified history, insufficient compatible history and unsupported selected-period measurements from failed numeric validation. No unavailable result SHALL expose comparison amounts. The response SHALL preserve metered costs, legacy fields and existing available comparison economics, and SHALL NOT expose sensor identifiers, evidence paths or raw observations in history diagnostics.
+
+#### Scenario: No trusted legacy history
+- **WHEN** every candidate row lacks supported provenance or valid attestation and no usable configured-loss estimate exists
+- **THEN** the response has `insufficient_data` with `unverified_history`, zero eligible history and exclusion counts
+- **AND** it contains no saving amount or comparison points
+
+#### Scenario: New cohort is collecting samples
+- **WHEN** trustworthy compatible rows exist but do not meet the established minimums and no usable configured-loss estimate exists
+- **THEN** the response has `insufficient_data` with `insufficient_compatible_history`
+
+#### Scenario: Unsupported selected period
+- **WHEN** a valid model exists but every completed selected slot has provenance unsupported by both verified and estimated paths
+- **THEN** the response has `incomplete_period` with `unsupported_period_measurements` and coverage of zero covered slots
+- **AND** actual costs remain available
+- **AND** if only some slots are unsupported, they are excluded and the rest yields a segmented estimate
+
+#### Scenario: Numeric failure remains separate
+- **WHEN** trustworthy history is sufficient but existing numeric validation fails and no usable configured-loss estimate exists
+- **THEN** status remains `unreliable_model` with its accuracy-failure reason and available diagnostics
+
+### Requirement: API identifies estimate and verified comparison bases
+An estimated `battery_comparison` SHALL return its amounts and points with `status: estimated`, `basis: configured_losses`, a clear estimate label, the original calibration status/reason, and bounded counts of assumed legacy recording/SoC-mapping slots. It SHALL omit numerical fit diagnostics unless an actual real fit object exists. A validated fit SHALL use `status: available`, `basis: calibrated`, and real diagnostics. All comparison values and chart points SHALL use the active basis consistently. The response SHALL retain metered cost fields unchanged.
+
+#### Scenario: Estimate with unavailable calibration
+- **WHEN** valid period inputs produce a configured-loss estimate while calibration is unavailable
+- **THEN** the API identifies the assumptions and the unchanged calibration status/reason
+
+#### Scenario: Estimate after numeric rejection
+- **WHEN** real calibration diagnostics exist but fail a numeric gate and estimate inputs are valid
+- **THEN** the API labels the amounts as estimated and preserves the actual failed reason and diagnostics
+
+#### Scenario: Automatic verified transition
+- **WHEN** strict calibration later passes
+- **THEN** the API returns the same economic fields with calibrated basis and actual passing diagnostics

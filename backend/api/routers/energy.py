@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -13,14 +14,31 @@ from backend.api.deps import get_learning_store
 from backend.baseline import BaselineBattery, BaselineSlot, simulate_self_use_with_end_state
 from backend.battery_comparison import (
     METHOD_VERSION,
+    BatteryModel,
     CalibrationResult,
     ComparisonBattery,
+    GridModel,
     RecordedObservation,
     build_comparison,
+    build_estimated_comparison,
+    combine_run_comparisons,
+    comparison_row_usable,
+    estimate_soc_endpoint_eligible,
     fit_calibration,
+    history_coverage,
+    observation_value_digest,
+    split_comparison_runs,
+    trusted_row_provenance,
+    trusted_soc_endpoint,
+    trusted_soc_provenance,
 )
 from backend.core.secrets import load_yaml
 from backend.learning.store import LearningStore
+from backend.measurement_provenance import (
+    boundary_fingerprint,
+    legacy_estimate_boundary_fingerprint,
+    parse_quality_flags,
+)
 
 logger = logging.getLogger("darkstar.api.energy")
 
@@ -35,6 +53,8 @@ def _cached_fit_key(
     config: dict[str, Any],
     latest: datetime,
     end: datetime,
+    observations: list[RecordedObservation],
+    expected_boundary: str,
 ) -> str:
     try:
         db_stat = Path(store.db_path).stat()
@@ -46,6 +66,29 @@ def _cached_fit_key(
         )
     except OSError:
         database_identity = None
+    provenance_rows: list[tuple[str, str, dict[str, Any]]] = []
+    for row in observations:
+        if row.start.tzinfo is None or not (
+            end.astimezone(UTC) - timedelta(days=30)
+            <= row.start.astimezone(UTC)
+            < end.astimezone(UTC)
+        ):
+            continue
+        raw_flags = parse_quality_flags(row.quality_flags)
+        relevant_flags = {
+            "source": raw_flags.get("source"),
+            "exclude": raw_flags.get("exclude") is True,
+            "recording": raw_flags.get("recording"),
+            "legacy_attestation": raw_flags.get("legacy_attestation"),
+            "comparison_history": raw_flags.get("comparison_history"),
+        }
+        provenance_rows.append(
+            (row.start.astimezone(UTC).isoformat(), observation_value_digest(row), relevant_flags)
+        )
+    provenance_rows.sort(key=lambda item: item[0])
+    provenance_digest = hashlib.sha256(
+        json.dumps(provenance_rows, sort_keys=True, default=str, separators=(",", ":")).encode()
+    ).hexdigest()
     relevant = {
         "db": str(store.db_path),
         "db_identity": database_identity,
@@ -53,6 +96,9 @@ def _cached_fit_key(
         "sensors": config.get("input_sensors", {}),
         "meter": config.get("meter", config.get("system", {}).get("meter")),
         "method": METHOD_VERSION,
+        "boundary": expected_boundary,
+        "provenance_digest": provenance_digest,
+        "cohort": history_coverage(observations, end, expected_boundary).get("cohort_id"),
         "latest": latest.astimezone(UTC).isoformat(),
         "end": end.astimezone(UTC).isoformat(),
     }
@@ -66,13 +112,19 @@ async def _calibrated_fit(
     observations: list[RecordedObservation],
     end: datetime,
     latest: datetime,
+    expected_boundary: str | None = None,
 ) -> CalibrationResult:
-    key = _cached_fit_key(store, battery, config, latest, end)
+    expected_boundary = expected_boundary or boundary_fingerprint(config)
+    key = await asyncio.to_thread(
+        _cached_fit_key, store, battery, config, latest, end, observations, expected_boundary
+    )
     now = time.monotonic()
     cached = _BATTERY_FIT_CACHE.get(key)
     if cached is not None and now - cached[0] < _BATTERY_FIT_CACHE_TTL_SECONDS:
         return cached[1]
-    result = await asyncio.to_thread(fit_calibration, observations, battery.capacity_kwh, end)
+    result = await asyncio.to_thread(
+        fit_calibration, observations, battery.capacity_kwh, end, expected_boundary
+    )
     _BATTERY_FIT_CACHE[key] = (time.monotonic(), result)
     while len(_BATTERY_FIT_CACHE) > _BATTERY_FIT_CACHE_LIMIT:
         oldest = min(_BATTERY_FIT_CACHE, key=lambda item: _BATTERY_FIT_CACHE[item][0])
@@ -464,10 +516,23 @@ def _baseline_battery(config: dict[str, Any]) -> BaselineBattery | None:
         charge_efficiency=float(cfg.get("charge_efficiency", 0.95)),
         discharge_efficiency=float(cfg.get("discharge_efficiency", 0.95)),
     )
+    battery_values = (
+        battery.capacity_kwh,
+        battery.min_soc_percent,
+        battery.max_soc_percent,
+        battery.max_charge_w,
+        battery.max_discharge_w,
+        battery.charge_efficiency,
+        battery.discharge_efficiency,
+    )
     if (
-        battery.capacity_kwh <= 0
-        or battery.charge_efficiency <= 0
-        or battery.discharge_efficiency <= 0
+        not all(math.isfinite(value) for value in battery_values)
+        or battery.capacity_kwh <= 0
+        or not 0 <= battery.min_soc_percent < battery.max_soc_percent <= 100
+        or battery.max_charge_w <= 0
+        or battery.max_discharge_w <= 0
+        or not 0 < battery.charge_efficiency <= 1
+        or not 0 < battery.discharge_efficiency <= 1
     ):
         return None
     return battery
@@ -553,7 +618,11 @@ async def get_cost_series(
         # Include the single immediately preceding completed slot when the first
         # selected observation has no start SoC. Comparison code verifies contiguity.
         prior_result = await session.execute(
-            select(SlotObservation.slot_start, SlotObservation.soc_end_percent).where(
+            select(
+                SlotObservation.slot_start,
+                SlotObservation.soc_end_percent,
+                SlotObservation.quality_flags,
+            ).where(
                 SlotObservation.slot_start >= (day_start - timedelta(minutes=30)).isoformat(),
                 SlotObservation.slot_start < day_start.isoformat(),
             )
@@ -573,7 +642,9 @@ async def get_cost_series(
 
     def observation(row: Any, local: datetime) -> RecordedObservation:
         return RecordedObservation(
-            start=local,
+            # Preserve missing timezone information for comparison validation;
+            # the actual cash-flow view retains its historical localization.
+            start=datetime.fromisoformat(str(row[0])),
             import_kwh=None if row[1] is None else float(row[1]),
             import_price=None if row[2] is None else float(row[2]),
             export_kwh=None if row[3] is None else float(row[3]),
@@ -606,9 +677,8 @@ async def get_cost_series(
     while expected_cursor < comparison_cutoff:
         expected_starts.append(expected_cursor)
         expected_cursor += timedelta(minutes=15)
-    selected_start_keys = {local.astimezone(UTC) for local, _ in selected_complete}
-    missing_completed_slot = any(start not in selected_start_keys for start in expected_starts)
     all_observations = [observation(row, local) for local, row in slots]
+    expected_boundary = boundary_fingerprint(config)
     prior_soc: float | None = None
     if selected_complete:
         first_utc = selected_complete[0][0].astimezone(UTC)
@@ -620,7 +690,7 @@ async def get_cost_series(
         if candidate_prior:
             prior_soc = candidate_prior[-1][1]
         else:
-            for raw_start, raw_soc in prior_rows:
+            for raw_start, raw_soc, _raw_flags in prior_rows:
                 try:
                     parsed = datetime.fromisoformat(str(raw_start))
                     parsed = parsed.astimezone(tz) if parsed.tzinfo else tz.localize(parsed)
@@ -717,28 +787,23 @@ async def get_cost_series(
             "status": "no_battery",
             "reason": "battery_not_configured",
             "method_version": METHOD_VERSION,
+            "history": {"considered_count": 0, "eligible_count": 0, "exclusions": {}},
         }
     elif not expected_starts or not selected_complete:
         battery_comparison = {
             "status": "no_data",
             "reason": "no_completed_observations",
             "method_version": METHOD_VERSION,
-        }
-    elif missing_completed_slot:
-        battery_comparison = {
-            "status": "incomplete_period",
-            "reason": "missing_completed_slot",
-            "method_version": METHOD_VERSION,
-            "through": (
-                comparison_cutoff.isoformat()
-                if comparison_cutoff > day_start.astimezone(UTC)
-                else None
-            ),
+            "history": {"considered_count": 0, "eligible_count": 0, "exclusions": {}},
         }
     else:
         fit_end = comparison_cutoff
         latest_completed = max(
-            (item.start for item in all_observations if item.start.astimezone(UTC) < fit_end),
+            (
+                item.start
+                for item in all_observations
+                if item.start.tzinfo is not None and item.start.astimezone(UTC) < fit_end
+            ),
             default=None,
         )
         fit = await _calibrated_fit(
@@ -748,58 +813,215 @@ async def get_cost_series(
             all_observations,
             fit_end,
             latest_completed or fit_end,
+            expected_boundary,
         )
-        if fit.status != "available" or fit.diagnostics is None:
+        comp_battery = ComparisonBattery(
+            capacity_kwh=battery.capacity_kwh,
+            min_soc_percent=battery.min_soc_percent,
+            max_soc_percent=battery.max_soc_percent,
+            max_charge_w=battery.max_charge_w,
+            max_discharge_w=battery.max_discharge_w,
+        )
+
+        def comparison_bucket(start: datetime) -> str:
+            local = start.astimezone(tz)
+            key = local.replace(minute=0, second=0, microsecond=0)
+            if not hourly:
+                key = tz.localize(datetime(local.year, local.month, local.day))
+            return key.isoformat()
+
+        selected_observations = [observation(row, local) for local, row in selected_complete]
+        assumed_estimate_boundaries = frozenset({legacy_estimate_boundary_fingerprint(config)})
+        # Segment the period: usable slots form maximal runs of consecutive 15-minute
+        # slots (UTC elapsed time); unusable or missing slots are excluded and break runs.
+        rows_by_start = {
+            local.astimezone(UTC): item
+            for (local, _), item in zip(selected_complete, selected_observations, strict=True)
+        }
+        usable_by_start = {
+            start: comparison_row_usable(item, expected_boundary, assumed_estimate_boundaries)
+            for start, item in rows_by_start.items()
+        }
+        runs = split_comparison_runs(
+            expected_starts, rows_by_start, lambda item: usable_by_start[item.start.astimezone(UTC)]
+        )
+        usable_rows = [item for run in runs for item in run]
+        total_slots = len(expected_starts)
+        expected_cohort = (fit.history or {}).get("cohort_id")
+        if expected_cohort is None and usable_rows:
+            inferred = trusted_row_provenance(usable_rows[0], expected_boundary)
+            expected_cohort = inferred[0] if inferred is not None else None
+        period_matches_cohort = bool(expected_cohort) and all(
+            (provenance := trusted_row_provenance(item, expected_boundary)) is not None
+            and provenance[0] == expected_cohort
+            for item in usable_rows
+        )
+
+        def run_start_socs(
+            first_observation: RecordedObservation,
+        ) -> tuple[float | None, float | None]:
+            """Strict and estimate start SoC for a run: own start, else preceding slot's end."""
+            first_utc = first_observation.start.astimezone(UTC)
+            first_flags = parse_quality_flags(first_observation.quality_flags)
+            if first_observation.soc_start_percent is not None and trusted_soc_endpoint(
+                first_observation, "start"
+            ):
+                return first_observation.soc_start_percent, first_observation.soc_start_percent
+            if (
+                first_observation.soc_start_percent is not None
+                and first_flags.get("source") == "recorder"
+                and "recording" not in first_flags
+                and "comparison_history" not in first_flags
+            ):
+                # Only metadata-absent legacy endpoints may be explicitly assumed.
+                return None, first_observation.soc_start_percent
+            strict: float | None = None
+            estimate: float | None = None
+            for prior_observation in all_observations:
+                if prior_observation.start.tzinfo is None:
+                    continue
+                if prior_observation.start.astimezone(UTC) + timedelta(minutes=15) != first_utc:
+                    continue
+                prior_trusted = trusted_soc_provenance(prior_observation, "end", expected_boundary)
+                prior_assumable = estimate_soc_endpoint_eligible(
+                    prior_observation, "end", expected_boundary, assumed_estimate_boundaries
+                )
+                if prior_observation.soc_end_percent is not None:
+                    if (
+                        period_matches_cohort
+                        and prior_trusted is not None
+                        and prior_trusted[0] == expected_cohort
+                    ):
+                        strict = prior_observation.soc_end_percent
+                    if prior_assumable:
+                        estimate = prior_observation.soc_end_percent
+                break
+            return strict, estimate
+
+        cycle_cost = float(config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0))
+        comparison: dict[str, Any] | None = None
+        failure_reason: str | None = None
+        strict_period_reason: str | None = None
+        covered_rows: list[RecordedObservation] = []
+        # The calibrated (Verified) path validates the whole selected period, so it is
+        # only attempted when every expected slot is usable and forms a single run.
+        if (
+            fit.status == "available"
+            and fit.diagnostics is not None
+            and period_matches_cohort
+            and len(runs) == 1
+            and len(runs[0]) == total_slots
+        ):
+            strict_prior_soc, _ = run_start_socs(runs[0][0])
+            comparison, strict_period_reason = build_comparison(
+                runs[0],
+                strict_prior_soc,
+                comp_battery,
+                fit.diagnostics,
+                cycle_cost,
+                comparison_bucket,
+            )
+            if comparison is not None:
+                covered_rows = list(runs[0])
+        if comparison is None and runs:
+            configured_grid = GridModel(eta_out=1.0, eta_in=1.0)
+            configured_storage = BatteryModel(
+                eta_charge=battery.charge_efficiency,
+                eta_discharge=battery.discharge_efficiency,
+            )
+            run_results: list[tuple[dict[str, Any], int]] = []
+            for run in runs:
+                _, estimate_prior_soc = run_start_socs(run[0])
+                run_rows = list(run)
+                if estimate_prior_soc is None:
+                    # No real start SoC: drop the first slot and start from its measured end.
+                    if len(run_rows) < 2:
+                        failure_reason = failure_reason or "missing_start_soc"
+                        continue
+                    estimate_prior_soc = run_rows[0].soc_end_percent
+                    run_rows = run_rows[1:]
+                run_result, run_reason = build_estimated_comparison(
+                    run_rows,
+                    estimate_prior_soc,
+                    comp_battery,
+                    configured_grid,
+                    configured_storage,
+                    cycle_cost,
+                    comparison_bucket,
+                    expected_boundary,
+                    assumed_estimate_boundaries,
+                )
+                if run_result is None:
+                    failure_reason = failure_reason or run_reason
+                    continue
+                run_results.append((run_result, len(run_rows)))
+                covered_rows.extend(run_rows)
+            if run_results:
+                comparison = combine_run_comparisons(run_results)
+            if comparison is not None:
+                selected_observations = covered_rows
+                comparison["input_assumptions"] = {
+                    "legacy_recording_slots": sum(
+                        "recording" not in parse_quality_flags(item.quality_flags)
+                        and trusted_row_provenance(item, expected_boundary) is None
+                        for item in selected_observations
+                    ),
+                    "legacy_soc_mapping_slots": sum(
+                        trusted_row_provenance(item, expected_boundary) is None
+                        and any(
+                            trusted_row_provenance(item, boundary) is not None
+                            for boundary in assumed_estimate_boundaries
+                        )
+                        for item in selected_observations
+                    ),
+                }
+                comparison["calibration_status"] = (
+                    "unreliable_model"
+                    if strict_period_reason == "period_validation_failed"
+                    else fit.status
+                )
+                comparison["calibration_reason"] = strict_period_reason or fit.reason
+                if fit.diagnostics is not None:
+                    comparison["calibration"] = fit.diagnostics.as_dict()
+                comparison["history"] = fit.history or {
+                    "considered_count": 0,
+                    "eligible_count": 0,
+                    "exclusions": {},
+                }
+        coverage = {
+            "covered_slots": len(covered_rows),
+            "total_slots": total_slots,
+            "excluded_slots": total_slots - len(covered_rows),
+        }
+        if comparison is not None:
+            if comparison.get("basis") == "calibrated":
+                comparison["history"] = fit.history or {}
+            comparison["coverage"] = coverage
+            battery_comparison = comparison
+        else:
+            if strict_period_reason == "period_validation_failed":
+                status, reason = "unreliable_model", "period_validation_failed"
+            elif not runs:
+                status, reason = "incomplete_period", "unsupported_period_measurements"
+            elif failure_reason is not None:
+                status, reason = "incomplete_period", failure_reason
+            else:
+                status, reason = fit.status, fit.reason
             battery_comparison = {
-                "status": fit.status,
-                "reason": fit.reason,
+                "status": status,
+                "reason": reason,
                 "method_version": METHOD_VERSION,
+                "calibration_status": fit.status,
+                "calibration_reason": strict_period_reason or fit.reason,
+                "history": fit.history
+                or {"considered_count": 0, "eligible_count": 0, "exclusions": {}},
                 "through": (
                     selected_complete[-1][0].astimezone(UTC) + timedelta(minutes=15)
                 ).isoformat(),
+                "coverage": coverage,
             }
             if fit.diagnostics is not None:
                 battery_comparison["calibration"] = fit.diagnostics.as_dict()
-        else:
-            comp_battery = ComparisonBattery(
-                capacity_kwh=battery.capacity_kwh,
-                min_soc_percent=battery.min_soc_percent,
-                max_soc_percent=battery.max_soc_percent,
-                max_charge_w=battery.max_charge_w,
-                max_discharge_w=battery.max_discharge_w,
-            )
-
-            def comparison_bucket(start: datetime) -> str:
-                local = start.astimezone(tz)
-                key = local.replace(minute=0, second=0, microsecond=0)
-                if not hourly:
-                    key = tz.localize(datetime(local.year, local.month, local.day))
-                return key.isoformat()
-
-            comparison, failure_reason = build_comparison(
-                [observation(row, local) for local, row in selected_complete],
-                prior_soc,
-                comp_battery,
-                fit.diagnostics,
-                float(config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0)),
-                comparison_bucket,
-            )
-            if comparison is None:
-                battery_comparison = {
-                    "status": (
-                        "unreliable_model"
-                        if failure_reason == "period_validation_failed"
-                        else "incomplete_period"
-                    ),
-                    "reason": failure_reason or "period_invalid",
-                    "method_version": METHOD_VERSION,
-                    "through": (
-                        selected_complete[-1][0].astimezone(UTC) + timedelta(minutes=15)
-                    ).isoformat(),
-                    "calibration": fit.diagnostics.as_dict(),
-                }
-            else:
-                battery_comparison = comparison
 
     points: list[dict[str, Any]] = []
     cumulative = 0.0

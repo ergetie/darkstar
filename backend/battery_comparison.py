@@ -7,17 +7,29 @@ tested independently from the API.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise, product
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal
+
+from backend.measurement_provenance import (
+    ENERGY_SEMANTICS,
+    MEASUREMENT_METHODS,
+    is_sha256,
+    measurement_value_digest,
+    metadata_object,
+    parse_quality_flags,
+    parse_recording,
+    soc_metadata,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
-METHOD_VERSION = "recorded-boundary-v1"
+METHOD_VERSION = "configured-estimate-verified-v1"
 FIT_RESOLUTION = 0.002
 FIT_MIN = 0.80
 FIT_MAX = 1.00
@@ -117,6 +129,7 @@ class CalibrationResult:
     status: str
     reason: str
     diagnostics: FitDiagnostics | None = None
+    history: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -209,7 +222,87 @@ def build_comparison(
     cycle_cost_kwh: float,
     bucket_for: Any,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """Return comparison amounts and status reason after validating the selected period."""
+    """Build amounts only after strict calibrated selected-period validation."""
+    return _build_comparison_amounts(
+        rows,
+        prior_soc_percent,
+        battery,
+        diagnostics.grid_model,
+        diagnostics.battery_model,
+        cycle_cost_kwh,
+        bucket_for,
+        period_policy="calibrated",
+        calibration=diagnostics.as_dict(),
+    )
+
+
+def build_estimated_comparison(
+    rows: Sequence[RecordedObservation],
+    prior_soc_percent: float | None,
+    battery: ComparisonBattery,
+    grid: GridModel,
+    storage: BatteryModel,
+    cycle_cost_kwh: float,
+    bucket_for: Any,
+    expected_boundary: str | None = None,
+    assumed_boundaries: frozenset[str] = frozenset(),
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Build an explicitly assumed estimate without claiming calibration validation."""
+    if any(not estimate_row_eligible(row, expected_boundary, assumed_boundaries) for row in rows):
+        return None, "unsupported_period_measurements"
+    return _build_comparison_amounts(
+        rows,
+        prior_soc_percent,
+        battery,
+        grid,
+        storage,
+        cycle_cost_kwh,
+        bucket_for,
+        period_policy="configured_estimate",
+        calibration=None,
+    )
+
+
+def _build_comparison_amounts(
+    rows: Sequence[RecordedObservation],
+    prior_soc_percent: float | None,
+    battery: ComparisonBattery,
+    grid: GridModel,
+    storage: BatteryModel,
+    cycle_cost_kwh: float,
+    bucket_for: Any,
+    *,
+    period_policy: Literal["calibrated", "configured_estimate"],
+    calibration: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Shared economics with explicit strict-validation or estimate policy."""
+    if period_policy not in {"calibrated", "configured_estimate"}:
+        return None, "invalid_policy"
+    numeric_configuration = (
+        battery.capacity_kwh,
+        battery.min_soc_percent,
+        battery.max_soc_percent,
+        battery.max_charge_w,
+        battery.max_discharge_w,
+        grid.eta_out,
+        grid.eta_in,
+        storage.eta_charge,
+        storage.eta_discharge,
+        cycle_cost_kwh,
+    )
+    if (
+        not all(math.isfinite(value) for value in numeric_configuration)
+        or battery.capacity_kwh <= 0
+        or not 0 <= battery.min_soc_percent < battery.max_soc_percent <= 100
+        or battery.max_charge_w < 0
+        or battery.max_discharge_w < 0
+        or not 0 < grid.eta_out <= 1
+        or not 0 < grid.eta_in <= 1
+        or not 0 < storage.eta_charge <= 1
+        or not 0 < storage.eta_discharge <= 1
+        or cycle_cost_kwh < 0
+    ):
+        return None, "invalid_configuration"
     if not rows:
         return None, "no_data"
     ordered = sorted(rows, key=lambda row: row.start.astimezone(UTC))
@@ -245,6 +338,10 @@ def build_comparison(
     start_soc = (
         ordered[0].soc_start_percent
         if _valid_soc(ordered[0].soc_start_percent)
+        and (
+            trusted_soc_endpoint(ordered[0], "start")
+            or (period_policy == "configured_estimate" and _legacy_estimate_row(ordered[0]))
+        )
         else prior_soc_percent
     )
     if not _valid_soc(start_soc):
@@ -252,7 +349,6 @@ def build_comparison(
     if not _valid_soc(ordered[-1].soc_end_percent):
         return None, "missing_end_soc"
 
-    grid, storage = diagnostics.grid_model, diagnostics.battery_model
     modeled_nets: list[float] = []
     actual_nets: list[float] = []
     for observation in ordered:
@@ -286,7 +382,9 @@ def build_comparison(
         gross += abs(row.import_price) * float(row.import_kwh) + abs(row.export_price) * float(
             row.export_kwh
         )
-    if rmse > 0.25 or abs(mean_error) > 0.03 or abs(cost_error) > max(1.0, 0.05 * gross):
+    if period_policy == "calibrated" and (
+        rmse > 0.25 or abs(mean_error) > 0.03 or abs(cost_error) > max(1.0, 0.05 * gross)
+    ):
         return None, "period_validation_failed"
 
     assert start_soc is not None and ordered[-1].soc_end_percent is not None
@@ -370,18 +468,188 @@ def build_comparison(
         points[-1]["self_use_cumulative_comparison_cost_sek"] = round(
             self_use.comparison_cost_sek, 3
         )
-    return {
-        "status": "available",
-        "reason": "validated",
+    result: dict[str, Any] = {
+        "status": "available" if period_policy == "calibrated" else "estimated",
+        "reason": "validated" if period_policy == "calibrated" else "configured_losses",
+        "basis": "calibrated" if period_policy == "calibrated" else "configured_losses",
+        "label": "Verified"
+        if period_policy == "calibrated"
+        else "Estimate based on configured losses",
         "method_version": METHOD_VERSION,
         "through": (ordered[-1].start.astimezone(UTC) + SLOT).isoformat(),
-        "calibration": diagnostics.as_dict(),
         "darkstar": darkstar.rounded(),
         "self_use": self_use.rounded(),
         "saving_sek": round(saving, 3),
         "reference_price_sek_kwh": round(reference, 6),
         "points": points,
-    }, None
+    }
+    if calibration is not None:
+        result["calibration"] = calibration
+    return result, None
+
+
+def _legacy_estimate_row(row: RecordedObservation) -> bool:
+    """Whether metadata absence is a legacy unknown eligible only for estimates."""
+    flags = _flags(row.quality_flags)
+    return (
+        flags.get("source") == "recorder"
+        and "recording" not in flags
+        and "comparison_history" not in flags
+        and flags.get("exclude") is not True
+    )
+
+
+def estimate_row_eligible(
+    row: RecordedObservation,
+    expected_boundary: str | None = None,
+    assumed_boundaries: frozenset[str] = frozenset(),
+) -> bool:
+    """Accept supported observed provenance or explicitly assumed legacy recorder rows."""
+    flags = _flags(row.quality_flags)
+    if (
+        row.start.tzinfo is None
+        or flags.get("exclude") is True
+        or flags.get("source") == "backfill"
+    ):
+        return False
+    # Only explicitly registered earlier encodings may be assumed. Other
+    # changed boundaries and unsupported modern methods remain rejected.
+    if (
+        not _legacy_estimate_row(row)
+        and trusted_row_provenance(row, expected_boundary) is None
+        and not any(
+            trusted_row_provenance(row, boundary) is not None for boundary in assumed_boundaries
+        )
+    ):
+        return False
+    recording = parse_recording(flags)
+    if recording is not None:
+        for endpoint in ("start", "end"):
+            soc = soc_metadata(recording, endpoint)
+            if soc.get("source") == "cached" or soc.get("owner") == "backfill":
+                return False
+    return _valid_soc(row.soc_end_percent)
+
+
+def comparison_row_usable(
+    row: RecordedObservation,
+    expected_boundary: str | None = None,
+    assumed_boundaries: frozenset[str] = frozenset(),
+) -> bool:
+    """Whether one slot may enter a simulated run.
+
+    Combines the estimate eligibility rules with the per-row measurement checks the
+    simulation applies, so a slot failing them is excluded instead of failing the
+    whole period.
+    """
+    if not estimate_row_eligible(row, expected_boundary, assumed_boundaries):
+        return False
+    essential_energies = (
+        row.import_kwh,
+        row.export_kwh,
+        row.pv_kwh,
+        row.load_kwh,
+        row.water_kwh,
+        row.ev_kwh,
+        row.charge_kwh,
+        row.discharge_kwh,
+    )
+    return (
+        all(_finite_nonnegative(value) for value in essential_energies)
+        and _finite_price(row.import_price)
+        and _finite_price(row.export_price)
+    )
+
+
+def split_comparison_runs(
+    expected_starts: Sequence[datetime],
+    rows_by_start: dict[datetime, RecordedObservation],
+    usable: Callable[[RecordedObservation], bool],
+) -> list[list[RecordedObservation]]:
+    """Split a period into maximal runs of consecutive usable slots.
+
+    ``expected_starts`` and the ``rows_by_start`` keys are UTC slot starts, so adjacency
+    is elapsed 15-minute time and stays correct across DST changes. Missing or unusable
+    slots break runs and are excluded.
+    """
+    runs: list[list[RecordedObservation]] = []
+    current: list[RecordedObservation] = []
+    for start in sorted(expected_starts):
+        row = rows_by_start.get(start)
+        if row is not None and usable(row):
+            current.append(row)
+            continue
+        if current:
+            runs.append(current)
+            current = []
+    if current:
+        runs.append(current)
+    return runs
+
+
+_SIDE_KEYS = (
+    "grid_cost_sek",
+    "wear_cost_sek",
+    "stored_energy_change_kwh",
+    "stored_energy_value_sek",
+    "comparison_cost_sek",
+)
+
+
+def combine_run_comparisons(runs: Sequence[tuple[dict[str, Any], int]]) -> dict[str, Any]:
+    """Merge independently simulated runs into one period result.
+
+    ``runs`` holds ``(result, slot_count)`` in chronological order. Totals and the saving
+    are sums of the per-run values (each run values its own stored-energy change at its
+    own reference price). The reference price reported is the slot-weighted mean. Point
+    series are made cumulative across runs by offsetting each run with the final values
+    of the runs before it.
+    """
+    if len(runs) == 1:
+        return dict(runs[0][0])
+    combined: dict[str, Any] = {k: v for k, v in runs[0][0].items() if k != "points"}
+    for side in ("darkstar", "self_use"):
+        combined[side] = {
+            key: round(sum(float(result[side][key]) for result, _ in runs), 3) for key in _SIDE_KEYS
+        }
+    combined["saving_sek"] = round(sum(float(result["saving_sek"]) for result, _ in runs), 3)
+    total_slots = sum(count for _, count in runs)
+    combined["reference_price_sek_kwh"] = round(
+        sum(float(result["reference_price_sek_kwh"]) * count for result, count in runs)
+        / total_slots,
+        6,
+    )
+    combined["through"] = runs[-1][0]["through"]
+    points: list[dict[str, Any]] = []
+    dark_offset = self_offset = 0.0
+    for result, _ in runs:
+        run_points: list[dict[str, Any]] = result.get("points") or []
+        for point in run_points:
+            shifted: dict[str, Any] = {
+                "start": point["start"],
+                "darkstar_cumulative_comparison_cost_sek": round(
+                    dark_offset + float(point["darkstar_cumulative_comparison_cost_sek"]), 3
+                ),
+                "self_use_cumulative_comparison_cost_sek": round(
+                    self_offset + float(point["self_use_cumulative_comparison_cost_sek"]), 3
+                ),
+            }
+            if points and points[-1]["start"] == shifted["start"]:
+                # A bucket shared by two runs reports the later cumulative value.
+                points[-1] = shifted
+            else:
+                points.append(shifted)
+        dark_offset += float(result["darkstar"]["comparison_cost_sek"])
+        self_offset += float(result["self_use"]["comparison_cost_sek"])
+    if points:
+        points[-1]["darkstar_cumulative_comparison_cost_sek"] = combined["darkstar"][
+            "comparison_cost_sek"
+        ]
+        points[-1]["self_use_cumulative_comparison_cost_sek"] = combined["self_use"][
+            "comparison_cost_sek"
+        ]
+    combined["points"] = points
+    return combined
 
 
 def _finite_nonnegative(value: float | None) -> bool:
@@ -397,20 +665,14 @@ def _valid_soc(value: float | None) -> bool:
 
 
 def _flags(raw: str | dict[str, Any] | None) -> dict[str, Any]:
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            decoded = json.loads(raw)
-            return cast("dict[str, Any]", decoded) if isinstance(decoded, dict) else {}
-        except (json.JSONDecodeError, TypeError):
-            return {}
-    return {}
+    return parse_quality_flags(raw)
 
 
 def calibration_eligible(row: RecordedObservation) -> bool:
     flags = _flags(row.quality_flags)
     if flags.get("exclude") is True or flags.get("source") == "backfill":
+        return False
+    if trusted_row_provenance(row) is None:
         return False
     energies = (
         row.import_kwh,
@@ -433,6 +695,312 @@ def calibration_eligible(row: RecordedObservation) -> bool:
     ) or not _valid_soc(row.soc_end_percent):
         return False
     return row.start.tzinfo is not None
+
+
+_REQUIRED_COMPONENTS = (
+    "import",
+    "export",
+    "pv",
+    "load",
+    "water",
+    "ev",
+    "battery_charge",
+    "battery_discharge",
+)
+_LEGACY_METHODS = {"cumulative_meter_energy", "power_history_energy"}
+_ENERGY_COMPATIBILITY_REGISTRY = {
+    "observed_algorithm": {
+        # Recorder integration is zero-order hold over each 15-minute slot.
+        "power-history-step-zoh-v1": "full-slot-measured-energy-v1",
+    },
+    "legacy_method": {
+        # These are accepted only when a reviewed interval attestation also
+        # establishes the same boundary, slot semantics, and live-SoC history.
+        "cumulative_meter_energy": "full-slot-measured-energy-v1",
+        "power_history_energy": "full-slot-measured-energy-v1",
+    },
+}
+_OBSERVED_ALGORITHMS = _ENERGY_COMPATIBILITY_REGISTRY["observed_algorithm"]
+_LEGACY_COMPATIBILITY = _ENERGY_COMPATIBILITY_REGISTRY["legacy_method"]
+
+
+def _measured_energy_cohort(boundary: str, semantics: str) -> str:
+    """Identity for the single explicitly registered full-slot compatibility class."""
+    compatibility_class = "full-slot-measured-energy-v1"
+    return f"measured:{boundary}:{semantics}:{compatibility_class}:compat-v1"
+
+
+def trusted_row_provenance(
+    row: RecordedObservation, expected_boundary: str | None = None
+) -> tuple[str, str, str] | None:
+    """Return (cohort id, boundary, source class) only for explicit trusted evidence."""
+    flags = _flags(row.quality_flags)
+    if flags.get("exclude") is True or flags.get("source") == "backfill":
+        return None
+    comparison_history = metadata_object(flags.get("comparison_history"))
+    if comparison_history.get("disposition") == "exclude_from_comparison":
+        return None
+    recording = parse_recording(flags)
+    if recording is not None:
+        boundary = str(recording["boundary_fingerprint"])
+        if boundary == "mixed" or (expected_boundary and boundary != expected_boundary):
+            return None
+        components = recording["components"]
+        for component in _REQUIRED_COMPONENTS:
+            item = metadata_object(components.get(component))
+            if item.get("owner") != "recorder":
+                return None
+            if item.get("schema_version", recording["schema_version"]) != 1:
+                return None
+            if item.get("method") not in MEASUREMENT_METHODS:
+                return None
+            if item.get("boundary_fingerprint", boundary) != boundary:
+                return None
+            if item.get("semantics", ENERGY_SEMANTICS) != ENERGY_SEMANTICS:
+                return None
+            if (
+                not isinstance(item.get("algorithm", recording.get("algorithm")), str)
+                or item.get("algorithm", recording.get("algorithm")) not in _OBSERVED_ALGORITHMS
+            ):
+                return None
+            if item.get("method") in {"snapshot", "mixed", "unconfigured_zero", "unknown"}:
+                return None
+        soc = soc_metadata(recording, "end")
+        if soc.get("owner") != "recorder" or soc.get("source") != "live":
+            return None
+        if (
+            soc.get("schema_version", recording["schema_version"]) != 1
+            or soc.get("boundary_fingerprint", boundary) != boundary
+            or soc.get("semantics", ENERGY_SEMANTICS) != ENERGY_SEMANTICS
+            or not isinstance(soc.get("algorithm", recording.get("algorithm")), str)
+            or soc.get("algorithm", recording.get("algorithm")) not in _OBSERVED_ALGORITHMS
+        ):
+            return None
+        algorithm = str(recording.get("algorithm", ""))
+        if algorithm not in _OBSERVED_ALGORITHMS or recording.get("semantics") != ENERGY_SEMANTICS:
+            return None
+        return _measured_energy_cohort(boundary, recording["semantics"]), boundary, "observed"
+
+    # A malformed or unsupported observed-provenance object is never downgraded
+    # into legacy history by attaching a separate attestation.
+    if "recording" in flags:
+        return None
+
+    attestation = metadata_object(flags.get("legacy_attestation"))
+    if type(attestation.get("schema_version")) is not int or attestation.get("schema_version") != 1:
+        return None
+    if attestation.get("disposition") != "verified_measured_energy":
+        return None
+    if (
+        comparison_history.get("schema_version") != 1
+        or comparison_history.get("disposition") != "verified_measured_energy"
+        or comparison_history.get("evidence_digest") != attestation.get("evidence_digest")
+    ):
+        return None
+    if attestation.get("semantics") != ENERGY_SEMANTICS:
+        return None
+    boundary = attestation.get("boundary_fingerprint")
+    evidence = attestation.get("evidence_digest")
+    methods = metadata_object(attestation.get("methods"))
+    soc_method = attestation.get("soc_method")
+    if not isinstance(boundary, str) or not is_sha256(boundary) or not is_sha256(evidence):
+        return None
+    if expected_boundary and boundary != expected_boundary:
+        return None
+    if set(methods) != set(_REQUIRED_COMPONENTS) or any(
+        not isinstance(methods.get(name), str) or methods.get(name) not in _LEGACY_METHODS
+        for name in _REQUIRED_COMPONENTS
+    ):
+        return None
+    if soc_method != "live_soc_history":
+        return None
+    compatibility_classes = {_LEGACY_COMPATIBILITY.get(method) for method in methods.values()}
+    if compatibility_classes != {"full-slot-measured-energy-v1"}:
+        return None
+    try:
+        value_digest = observation_value_digest(row)
+    except (ValueError, TypeError):
+        return None
+    if attestation.get("affected_measurement_digest") != value_digest:
+        return None
+    cohort = _measured_energy_cohort(boundary, attestation["semantics"])
+    return cohort, boundary, "attested"
+
+
+def _cohort_selection(
+    observations: Iterable[RecordedObservation],
+    start_utc: datetime,
+    end_utc: datetime,
+    expected_boundary: str | None,
+) -> tuple[list[RecordedObservation], dict[str, Any]]:
+    considered = [
+        row
+        for row in observations
+        if row.start.tzinfo is not None
+        and start_utc <= row.start.astimezone(UTC)
+        and row.start.astimezone(UTC) + SLOT <= end_utc
+    ]
+    exclusions = dict.fromkeys(
+        (
+            "explicitly_excluded",
+            "backfill",
+            "snapshot_or_mixed",
+            "cached_soc",
+            "unknown_provenance",
+            "boundary_mismatch",
+            "invalid_measurements",
+            "incompatible_cohort",
+        ),
+        0,
+    )
+    candidates: list[tuple[RecordedObservation, tuple[str, str, str]]] = []
+    latest_signature: str | None = None
+    latest_signature_start: datetime | None = None
+    for row in considered:
+        flags = _flags(row.quality_flags)
+        if flags.get("exclude") is True:
+            exclusions["explicitly_excluded"] += 1
+            continue
+        comparison_history = metadata_object(flags.get("comparison_history"))
+        if comparison_history.get("disposition") == "exclude_from_comparison":
+            exclusions["explicitly_excluded"] += 1
+            continue
+        if flags.get("source") == "backfill":
+            exclusions["backfill"] += 1
+            continue
+        rec = parse_recording(flags)
+        raw_rec = metadata_object(flags.get("recording"))
+        if raw_rec:
+            boundary = raw_rec.get("boundary_fingerprint")
+            if (
+                isinstance(boundary, str)
+                and is_sha256(boundary)
+                and (expected_boundary is None or boundary == expected_boundary)
+            ):
+                if (
+                    raw_rec.get("schema_version") == 1
+                    and isinstance(raw_rec.get("algorithm"), str)
+                    and raw_rec.get("algorithm") in _OBSERVED_ALGORITHMS
+                    and raw_rec.get("semantics") == ENERGY_SEMANTICS
+                ):
+                    signature = _measured_energy_cohort(boundary, ENERGY_SEMANTICS)
+                else:
+                    signature = (
+                        f"unsupported:{boundary}:"
+                        + hashlib.sha256(
+                            json.dumps(raw_rec, sort_keys=True, default=str).encode()
+                        ).hexdigest()
+                    )
+                if (
+                    latest_signature_start is None
+                    or row.start.astimezone(UTC) > latest_signature_start
+                ):
+                    latest_signature, latest_signature_start = signature, row.start.astimezone(UTC)
+        attestation = metadata_object(flags.get("legacy_attestation"))
+        trusted_attestation = (
+            trusted_row_provenance(row, expected_boundary) if attestation and not raw_rec else None
+        )
+        if trusted_attestation is not None and (
+            latest_signature_start is None or row.start.astimezone(UTC) > latest_signature_start
+        ):
+            latest_signature, latest_signature_start = (
+                trusted_attestation[0],
+                row.start.astimezone(UTC),
+            )
+        if rec is not None:
+            components = rec.get("components", {})
+            if (
+                any(
+                    isinstance(components.get(name), dict)
+                    and components[name].get("owner") == "backfill"
+                    for name in _REQUIRED_COMPONENTS
+                )
+                or soc_metadata(rec, "end").get("owner") == "backfill"
+            ):
+                exclusions["backfill"] += 1
+                continue
+            methods = [components.get(name, {}).get("method") for name in _REQUIRED_COMPONENTS]
+            if any(
+                method in {"snapshot", "mixed", "unconfigured_zero", "unknown"}
+                for method in methods
+            ):
+                exclusions["snapshot_or_mixed"] += 1
+                continue
+            if soc_metadata(rec, "end").get("source") == "cached":
+                exclusions["cached_soc"] += 1
+                continue
+        provenance = trusted_row_provenance(row, expected_boundary)
+        if provenance is None:
+            if (
+                rec is not None
+                and expected_boundary
+                and rec.get("boundary_fingerprint") != expected_boundary
+            ):
+                exclusions["boundary_mismatch"] += 1
+            else:
+                exclusions["unknown_provenance"] += 1
+            continue
+        if not calibration_eligible_without_provenance(row):
+            exclusions["invalid_measurements"] += 1
+            continue
+        candidates.append((row, provenance))
+    all_candidates = candidates
+    if latest_signature is not None:
+        candidates = [item for item in candidates if item[1][0] == latest_signature]
+        exclusions["incompatible_cohort"] += len(all_candidates) - len(candidates)
+    if not candidates:
+        return [], {
+            "considered_count": len(considered),
+            "eligible_count": 0,
+            "exclusions": exclusions,
+            "cohort_id": latest_signature,
+            "cohort_start": (
+                None if latest_signature_start is None else latest_signature_start.isoformat()
+            ),
+        }
+    by_cohort: dict[str, list[tuple[RecordedObservation, tuple[str, str, str]]]] = {}
+    for item in candidates:
+        by_cohort.setdefault(item[1][0], []).append(item)
+    if latest_signature is not None:
+        chosen_id = latest_signature
+        chosen = by_cohort.get(chosen_id, [])
+    else:
+        chosen_id, chosen = max(
+            by_cohort.items(), key=lambda pair: max(row.start.astimezone(UTC) for row, _ in pair[1])
+        )
+    selected = sorted((row for row, _ in chosen), key=lambda row: row.start.astimezone(UTC))
+    return selected, {
+        "considered_count": len(considered),
+        "eligible_count": len(selected),
+        "exclusions": exclusions,
+        "cohort_id": chosen_id,
+        "cohort_start": selected[0].start.astimezone(UTC).isoformat(),
+    }
+
+
+def calibration_eligible_without_provenance(row: RecordedObservation) -> bool:
+    """Numeric checks shared by selection after provenance has been validated."""
+    flags = _flags(row.quality_flags)
+    if flags.get("exclude") is True or flags.get("source") == "backfill":
+        return False
+    energies = (
+        row.import_kwh,
+        row.export_kwh,
+        row.pv_kwh,
+        row.load_kwh,
+        row.water_kwh,
+        row.ev_kwh,
+        row.charge_kwh,
+        row.discharge_kwh,
+    )
+    return (
+        all(_finite_nonnegative(value) for value in energies)
+        and _finite_price(row.import_price)
+        and _finite_price(row.export_price)
+        and (row.soc_start_percent is None or _valid_soc(row.soc_start_percent))
+        and _valid_soc(row.soc_end_percent)
+        and row.start.tzinfo is not None
+    )
 
 
 def _grid_sample(row: RecordedObservation) -> tuple[float, float, float, float] | None:
@@ -537,26 +1105,23 @@ def _errors(actual: Sequence[float], predicted: Sequence[float]) -> tuple[float,
 
 
 def fit_calibration(
-    observations: Iterable[RecordedObservation], capacity_kwh: float, comparison_end: datetime
+    observations: Iterable[RecordedObservation],
+    capacity_kwh: float,
+    comparison_end: datetime,
+    expected_boundary: str | None = None,
 ) -> CalibrationResult:
     """Fit and validate model on a UTC chronological 80/20 split."""
     end_utc = comparison_end.astimezone(UTC)
     start_utc = end_utc - timedelta(days=30)
-    rows = sorted(
-        (
-            r
-            for r in observations
-            if calibration_eligible(r)
-            and start_utc <= r.start.astimezone(UTC)
-            and r.start.astimezone(UTC) + SLOT <= end_utc
-        ),
-        key=lambda r: r.start.astimezone(UTC),
-    )
+    rows, history = _cohort_selection(observations, start_utc, end_utc, expected_boundary)
     if len(rows) < 1000:
-        return CalibrationResult("insufficient_data", "too_few_grid_observations")
+        reason = (
+            "insufficient_compatible_history" if history["eligible_count"] else "unverified_history"
+        )
+        return CalibrationResult("insufficient_data", reason, history=history)
     pairs = _battery_pairs(rows, capacity_kwh)
     if len(pairs) < 200:
-        return CalibrationResult("insufficient_data", "too_few_battery_pairs")
+        return CalibrationResult("insufficient_data", "too_few_battery_pairs", history=history)
     grid_samples = [_grid_sample(row) for row in rows]
     grid: list[tuple[float, float, float, float]] = [
         sample for sample in grid_samples if sample is not None
@@ -568,12 +1133,16 @@ def fit_calibration(
     gm = _fit_grid(grid_train)
     bm = _fit_battery(pair_train)
     if gm is None or bm is None:
-        return CalibrationResult("insufficient_data", "unidentifiable_flow_direction")
+        return CalibrationResult(
+            "insufficient_data", "unidentifiable_flow_direction", history=history
+        )
     # Predict directly from observed PV and battery actions, preserving within-slot
     # coexistence at the installation's recorded sensor boundary.
     hold_rows = rows[grid_cut:]
     if len(hold_rows) != len(grid_hold):
-        return CalibrationResult("insufficient_data", "inconsistent_grid_observations")
+        return CalibrationResult(
+            "insufficient_data", "inconsistent_grid_observations", history=history
+        )
     grid_pred: list[float] = []
     grid_actual: list[float] = []
     for row in hold_rows:
@@ -629,5 +1198,104 @@ def fit_calibration(
         or abs(bmean) > 0.03
         or abs(cost_error) > max(1.0, 0.05 * gross)
     ):
-        return CalibrationResult("unreliable_model", "holdout_validation_failed", diagnostics)
-    return CalibrationResult("available", "validated", diagnostics)
+        return CalibrationResult(
+            "unreliable_model", "holdout_validation_failed", diagnostics, history
+        )
+    return CalibrationResult("available", "validated", diagnostics, history)
+
+
+def observation_value_digest(row: RecordedObservation) -> str:
+    return measurement_value_digest(
+        (
+            row.start,
+            row.import_kwh,
+            row.export_kwh,
+            row.pv_kwh,
+            row.load_kwh,
+            row.water_kwh,
+            row.ev_kwh,
+            row.charge_kwh,
+            row.discharge_kwh,
+            row.soc_start_percent,
+            row.soc_end_percent,
+            row.import_price,
+            row.export_price,
+        )
+    )
+
+
+def trusted_soc_provenance(
+    row: RecordedObservation, endpoint: str, expected_boundary: str | None = None
+) -> tuple[str, str, str] | None:
+    """Validate the used SoC endpoint independently of unused energy/start values."""
+    if endpoint not in {"start", "end"} or row.start.tzinfo is None:
+        return None
+    value = row.soc_start_percent if endpoint == "start" else row.soc_end_percent
+    if not _valid_soc(value):
+        return None
+    flags = _flags(row.quality_flags)
+    if (
+        flags.get("exclude") is True
+        or flags.get("source") == "backfill"
+        or metadata_object(flags.get("comparison_history")).get("disposition")
+        == "exclude_from_comparison"
+    ):
+        return None
+    recording = parse_recording(flags)
+    if recording is None:
+        # Legacy evidence binds the complete measurement preimage; it remains
+        # the only way to establish a strict historical SoC endpoint.
+        return trusted_row_provenance(row, expected_boundary)
+    boundary = recording["boundary_fingerprint"]
+    if (
+        (expected_boundary is not None and boundary != expected_boundary)
+        or not isinstance(recording.get("algorithm"), str)
+        or recording["algorithm"] not in _OBSERVED_ALGORITHMS
+    ):
+        return None
+    soc = soc_metadata(recording, endpoint)
+    if not (
+        soc.get("source") == "live"
+        and soc.get("owner") == "recorder"
+        and soc.get("schema_version", recording["schema_version"]) == 1
+        and soc.get("boundary_fingerprint", boundary) == boundary
+        and soc.get("semantics", ENERGY_SEMANTICS) == ENERGY_SEMANTICS
+        and isinstance(soc.get("algorithm", recording.get("algorithm")), str)
+        and soc.get("algorithm", recording.get("algorithm")) in _OBSERVED_ALGORITHMS
+    ):
+        return None
+    return _measured_energy_cohort(boundary, ENERGY_SEMANTICS), boundary, "observed"
+
+
+def trusted_soc_endpoint(row: RecordedObservation, endpoint: str) -> bool:
+    return trusted_soc_provenance(row, endpoint) is not None
+
+
+def estimate_soc_endpoint_eligible(
+    row: RecordedObservation,
+    endpoint: str,
+    expected_boundary: str,
+    assumed_boundaries: frozenset[str] = frozenset(),
+) -> bool:
+    """Trust/assume only the independent state used as an estimate anchor."""
+    value = row.soc_start_percent if endpoint == "start" else row.soc_end_percent
+    if endpoint not in {"start", "end"} or row.start.tzinfo is None or not _valid_soc(value):
+        return False
+    if _legacy_estimate_row(row):
+        return True
+    return trusted_soc_provenance(row, endpoint, expected_boundary) is not None or any(
+        trusted_soc_provenance(row, endpoint, boundary) is not None
+        for boundary in assumed_boundaries
+    )
+
+
+def history_coverage(
+    observations: Iterable[RecordedObservation],
+    comparison_end: datetime,
+    expected_boundary: str | None = None,
+) -> dict[str, Any]:
+    """Report the exact candidate/cohort classification without numerical fitting."""
+    end_utc = comparison_end.astimezone(UTC)
+    return _cohort_selection(
+        observations, end_utc - timedelta(days=30), end_utc, expected_boundary
+    )[1]

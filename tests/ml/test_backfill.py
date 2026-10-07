@@ -178,6 +178,7 @@ async def test_spike_is_filtered_with_config_threshold(make_engine):
     row = stored(learning_engine).iloc[0]
     assert row["pv_kwh"] == 0.0
     assert row["load_kwh"] == pytest.approx(1.0)
+    assert row["quality_flags"]["recording"]["components"]["pv"]["method"] == "unknown"
 
 
 @pytest.mark.asyncio
@@ -262,3 +263,35 @@ async def test_no_power_sensors_configured_does_nothing(make_engine):
     history_mock = await run(engine, constant_history({}))
     history_mock.assert_not_awaited()
     learning_engine.store_slot_observations.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_enabled_device_taints_backfill_aggregate_and_derived_load(make_engine):
+    config = make_config(
+        ev_chargers=[
+            {"id": "configured", "sensor": "sensor.ev", "enabled": True},
+            {"id": "missing", "enabled": True},
+        ]
+    )
+    engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10, 0)))
+    await run(engine, constant_history({"sensor.load": 4.0, "sensor.ev": 1.0, "sensor.wh": 0.0}))
+    row = stored(learning_engine).iloc[0]
+    components = row["quality_flags"]["recording"]["components"]
+    assert components["ev"]["method"] == "mixed"
+    assert components["load"]["method"] == "mixed"
+    assert components["ev"]["owner"] == "backfill"
+
+
+@pytest.mark.asyncio
+async def test_all_disabled_devices_have_disabled_zero_backfill_provenance(make_engine):
+    config = make_config(
+        ev_chargers=[{"id": "ev", "enabled": False}],
+        water_heaters=[{"id": "wh", "enabled": False}],
+    )
+    engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10, 0)))
+    await run(engine, constant_history({"sensor.load": 4.0}))
+    row = stored(learning_engine).iloc[0]
+    components = row["quality_flags"]["recording"]["components"]
+    assert row["ev_charging_kwh"] == row["water_kwh"] == 0.0
+    assert components["ev"]["method"] == components["water"]["method"] == "disabled_zero"
+    assert components["load"]["method"] == "derived_history"

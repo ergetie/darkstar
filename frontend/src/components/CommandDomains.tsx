@@ -153,6 +153,23 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
     } | null>(null)
     const [loading, setLoading] = useState(true)
     const [costSeries, setCostSeries] = useState<CostSeriesResponse | null>(null)
+    const [comparisonInfoOpen, setComparisonInfoOpen] = useState(false)
+    const comparisonInfoRef = React.useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        if (!comparisonInfoOpen) return
+        const onPointer = (e: PointerEvent) => {
+            if (!comparisonInfoRef.current?.contains(e.target as Node)) setComparisonInfoOpen(false)
+        }
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setComparisonInfoOpen(false)
+        }
+        document.addEventListener('pointerdown', onPointer)
+        document.addEventListener('keydown', onKey)
+        return () => {
+            document.removeEventListener('pointerdown', onPointer)
+            document.removeEventListener('keydown', onKey)
+        }
+    }, [comparisonInfoOpen])
 
     // Validation helper for custom date range: pure predicate lives in isValidDateRange,
     // this wrapper only adds the setDateError side effect.
@@ -229,6 +246,47 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
     const displayImport = rangeData?.grid_import_kwh ?? importKwh
     const displayExport = rangeData?.grid_export_kwh ?? exportKwh
     const isPositive = (displayNetCost ?? 0) <= 0
+
+    const candidateComparison = costSeries?.battery_comparison
+    const comparison =
+        candidateComparison &&
+        ((candidateComparison.status === 'available' && candidateComparison.basis !== 'configured_losses') ||
+            (candidateComparison.status === 'estimated' && candidateComparison.basis !== 'calibrated')) &&
+        candidateComparison.darkstar &&
+        candidateComparison.self_use &&
+        typeof candidateComparison.saving_sek === 'number' &&
+        Number.isFinite(candidateComparison.saving_sek) &&
+        [candidateComparison.darkstar, candidateComparison.self_use].every((side) =>
+            [
+                side.grid_cost_sek,
+                side.wear_cost_sek,
+                side.stored_energy_change_kwh,
+                side.stored_energy_value_sek,
+                side.comparison_cost_sek,
+            ].every(Number.isFinite),
+        )
+            ? {
+                  ...candidateComparison,
+                  saving_sek: candidateComparison.saving_sek,
+                  darkstar: candidateComparison.darkstar,
+                  self_use: candidateComparison.self_use,
+              }
+            : null
+    const coverage = comparison?.coverage
+    const partialCoverage =
+        coverage &&
+        Number.isFinite(coverage.covered_slots) &&
+        Number.isFinite(coverage.total_slots) &&
+        coverage.total_slots > 0 &&
+        coverage.excluded_slots > 0
+            ? {
+                  ...coverage,
+                  // Never rounds up to 100% while slots are excluded.
+                  percent: Math.min(99, Math.max(1, Math.floor((coverage.covered_slots / coverage.total_slots) * 100))),
+              }
+            : null
+    // Older available responses came only from the strict fitted path.
+    const comparisonVerified = comparison?.status === 'available' && comparison.basis !== 'configured_losses'
 
     const periods = [
         { key: 'today', label: 'Today' },
@@ -312,7 +370,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
             {fetchError && <div className="text-[9px] text-bad mb-2 relative z-10">Error: {fetchError}</div>}
 
             {/* Big Metric: Net Cost */}
-            <div className="mb-3 relative z-10">
+            <div className={`mb-3 relative ${comparisonInfoOpen ? 'z-30' : 'z-10'}`}>
                 <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">
                     {period === 'custom'
                         ? 'Actual electricity cost · Custom Period'
@@ -347,84 +405,121 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                         <span className="text-[9px] text-muted">kr incl. battery wear</span>
                     </div>
                 )}
-                {costSeries?.battery_comparison?.status === 'available' &&
-                    costSeries.battery_comparison.darkstar &&
-                    costSeries.battery_comparison.self_use && (
-                        <div className="mt-2 rounded-ds-sm border border-line/30 bg-surface2/30 p-2 text-[10px]">
-                            <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-                                <span className="text-muted uppercase tracking-wider">
-                                    {costSeries.battery_comparison.saving_sek! >= 0
-                                        ? 'Estimated battery savings'
-                                        : 'Estimated additional battery cost'}
+                {comparison && (
+                    <div ref={comparisonInfoRef} className="mt-2 relative z-30 text-[10px]">
+                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            <span className="text-muted">
+                                {comparison.saving_sek >= 0 ? 'Darkstar saved you' : 'Darkstar cost you extra'}
+                            </span>
+                            <span
+                                className={`text-sm font-semibold tabular-nums ${comparison.saving_sek >= 0 ? 'text-good' : 'text-bad'}`}
+                            >
+                                {Math.abs(comparison.saving_sek).toFixed(2)} kr
+                            </span>
+                            {partialCoverage && (
+                                <span className="text-muted tabular-nums">
+                                    · {partialCoverage.percent}% of the period
                                 </span>
-                                <span
-                                    className={`font-semibold tabular-nums ${costSeries.battery_comparison.saving_sek! >= 0 ? 'text-good' : 'text-bad'}`}
-                                >
-                                    {costSeries.battery_comparison.saving_sek! >= 0
-                                        ? `${costSeries.battery_comparison.saving_sek!.toFixed(2)} kr`
-                                        : `Additional estimated cost ${Math.abs(costSeries.battery_comparison.saving_sek!).toFixed(2)} kr`}
-                                </span>
-                            </div>
-                            <div className="flex flex-wrap justify-between gap-x-3 text-muted mt-1">
-                                <span>
-                                    Darkstar comparison:{' '}
-                                    {costSeries.battery_comparison.darkstar.comparison_cost_sek.toFixed(2)} kr
-                                </span>
-                                <span>
-                                    Self-use comparison:{' '}
-                                    {costSeries.battery_comparison.self_use.comparison_cost_sek.toFixed(2)} kr
-                                </span>
-                            </div>
-                            {costSeries.battery_comparison.through && (
-                                <div className="text-muted mt-1">
-                                    Completed through{' '}
-                                    {new Date(costSeries.battery_comparison.through).toLocaleString([], {
-                                        hour12: false,
-                                        dateStyle: 'short',
-                                        timeStyle: 'short',
-                                    })}
-                                </div>
                             )}
-                            <div className="text-muted mt-1">
-                                Same recorded EV/water timing; self-use battery discharge serves only house/water
-                                demand. PV may supply the EV. Losses are modeled on both sides. Wear and remaining
-                                battery energy are included. 15-minute totals cannot reproduce exact inverter responses
-                                within each slot. EV/water scheduling savings are excluded.
-                            </div>
-                            <details className="mt-1 text-muted">
-                                <summary className="cursor-pointer">Cost adjustments and assumptions</summary>
-                                <div className="mt-1 pl-2">Comparison cost = grid + wear − stored energy value.</div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 mt-1 pl-2">
-                                    <span>Common energy price</span>
-                                    <span className="tabular-nums">
-                                        {costSeries.battery_comparison.reference_price_sek_kwh?.toFixed(3)} kr/kWh
-                                    </span>
-                                    <span>Darkstar grid / wear / stored energy</span>
-                                    <span className="tabular-nums">
-                                        {costSeries.battery_comparison.darkstar.grid_cost_sek.toFixed(2)} /{' '}
-                                        {costSeries.battery_comparison.darkstar.wear_cost_sek.toFixed(2)} /{' '}
-                                        {costSeries.battery_comparison.darkstar.stored_energy_value_sek.toFixed(2)} kr
-                                    </span>
-                                    <span>Self-use grid / wear / stored energy</span>
-                                    <span className="tabular-nums">
-                                        {costSeries.battery_comparison.self_use.grid_cost_sek.toFixed(2)} /{' '}
-                                        {costSeries.battery_comparison.self_use.wear_cost_sek.toFixed(2)} /{' '}
-                                        {costSeries.battery_comparison.self_use.stored_energy_value_sek.toFixed(2)} kr
-                                    </span>
-                                </div>
-                            </details>
+                            <button
+                                type="button"
+                                aria-expanded={comparisonInfoOpen}
+                                aria-label="How this is calculated"
+                                onClick={() => setComparisonInfoOpen((open) => !open)}
+                                className={`px-1.5 py-0.5 rounded-ds-sm border border-line/30 text-[9px] ${
+                                    comparisonVerified ? 'text-good' : 'text-muted'
+                                } hover:bg-surface2`}
+                            >
+                                {comparisonVerified ? 'Verified' : 'Estimate'} ⓘ
+                            </button>
                         </div>
-                    )}
+                        {comparisonInfoOpen && (
+                            <div
+                                role="dialog"
+                                className="absolute left-0 top-full z-30 mt-1 w-full max-w-full rounded-ds-sm border border-line bg-surface p-2 shadow-float text-muted"
+                            >
+                                <div>
+                                    An estimate against a plain self-use inverter with the same battery and the same
+                                    EV/water timing. EV and water scheduling savings are not included.
+                                </div>
+                                {comparison.through && (
+                                    <div className="mt-1">
+                                        Completed through{' '}
+                                        {(() => {
+                                            const d = new Date(comparison.through)
+                                            const p = (n: number) => String(n).padStart(2, '0')
+                                            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+                                        })()}
+                                    </div>
+                                )}
+                                {partialCoverage && (
+                                    <div className="mt-1">
+                                        Based on {partialCoverage.covered_slots} of {partialCoverage.total_slots}{' '}
+                                        completed 15-minute slots ({partialCoverage.excluded_slots} left out because
+                                        they are missing or could not be compared reliably).
+                                    </div>
+                                )}
+                                {!comparisonVerified && (
+                                    <div className="mt-1">
+                                        {comparison.calibration_status === 'unreliable_model'
+                                            ? 'Calibration checks did not pass; configured battery losses are used.'
+                                            : comparison.calibration_status === 'insufficient_data'
+                                              ? 'Not enough reliable history to verify; configured battery losses are used.'
+                                              : 'Not yet verified; configured battery losses are used.'}
+                                    </div>
+                                )}
+                                {!comparisonVerified &&
+                                    comparison.input_assumptions &&
+                                    (comparison.input_assumptions.legacy_recording_slots > 0 ||
+                                        comparison.input_assumptions.legacy_soc_mapping_slots > 0) && (
+                                        <div className="mt-1">
+                                            Older readings use assumed measurement sources and state-of-charge mapping.
+                                        </div>
+                                    )}
+                                {comparisonVerified && (
+                                    <div className="mt-1">Verified: the model passed its accuracy checks.</div>
+                                )}
+                                <details className="mt-1">
+                                    <summary className="cursor-pointer">Cost adjustments and assumptions</summary>
+                                    <div className="mt-1 pl-2">
+                                        Comparison cost = grid + wear − stored energy value.
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 mt-1 pl-2">
+                                        <span>Common energy price</span>
+                                        <span className="tabular-nums">
+                                            {comparison.reference_price_sek_kwh?.toFixed(3)} kr/kWh
+                                        </span>
+                                        <span>Darkstar grid / wear / stored energy</span>
+                                        <span className="tabular-nums">
+                                            {comparison.darkstar.grid_cost_sek.toFixed(2)} /{' '}
+                                            {comparison.darkstar.wear_cost_sek.toFixed(2)} /{' '}
+                                            {comparison.darkstar.stored_energy_value_sek.toFixed(2)} kr
+                                        </span>
+                                        <span>Self-use grid / wear / stored energy</span>
+                                        <span className="tabular-nums">
+                                            {comparison.self_use.grid_cost_sek.toFixed(2)} /{' '}
+                                            {comparison.self_use.wear_cost_sek.toFixed(2)} /{' '}
+                                            {comparison.self_use.stored_energy_value_sek.toFixed(2)} kr
+                                        </span>
+                                    </div>
+                                </details>
+                            </div>
+                        )}
+                    </div>
+                )}
                 {costSeries?.battery_comparison &&
                     costSeries.battery_comparison.status !== 'available' &&
+                    costSeries.battery_comparison.status !== 'estimated' &&
                     costSeries.battery_comparison.status !== 'no_battery' && (
                         <div className="mt-2 text-[10px] text-muted" role="status">
                             {costSeries.battery_comparison.status === 'insufficient_data'
-                                ? 'Not enough reliable history for a battery comparison.'
+                                ? 'Battery comparison needs more reliable history to estimate battery losses, even when viewing today.'
                                 : costSeries.battery_comparison.status === 'unreliable_model'
                                   ? 'The battery comparison estimate did not pass its accuracy checks.'
                                   : costSeries.battery_comparison.status === 'incomplete_period'
-                                    ? 'Battery comparison unavailable because the selected period has missing or incomplete observations.'
+                                    ? costSeries.battery_comparison.reason === 'unsupported_period_measurements'
+                                        ? 'This period includes measurements that cannot be compared reliably.'
+                                        : 'Battery comparison unavailable because the selected period has missing or incomplete observations.'
                                     : 'No completed observations are available for a battery comparison.'}
                         </div>
                     )}
@@ -492,7 +587,12 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                         </span>
                     </div>
                     <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
-                        <span className="text-muted">Self-Use Saved</span>
+                        <span
+                            className="text-muted cursor-help"
+                            title="House use covered by solar/battery instead of the grid, valued at the import price."
+                        >
+                            Self-Use Saved
+                        </span>
                         <span className="text-accent font-medium tabular-nums whitespace-nowrap">
                             {`${rangeData.self_consumption_savings_sek.toFixed(1)} kr`}
                         </span>

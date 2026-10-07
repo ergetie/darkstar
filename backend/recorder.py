@@ -14,7 +14,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import pytz
@@ -34,6 +34,7 @@ from backend.learning.backfill import BackfillEngine
 # Local imports
 from backend.learning.store import LearningStore
 from backend.loads.service import LoadDisaggregator
+from backend.measurement_provenance import recording_metadata
 from backend.validation import get_max_energy_per_slot, validate_energy_values
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -192,19 +193,89 @@ async def record_observation_from_current_state(
         source = "history energy" if integrated is not None else "snapshot fallback"
         logger.debug(f"Water {heater_id}: {source}={device_kwh:.3f} kWh")
 
+    def method_for(integrated: float | None, configured: bool, enabled: bool = True) -> str:
+        if not enabled:
+            return "disabled_zero"
+        if not configured:
+            return "unconfigured_zero"
+        return "power_history" if integrated is not None else "snapshot"
+
+    system_value = config.get("system")
+    system_config = cast("dict[str, Any]", system_value) if isinstance(system_value, dict) else {}
+    ev_config_value = config.get("ev_chargers")
+    ev_config = (
+        cast("list[dict[str, Any]]", ev_config_value) if isinstance(ev_config_value, list) else []
+    )
+    water_config_value = config.get("water_heaters")
+    water_config = (
+        cast("list[dict[str, Any]]", water_config_value)
+        if isinstance(water_config_value, list)
+        else []
+    )
+    ev_methods = [method_for(energy.ev.get(sensor), True) for _, sensor in sources.ev_chargers]
+    water_methods = [
+        method_for(energy.water.get(sensor), True) for _, sensor in sources.water_heaters
+    ]
+
+    def aggregate_method(methods: list[str], enabled: bool, configured: bool) -> str:
+        if not enabled:
+            return "disabled_zero"
+        if not methods:
+            return "unconfigured_zero"
+        if not configured:
+            return "mixed"
+        if "snapshot" in methods:
+            return "mixed" if "power_history" in methods else "snapshot"
+        return "power_history"
+
+    ev_method = aggregate_method(
+        ev_methods,
+        bool(system_config.get("has_ev_charger", False))
+        and (not ev_config or any(item.get("enabled", True) for item in ev_config)),
+        bool(sources.ev_chargers)
+        and all(item.get("sensor") for item in ev_config if item.get("enabled", True)),
+    )
+    water_method = aggregate_method(
+        water_methods,
+        bool(system_config.get("has_water_heater", True))
+        and (not water_config or any(item.get("enabled", True) for item in water_config)),
+        bool(sources.water_heaters)
+        and all(item.get("sensor") for item in water_config if item.get("enabled", True)),
+    )
+
     # Isolate base load: subtract known deferrable loads from total load.
     # Applies when load is the integrated total, or a power snapshot without disaggregator.
     # Skipped when the disaggregator already provided a base-load-only snapshot.
     if energy.load is not None:
         load_kwh = isolate_base_load(energy.load, ev_charging_kwh, water_kwh)
+        load_method = (
+            "unconfigured_zero"
+            if not sources.load
+            else "mixed"
+            if any(
+                method in {"snapshot", "mixed", "unconfigured_zero"}
+                for method in (ev_method, water_method)
+            )
+            else "derived_history"
+        )
     elif disaggregator:
         load_kwh = max(0.0, load_kw) * 0.25
+        load_method = method_for(None, bool(sources.load))
     else:
         load_kwh = isolate_base_load(max(0.0, load_kw) * 0.25, ev_charging_kwh, water_kwh)
+        load_method = (
+            "mixed"
+            if any(
+                method in {"snapshot", "mixed", "unconfigured_zero"}
+                for method in (ev_method, water_method)
+            )
+            else method_for(None, bool(sources.load))
+        )
 
     # Battery
     soc_entity = input_sensors.get("battery_soc")
     soc_percent = None
+    soc_source = "unavailable"
     if soc_entity:
         soc_percent = await get_ha_sensor_float(soc_entity)
 
@@ -214,6 +285,7 @@ async def record_observation_from_current_state(
         if cached_soc and soc_entity:
             try:
                 soc_percent = float(cached_soc)
+                soc_source = "cached"
                 logger.warning(
                     f"Battery SoC sensor ({soc_entity}) unavailable. "
                     f"Using last known value: {soc_percent:.1f}%"
@@ -233,6 +305,7 @@ async def record_observation_from_current_state(
             await store.close()
             return
     else:
+        soc_source = "live"
         # Valid SoC obtained - update cache
         await store.set_system_state("last_known_soc", str(soc_percent))
 
@@ -245,6 +318,55 @@ async def record_observation_from_current_state(
         logger.info(f"Price data fetched: Import={import_price:.4f}, Export={export_price:.4f}")
     else:
         logger.warning("Failed to fetch price data for current observation")
+
+    # Capture actual component paths after all fallback and derived-load choices.
+    recording = recording_metadata(
+        config,
+        {
+            "pv": {
+                "method": method_for(
+                    energy.pv, bool(sources.pv), bool(system_config.get("has_solar", True))
+                ),
+                "owner": "recorder",
+            },
+            "import": {
+                "method": method_for(
+                    energy.import_kwh,
+                    bool(sources.grid_import if meter_type == "dual" else sources.grid),
+                    True,
+                ),
+                "owner": "recorder",
+            },
+            "export": {
+                "method": method_for(
+                    energy.export_kwh,
+                    bool(sources.grid_export if meter_type == "dual" else sources.grid),
+                    True,
+                ),
+                "owner": "recorder",
+            },
+            "load": {"method": load_method, "owner": "recorder"},
+            "water": {"method": water_method, "owner": "recorder"},
+            "ev": {"method": ev_method, "owner": "recorder"},
+            "battery_charge": {
+                "method": method_for(
+                    energy.batt_charge,
+                    bool(sources.battery),
+                    bool(system_config.get("has_battery", True)),
+                ),
+                "owner": "recorder",
+            },
+            "battery_discharge": {
+                "method": method_for(
+                    energy.batt_discharge,
+                    bool(sources.battery),
+                    bool(system_config.get("has_battery", True)),
+                ),
+                "owner": "recorder",
+            },
+        },
+        soc_source,
+    )
 
     # Construct Record
     record = {
@@ -264,6 +386,7 @@ async def record_observation_from_current_state(
         "import_price_sek_kwh": import_price,
         "export_price_sek_kwh": export_price,
         "created_at": datetime.now(UTC).isoformat(),
+        "quality_flags": {"source": "recorder", "recording": recording},
     }
 
     logger.info(
@@ -275,7 +398,21 @@ async def record_observation_from_current_state(
     # Validate energy values before storage
     try:
         max_kwh = get_max_energy_per_slot(config)
+        original_record = record
         record = validate_energy_values(record, max_kwh)
+        sanitized_components = {
+            "pv_kwh": "pv",
+            "load_kwh": "load",
+            "import_kwh": "import",
+            "export_kwh": "export",
+            "water_kwh": "water",
+            "ev_charging_kwh": "ev",
+            "batt_charge_kwh": "battery_charge",
+            "batt_discharge_kwh": "battery_discharge",
+        }
+        for field, component in sanitized_components.items():
+            if record.get(field) != original_record.get(field):
+                recording["components"][component]["method"] = "unknown"
         # Keep per-charger energy consistent with a rejected (zeroed) aggregate.
         if record.get("ev_charger_energy") and not record.get("ev_charging_kwh"):
             record["ev_charger_energy"] = dict.fromkeys(record["ev_charger_energy"], 0.0)

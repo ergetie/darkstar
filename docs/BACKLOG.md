@@ -59,9 +59,27 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🔧 Improvements
 
+#### [Settings] Warn About Out-Of-Range And Learning-Contradicted Settings
+
+**Goal:** Tell the user when a setting is outside the range Darkstar's own learning would ever choose, or contradicts what the recorded data shows, and what it is likely costing them.
+
+**Notes:** Found 2026-10-06 (cmon89): `forecasting.pv_confidence_percent` was 60 while Reflex only moves it within 70–120 (`backend/learning/reflex.py:22`) and his forecasts were 96 % accurate over 30 days (PV 938 actual vs 905 forecast). Nothing warned him. A replay estimated 60 % vs 83 % at ~53 kr over 25 days. His `learning.max_daily_param_change.pv_confidence_percent` was also 60 (default 1.0). Must cover every Reflex-tuned parameter (bounds table in `reflex.py`) and similar settings, e.g. max-daily-change values far from defaults. Harmless leftovers (e.g. an enabled `water_heaters` entry with `has_water_heater: false`, which the planner ignores) get at most a one-time info note, not a warning.
+
 ---
 
 ## ✨ New Features
+
+#### [Debug] Planner Run Archive With UI Download
+
+**Goal:** Keep every planning run's full inputs and plan (and planner/executor errors) for a set period, so past decisions can be replayed and shared for support; the user can download it from the Debug page and clear it.
+
+**Notes:** Found 2026-10-06 (cmon89 investigation): past decisions could not be reconstructed. `schedule.json` already holds each run's full per-slot inputs (adjusted PV/load, prices) and plan, but is overwritten every run; `slot_plans`/`slot_forecasts` keep only the last value per slot; `debug.enable_planner_debug` stores only a 30-slot sample (`planner/output/debug.py`); the log rotates and is wiped on add-on restart. Verified that re-solving an archived `schedule.json` with the offline Kepler reproduces the real plan exactly (0/122 slots differ). Retention 60–90 days, gzip (~10 kB/run, ~0.5 MB/day). Include initial SoC, safety floor, config version, solver status. Storage location (DB vs files) to decide. Enables the automatic daily replay item.
+
+#### [Learning] Automatic Daily Replay ("Missing Profit" Self-Check)
+
+**Goal:** Every night, replay yesterday with the real PV, load and prices and compare three results: what Darkstar actually did, what its own planner would have done with perfect information (and with the user's settings), and plain self-use. Report the gaps in plain words, e.g. "you missed ~X kr; likely cause: execution / forecasts / setting Y".
+
+**Notes:** Proven offline in the 2026-10-06 cmon89 investigation (`ops/investigations/cmon-2026-10/`, `kepler_replay2.py`): real Kepler re-planned every 30 min on actual data, executed through a per-install calibrated loss model; replay reproduced the maintainer's real result within ~5 kr. Solves take ~0.1 s, so a day is ~10 s of CPU. Gap real-vs-replay points to execution problems; replay-vs-perfect points to forecasts or settings; replay with alternative settings quantifies "what if". Depends on persisting planner runs/inputs (separate item) and on the fair baseline item for the self-use side.
 
 #### [Planner] Power Tariff (Effekttariff) Awareness
 

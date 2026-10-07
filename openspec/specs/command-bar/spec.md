@@ -135,30 +135,61 @@ The CommandBar SHALL display a plan status on the right, derived from `plannerMe
 - **THEN** the Last time is shown in warn color with " · outdated"
 
 ### Requirement: Grid domain displays a consistent estimated battery comparison
-The dashboard Grid domain SHALL retain actual metered electricity costs prominently and SHALL display an available validated comparison as "Estimated battery savings". It SHALL show the Darkstar and plain self-use comparison totals on the same economic basis and offer distinct Actual and Comparison chart views. The comparison view SHALL plot both validated cumulative comparison costs; its final gap SHALL match the displayed saving within rounding. Actual cash-flow bars/lines SHALL NOT be mixed with comparison lines. Negative saving SHALL be communicated as an estimated additional battery-management cost. The UI SHALL NOT use legacy baseline savings as a fallback.
+The dashboard Grid domain SHALL retain actual metered electricity costs prominently and SHALL display every amount-bearing battery comparison on a consistent economic basis as one compact line, "Darkstar saved you X kr" (or "Darkstar cost you extra X kr" when negative), with an “Estimate” chip for a configured-loss result or a “Verified” chip for a result whose strict fitted model passed the calibration and selected-period checks, as defined by grid-financial-wear-display. The two raw comparison costs SHALL NOT be shown inline. The cost chart SHALL be a single chart with the solid Actual line and, when comparison amounts exist, a dotted “Without Darkstar” line on the same kr scale; there SHALL be no Actual/Comparison view switch. The gap between the lines at the last comparison point SHALL match the displayed saving within rounding for a fully covered period. The UI SHALL NOT use legacy baseline savings as a fallback or present a configured-loss estimate as verified.
 
-#### Scenario: Available estimate
-- **WHEN** validated self-use cost is 40 kr and Darkstar comparison cost is 30 kr
-- **THEN** estimated battery savings display 10 kr
-- **AND** the comparison chart's endpoint gap is 10 kr
+#### Scenario: Available configured-loss estimate
+- **WHEN** the comparison has status estimated, basis configured_losses, self-use cost 40 kr and Darkstar cost 30 kr
+- **THEN** the UI shows "Darkstar saved you 10.00 kr" with an “Estimate” chip
+- **AND** the dotted Without Darkstar line ends 10 kr from the Actual line
 - **AND** actual metered electricity cost remains separately identifiable
 
-#### Scenario: Negative estimate
-- **WHEN** validated estimated saving is negative
-- **THEN** the UI describes estimated additional cost without presenting it as savings
+#### Scenario: Negative comparison
+- **WHEN** a comparison on either active basis has a negative saving
+- **THEN** the UI shows "Darkstar cost you extra" with the amount and the chip for the active basis
 
 ### Requirement: Battery comparison assumptions and unavailable states are understandable
-The comparison SHALL expose its latest completed time and an accessible explanation that EV charging/water heating retain recorded timings, self-use storage serves only house/water demand and remaining PV may supply EV energy, losses are modeled on both sides, wear and energy left in the battery are included, and 15-minute observations cannot reproduce exact sub-slot inverter response. A compact breakdown SHALL expose grid cost, wear, stored-energy value and the common valuation price. The UI SHALL NOT claim full Darkstar savings or guaranteed conservative savings. For insufficient, unreliable or incomplete data, it SHALL show one plain-language reason with no saving amount or comparison line; actual information SHALL remain visible. No-battery installations SHALL hide comparison controls. Shared cost-chart changes SHALL be visually verified on Dashboard and Design System using existing design tokens, across mobile/desktop and light/dark themes.
+The comparison details panel (opened from the chip's info control) SHALL expose its latest completed time and an explanation that EV charging/water heating retain recorded timings, self-use storage serves only house/water demand and remaining PV may supply EV energy, losses are modeled on both sides according to the active basis, wear and energy left in the battery are included, and 15-minute observations cannot reproduce exact sub-slot inverter response. When coverage is partial it SHALL state how many completed slots were covered and left out. A nested fold-down SHALL expose grid cost, wear, stored-energy value and the common valuation price. The UI SHALL NOT claim full Darkstar savings or guaranteed conservative savings. When a configured-loss estimate is shown, it SHALL identify the estimate basis (Estimate chip) and the panel SHALL explain the underlying calibration state in a short plain sentence without suggesting validation passed. When no supported estimate can be produced for the selected period, it SHALL show one plain-language reason with no saving amount or comparison line; actual information SHALL remain visible. A calibration state alone SHALL NOT suppress a valid configured-loss estimate. No-battery installations SHALL hide comparison controls. Shared cost-chart changes SHALL be visually verified on Dashboard and Design System using existing design tokens, across mobile/desktop and light/dark themes.
 
 #### Scenario: Fixed controlled loads
-- **WHEN** the user opens the comparison explanation
+- **WHEN** the user opens the details panel
 - **THEN** it states that recorded EV/water schedules are shared, storage supplies only non-EV demand, remaining PV may supply the EV, and scheduling savings are excluded
 
-#### Scenario: Unreliable estimate
-- **WHEN** comparison status is `unreliable_model`
-- **THEN** the UI explains that the data cannot support a reliable battery comparison
-- **AND** it shows actual costs without an estimated saving or comparison line
+#### Scenario: Unreliable calibration with a usable estimate
+- **WHEN** comparison status is estimated and its calibration status is unreliable_model
+- **THEN** the UI shows the Estimate chip, explains the calibration state plainly in the panel and shows actual costs separately
+- **AND** it does not claim that the estimate passed validation
 
 #### Scenario: No battery
 - **WHEN** no battery is configured
-- **THEN** the user sees the actual view with no battery-comparison controls
+- **THEN** the user sees the actual chart with no battery-comparison line or controls
+
+### Requirement: Grid domain explains trustworthy history availability
+The Grid domain SHALL distinguish collecting trustworthy compatible history, an unsupported selected period and a numerical accuracy failure through one short plain-language reason. It SHALL keep actual electricity costs visible and omit unavailable saving amounts and comparison lines. It SHALL NOT blame hardware, instruct users to weaken checks, expose internal provenance terminology or present configured-loss estimates as if they were verified. Copy and fixtures SHALL follow the existing design system.
+
+#### Scenario: Collecting trustworthy history
+- **WHEN** reason is `unverified_history` or `insufficient_compatible_history`
+- **THEN** the UI explains that the battery comparison needs more trustworthy energy history
+- **AND** it does not describe this as a failed accuracy check
+
+#### Scenario: Unsupported period readings
+- **WHEN** reason is `unsupported_period_measurements`
+- **THEN** the UI explains that this period includes readings the comparison cannot reliably use
+
+#### Scenario: Model accuracy failure
+- **WHEN** sufficient trustworthy data fails numeric validation and no usable configured-loss estimate exists
+- **THEN** the UI retains the accuracy-failure explanation without an estimated saving
+
+### Requirement: Grid comparison labels the active basis
+When comparison amounts are present, the Grid domain SHALL label configured-loss results with an “Estimate” chip and calibrated results with a “Verified” chip. The details panel SHALL describe the calibration state beside an estimate without suggesting that the estimate passed validation. A period with any excluded slot SHALL NOT be labelled “Verified”. Saving amounts and the dotted chart comparison line SHALL all reflect the same active basis. Unavailable-period copy SHALL continue to explain missing or unsupported usable data plainly.
+
+#### Scenario: Configured-loss result
+- **WHEN** comparison amounts use configured losses
+- **THEN** the line identifies the values as an Estimate and the panel notes that configured battery losses are used
+
+#### Scenario: Verified result
+- **WHEN** comparison amounts use the validated fitted model
+- **THEN** the UI identifies the result as verified
+
+#### Scenario: Learning reason accompanies estimate
+- **WHEN** estimated amounts are available while history is insufficient or calibration is unreliable
+- **THEN** the UI shows the Estimate chip and the panel's concise calibration sentence together

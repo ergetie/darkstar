@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 from collections.abc import Iterable
@@ -6,7 +7,7 @@ from pathlib import Path
 from typing import Any, cast as type_cast
 
 import pandas as pd
-from sqlalchemy import Integer, case, cast, desc, func, select, text
+from sqlalchemy import Integer, cast, desc, func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -20,6 +21,7 @@ from backend.learning.models import (
     SlotPlan,
     SystemState,
 )
+from backend.measurement_provenance import metadata_object, parse_quality_flags, soc_metadata
 
 logger = logging.getLogger("darkstar.learning.store")
 
@@ -120,6 +122,9 @@ class LearningStore:
             return
 
         async with self.AsyncSession() as session:
+            # Lock the SQLite write transaction before reading preimages so a
+            # concurrent recorder/backfill cannot be silently overwritten.
+            await session.execute(text("BEGIN IMMEDIATE"))
             records = type_cast("list[dict[str, Any]]", observations_df.to_dict("records"))
 
             for record in records:
@@ -128,37 +133,15 @@ class LearningStore:
                 def has_measurement(key: str, current_record: dict[str, Any] = record) -> bool:
                     return key in current_record and not pd.isna(current_record.get(key))
 
-                def measured_float(key: str, current_record: dict[str, Any] = record) -> float:
-                    if not has_measurement(key):
-                        return 0.0
-                    return float(current_record[key])
-
-                def quality_flags(
-                    current_record: dict[str, Any] = record, current_source: str = source
-                ) -> str:
-                    # quality_flags is a JSON object; today the recorder only sets
-                    # "source". A separate "exclude": true key (added out-of-band by
-                    # scripts/flag_january_bad_slots.py, never by this writer) marks a
-                    # row as bad for ML training — see ml/train.py's exclusion filter.
-                    # It must be preserved, not overwritten, whenever this key merges in.
-                    raw_flags = current_record.get("quality_flags", "{}")
-                    flags: dict[str, Any]
-                    if isinstance(raw_flags, str):
-                        try:
-                            parsed: Any = json.loads(raw_flags)
-                            flags = (
-                                type_cast("dict[str, Any]", parsed)
-                                if isinstance(parsed, dict)
-                                else {}
+                def parse_flags(raw: Any) -> dict[str, Any]:
+                    parsed = parse_quality_flags(raw)
+                    if isinstance(raw, str) and raw.strip():
+                        decoded: Any = json.loads(raw)
+                        if not isinstance(decoded, dict):
+                            raise ValueError(
+                                "quality_flags must be an object for safe observation writes"
                             )
-                        except json.JSONDecodeError:
-                            flags = {}
-                    elif isinstance(raw_flags, dict):
-                        flags = type_cast("dict[str, Any]", raw_flags)
-                    else:
-                        flags = {}
-                    flags["source"] = current_source
-                    return json.dumps(flags, sort_keys=True)
+                    return dict(parsed)
 
                 slot_start_raw: Any = record.get("slot_start")
                 slot_end_raw: Any = record.get("slot_end")
@@ -167,86 +150,199 @@ class LearningStore:
                 if isinstance(slot_start_raw, datetime | pd.Timestamp):
                     slot_start = slot_start_raw.astimezone(self.timezone).isoformat()
                 else:
-                    slot_start = (  # type: ignore[reportUnknownVariableType]
-                        pd.to_datetime(slot_start_raw).astimezone(self.timezone).isoformat()  # type: ignore[reportUnknownMemberType]
-                    )
+                    slot_start = pd.Timestamp(slot_start_raw).astimezone(self.timezone).isoformat()
 
                 slot_end: str | None = None
                 if slot_end_raw is not None:
                     if isinstance(slot_end_raw, datetime | pd.Timestamp):
                         slot_end = slot_end_raw.astimezone(self.timezone).isoformat()
                     else:
-                        slot_end_dt: pd.Timestamp = pd.to_datetime(slot_end_raw)  # type: ignore[reportUnknownMemberType]
-                        slot_end = slot_end_dt.astimezone(self.timezone).isoformat()  # type: ignore[reportUnknownMemberType]
+                        slot_end = pd.Timestamp(slot_end_raw).astimezone(self.timezone).isoformat()
+
+                existing = await session.get(SlotObservation, slot_start)
+                old_flags = parse_flags(existing.quality_flags if existing else None)
+                new_flags = parse_flags(record.get("quality_flags"))
+                old_recording = metadata_object(old_flags.get("recording"))
+                new_recording = metadata_object(new_flags.get("recording"))
+                recording: dict[str, Any] | None = None
+                if old_recording or new_recording:
+                    recording = copy.deepcopy(old_recording or new_recording)
+                    recording["components"] = {}
+                    recording["soc"] = {}
+
+                def field_metadata(
+                    container: dict[str, Any], component: str, endpoint: str
+                ) -> dict[str, Any]:
+                    metadata = (
+                        soc_metadata(container, endpoint)
+                        if component == "soc"
+                        else metadata_object(
+                            metadata_object(container.get("components")).get(component)
+                        )
+                    )
+                    result = copy.deepcopy(metadata)
+                    for name in (
+                        "schema_version",
+                        "boundary_fingerprint",
+                        "semantics",
+                        "algorithm",
+                    ):
+                        if name in container:
+                            result.setdefault(name, container[name])
+                    return result
+
+                field_components = {
+                    "import_kwh": "import",
+                    "export_kwh": "export",
+                    "pv_kwh": "pv",
+                    "load_kwh": "load",
+                    "water_kwh": "water",
+                    "ev_charging_kwh": "ev",
+                    "batt_charge_kwh": "battery_charge",
+                    "batt_discharge_kwh": "battery_discharge",
+                    "soc_start_percent": "soc",
+                    "soc_end_percent": "soc",
+                }
+                values: dict[str, Any] = {
+                    "slot_start": slot_start,
+                    "slot_end": slot_end or (existing.slot_end if existing else None),
+                }
+                changed_measurement = False
+                accepted_measurement = False
+                for column, component in field_components.items():
+                    incoming_present = has_measurement(column)
+                    incoming_value = record.get(column)
+                    old_value = getattr(existing, column) if existing else None
+                    endpoint = "start" if column == "soc_start_percent" else "end"
+                    old_meta = field_metadata(old_recording, component, endpoint)
+                    old_owner = old_meta.get("owner")
+                    if not authoritative:
+                        # Backfill fills a genuinely absent nullable measurement only;
+                        # it can refresh its own placeholders, but never recorder data.
+                        incoming_present = incoming_present and (
+                            (
+                                old_owner == "backfill"
+                                or (
+                                    old_flags.get("source") == "backfill"
+                                    and old_owner != "recorder"
+                                )
+                            )
+                            or (old_value is None and old_owner != "recorder")
+                        )
+                    if incoming_present:
+                        accepted_measurement = True
+                        values[column] = incoming_value
+                        if old_value != incoming_value:
+                            changed_measurement = True
+                        if recording is not None:
+                            metadata = field_metadata(new_recording, component, endpoint)
+                            if not metadata:
+                                metadata = (
+                                    {"source": "unknown"}
+                                    if component == "soc"
+                                    else {"method": "unknown"}
+                                )
+                            metadata["owner"] = source
+                            if component == "soc":
+                                recording["soc"][endpoint] = metadata
+                            else:
+                                recording["components"][component] = metadata
+                    elif existing:
+                        values[column] = old_value
+                        if recording is not None:
+                            retained = old_meta or (
+                                {"source": "unknown", "owner": "unknown"}
+                                if component == "soc"
+                                else {"method": "unknown", "owner": "unknown"}
+                            )
+                            if component == "soc":
+                                recording["soc"][endpoint] = retained
+                            else:
+                                recording["components"][component] = retained
+                    elif column in {
+                        "import_kwh",
+                        "export_kwh",
+                        "pv_kwh",
+                        "load_kwh",
+                        "water_kwh",
+                        "ev_charging_kwh",
+                    }:
+                        values[column] = 0.0
+
+                for column in ("import_price_sek_kwh", "export_price_sek_kwh"):
+                    incoming = record.get(column)
+                    old_value = getattr(existing, column) if existing else None
+                    values[column] = incoming if incoming is not None else old_value
+                    if values[column] != old_value:
+                        changed_measurement = True
+                for column in (
+                    "batt_charge_kwh",
+                    "batt_discharge_kwh",
+                    "soc_start_percent",
+                    "soc_end_percent",
+                ):
+                    values.setdefault(column, getattr(existing, column) if existing else None)
+
+                # Accepted and retained fields carry independent method identities.
+                # Summaries are coherent only when all identities agree, including SoC.
+                if recording is not None:
+                    component_map = metadata_object(recording.get("components"))
+                    soc_map = metadata_object(recording.get("soc"))
+                    component_metadata = list(component_map.values())
+                    component_metadata.append(metadata_object(soc_map.get("end")))
+                    for name in (
+                        "schema_version",
+                        "boundary_fingerprint",
+                        "semantics",
+                        "algorithm",
+                    ):
+                        identities = {
+                            metadata_object(item).get(name)
+                            for item in component_metadata
+                            if metadata_object(item).get(name) is not None
+                        }
+                        recording[name] = (
+                            next(iter(identities)) if len(identities) == 1 else "mixed"
+                        )
+                    end_soc = metadata_object(soc_map.get("end"))
+                    soc_map.update(
+                        {
+                            "source": end_soc.get("source", "unknown"),
+                            "owner": end_soc.get("owner", "unknown"),
+                        }
+                    )
+                    new_flags["recording"] = recording
+                merged_flags = dict(old_flags)
+                merged_flags.update(
+                    {
+                        key: value
+                        for key, value in new_flags.items()
+                        if key not in {"legacy_attestation"}
+                    }
+                )
+                merged_flags["source"] = (
+                    "recorder"
+                    if authoritative or old_flags.get("source") == "recorder"
+                    else "backfill"
+                )
+                if old_flags.get("exclude") is True or new_flags.get("exclude") is True:
+                    merged_flags["exclude"] = True
+                elif "exclude" in old_flags:
+                    merged_flags["exclude"] = old_flags["exclude"]
+                if changed_measurement or (
+                    accepted_measurement and authoritative and "legacy_attestation" in old_flags
+                ):
+                    merged_flags.pop("legacy_attestation", None)
 
                 stmt = sqlite_insert(SlotObservation).values(
-                    slot_start=slot_start,
-                    slot_end=slot_end,
-                    import_kwh=measured_float("import_kwh"),
-                    export_kwh=measured_float("export_kwh"),
-                    pv_kwh=measured_float("pv_kwh"),
-                    load_kwh=measured_float("load_kwh"),
-                    water_kwh=measured_float("water_kwh"),
-                    ev_charging_kwh=measured_float("ev_charging_kwh"),
-                    batt_charge_kwh=record.get("batt_charge_kwh"),
-                    batt_discharge_kwh=record.get("batt_discharge_kwh"),
-                    soc_start_percent=record.get("soc_start_percent"),
-                    soc_end_percent=record.get("soc_end_percent"),
-                    import_price_sek_kwh=record.get("import_price_sek_kwh"),
-                    export_price_sek_kwh=record.get("export_price_sek_kwh"),
-                    quality_flags=quality_flags(),
+                    **values,
+                    quality_flags=json.dumps(merged_flags, sort_keys=True),
                 )
-
-                def energy_update(key: str, column: Any, current_stmt: Any = stmt) -> Any:
-                    incoming = getattr(current_stmt.excluded, column.name)
-                    if not has_measurement(key):
-                        return column
-                    if authoritative:
-                        return incoming
-                    return case(
-                        (SlotObservation.quality_flags.like('%"source": "recorder"%'), column),
-                        else_=incoming,
-                    )
-
-                quality_flags_update = (
-                    stmt.excluded.quality_flags
-                    if authoritative
-                    else func.coalesce(SlotObservation.quality_flags, stmt.excluded.quality_flags)
-                )
-
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["slot_start"],
-                    set_={
-                        "slot_end": func.coalesce(stmt.excluded.slot_end, SlotObservation.slot_end),
-                        "import_kwh": energy_update("import_kwh", SlotObservation.import_kwh),
-                        "export_kwh": energy_update("export_kwh", SlotObservation.export_kwh),
-                        "pv_kwh": energy_update("pv_kwh", SlotObservation.pv_kwh),
-                        "load_kwh": energy_update("load_kwh", SlotObservation.load_kwh),
-                        "water_kwh": energy_update("water_kwh", SlotObservation.water_kwh),
-                        "ev_charging_kwh": energy_update(
-                            "ev_charging_kwh", SlotObservation.ev_charging_kwh
-                        ),
-                        "batt_charge_kwh": func.coalesce(
-                            stmt.excluded.batt_charge_kwh, SlotObservation.batt_charge_kwh
-                        ),
-                        "batt_discharge_kwh": func.coalesce(
-                            stmt.excluded.batt_discharge_kwh, SlotObservation.batt_discharge_kwh
-                        ),
-                        "soc_start_percent": func.coalesce(
-                            stmt.excluded.soc_start_percent, SlotObservation.soc_start_percent
-                        ),
-                        "soc_end_percent": func.coalesce(
-                            stmt.excluded.soc_end_percent, SlotObservation.soc_end_percent
-                        ),
-                        "import_price_sek_kwh": func.coalesce(
-                            stmt.excluded.import_price_sek_kwh, SlotObservation.import_price_sek_kwh
-                        ),
-                        "export_price_sek_kwh": func.coalesce(
-                            stmt.excluded.export_price_sek_kwh, SlotObservation.export_price_sek_kwh
-                        ),
-                        "quality_flags": quality_flags_update,
-                    },
-                )
+                update_values = {
+                    key: getattr(stmt.excluded, key) for key in values if key != "slot_start"
+                }
+                update_values["quality_flags"] = stmt.excluded.quality_flags
+                stmt = stmt.on_conflict_do_update(index_elements=["slot_start"], set_=update_values)
                 await session.execute(stmt)
 
                 if authoritative and "ev_charger_energy" in record:

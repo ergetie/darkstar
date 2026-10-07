@@ -1,12 +1,6 @@
-# Battery Comparison Calibration
+## MODIFIED Requirements
 
-## Purpose
-
-Defines validated, installation-specific battery comparison calibration.
-
-Calibration requirements govern verified results. A separate configured-loss estimate is the only permitted fallback and never changes calibration eligibility or gates.
-
-## Requirements
+The calibration requirements below govern verified results. The separate configured-loss estimate requirement is the only permitted fallback and never changes calibration eligibility or gates.
 
 ### Requirement: Calibration uses installation observations without changing operation
 The system SHALL derive one installation-specific effective inverter/battery loss model from at most 30 days of completed, compatible trustworthy observations ending at the selected comparison end. It SHALL model `bus = pv + discharge - charge`, `grid_net = demand - (eta_out * bus if bus >= 0 else bus / eta_in)`, and `stored_next = stored + eta_charge * charge - discharge / eta_discharge`. Factors SHALL be fitted within [0.80, 1.00] at resolution 0.002. Calibration SHALL NOT assume that all PV/battery readings are AC, add an additional guessed PV loss, use another installation's constants, write configuration, change planner settings, or modify recorded observations or provenance. It SHALL interpret configured capacity as full capacity and SHALL NOT infer or write a replacement physical capacity to obtain a passing model.
@@ -75,6 +69,8 @@ The system SHALL perform calibration outside the async event-loop thread and SHA
 - **WHEN** historical provenance changes without changing the latest slot or main database file identity/mtime
 - **THEN** the prior cached fit is invalidated by the provenance digest
 
+## ADDED Requirements
+
 ### Requirement: Compatible cohort selection precedes numerical fitting
 Calibration SHALL select the latest trustworthy completed measurement cohort compatible with the current installation boundary before inspecting fit outcomes. Cohorts SHALL distinguish supported energy semantics and measurement-boundary mappings. Snapshot or mixed essential energy, cached SoC, unknown provenance and enabled but unconfigured essential inputs SHALL NOT qualify; legitimately disabled zero components SHALL qualify. Historical measured methods SHALL share a cohort only through explicit supported compatibility and evidence-backed attestation. Snapshot outages SHALL NOT reset the cohort or allow an older incompatible fallback. Cohort selection SHALL NOT search date cutoffs or regimes for a passing result and SHALL NOT contain installation-specific dates or sizes.
 
@@ -96,14 +92,13 @@ Calibration SHALL select the latest trustworthy completed measurement cohort com
 - **THEN** the app version alone does not discard compatible history
 
 #### Scenario: Fallback during a completed period
-- **WHEN** a selected period contains a known snapshot fallback slot despite a valid fitted model
-- **THEN** that slot is excluded from the comparison and reported in coverage rather than silently included
-- **AND** the period has no verified comparison and is shown as a segmented estimate
+- **WHEN** a selected period contains a known snapshot fallback despite a valid fitted model
+- **THEN** the comparison is unavailable for that period rather than silently omitting the slot
 
 ### Requirement: Immediate configured-loss estimates remain distinct from verified calibration
-The system SHALL provide a separate `estimated` result for a selected period with at least one usable run (see no-darkstar-baseline) when strict calibration is unavailable or rejected, and whenever any slot of the period is excluded. Its grid basis SHALL be the planner AC-bus convention (`GridModel(1, 1)`); its storage basis SHALL use configured charge/discharge efficiencies, configured full capacity, and configured SoC/power limits. Both recorded Darkstar actions and self-use SHALL be reconstructed using that same model. The result SHALL expose `basis: configured_losses`, explicitly identify itself as an estimate, and preserve the actual calibration status/reason without fabricated fit diagnostics or validation results. A strict model that passes all existing cohort, sample, excitation, holdout and selected-period gates SHALL automatically replace the estimate with `status: available` and `basis: calibrated`; verification SHALL mean that the model passed those checks, not that counterfactual cash flow is exact. The calibrated result SHALL be returned only when every expected slot of the period is usable, the slots form a single run, they match the selected cohort and strict period validation passes; a period with any excluded slot SHALL yield the segmented estimate (`estimated`, `configured_losses`) while `calibration_status`/`calibration_reason` report what the fit produced, and SHALL NEVER be labelled verified. Actual metered cash flow SHALL remain separate and unchanged.
+The system SHALL provide a separate `estimated` result for a complete valid selected period when strict calibration is unavailable or rejected. Its grid basis SHALL be the planner AC-bus convention (`GridModel(1, 1)`); its storage basis SHALL use configured charge/discharge efficiencies, configured full capacity, and configured SoC/power limits. Both recorded Darkstar actions and self-use SHALL be reconstructed using that same model. The result SHALL expose `basis: configured_losses`, explicitly identify itself as an estimate, and preserve the actual calibration status/reason without fabricated fit diagnostics or validation results. A strict model that passes all existing cohort, sample, excitation, holdout and selected-period gates SHALL automatically replace the estimate with `status: available` and `basis: calibrated`; verification SHALL mean that the model passed those checks, not that counterfactual cash flow is exact. Actual metered cash flow SHALL remain separate and unchanged.
 
-Slot eligibility for an estimate SHALL require a completed slot with finite nonnegative essential energies, finite prices, a valid end SoC and supported provenance, plus valid configured capacity/limits/efficiencies. An ineligible or missing slot SHALL be excluded and SHALL break the run rather than invalidating the period. Each run SHALL need a valid start anchor: the first slot's own start SoC, or a valid contiguous preceding end SoC; failing both, the run's first slot is dropped and the run starts from its measured end SoC. Explicit exclusions, backfills, known snapshot/mixed essential provenance, cached SoC and unsupported modern provenance SHALL remain rejected. Legacy recorder rows with unknown provenance may be used only as explicitly assumed estimate inputs, including an existing contiguous end-SoC anchor; they SHALL remain ineligible for calibration and SHALL NOT receive attestation. The registered initial schema-v1 boundary encoding that omitted the SoC entity MAY be an explicit estimate assumption only when the fingerprint equals the current boundary with that single field omitted and every other method/identity and live endpoint is supported. It SHALL remain ineligible for strict calibration; arbitrary boundary changes and unsupported algorithms SHALL remain rejected. Bounded assumption counts SHALL distinguish legacy recording and uncertain historical SoC mapping. Missing values SHALL NOT be invented. Failed numeric calibration SHALL retain its actual failure reason while a valid estimate is shown.
+Estimate eligibility SHALL require contiguous completed slots, finite nonnegative essential energies, finite prices, valid configured capacity/limits/efficiencies, and a valid independent start and end SoC state. A valid contiguous preceding end SoC may supply a missing start anchor. Explicit exclusions, backfills, known snapshot/mixed essential provenance, cached SoC and unsupported modern provenance SHALL remain rejected. Legacy recorder rows with unknown provenance may be used only as explicitly assumed estimate inputs, including an existing contiguous end-SoC anchor; they SHALL remain ineligible for calibration and SHALL NOT receive attestation. The registered initial schema-v1 boundary encoding that omitted the SoC entity MAY be an explicit estimate assumption only when the fingerprint equals the current boundary with that single field omitted and every other method/identity and live endpoint is supported. It SHALL remain ineligible for strict calibration; arbitrary boundary changes and unsupported algorithms SHALL remain rejected. Bounded assumption counts SHALL distinguish legacy recording and uncertain historical SoC mapping. Missing values SHALL NOT be invented. Failed numeric calibration SHALL retain its actual failure reason while a valid estimate is shown.
 
 #### Scenario: Usable legacy period before calibration
 - **WHEN** a complete selected period has valid legacy recorder values but no compatible calibration cohort
@@ -116,22 +111,12 @@ Slot eligibility for an estimate SHALL require a completed slot with finite nonn
 - **AND** its economics use the same shared arithmetic as the estimate
 
 #### Scenario: Unsupported provenance stays rejected
-- **WHEN** a slot is a known snapshot, backfill, cached SoC, exclusion, unsupported modern provenance, or has a required missing value
-- **THEN** that slot contributes no configured-loss amounts and is excluded from coverage
-- **AND** no amounts are returned when no usable run remains
+- **WHEN** a period contains a known snapshot, backfill, cached SoC, exclusion, unsupported modern provenance, or required missing value
+- **THEN** no configured-loss amounts are returned for that period
 
 #### Scenario: Invalid estimate inputs
-- **WHEN** configured capacity, limits or efficiencies are invalid, or no slot has valid energies, prices and SoC
+- **WHEN** prices, energies, capacity, limits, configured efficiencies, or required SoC anchors are missing, non-finite, or outside valid bounds
 - **THEN** no comparison amounts are returned
-
-#### Scenario: Gap leaves a segmented estimate
-- **WHEN** a valid calibration exists but an hour of the period was never recorded
-- **THEN** the result is a configured-loss estimate over the surrounding runs with the original calibration status/reason
-- **AND** it is not labelled verified
-
-#### Scenario: Legacy prior SoC anchors an estimate only
-- **WHEN** the first slot lacks a start SoC and only a legacy preceding slot supplies the anchor
-- **THEN** the estimate may start from that anchor, while the calibration reason reports `missing_start_soc` and no verified result is returned
 
 #### Scenario: Estimate does not certify history
 - **WHEN** an estimate uses unknown legacy recorder provenance

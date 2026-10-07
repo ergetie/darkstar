@@ -72,6 +72,7 @@ async def record(
     history: dict[str, list[dict]] | None,
     snapshots: dict[str, float] | None = None,
     disaggregator=None,
+    cached_soc: str | None = None,
 ) -> tuple[dict, AsyncMock]:
     """Run one recorder cycle; returns the stored record and the history mock."""
 
@@ -87,7 +88,7 @@ async def record(
         return snapshot_values.get(entity, 0.0)
 
     store = MagicMock()
-    store.get_system_state = AsyncMock(return_value=None)
+    store.get_system_state = AsyncMock(return_value=cached_soc)
     store.set_system_state = AsyncMock()
     store.store_slot_observations = AsyncMock()
     store.close = AsyncMock()
@@ -118,7 +119,7 @@ class TestIntegratedSlotEnergy:
     @pytest.mark.asyncio
     async def test_window_is_exactly_the_completed_slot(self):
         _, history_mock = await record(base_config(), {})
-        entities, start, end = history_mock.await_args.args
+        _entities, start, end = history_mock.await_args.args
         assert (start, end) == (SLOT_START, SLOT_END)
 
     @pytest.mark.asyncio
@@ -165,6 +166,54 @@ class TestIntegratedSlotEnergy:
         record_, _ = await record(base_config(), history)
         assert record_["pv_kwh"] == 0.0
         assert record_["load_kwh"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_component_provenance_distinguishes_integrated_and_snapshot_values(self):
+        history = {"sensor.pv": constant("sensor.pv", 2.0)}
+        record_, _ = await record(base_config(), history, snapshots={"sensor.batt": 0.0})
+        recording = record_["quality_flags"]["recording"]
+        assert recording["schema_version"] == 1
+        assert recording["components"]["pv"]["method"] == "power_history"
+        assert recording["components"]["battery_charge"]["method"] == "snapshot"
+        assert recording["components"]["battery_discharge"]["method"] == "snapshot"
+        assert recording["soc"]["source"] == "unavailable"
+        assert len(recording["boundary_fingerprint"]) == 64
+
+    @pytest.mark.asyncio
+    async def test_mixed_device_aggregate_and_base_load_keep_snapshot_provenance(self):
+        config = base_config(
+            system={"has_ev_charger": True},
+            ev_chargers=[
+                {"id": "ev1", "enabled": True, "sensor": "sensor.ev1"},
+                {"id": "ev2", "enabled": True, "sensor": "sensor.ev2"},
+            ],
+        )
+        history = {
+            "sensor.load": constant("sensor.load", 0.5),
+            "sensor.ev1": constant("sensor.ev1", 1.0),
+        }
+        record_, _ = await record(config, history, snapshots={"sensor.ev2": 0.0})
+        components = record_["quality_flags"]["recording"]["components"]
+        assert components["ev"]["method"] == "mixed"
+        assert components["load"]["method"] == "mixed"
+
+    @pytest.mark.asyncio
+    async def test_enabled_but_unconfigured_device_is_not_a_disabled_zero(self):
+        config = base_config(
+            system={"has_ev_charger": True},
+            ev_chargers=[{"id": "ev1", "enabled": True}],
+        )
+        record_, _ = await record(config, {})
+        components = record_["quality_flags"]["recording"]["components"]
+        assert components["ev"]["method"] == "unconfigured_zero"
+        assert components["load"]["method"] == "mixed"
+
+    @pytest.mark.asyncio
+    async def test_cached_soc_is_labelled_as_cached(self):
+        config = base_config(input_sensors={"battery_soc": "sensor.soc"})
+        record_, _ = await record(config, {}, cached_soc="72.5")
+        recording = record_["quality_flags"]["recording"]
+        assert recording["soc"] == {"owner": "recorder", "source": "cached"}
 
 
 class TestGridAndBattery:
@@ -321,9 +370,12 @@ class TestDisabledSubsystems:
             ev_chargers=[{"id": "ev1", "enabled": False, "sensor": "sensor.ev"}],
             water_heaters=[{"id": "wh1", "enabled": False, "sensor": "sensor.wh"}],
         )
-        _, history_mock = await record(config, {})
+        row, history_mock = await record(config, {"sensor.load": constant("sensor.load", 1.0)})
         requested = set(history_mock.await_args.args[0])
         assert not requested & {"sensor.ev", "sensor.wh"}
+        components = row["quality_flags"]["recording"]["components"]
+        assert components["ev"]["method"] == components["water"]["method"] == "disabled_zero"
+        assert components["load"]["method"] == "derived_history"
 
 
 class TestLoadIsolation:
@@ -465,3 +517,18 @@ class TestSpikeValidation:
         history = {"sensor.pv": constant("sensor.pv", 100.0)}
         record_, _ = await record(base_config(), history)
         assert record_["pv_kwh"] == pytest.approx(25.0)
+
+
+@pytest.mark.asyncio
+async def test_missing_load_sensor_zero_is_unconfigured_not_derived_history():
+    config = base_config(input_sensors={"load_power": None})
+    row, _ = await record(config, {"sensor.pv": constant("sensor.pv", 0)})
+    assert row["quality_flags"]["recording"]["components"]["load"]["method"] == "unconfigured_zero"
+
+
+@pytest.mark.asyncio
+async def test_sanitized_spike_zero_is_not_certified_as_measured_history():
+    config = base_config(system={"grid": {"max_power_kw": 10}})
+    row, _ = await record(config, {"sensor.load": constant("sensor.load", 100)})
+    assert row["load_kwh"] == 0
+    assert row["quality_flags"]["recording"]["components"]["load"]["method"] == "unknown"

@@ -78,72 +78,83 @@ The period control SHALL be a single-line segmented control with the options Tod
 - **THEN** the breakdown and the cost chart show the last 7 days including today
 
 ### Requirement: Grid & Financial card shows a cost chart for the period
-Below the breakdown the card SHALL show a chart over the selected period using `GET /api/energy/cost-series`, filling the remaining card height. Actual and validated Comparison SHALL be distinct selectable views when an estimate is available; unavailable and no-battery states SHALL retain only Actual.
+Below the breakdown the card SHALL show one chart over the selected period using GET /api/energy/cost-series, filling the remaining card height. There SHALL be no Actual/Comparison tabs or view switch.
 
-The Actual view SHALL retain metered hourly buckets on a fixed 00–24 axis for a single day, drawing started slots and headed "Actual cost so far". Longer periods SHALL retain daily buckets and the heading "Actual cost per day". It SHALL show the running metered net line, green when earning (zero or below), red when paying, with a dashed zero line and faint import/export bars. Hover SHALL show the bucket's 24-hour time or date, import cost, export revenue and running total in the legend row. Loading SHALL show a skeleton; an empty response SHALL say "No recorded slots yet for this period". Reduced motion SHALL disable entrance animations.
-
-The Comparison view SHALL display the two validated cumulative economic costs including wear and stored-energy valuation, headed "Estimated comparison cost", with time labels matching the completed comparison interval. It SHALL exclude metered bars and legacy baseline lines. Both comparison values SHALL share one vertical scale including zero. Bucket readouts SHALL expose both costs and the bucket time; mobile users SHALL be able to tap a bucket.
+The chart SHALL retain metered hourly buckets on a fixed 00–24 axis for a single day, drawing started slots and headed "Actual cost so far". Longer periods SHALL retain daily buckets and the heading "Actual cost per day". It SHALL show the running metered net line (the Actual line, solid), green when earning (zero or below), red when paying, with a dashed zero line and faint import/export bars. When battery_comparison has amounts (status available or estimated), it SHALL also show a dotted "Without Darkstar" line on the same kr basis and vertical scale, equal per matching bucket to `cumulative_net_cost_sek + (self_use_cumulative_comparison_cost_sek − darkstar_cumulative_comparison_cost_sek)`. The vertical scale SHALL include both lines and zero. Buckets inside excluded stretches of the comparison SHALL carry the last known difference forward, and the dotted line SHALL stop at the last comparison point. The area between the Actual and dotted lines SHALL be shaded with a low-opacity design-system tone, good where Darkstar costs less and bad where it costs more, split at crossings, spanning the same range as the dotted line and carrying no label or legend entry. The legend SHALL list Actual (solid) and, when drawn, Without Darkstar (dotted). Hover or tap SHALL show the bucket's 24-hour time or date, import cost, export revenue and running total in the legend row, plus the without-Darkstar value when the line exists. Loading SHALL show a skeleton; an empty response SHALL say "No recorded slots yet for this period". Reduced motion SHALL disable entrance animations. Legacy baseline_cumulative_net_cost_sek SHALL NOT drive any UI line. Unavailable and no-battery states SHALL show only the Actual line.
 
 #### Scenario: Today is hourly with a fixed actual axis
-- **WHEN** Today is selected at 14:20 in Actual view
+- **WHEN** Today is selected at 14:20
 - **THEN** the chart spans 00 to 24 and only started metered slots are drawn
 
 #### Scenario: Longer period is daily
-- **WHEN** 30d is selected in Actual view
+- **WHEN** 30d is selected
 - **THEN** daily buckets are shown with the heading "Actual cost per day"
 
-#### Scenario: Available comparison uses its completed interval
-- **WHEN** a comparison completed through 03:45 is selected
-- **THEN** its final points and time labels end at 03:45
-- **AND** no metered cash-flow bars appear
+#### Scenario: One chart with a dotted without-Darkstar line
+- **WHEN** an estimated or available comparison has points
+- **THEN** a single chart shows the solid Actual line with import/export bars and a dotted "Without Darkstar" line on the same kr scale
+- **AND** no Actual/Comparison tabs are shown
+
+#### Scenario: Without-Darkstar line crosses an excluded stretch
+- **WHEN** some buckets have no comparison point
+- **THEN** the dotted line carries the last known difference forward across them and stops at the last comparison point
+
+#### Scenario: Saving is shaded between the lines
+- **WHEN** the dotted line lies above the Actual line over some buckets and below it over others
+- **THEN** the area between them is shaded good where the dotted line is higher and bad where it is lower, split at the crossing
+- **AND** the shading has no label and no legend entry
 
 #### Scenario: Net line colour follows the actual result
 - **WHEN** the final actual net is below zero
 - **THEN** the actual line is green; above zero it is red
+
+#### Scenario: Readout includes the without-Darkstar value
+- **WHEN** a bucket is hovered or tapped while the dotted line exists
+- **THEN** the readout shows its time, running actual total and the without-Darkstar value
 
 #### Scenario: No data and reduced motion
 - **WHEN** no metered points exist
 - **THEN** the chart displays its empty-state message
 - **AND** when reduced motion is preferred, its entrance animations are disabled
 
-### Requirement: Grid & Financial card compares the period with running without Darkstar
-The card SHALL use only available validated `battery_comparison` data to display "Estimated battery savings", with Darkstar and plain self-use totals on the same economic basis. Negative savings SHALL instead be labeled "Estimated additional battery cost". The latest completed time and accessible cost adjustments SHALL explain shared recorded EV/water timings, house/water-only self-use discharge with remaining PV allowed to serve EV demand, excluded load-scheduling savings, shared calibrated losses, wear, stored-energy valuation at the common period reference price and the limitations of 15-minute totals. It SHALL NOT claim full or necessarily conservative Darkstar savings.
+#### Scenario: No comparison amounts
+- **WHEN** comparison data is unavailable or no battery is configured
+- **THEN** only the Actual line is shown, regardless of legacy baseline fields
 
-Unavailable estimates SHALL show one plain-language reason with no comparison amount or legacy fallback. No-battery installations SHALL hide the comparison controls. Actual headline net, wear-inclusive secondary net, Battery Wear and EV breakdown rows SHALL retain their existing accounting and design tokens.
+### Requirement: Grid & Financial card summarises the saving in one line with a details panel
+The card SHALL use amount-bearing battery_comparison data to show ONE compact line beneath the net figures: "Darkstar saved you X kr" when saving is non-negative, or "Darkstar cost you extra X kr" when negative, with X the absolute saving. The line SHALL carry an "Estimate" chip for the configured-loss basis or a "Verified" chip for a calibrated result, with an info control that toggles a pop-out panel; the panel SHALL be opaque and SHALL close on an outside tap or Escape. The two raw comparison costs SHALL NOT be shown inline. When coverage is partial (excluded_slots > 0) the line SHALL show a muted suffix "· N% of the period", with N the covered share floored and capped at 99.
 
-#### Scenario: Positive saving reconciles
-- **WHEN** validated self-use comparison cost is 40 kr and Darkstar comparison cost is 30 kr
-- **THEN** the card displays estimated battery savings of 10 kr
-- **AND** the actual headline still equals the metered `net_cost_sek`
+All explanatory text SHALL live in the panel: that the comparison is against a plain self-use inverter with the same battery and the same EV/water timing, that EV/water scheduling savings are excluded, the "Completed through" time as local "YYYY-MM-DD HH:mm", short sentences on the calibration state (configured losses used; not enough reliable history; calibration checks not passed; verified) and on legacy readings with assumed sources, the coverage numbers (covered of total completed 15-minute slots, and how many were left out), and a nested "Cost adjustments and assumptions" fold-down. The fold-down SHALL state that comparison cost = grid + wear − stored energy value and show the common energy price and, per side (Darkstar and self-use), grid / wear / stored-energy value. The card SHALL NOT claim full or necessarily conservative Darkstar savings, and a configured-loss estimate SHALL NOT be presented as verified.
+
+If the selected period has no usable comparison, the card SHALL show one plain-language unavailable reason with no comparison amount or legacy fallback. No-battery installations SHALL hide the comparison line. The "Self-Use Saved" breakdown row SHALL have a tooltip explaining that it is house use covered by solar/battery instead of the grid, valued at the import price. Actual headline net, wear-inclusive secondary net, Battery Wear and EV breakdown rows SHALL retain their existing accounting and design tokens.
+
+#### Scenario: Positive saving
+- **WHEN** configured-loss self-use comparison cost is 40 kr and Darkstar comparison cost is 30 kr
+- **THEN** the card shows "Darkstar saved you 10.00 kr" with an "Estimate" chip
+- **AND** the actual headline still equals the metered net_cost_sek
 
 #### Scenario: Negative saving
-- **WHEN** estimated saving is -2.1 kr
-- **THEN** the card describes estimated additional battery cost of 2.1 kr
+- **WHEN** comparison saving is -2.1 kr
+- **THEN** the card shows "Darkstar cost you extra 2.10 kr" with the chip for the active basis
+
+#### Scenario: Verified chip
+- **WHEN** the comparison has status available with a calibrated basis
+- **THEN** the chip reads "Verified"
+
+#### Scenario: Partial coverage suffix
+- **WHEN** coverage is 95 of 96 slots
+- **THEN** the line shows "· 98% of the period" and the panel states 95 of 96 slots with 1 left out
+
+#### Scenario: Details panel
+- **WHEN** the info control is tapped
+- **THEN** an opaque panel explains the plain self-use comparison, the excluded load-scheduling savings, the completed-through time and coverage
+- **AND** an outside tap or Escape closes it
 
 #### Scenario: Stored energy is explained
-- **WHEN** the adjustment details are opened
-- **THEN** grid cost, wear, stored-energy value and the common valuation price are visible
+- **WHEN** the "Cost adjustments and assumptions" fold-down is opened
+- **THEN** the common price and each side's grid cost, wear and stored-energy value are visible
 - **AND** comparison cost is explained as grid plus wear minus stored-energy value
 
-#### Scenario: Unavailable estimate never uses legacy amounts
-- **WHEN** validation fails and legacy baseline savings exist
+#### Scenario: Unavailable comparison never uses legacy amounts
+- **WHEN** no comparison amount is usable and legacy baseline savings exist
 - **THEN** only the unavailable reason and actual information are shown
-
-### Requirement: Cost chart draws the without-Darkstar line
-The chart SHALL replace the legacy without-Darkstar overlay with paired Darkstar and plain self-use lines exclusively in the validated Comparison view. Legacy `baseline_cumulative_net_cost_sek` SHALL NOT determine any UI line, saving or vertical scale. The paired lines SHALL be distinguishable and share one scale. Their final values SHALL equal their summary comparison totals, and their final difference SHALL equal the displayed saving within rounding. The heading SHALL stay on one line with the legend on a separate row, wrapping between entries. Comparison readouts SHALL replace that legend row and show both cumulative costs. Reduced motion SHALL disable entrance animations.
-
-#### Scenario: Both economic lines on one scale
-- **WHEN** Darkstar comparison cost ends at 30 kr and self-use at 40 kr
-- **THEN** both lines appear on one scale and their endpoint gap is 10 kr
-
-#### Scenario: Hover and tap show both totals
-- **WHEN** a comparison bucket is hovered or tapped
-- **THEN** the readout shows its time and both economic costs
-
-#### Scenario: Heading and legend at card width
-- **WHEN** the chart is rendered at about 320–360 px
-- **THEN** its heading remains on one line and legend entries wrap only between entries
-
-#### Scenario: No validated comparison
-- **WHEN** comparison data is unavailable or no battery is configured
-- **THEN** only Actual is shown, regardless of legacy baseline fields
