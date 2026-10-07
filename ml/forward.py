@@ -18,7 +18,7 @@ from backend.health import clear_load_forecast_status, set_load_forecast_status
 from backend.learning import LearningEngine, get_learning_engine
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
 from ml.train import _build_time_features  # type: ignore[reportPrivateUsage]
-from ml.weather import async_get_weather_series, calculate_physics_pv
+from ml.weather import async_get_weather_series
 from utils.time_utils import dst_safe_date_range
 
 
@@ -469,34 +469,6 @@ async def generate_forward_slots(
     except Exception as e:
         logger.warning(f"Astro init failed: {e}")
 
-    # Get solar arrays config for physics calculation
-    system_config: dict[str, Any] = engine.config.get("system", {})
-    solar_arrays: list[Any] = system_config.get("solar_arrays", [])
-    loc_cfg: dict[str, Any] = system_config.get("location", {}) or {}
-    physics_lat = float(loc_cfg.get("latitude", 59.3))
-    physics_lon = float(loc_cfg.get("longitude", 18.1))
-
-    # Fallback to legacy single array
-    if not solar_arrays:
-        legacy_cfg: dict[str, Any] = system_config.get("solar_array", {}) or {}
-        if legacy_cfg:
-            solar_arrays = [legacy_cfg]
-
-    # Calculate legacy physics for diagnostics and last-resort fallback only.
-    physics_series = pd.Series(0.0, index=df.index)
-    for idx, row in df.iterrows():
-        slot_ts = row["slot_start"]
-        radiation = row.get("shortwave_radiation_w_m2")
-
-        physics_kwh, _ = calculate_physics_pv(
-            radiation_w_m2=radiation,
-            solar_arrays=solar_arrays,  # type: ignore[arg-type]
-            slot_start=slot_ts,
-            latitude=physics_lat,
-            longitude=physics_lon,
-        )
-        physics_series.loc[idx] = physics_kwh if physics_kwh is not None else 0.0  # type: ignore[reportIndexIssue]
-
     openmeteo_series = await _fetch_openmeteo_baseline_series(df["slot_start"], engine.config)
     openmeteo_series = pd.Series(list(openmeteo_series), index=df.index, dtype="float64")
     # Fill interior NaN slots by linear interpolation from neighbouring valid slots.
@@ -511,8 +483,7 @@ async def generate_forward_slots(
     # Computed once and shared by every quantile.
     sun_up_flags = _sun_up_flags(df["slot_start"], sun_calc)
 
-    # Store physics for output
-    predictions["physics_kwh"] = physics_series
+    # Store baseline for output
     predictions["openmeteo_baseline_kwh"] = baseline_series
 
     if has_pv_models:
@@ -666,17 +637,23 @@ async def generate_forward_slots(
         await engine.store_forecasts(forecasts, forecast_version=forecast_version)
         print(f"✅ Stored {len(forecasts)} forward AURORA forecasts ({forecast_version}).")
 
-        # Log physics vs ML breakdown for monitoring
-        if "physics_kwh" in predictions:
-            total_physics = float(predictions["physics_kwh"].sum())
-            total_pv_p50 = float(predictions["pv_p50"].sum())
-            if total_physics > 0:
-                ml_residual_total = total_pv_p50 - total_physics
-                physics_pct = (total_physics / total_pv_p50 * 100) if total_pv_p50 > 0 else 0
-                logger.info(
-                    f"📊 PV Forecast Breakdown: Physics={total_physics:.2f}kWh ({physics_pct:.1f}%), "
-                    f"ML Residual={ml_residual_total:.2f}kWh"
-                )
+        # Log the components that actually form the PV forecast (monitoring)
+        baseline_total = float(predictions["openmeteo_baseline_kwh"].sum())
+        final_total = float(predictions["pv_p50"].sum())
+        if "ml_residual_p50" in predictions:
+            ml_residual_total = float(predictions["ml_residual_p50"].sum())
+        else:
+            ml_residual_total = final_total - baseline_total
+        if has_pv_models:
+            logger.info(
+                f"📊 PV Forecast Breakdown: Open-Meteo baseline={baseline_total:.2f}kWh, "
+                f"ML residual={ml_residual_total:+.2f}kWh, final p50={final_total:.2f}kWh"
+            )
+        else:
+            logger.info(
+                f"📊 PV Forecast Breakdown: Open-Meteo baseline={baseline_total:.2f}kWh "
+                f"(baseline-only, no ML residual), final p50={final_total:.2f}kWh"
+            )
 
 
 if __name__ == "__main__":
