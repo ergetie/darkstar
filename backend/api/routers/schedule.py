@@ -271,7 +271,11 @@ async def schedule_today_with_history(
                     "actual_charge_kw": round(charge_kw, 3),
                     "actual_discharge_kw": round(discharge_kw, 3),
                     "actual_export_kwh": round(export_kwh, 3),
-                    "actual_soc": float(row["soc_end_percent"] or 0.0),
+                    "actual_soc": (
+                        float(row["soc_end_percent"])
+                        if row["soc_end_percent"] is not None
+                        else None
+                    ),
                     "water_heating_kw": round(water_kw, 3),
                     "actual_ev_charging_kw": round(ev_charging_kw, 3),
                     "import_price_sek_kwh": float(row["import_price_sek_kwh"] or 0.0),
