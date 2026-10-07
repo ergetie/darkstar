@@ -4,6 +4,8 @@
  * the search module. Every key MUST be a real field key — enforced by test.
  */
 export const fieldAliases: Record<string, string[]> = {
+    'installation_stats.enabled': ['telemetry', 'heartbeat', 'privacy', 'installation reporting', 'usage statistics'],
+    'installation_stats.endpoint': ['telemetry', 'receiver url', 'custom endpoint'],
     'system.grid.main_fuse_a': ['breaker', 'circuit breaker', 'fuse size', 'amps'],
     'system.grid.max_power_kw': ['import limit', 'grid limit'],
     'battery.min_soc_percent': ['battery floor', 'reserve', 'state of charge'],

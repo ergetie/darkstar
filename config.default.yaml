@@ -9,6 +9,12 @@
 config_version: 2                     # Config format version (for migration tracking)
 timezone: "Europe/Stockholm"          # IANA timezone for all schedule calculations
 
+# Daily installation statistics. The seven disclosed installation metadata fields
+# include executor mode; reporting can be disabled from Settings → System.
+installation_stats:
+  enabled: true
+  endpoint: "https://telemetry.wxl.se/api/ping"
+
 # System Parameters
 system:
   system_id: prod

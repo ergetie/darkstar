@@ -1,0 +1,7 @@
+# Match Darkstar's existing pins, including pinned FastAPI/Uvicorn transitive dependencies.
+fastapi==0.139.2
+pydantic==2.13.4
+pyyaml==6.0.3
+starlette==0.52.1
+uvicorn[standard]==0.51.0
+websockets==16.1

@@ -7,6 +7,11 @@
 
 FROM python:3.12-slim
 
+ARG TARGETARCH
+ENV DARKSTAR_INSTALLATION_TYPE=docker \
+    DARKSTAR_RELEASE_CHANNEL=stable \
+    DARKSTAR_ARCH=${TARGETARCH}
+
 LABEL maintainer="Darkstar Energy Manager"
 LABEL description="AI-powered home battery optimization"
 

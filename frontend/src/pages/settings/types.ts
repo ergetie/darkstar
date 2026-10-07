@@ -530,6 +530,28 @@ export const systemSections: SettingsSection[] = [
             },
         ],
     },
+    {
+        title: 'Installation statistics',
+        description:
+            'A daily heartbeat includes a random installation ID, version, release channel, installation type, CPU architecture, inverter profile, and executor mode (shadow, live, or unknown). Custom profile names, energy data, entity names, credentials, and detailed configuration are never sent. You can turn reporting off at any time.',
+        fields: [
+            {
+                key: 'installation_stats.enabled',
+                label: 'Report installation statistics',
+                helper: 'Send one minimal heartbeat per day. Reporting is enabled by default and can be disabled here.',
+                path: ['installation_stats', 'enabled'],
+                type: 'boolean',
+            },
+            {
+                key: 'installation_stats.endpoint',
+                label: 'Receiver endpoint',
+                helper: 'Absolute HTTPS URL. The endpoint remains editable while reporting is disabled.',
+                path: ['installation_stats', 'endpoint'],
+                type: 'text',
+                className: 'col-span-2',
+            },
+        ],
+    },
 ]
 
 export const parameterSections: SettingsSection[] = [

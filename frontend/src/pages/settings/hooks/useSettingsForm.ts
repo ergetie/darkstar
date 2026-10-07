@@ -23,6 +23,28 @@ export interface UseSettingsFormReturn {
     reloadEntities: () => Promise<void>
 }
 
+function isValidInstallationStatsEndpoint(value: string): boolean {
+    if (!value || value !== value.trim() || !/^https:\/\//i.test(value) || value.includes('\\')) return false
+    if (value.slice(8).split(/[/?#]/, 1)[0].includes('@')) return false
+    for (const character of value) {
+        const code = character.charCodeAt(0)
+        if (code <= 0x20 || code === 0x7f) return false
+    }
+    try {
+        const url = new URL(value)
+        return (
+            url.protocol === 'https:' &&
+            Boolean(url.hostname) &&
+            !url.username &&
+            !url.password &&
+            !url.search &&
+            !url.hash
+        )
+    } catch {
+        return false
+    }
+}
+
 export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfile[] = []): UseSettingsFormReturn {
     const { toast } = useToast()
     const [config, setConfig] = useState<ConfigResponse | null>(null)
@@ -131,6 +153,11 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
             const field = fields.find((f) => f.key === key)
 
             if (!field) return errors
+
+            if (key === 'installation_stats.endpoint' && !isValidInstallationStatsEndpoint(trimmed)) {
+                errors[key] = 'Enter an absolute HTTPS URL without credentials, query, or fragment.'
+                return errors
+            }
 
             // DEBUG: Log all validation attempts for battery_soc
             if (key.includes('battery_soc')) {
@@ -252,6 +279,14 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
         async (extraPatch?: Record<string, unknown>) => {
             if (!config) return false
 
+            const endpointKey = 'installation_stats.endpoint'
+            const endpointErrors = validateField(endpointKey, form[endpointKey] ?? '', form)
+            if (endpointErrors[endpointKey]) {
+                setFieldErrors((prev) => ({ ...prev, ...endpointErrors }))
+                setStatusMessage('Please fix validation errors before saving.')
+                return false
+            }
+
             // Validate ALL required fields before saving (not just touched ones)
             const allRequiredErrors: Record<string, string> = {}
             fields.forEach((field) => {
@@ -355,7 +390,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
             }
             return false
         },
-        [config, form, fields, fieldErrors, reload, toast],
+        [config, form, fields, fieldErrors, reload, toast, validateField],
     )
 
     const isDirty = useMemo(() => {

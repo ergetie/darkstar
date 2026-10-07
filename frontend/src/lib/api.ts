@@ -84,6 +84,10 @@ export type ScheduleTodayWithHistoryResponse = {
 export type ConfigResponse = {
     /** IANA timezone for all schedule/price calculations (backend default Europe/Stockholm). */
     timezone?: string
+    installation_stats?: {
+        enabled?: boolean
+        endpoint?: string
+    }
     system?: {
         inverter_profile?: string
         battery?: { capacity_kwh?: number }

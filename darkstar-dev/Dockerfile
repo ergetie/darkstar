@@ -4,6 +4,11 @@
 
 FROM python:3.12-slim
 
+ARG TARGETARCH
+ENV DARKSTAR_INSTALLATION_TYPE=ha_addon \
+    DARKSTAR_RELEASE_CHANNEL=dev \
+    DARKSTAR_ARCH=${TARGETARCH}
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Utilities

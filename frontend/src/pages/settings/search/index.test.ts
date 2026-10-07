@@ -39,6 +39,17 @@ describe('fieldSearchIndex', () => {
 })
 
 describe('searchFields', () => {
+    it('finds installation reporting controls in normal mode', () => {
+        const enabled = fieldSearchIndex.find((entry) => entry.fieldKey === 'installation_stats.enabled')
+        const endpoint = fieldSearchIndex.find((entry) => entry.fieldKey === 'installation_stats.endpoint')
+        expect(enabled?.field.isAdvanced).not.toBe(true)
+        expect(endpoint?.field.isAdvanced).not.toBe(true)
+        expect(searchFields('telemetry').map((result) => result.entry.fieldKey)).toContain('installation_stats.enabled')
+        expect(searchFields('receiver endpoint').map((result) => result.entry.fieldKey)).toContain(
+            'installation_stats.endpoint',
+        )
+    })
+
     it('finds a field on another tab, case-insensitively', () => {
         const lower = searchFields('fuse')
         const upper = searchFields('FUSE')

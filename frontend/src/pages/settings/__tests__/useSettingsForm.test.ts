@@ -34,6 +34,20 @@ vi.mock('../types', async (importOriginal) => {
 })
 
 describe('useSettingsForm Hook', () => {
+    const statisticsFields: BaseField[] = [
+        {
+            key: 'installation_stats.enabled',
+            label: 'Report installation statistics',
+            path: ['installation_stats', 'enabled'],
+            type: 'boolean',
+        },
+        {
+            key: 'installation_stats.endpoint',
+            label: 'Receiver endpoint',
+            path: ['installation_stats', 'endpoint'],
+            type: 'text',
+        },
+    ]
     const mockFields: BaseField[] = [
         { key: 'test.field', label: 'Test', path: ['test', 'field'], type: 'number' },
         { key: 'battery.min_soc_percent', label: 'Min', path: ['battery', 'min_soc_percent'], type: 'number' },
@@ -94,6 +108,81 @@ describe('useSettingsForm Hook', () => {
         })
 
         expect(result.current.form['test.field']).toBe('10')
+        expect(result.current.isDirty).toBe(false)
+    })
+
+    it('defaults and validates installation statistics settings through the shared save flow', async () => {
+        vi.mocked(Api.config).mockResolvedValue({
+            installation_stats: { enabled: true, endpoint: 'https://telemetry.wxl.se/api/ping' },
+        })
+        const { result } = renderHook(() => useSettingsForm(statisticsFields))
+        await waitFor(() => expect(result.current.loading).toBe(false))
+
+        expect(result.current.form['installation_stats.enabled']).toBe('true')
+        act(() => result.current.handleChange('installation_stats.endpoint', 'http://example.com/ping'))
+        expect(result.current.fieldErrors['installation_stats.endpoint']).toMatch(/absolute HTTPS URL/i)
+        expect(await result.current.save()).toBe(false)
+        expect(Api.configSave).not.toHaveBeenCalled()
+
+        vi.mocked(Api.configSave).mockResolvedValue({ status: 'success' })
+        act(() => result.current.handleChange('installation_stats.endpoint', 'https://stats.example/ping'))
+        expect(await result.current.save()).toBe(true)
+        expect(Api.configSave).toHaveBeenCalledWith({
+            installation_stats: { endpoint: 'https://stats.example/ping' },
+        })
+    })
+
+    it.each([
+        '/api/ping',
+        'https://user:secret@stats.example/ping',
+        'https://@stats.example/ping',
+        'https://stats.example:invalid/ping',
+        'https://stats.example:65536/ping',
+        'https://stats.example\\private/ping',
+        'https://stats.example/ping?secret=1',
+        'https://stats.example/ping#fragment',
+    ])('rejects invalid reporting endpoint %s before save', async (endpoint) => {
+        vi.mocked(Api.config).mockResolvedValue({
+            installation_stats: { enabled: false, endpoint: 'https://telemetry.wxl.se/api/ping' },
+        })
+        const { result } = renderHook(() => useSettingsForm(statisticsFields))
+        await waitFor(() => expect(result.current.loading).toBe(false))
+        act(() => result.current.handleChange('installation_stats.endpoint', endpoint))
+        expect(result.current.fieldErrors['installation_stats.endpoint']).toMatch(/absolute HTTPS URL/i)
+        expect(await result.current.save()).toBe(false)
+        expect(Api.configSave).not.toHaveBeenCalled()
+    })
+
+    it('persists opt-out through reload and saves endpoint edits while disabled', async () => {
+        vi.mocked(Api.config).mockResolvedValue({
+            installation_stats: { enabled: true, endpoint: 'https://telemetry.wxl.se/api/ping' },
+        })
+        vi.mocked(Api.configSave).mockResolvedValue({ status: 'success' })
+        const { result } = renderHook(() => useSettingsForm(statisticsFields))
+        await waitFor(() => expect(result.current.loading).toBe(false))
+        act(() => result.current.handleChange('installation_stats.enabled', 'false'))
+        expect(result.current.isDirty).toBe(true)
+        vi.mocked(Api.config).mockResolvedValue({
+            installation_stats: { enabled: false, endpoint: 'https://telemetry.wxl.se/api/ping' },
+        })
+        await act(async () => {
+            expect(await result.current.save()).toBe(true)
+        })
+        expect(Api.configSave).toHaveBeenLastCalledWith({ installation_stats: { enabled: false } })
+        expect(result.current.form['installation_stats.enabled']).toBe('false')
+        expect(result.current.isDirty).toBe(false)
+        act(() => result.current.handleChange('installation_stats.endpoint', 'https://stats.example/ping'))
+        expect(result.current.isDirty).toBe(true)
+        vi.mocked(Api.config).mockResolvedValue({
+            installation_stats: { enabled: false, endpoint: 'https://stats.example/ping' },
+        })
+        await act(async () => {
+            expect(await result.current.save()).toBe(true)
+        })
+        expect(Api.configSave).toHaveBeenLastCalledWith({
+            installation_stats: { endpoint: 'https://stats.example/ping' },
+        })
+        expect(result.current.form['installation_stats.enabled']).toBe('false')
         expect(result.current.isDirty).toBe(false)
     })
 })

@@ -96,6 +96,7 @@ venv = ".venv"
 # Include all Python source directories
 include = [
     "backend",
+    "telemetry_receiver",
     "ml",
     "bin",
     "planner",    # Core planning engine

@@ -25,6 +25,10 @@ from backend.core.prices import (
 from backend.core.secrets import load_home_assistant_config, load_notifications_config, load_yaml
 from backend.core.time_windows import parse_window
 from backend.loads.base import EV_CHARGER_LOAD_TYPES, WATER_HEATER_LOAD_TYPES
+from backend.services.installation_stats_contract import (
+    effective_installation_stats,
+    is_valid_telemetry_endpoint,
+)
 from executor.config import (
     EV_PLUG_IN_REMINDER_MINUTES_RANGE,
     PAUSE_DEBOUNCE_RANGE,
@@ -50,6 +54,10 @@ async def get_config() -> dict[str, Any]:
     """Get sanitized config."""
     try:
         conf: dict[str, Any] = load_yaml("config.yaml") or {}
+
+        # Old configs may be read before startup migration completes. Keep the
+        # UI's effective defaults aligned with the shipped configuration.
+        conf["installation_stats"] = effective_installation_stats(conf)
 
         # Merge Home Assistant secrets
         ha_secrets = load_home_assistant_config()
@@ -119,6 +127,53 @@ async def save_config(
 ) -> dict[str, Any]:
     """Save config.yaml."""
     try:
+        if "installation_stats" in payload:
+            stats_patch = payload["installation_stats"]
+            if not isinstance(stats_patch, dict):
+                raise HTTPException(
+                    400,
+                    detail={
+                        "message": "Configuration has critical errors",
+                        "errors": [
+                            {
+                                "severity": "error",
+                                "message": "installation_stats must be an object",
+                                "guidance": "Set installation_stats.enabled and installation_stats.endpoint.",
+                            }
+                        ],
+                    },
+                )
+            stats_patch = cast("dict[str, Any]", stats_patch)
+            if "enabled" in stats_patch and not isinstance(stats_patch["enabled"], bool):
+                raise HTTPException(
+                    400,
+                    detail={
+                        "message": "Configuration has critical errors",
+                        "errors": [
+                            {
+                                "severity": "error",
+                                "message": "installation_stats.enabled must be a boolean",
+                                "guidance": "Use true or false.",
+                            }
+                        ],
+                    },
+                )
+            if "endpoint" in stats_patch and not is_valid_telemetry_endpoint(
+                stats_patch["endpoint"]
+            ):
+                raise HTTPException(
+                    400,
+                    detail={
+                        "message": "Configuration has critical errors",
+                        "errors": [
+                            {
+                                "severity": "error",
+                                "message": "installation_stats.endpoint must be an absolute HTTPS URL without credentials, query, or fragment",
+                                "guidance": "Enter an HTTPS URL such as https://telemetry.example/api/ping.",
+                            }
+                        ],
+                    },
+                )
         yaml_handler = YAML()
         yaml_handler.preserve_quotes = True
         yaml_handler.width = 4096  # Prevent wrapping of long entity IDs (REV F16)
@@ -344,6 +399,13 @@ async def save_config(
             logger.info("Planner retry suspension cleared after config save")
         except Exception as e:
             logger.warning("Failed to clear planner retry suspension: %s", e)
+
+        try:
+            from backend.services.installation_stats_service import installation_stats_service
+
+            installation_stats_service.notify_config_changed()
+        except Exception as e:
+            logger.warning("Failed to notify installation statistics service: %s", e)
 
         # Return success with any warnings
         if warnings:
@@ -672,6 +734,33 @@ def _validate_config_for_save(
     Returns list of {"severity": "error"|"warning", "message": str, "guidance": str}
     """
     issues: list[dict[str, str]] = []
+    stats_cfg = config.get("installation_stats", {})
+    if not isinstance(stats_cfg, dict):
+        issues.append(
+            {
+                "severity": "error",
+                "message": "installation_stats must be an object",
+                "guidance": "Set installation_stats.enabled and installation_stats.endpoint.",
+            }
+        )
+    else:
+        stats_cfg = cast("dict[str, Any]", stats_cfg)
+        if "enabled" in stats_cfg and not isinstance(stats_cfg["enabled"], bool):
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": "installation_stats.enabled must be a boolean",
+                    "guidance": "Use true or false.",
+                }
+            )
+        if "endpoint" in stats_cfg and not is_valid_telemetry_endpoint(stats_cfg["endpoint"]):
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": "installation_stats.endpoint must be an absolute HTTPS URL without credentials, query, or fragment",
+                    "guidance": "Enter an HTTPS URL such as https://telemetry.example/api/ping.",
+                }
+            )
     system_cfg = config.get("system", {})
     water_cfg = config.get("water_heating", {})
     battery_cfg = config.get("battery", {})

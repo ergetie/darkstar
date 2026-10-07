@@ -76,6 +76,7 @@ const baseConfig = () => ({
     nordpool: { price_area: 'SE3', currency: 'SEK' },
     timezone: 'Europe/Stockholm',
     pricing: { vat_percent: 25, energy_tax_sek: 0.5, grid_transfer_fee_sek: 0.1 },
+    installation_stats: { enabled: true, endpoint: 'https://telemetry.wxl.se/api/ping' },
     battery: { capacity_kwh: 8, min_soc_percent: 10, max_soc_percent: 90, max_charge_w: 4000, max_discharge_w: 4000 },
     input_sensors: {},
     executor: { shadow_mode: true },
@@ -509,7 +510,12 @@ describe('OnboardingWizard', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Go live now' }))
 
-        await waitFor(() => expect(api.configSave).toHaveBeenCalledWith({ executor: { shadow_mode: false } }))
+        await waitFor(() =>
+            expect(api.configSave).toHaveBeenCalledWith({
+                installation_stats: { enabled: true },
+                executor: { shadow_mode: false },
+            }),
+        )
         expect(confirmSpy).toHaveBeenCalledWith(
             'Go live now? Darkstar may control your inverter and connected equipment.',
         )
@@ -534,7 +540,12 @@ describe('OnboardingWizard', () => {
         ).toBe(true)
         fireEvent.click(screen.getByRole('button', { name: 'Finish and keep live mode' }))
 
-        await waitFor(() => expect(api.configSave).toHaveBeenCalledWith({ executor: { shadow_mode: false } }))
+        await waitFor(() =>
+            expect(api.configSave).toHaveBeenCalledWith({
+                installation_stats: { enabled: true },
+                executor: { shadow_mode: false },
+            }),
+        )
         expect(
             await screen.findByText('Darkstar is live and can control your configured hardware.'),
         ).toBeInTheDocument()
@@ -571,11 +582,98 @@ describe('OnboardingWizard', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Finish in shadow mode' }))
 
-        await waitFor(() => expect(api.configSave).toHaveBeenCalledWith({ executor: { shadow_mode: true } }))
+        await waitFor(() =>
+            expect(api.configSave).toHaveBeenCalledWith({
+                installation_stats: { enabled: true },
+                executor: { shadow_mode: true },
+            }),
+        )
         await waitFor(() =>
             expect(api.saveOnboarding).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'completed' })),
         )
         expect(api.executorRun).not.toHaveBeenCalled()
         expect(await screen.findByText(/planning in shadow mode/i)).toBeInTheDocument()
+    })
+
+    it('defaults a missing reporting choice to enabled and saves it before onboarding completion', async () => {
+        const config = baseConfig()
+        delete (config as { installation_stats?: unknown }).installation_stats
+        setup('review', { config })
+
+        expect(await screen.findByText('Installation statistics')).toBeInTheDocument()
+        expect(screen.getByText(/random installation ID, Darkstar version, release channel/i)).toBeInTheDocument()
+        expect(screen.getByText(/executor mode \(shadow, live, or unknown\)/i)).toBeInTheDocument()
+        const reportingSwitch = screen.getByText('Send daily installation statistics').closest('label')
+        expect(reportingSwitch?.querySelector('.toggle')).toHaveClass('active')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Finish in shadow mode' }))
+
+        await waitFor(() =>
+            expect(api.configSave).toHaveBeenCalledWith({
+                installation_stats: { enabled: true },
+                executor: { shadow_mode: true },
+            }),
+        )
+        await waitFor(() =>
+            expect(api.saveOnboarding).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'completed' })),
+        )
+        expect(api.configSave.mock.invocationCallOrder[0]).toBeLessThan(
+            api.saveOnboarding.mock.invocationCallOrder[api.saveOnboarding.mock.invocationCallOrder.length - 1],
+        )
+    })
+
+    it('keeps a saved reporting opt-out when onboarding is rerun', async () => {
+        const config = {
+            ...baseConfig(),
+            installation_stats: { enabled: false, endpoint: 'https://stats.example/ping' },
+        }
+        setup('review', { config })
+
+        expect(await screen.findByText('Installation statistics')).toBeInTheDocument()
+        const reportingSwitch = screen.getByText('Send daily installation statistics').closest('label')
+        expect(reportingSwitch?.querySelector('.toggle')).not.toHaveClass('active')
+        fireEvent.click(screen.getByRole('button', { name: 'Finish in shadow mode' }))
+
+        await waitFor(() =>
+            expect(api.configSave).toHaveBeenCalledWith({
+                installation_stats: { enabled: false },
+                executor: { shadow_mode: true },
+            }),
+        )
+    })
+
+    it('saves the final-review opt-out before completing onboarding', async () => {
+        setup('review')
+        expect(await screen.findByText('Installation statistics')).toBeInTheDocument()
+        const reportingSwitch = screen.getByText('Send daily installation statistics').closest('label')
+        const toggle = reportingSwitch?.querySelector('.toggle')
+        expect(toggle).toHaveClass('active')
+        fireEvent.click(toggle!)
+        expect(toggle).not.toHaveClass('active')
+        fireEvent.click(screen.getByRole('button', { name: 'Finish in shadow mode' }))
+        await waitFor(() =>
+            expect(api.configSave).toHaveBeenCalledWith({
+                installation_stats: { enabled: false },
+                executor: { shadow_mode: true },
+            }),
+        )
+        await waitFor(() =>
+            expect(api.saveOnboarding).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'completed' })),
+        )
+        expect(api.configSave.mock.invocationCallOrder[0]).toBeLessThan(
+            api.saveOnboarding.mock.invocationCallOrder[api.saveOnboarding.mock.invocationCallOrder.length - 1],
+        )
+    })
+
+    it('keeps onboarding incomplete when the final configuration save fails', async () => {
+        setup('review')
+        api.configSave.mockRejectedValueOnce(new api.ApiError('Final save failed'))
+
+        expect(await screen.findByText('Installation statistics')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Finish in shadow mode' }))
+
+        expect(await screen.findByText('Final save failed')).toBeInTheDocument()
+        expect(api.saveOnboarding).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'completed' }))
+        expect(screen.getByRole('button', { name: 'Finish in shadow mode' })).toBeInTheDocument()
     })
 })

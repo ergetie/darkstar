@@ -175,10 +175,23 @@ async def lifespan(app: FastAPI):
         # For now, let's allow it but semantic routes will 500.
         app.state.learning_store = None
 
+    from backend.services.installation_stats_service import installation_stats_service
+
+    try:
+        await installation_stats_service.start()
+    except Exception as e:
+        # Installation statistics are optional and never block the main app.
+        logger.warning("Installation statistics service failed to start: %s", type(e).__name__)
+
     yield  # Server is running
 
     # Shutdown
     logger.info("👋 Darkstar ASGI Server Shutting Down...")
+
+    try:
+        await installation_stats_service.stop()
+    except Exception as e:
+        logger.warning("Installation statistics service shutdown failed: %s", type(e).__name__)
 
     # Close shared HA HTTP client
     try:

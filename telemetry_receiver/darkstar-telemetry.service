@@ -1,0 +1,31 @@
+[Unit]
+Description=Darkstar installation telemetry receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=darkstar-telemetry
+Group=darkstar-telemetry
+WorkingDirectory=/opt/darkstar
+EnvironmentFile=/etc/darkstar-telemetry.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/darkstar/.venv-telemetry/bin/python -m telemetry_receiver
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=15s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/darkstar-telemetry
+
+[Install]
+WantedBy=multi-user.target

@@ -1063,6 +1063,21 @@ function ReviewStep(props: StepProps) {
                     ? ' — finishing setup will keep control enabled.'
                     : ' — Darkstar will plan without controlling hardware.'}
             </div>
+            <section className="space-y-2 rounded-ds-md border border-line bg-surface p-3">
+                <h3 className="text-sm font-bold text-text">Installation statistics</h3>
+                <p className="text-xs leading-relaxed text-muted">
+                    A daily heartbeat includes a random installation ID, Darkstar version, release channel, installation
+                    type, CPU architecture, inverter profile, and executor mode (shadow, live, or unknown). Custom
+                    profile names, energy data, entity names, credentials, and detailed configuration are never sent.
+                    You can turn reporting off at any time in Settings.
+                </p>
+                <ToggleField
+                    config={props.config}
+                    update={props.update}
+                    path="installation_stats.enabled"
+                    label="Send daily installation statistics"
+                />
+            </section>
             <section className="space-y-2">
                 <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-text">Readiness checks</h3>

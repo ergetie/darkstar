@@ -98,6 +98,18 @@ export function OnboardingWizard({ onClose }: Props) {
                 ])
                 if (!mounted) return
                 let draft = structuredClone(loadedConfig) as WizardConfig
+                if (!draft.installation_stats || typeof draft.installation_stats !== 'object') {
+                    draft = setPath(draft, 'installation_stats', {
+                        enabled: true,
+                        endpoint: 'https://telemetry.wxl.se/api/ping',
+                    })
+                } else {
+                    const installationStats = draft.installation_stats
+                    if (installationStats.enabled === undefined)
+                        draft = setPath(draft, 'installation_stats.enabled', true)
+                    if (installationStats.endpoint === undefined)
+                        draft = setPath(draft, 'installation_stats.endpoint', 'https://telemetry.wxl.se/api/ping')
+                }
                 const fresh = loadedConfig.system?.inverter_profile == null && loadedProgress.status === 'not_started'
                 if (fresh && getPath(draft, 'nordpool.price_area') === 'SE4')
                     draft = setPath(draft, 'nordpool.price_area', '')
@@ -389,7 +401,10 @@ export function OnboardingWizard({ onClose }: Props) {
         try {
             const currentlyShadow = getPath(config, 'executor.shadow_mode')
             const shadowMode = goLive ? false : currentlyShadow === false ? false : true
-            const response = await Api.configSave({ executor: { shadow_mode: shadowMode } })
+            const response = await Api.configSave({
+                installation_stats: { enabled: getPath(config, 'installation_stats.enabled') === true },
+                executor: { shadow_mode: shadowMode },
+            })
             setWarnings(response.warnings ?? [])
             await persistProgress({
                 ...progress,
