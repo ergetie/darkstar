@@ -555,76 +555,82 @@ export type CostSeriesPoint = {
     export_revenue_sek: number
     net_cost_sek: number
     cumulative_net_cost_sek: number
-    /** Running grid net cost of the plain self-use baseline; absent without a battery. */
-    baseline_cumulative_net_cost_sek?: number
 }
 
-export type CostSeriesBaseline = {
-    net_cost_sek: number
-    battery_wear_cost_sek: number
-    net_cost_incl_wear_sek: number
-    saving_incl_wear_sek: number
-    /** Real minus simulated energy left in the battery at the end of the period; null if the real end SoC is unknown. */
-    stored_energy_difference_kwh?: number | null
-    /** That difference valued at the period's average import price; already included in the saving. */
-    stored_energy_value_sek?: number | null
-}
-
-export type CostSeriesBatterySide = {
-    grid_cost_sek: number
-    wear_cost_sek: number
-    stored_energy_change_kwh: number
-    stored_energy_value_sek: number
-    comparison_cost_sek: number
-}
-
-export type CostSeriesComparisonCoverage = {
+export type CostSeriesCoverage = {
     covered_slots: number
     total_slots: number
     excluded_slots: number
 }
 
-export type CostSeriesBatteryComparison = {
-    status:
-        | 'available'
-        | 'estimated'
-        | 'insufficient_data'
-        | 'unreliable_model'
-        | 'incomplete_period'
-        | 'no_battery'
-        | 'no_data'
-    reason: string
-    method_version?: string
-    basis?: 'configured_losses' | 'calibrated'
-    label?: string
-    calibration_status?: string
-    calibration_reason?: string
-    input_assumptions?: {
-        legacy_recording_slots: number
-        legacy_soc_mapping_slots: number
-    }
-    through?: string
-    /** Completed 15-minute slots of the period that entered the comparison. Slots that are
-     * missing or fail the measurement checks are excluded, not fatal. */
-    coverage?: CostSeriesComparisonCoverage
-    calibration?: Record<string, number | string>
-    history?: {
-        cohort_id?: string | null
-        cohort_start?: string | null
-        considered_count?: number
-        eligible_count?: number
-        exclusions?: Record<string, number>
-    }
-    darkstar?: CostSeriesBatterySide
-    self_use?: CostSeriesBatterySide
-    saving_sek?: number
-    reference_price_sek_kwh?: number
-    points?: {
-        start: string
-        darkstar_cumulative_comparison_cost_sek: number
-        self_use_cumulative_comparison_cost_sek: number
-    }[]
+export type CostSeriesTimeAxis = {
+    timezone: string
+    start: string
+    end: string
 }
+
+export type GridOnlyBucketPoint = {
+    start: string
+    end: string
+    import_cost_sek: number
+    export_revenue_sek: number
+    ds_electricity_cost_sek: number
+    ds_wear_cost_sek: number
+    grid_only_wear_cost_sek: number
+    ds_cost_sek: number
+    grid_only_cost_sek: number
+    cumulative_ds_cost_sek: number
+    cumulative_grid_only_cost_sek: number
+}
+
+export type GridOnlySegmentPoint = {
+    at: string
+    cumulative_ds_cost_sek: number
+    cumulative_grid_only_cost_sek: number
+}
+
+export type GridOnlySegment = {
+    start: string
+    end: string
+    points: GridOnlySegmentPoint[]
+}
+
+type GridOnlyComparisonBase = {
+    reason: string
+    method_version: 'grid-only-bill-v1'
+    coverage: CostSeriesCoverage
+    time_axis: CostSeriesTimeAxis
+}
+
+export type GridOnlyComparison = GridOnlyComparisonBase &
+    (
+        | {
+              status: 'available' | 'partial'
+              reason: 'complete_coverage' | 'partial_coverage'
+              through: string
+              grid_only_cost_sek: number
+              grid_only_wear_cost_sek: number
+              ds_electricity_cost_sek: number
+              ds_wear_cost_sek: number
+              ds_cost_sek: number
+              saving_sek: number
+              points: GridOnlyBucketPoint[]
+              segments: GridOnlySegment[]
+          }
+        | {
+              status: 'no_data' | 'unavailable'
+              reason: 'no_completed_observations' | 'no_usable_observations'
+              through?: never
+              grid_only_cost_sek?: never
+              grid_only_wear_cost_sek?: never
+              ds_electricity_cost_sek?: never
+              ds_wear_cost_sek?: never
+              ds_cost_sek?: never
+              saving_sek?: never
+              points?: never
+              segments?: never
+          }
+    )
 
 export type CostSeriesResponse = {
     period: string
@@ -632,11 +638,372 @@ export type CostSeriesResponse = {
     end_date?: string
     bucket: 'hour' | 'day'
     points: CostSeriesPoint[]
-    /** "Without Darkstar" comparison; null without a battery or recorded slots. */
-    baseline?: CostSeriesBaseline | null
-    /** Configured-loss estimate or verified installation-specific comparison. */
-    battery_comparison?: CostSeriesBatteryComparison
+    grid_only_comparison?: GridOnlyComparison
     error?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function finite(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value)
+}
+
+function integer(value: unknown): value is number {
+    return Number.isInteger(value)
+}
+
+function zonedTimestamp(value: unknown): number | null {
+    if (
+        typeof value !== 'string' ||
+        !/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/.test(value)
+    ) {
+        return null
+    }
+    const timestamp = Date.parse(value)
+    return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function invalidCostSeries(): never {
+    throw new Error('Invalid cost-series response')
+}
+
+// Cost-series money values are rounded to 0.001 SEK independently by the
+// backend. The tolerance counts each rounded value in the relationship; its
+// small scale term covers only IEEE-754 arithmetic used for the comparison.
+function withinMoneyRoundingBound(residual: number, roundedValues: number, arithmeticScale: number): boolean {
+    if (!Number.isFinite(residual) || !Number.isFinite(arithmeticScale)) return false
+    const roundingBound = roundedValues * 0.0005
+    const floatingPointBound = Number.EPSILON * Math.max(1, arithmeticScale) * (roundedValues + 2)
+    return Math.abs(residual) <= roundingBound + floatingPointBound
+}
+
+/** Validate the changed financial contract at the JSON boundary. */
+export function parseCostSeriesResponse(value: unknown): CostSeriesResponse {
+    if (!isRecord(value) || typeof value.period !== 'string' || !['hour', 'day'].includes(String(value.bucket))) {
+        return invalidCostSeries()
+    }
+    if ('baseline' in value || 'battery_comparison' in value) return invalidCostSeries()
+    if (!Array.isArray(value.points)) return invalidCostSeries()
+    const actualPoints: CostSeriesPoint[] = value.points.map((raw) => {
+        if (!isRecord(raw) || zonedTimestamp(raw.start) === null) return invalidCostSeries()
+        if (Object.keys(raw).some((key) => key.startsWith('baseline_'))) return invalidCostSeries()
+        if (
+            !finite(raw.import_cost_sek) ||
+            !finite(raw.export_revenue_sek) ||
+            !finite(raw.net_cost_sek) ||
+            !finite(raw.cumulative_net_cost_sek)
+        ) {
+            return invalidCostSeries()
+        }
+        return raw as unknown as CostSeriesPoint
+    })
+    const comparisonValue = value.grid_only_comparison
+    if (comparisonValue === undefined) {
+        if (typeof value.error === 'string') return { ...value, points: actualPoints } as unknown as CostSeriesResponse
+        return invalidCostSeries()
+    }
+    if (!isRecord(comparisonValue)) return invalidCostSeries()
+
+    const comparison = comparisonValue
+    const coverage = comparison.coverage
+    const axis = comparison.time_axis
+    if (!isRecord(coverage) || !isRecord(axis)) return invalidCostSeries()
+    const axisStart = zonedTimestamp(axis.start)
+    const axisEnd = zonedTimestamp(axis.end)
+    if (
+        !integer(coverage.covered_slots) ||
+        !integer(coverage.total_slots) ||
+        !integer(coverage.excluded_slots) ||
+        coverage.covered_slots < 0 ||
+        coverage.total_slots < 0 ||
+        coverage.excluded_slots < 0 ||
+        coverage.covered_slots + coverage.excluded_slots !== coverage.total_slots ||
+        typeof axis.timezone !== 'string' ||
+        axisStart === null ||
+        axisEnd === null ||
+        axisEnd <= axisStart ||
+        comparison.method_version !== 'grid-only-bill-v1'
+    ) {
+        return invalidCostSeries()
+    }
+    try {
+        new Intl.DateTimeFormat('en', { timeZone: axis.timezone })
+    } catch {
+        return invalidCostSeries()
+    }
+
+    const coveredSlots = coverage.covered_slots
+    const excludedSlots = coverage.excluded_slots
+    if (comparison.status === 'no_data' || comparison.status === 'unavailable') {
+        if (
+            (comparison.status === 'no_data' && comparison.reason !== 'no_completed_observations') ||
+            (comparison.status === 'unavailable' && comparison.reason !== 'no_usable_observations') ||
+            coveredSlots !== 0 ||
+            'through' in comparison ||
+            'grid_only_cost_sek' in comparison ||
+            'grid_only_wear_cost_sek' in comparison ||
+            'ds_electricity_cost_sek' in comparison ||
+            'ds_wear_cost_sek' in comparison ||
+            'ds_cost_sek' in comparison ||
+            'saving_sek' in comparison ||
+            'points' in comparison ||
+            'segments' in comparison
+        ) {
+            return invalidCostSeries()
+        }
+        return { ...value, points: actualPoints } as unknown as CostSeriesResponse
+    }
+
+    if (
+        (comparison.status !== 'available' && comparison.status !== 'partial') ||
+        (comparison.status === 'available' && (comparison.reason !== 'complete_coverage' || excludedSlots !== 0)) ||
+        (comparison.status === 'partial' && (comparison.reason !== 'partial_coverage' || excludedSlots === 0)) ||
+        coveredSlots <= 0 ||
+        !finite(comparison.grid_only_cost_sek) ||
+        !finite(comparison.grid_only_wear_cost_sek) ||
+        comparison.grid_only_wear_cost_sek !== 0 ||
+        !finite(comparison.ds_electricity_cost_sek) ||
+        !finite(comparison.ds_wear_cost_sek) ||
+        !finite(comparison.ds_cost_sek) ||
+        !finite(comparison.saving_sek)
+    ) {
+        return invalidCostSeries()
+    }
+    const through = zonedTimestamp(comparison.through)
+    if (through === null || through < axisStart || through > axisEnd) return invalidCostSeries()
+    if (!Array.isArray(comparison.points) || comparison.points.length === 0) return invalidCostSeries()
+
+    let previousBucketEnd = -Infinity
+    let previousCumulativeDs = 0
+    let previousCumulativeGrid = 0
+    let bucketDsElectricity = 0
+    let bucketDsWear = 0
+    let bucketGridCost = 0
+    let bucketDsElectricityMagnitude = 0
+    let bucketDsWearMagnitude = 0
+    let bucketGridCostMagnitude = 0
+    for (const raw of comparison.points) {
+        if (!isRecord(raw)) return invalidCostSeries()
+        const start = zonedTimestamp(raw.start)
+        const end = zonedTimestamp(raw.end)
+        if (
+            start === null ||
+            end === null ||
+            start < axisStart ||
+            end > axisEnd ||
+            end <= start ||
+            start < previousBucketEnd ||
+            !finite(raw.import_cost_sek) ||
+            !finite(raw.export_revenue_sek) ||
+            !finite(raw.ds_electricity_cost_sek) ||
+            !finite(raw.ds_wear_cost_sek) ||
+            raw.grid_only_wear_cost_sek !== 0 ||
+            !finite(raw.ds_cost_sek) ||
+            !finite(raw.grid_only_cost_sek) ||
+            !finite(raw.cumulative_ds_cost_sek) ||
+            !finite(raw.cumulative_grid_only_cost_sek) ||
+            !withinMoneyRoundingBound(
+                raw.import_cost_sek - raw.export_revenue_sek - raw.ds_electricity_cost_sek,
+                3,
+                Math.abs(raw.import_cost_sek) +
+                    Math.abs(raw.export_revenue_sek) +
+                    Math.abs(raw.ds_electricity_cost_sek),
+            ) ||
+            !withinMoneyRoundingBound(
+                raw.ds_electricity_cost_sek + raw.ds_wear_cost_sek - raw.ds_cost_sek,
+                3,
+                Math.abs(raw.ds_electricity_cost_sek) + Math.abs(raw.ds_wear_cost_sek) + Math.abs(raw.ds_cost_sek),
+            )
+        ) {
+            return invalidCostSeries()
+        }
+        previousBucketEnd = end
+        bucketDsElectricity += raw.ds_electricity_cost_sek
+        bucketDsWear += raw.ds_wear_cost_sek
+        bucketGridCost += raw.grid_only_cost_sek
+        bucketDsElectricityMagnitude += Math.abs(raw.ds_electricity_cost_sek)
+        bucketDsWearMagnitude += Math.abs(raw.ds_wear_cost_sek)
+        bucketGridCostMagnitude += Math.abs(raw.grid_only_cost_sek)
+        const dsDelta = raw.cumulative_ds_cost_sek - previousCumulativeDs
+        const gridDelta = raw.cumulative_grid_only_cost_sek - previousCumulativeGrid
+        if (
+            !Number.isFinite(bucketDsElectricity) ||
+            !Number.isFinite(bucketDsWear) ||
+            !Number.isFinite(bucketGridCost) ||
+            !withinMoneyRoundingBound(
+                dsDelta - raw.ds_cost_sek,
+                previousCumulativeDs === 0 ? 2 : 3,
+                Math.abs(previousCumulativeDs) + Math.abs(raw.cumulative_ds_cost_sek) + Math.abs(raw.ds_cost_sek),
+            ) ||
+            !withinMoneyRoundingBound(
+                gridDelta - raw.grid_only_cost_sek,
+                previousCumulativeGrid === 0 ? 2 : 3,
+                Math.abs(previousCumulativeGrid) +
+                    Math.abs(raw.cumulative_grid_only_cost_sek) +
+                    Math.abs(raw.grid_only_cost_sek),
+            )
+        ) {
+            return invalidCostSeries()
+        }
+        previousCumulativeDs = raw.cumulative_ds_cost_sek
+        previousCumulativeGrid = raw.cumulative_grid_only_cost_sek
+    }
+
+    if (!Array.isArray(comparison.segments) || comparison.segments.length === 0) return invalidCostSeries()
+    let previousSegmentEnd = -Infinity
+    let previousSegmentDs = 0
+    let previousSegmentGrid = 0
+    let segmentSlots = 0
+    let segmentBucketIndex = 0
+    const bucketSegmentEndpoints = new Map<number, { ds: number; grid: number }>()
+    for (const raw of comparison.segments) {
+        if (!isRecord(raw) || !Array.isArray(raw.points) || raw.points.length < 2) return invalidCostSeries()
+        const start = zonedTimestamp(raw.start)
+        const end = zonedTimestamp(raw.end)
+        if (
+            start === null ||
+            end === null ||
+            start < axisStart ||
+            end > through ||
+            end <= start ||
+            start <= previousSegmentEnd
+        ) {
+            return invalidCostSeries()
+        }
+        let previousPoint = -Infinity
+        for (const [index, point] of raw.points.entries()) {
+            if (!isRecord(point)) return invalidCostSeries()
+            const at = zonedTimestamp(point.at)
+            if (
+                at === null ||
+                at < start ||
+                at > end ||
+                at <= previousPoint ||
+                (at - axisStart) % 900_000 !== 0 ||
+                (index > 0 && at - previousPoint !== 900_000) ||
+                !finite(point.cumulative_ds_cost_sek) ||
+                !finite(point.cumulative_grid_only_cost_sek) ||
+                (index === 0 &&
+                    (at !== start ||
+                        Math.abs(point.cumulative_ds_cost_sek - previousSegmentDs) > 0.002 ||
+                        Math.abs(point.cumulative_grid_only_cost_sek - previousSegmentGrid) > 0.002)) ||
+                (index === raw.points.length - 1 && at !== end)
+            ) {
+                return invalidCostSeries()
+            }
+            if (index > 0) {
+                while (
+                    segmentBucketIndex < comparison.points.length &&
+                    previousPoint >= Date.parse(comparison.points[segmentBucketIndex].end)
+                ) {
+                    segmentBucketIndex += 1
+                }
+                const bucket = comparison.points[segmentBucketIndex]
+                if (!bucket || previousPoint < Date.parse(bucket.start) || at > Date.parse(bucket.end)) {
+                    return invalidCostSeries()
+                }
+                bucketSegmentEndpoints.set(segmentBucketIndex, {
+                    ds: point.cumulative_ds_cost_sek,
+                    grid: point.cumulative_grid_only_cost_sek,
+                })
+            }
+            previousPoint = at
+        }
+        if ((end - start) % 900_000 !== 0 || raw.points.length - 1 !== (end - start) / 900_000) {
+            return invalidCostSeries()
+        }
+        const segmentFinal = raw.points[raw.points.length - 1] as Record<string, unknown>
+        previousSegmentDs = segmentFinal.cumulative_ds_cost_sek as number
+        previousSegmentGrid = segmentFinal.cumulative_grid_only_cost_sek as number
+        segmentSlots += (end - start) / 900_000
+        previousSegmentEnd = end
+    }
+    for (const [index, bucket] of comparison.points.entries()) {
+        const endpoint = bucketSegmentEndpoints.get(index)
+        if (
+            !endpoint ||
+            !withinMoneyRoundingBound(
+                endpoint.ds - bucket.cumulative_ds_cost_sek,
+                2,
+                Math.abs(endpoint.ds) + Math.abs(bucket.cumulative_ds_cost_sek),
+            ) ||
+            !withinMoneyRoundingBound(
+                endpoint.grid - bucket.cumulative_grid_only_cost_sek,
+                2,
+                Math.abs(endpoint.grid) + Math.abs(bucket.cumulative_grid_only_cost_sek),
+            )
+        ) {
+            return invalidCostSeries()
+        }
+    }
+
+    const finalBucket = comparison.points[comparison.points.length - 1] as Record<string, unknown>
+    const lastSegment = comparison.segments[comparison.segments.length - 1] as Record<string, unknown>
+    const segmentPoints = lastSegment.points as Record<string, unknown>[]
+    const finalSegmentPoint = segmentPoints[segmentPoints.length - 1]
+    if (
+        segmentSlots !== coveredSlots ||
+        zonedTimestamp(lastSegment.end) !== through ||
+        !finalSegmentPoint ||
+        !withinMoneyRoundingBound(
+            bucketDsElectricity - Number(comparison.ds_electricity_cost_sek),
+            comparison.points.length + 1,
+            bucketDsElectricityMagnitude + Math.abs(Number(comparison.ds_electricity_cost_sek)),
+        ) ||
+        !withinMoneyRoundingBound(
+            bucketDsWear - Number(comparison.ds_wear_cost_sek),
+            comparison.points.length + 1,
+            bucketDsWearMagnitude + Math.abs(Number(comparison.ds_wear_cost_sek)),
+        ) ||
+        !withinMoneyRoundingBound(
+            bucketGridCost - Number(comparison.grid_only_cost_sek),
+            comparison.points.length + 1,
+            bucketGridCostMagnitude + Math.abs(Number(comparison.grid_only_cost_sek)),
+        ) ||
+        !withinMoneyRoundingBound(
+            Number(finalBucket.cumulative_ds_cost_sek) - Number(comparison.ds_cost_sek),
+            2,
+            Math.abs(Number(finalBucket.cumulative_ds_cost_sek)) + Math.abs(Number(comparison.ds_cost_sek)),
+        ) ||
+        !withinMoneyRoundingBound(
+            Number(finalBucket.cumulative_grid_only_cost_sek) - Number(comparison.grid_only_cost_sek),
+            2,
+            Math.abs(Number(finalBucket.cumulative_grid_only_cost_sek)) +
+                Math.abs(Number(comparison.grid_only_cost_sek)),
+        ) ||
+        !withinMoneyRoundingBound(
+            Number(finalSegmentPoint.cumulative_ds_cost_sek) - Number(comparison.ds_cost_sek),
+            2,
+            Math.abs(Number(finalSegmentPoint.cumulative_ds_cost_sek)) + Math.abs(Number(comparison.ds_cost_sek)),
+        ) ||
+        !withinMoneyRoundingBound(
+            Number(finalSegmentPoint.cumulative_grid_only_cost_sek) - Number(comparison.grid_only_cost_sek),
+            2,
+            Math.abs(Number(finalSegmentPoint.cumulative_grid_only_cost_sek)) +
+                Math.abs(Number(comparison.grid_only_cost_sek)),
+        ) ||
+        !withinMoneyRoundingBound(
+            Number(comparison.ds_electricity_cost_sek) +
+                Number(comparison.ds_wear_cost_sek) -
+                Number(comparison.ds_cost_sek),
+            3,
+            Math.abs(Number(comparison.ds_electricity_cost_sek)) +
+                Math.abs(Number(comparison.ds_wear_cost_sek)) +
+                Math.abs(Number(comparison.ds_cost_sek)),
+        ) ||
+        !withinMoneyRoundingBound(
+            Number(comparison.grid_only_cost_sek) - Number(comparison.ds_cost_sek) - Number(comparison.saving_sek),
+            3,
+            Math.abs(Number(comparison.grid_only_cost_sek)) +
+                Math.abs(Number(comparison.ds_cost_sek)) +
+                Math.abs(Number(comparison.saving_sek)),
+        )
+    ) {
+        return invalidCostSeries()
+    }
+    return { ...value, points: actualPoints } as unknown as CostSeriesResponse
 }
 
 export type EnergyRangeResponse = {
@@ -1169,7 +1536,7 @@ export const Api = {
         if (period === 'custom' && start_date && end_date) {
             url += `&start_date=${start_date}&end_date=${end_date}`
         }
-        return getJSON<CostSeriesResponse>(url)
+        return getJSON<unknown>(url).then(parseCostSeriesResponse)
     },
     // Log management
     logInfo: () => getJSON<LogInfoResponse>('/api/system/log-info'),

@@ -15,7 +15,7 @@ import Switch from '../components/ui/Switch'
 import SocStepper from '../components/ui/SocStepper'
 import QuickAction, { QuickActionChips, QuickActionSection } from '../components/ui/QuickAction'
 import CostSeriesChart from '../components/CostSeriesChart'
-import type { CostSeriesResponse } from '../lib/api'
+import type { CostSeriesResponse, GridOnlyComparison } from '../lib/api'
 import { BatteryCharging, Flame } from 'lucide-react'
 import { useToast } from '../lib/useToast'
 
@@ -43,58 +43,218 @@ export default function DesignSystem() {
             cumulative_net_cost_sek: 3,
         },
     ]
-    const comparisonPoints = [
+    const axis = {
+        timezone: 'Europe/Stockholm',
+        start: '2026-10-05T00:00:00+02:00',
+        end: '2026-10-06T00:00:00+02:00',
+    }
+    const baseGridPoints = [
         {
             start: '2026-10-05T00:00:00+02:00',
-            darkstar_cumulative_comparison_cost_sek: 3.5,
-            self_use_cumulative_comparison_cost_sek: 4.5,
+            end: '2026-10-05T01:00:00+02:00',
+            import_cost_sek: 4,
+            export_revenue_sek: 0,
+            ds_electricity_cost_sek: 3,
+            ds_wear_cost_sek: 0.5,
+            grid_only_wear_cost_sek: 0,
+            ds_cost_sek: 3.5,
+            grid_only_cost_sek: 4.5,
+            cumulative_ds_cost_sek: 3.5,
+            cumulative_grid_only_cost_sek: 4.5,
         },
         {
             start: '2026-10-05T01:00:00+02:00',
-            darkstar_cumulative_comparison_cost_sek: 8,
-            self_use_cumulative_comparison_cost_sek: 10,
+            end: '2026-10-05T02:00:00+02:00',
+            import_cost_sek: 1,
+            export_revenue_sek: 2,
+            ds_electricity_cost_sek: 4,
+            ds_wear_cost_sek: 0.5,
+            grid_only_wear_cost_sek: 0,
+            ds_cost_sek: 4.5,
+            grid_only_cost_sek: 5.5,
+            cumulative_ds_cost_sek: 8,
+            cumulative_grid_only_cost_sek: 10,
         },
     ]
-    const costChartFixtures: { label: string; comparison: CostSeriesResponse['battery_comparison'] }[] = [
-        {
-            label: 'Estimated · configured losses',
-            comparison: {
-                status: 'estimated',
-                reason: 'configured_losses',
-                basis: 'configured_losses',
-                label: 'Estimate based on configured losses',
-                saving_sek: 2,
-                points: comparisonPoints,
+    const completeComparison = (dsCost: number, gridCost: number): GridOnlyComparison => ({
+        status: 'available',
+        reason: 'complete_coverage',
+        method_version: 'grid-only-bill-v1',
+        coverage: { covered_slots: 8, total_slots: 8, excluded_slots: 0 },
+        time_axis: axis,
+        through: '2026-10-05T02:00:00+02:00',
+        grid_only_cost_sek: gridCost,
+        grid_only_wear_cost_sek: 0,
+        ds_electricity_cost_sek: dsCost - 1,
+        ds_wear_cost_sek: 1,
+        ds_cost_sek: dsCost,
+        saving_sek: gridCost - dsCost,
+        points: [
+            {
+                ...baseGridPoints[0],
+                import_cost_sek: dsCost / 2 - 0.5,
+                export_revenue_sek: 0,
+                ds_electricity_cost_sek: dsCost / 2 - 0.5,
+                ds_wear_cost_sek: 0.5,
+                grid_only_wear_cost_sek: 0,
+                ds_cost_sek: dsCost / 2,
+                grid_only_cost_sek: gridCost / 2,
+                cumulative_ds_cost_sek: dsCost / 2,
+                cumulative_grid_only_cost_sek: gridCost / 2,
             },
-        },
-        {
-            label: 'Verified · negative result',
-            comparison: {
-                status: 'available',
-                reason: 'validated',
-                basis: 'calibrated',
-                label: 'Verified',
-                saving_sek: -2,
-                points: comparisonPoints.map((point) => ({
-                    ...point,
-                    darkstar_cumulative_comparison_cost_sek: point.self_use_cumulative_comparison_cost_sek,
-                    self_use_cumulative_comparison_cost_sek: point.darkstar_cumulative_comparison_cost_sek,
+            {
+                ...baseGridPoints[1],
+                import_cost_sek: dsCost / 2 - 0.5,
+                export_revenue_sek: 0,
+                ds_electricity_cost_sek: dsCost / 2 - 0.5,
+                ds_wear_cost_sek: 0.5,
+                grid_only_wear_cost_sek: 0,
+                ds_cost_sek: dsCost / 2,
+                grid_only_cost_sek: gridCost / 2,
+                cumulative_ds_cost_sek: dsCost,
+                cumulative_grid_only_cost_sek: gridCost,
+            },
+        ],
+        segments: [
+            {
+                start: '2026-10-05T00:00:00+02:00',
+                end: '2026-10-05T02:00:00+02:00',
+                points: Array.from({ length: 9 }, (_, index) => ({
+                    at: `2026-10-05T${String(Math.floor(index / 4)).padStart(2, '0')}:${String((index % 4) * 15).padStart(2, '0')}:00+02:00`,
+                    cumulative_ds_cost_sek: (dsCost * index) / 8,
+                    cumulative_grid_only_cost_sek: (gridCost * index) / 8,
                 })),
             },
-        },
-        {
-            label: 'Unavailable · insufficient data',
-            comparison: {
-                status: 'insufficient_data',
-                reason: 'insufficient_compatible_history',
-                history: { considered_count: 2880, eligible_count: 720, exclusions: { unknown_provenance: 2160 } },
+        ],
+    })
+    const gapComparison: GridOnlyComparison = {
+        status: 'partial',
+        reason: 'partial_coverage',
+        method_version: 'grid-only-bill-v1',
+        coverage: { covered_slots: 3, total_slots: 4, excluded_slots: 1 },
+        time_axis: axis,
+        through: '2026-10-05T01:00:00+02:00',
+        grid_only_cost_sek: 3,
+        grid_only_wear_cost_sek: 0,
+        ds_electricity_cost_sek: 1.5,
+        ds_wear_cost_sek: 0.5,
+        ds_cost_sek: 2,
+        saving_sek: 1,
+        points: [
+            {
+                start: '2026-10-05T00:00:00+02:00',
+                end: '2026-10-05T01:00:00+02:00',
+                import_cost_sek: 1.5,
+                export_revenue_sek: 0,
+                ds_cost_sek: 2,
+                grid_only_cost_sek: 3,
+                ds_electricity_cost_sek: 1.5,
+                ds_wear_cost_sek: 0.5,
+                grid_only_wear_cost_sek: 0,
+                cumulative_ds_cost_sek: 2,
+                cumulative_grid_only_cost_sek: 3,
             },
+        ],
+        segments: [
+            {
+                start: '2026-10-05T00:00:00+02:00',
+                end: '2026-10-05T00:15:00+02:00',
+                points: [
+                    { at: '2026-10-05T00:00:00+02:00', cumulative_ds_cost_sek: 0, cumulative_grid_only_cost_sek: 0 },
+                    { at: '2026-10-05T00:15:00+02:00', cumulative_ds_cost_sek: 1, cumulative_grid_only_cost_sek: 1.5 },
+                ],
+            },
+            {
+                start: '2026-10-05T00:30:00+02:00',
+                end: '2026-10-05T01:00:00+02:00',
+                points: [
+                    { at: '2026-10-05T00:30:00+02:00', cumulative_ds_cost_sek: 1, cumulative_grid_only_cost_sek: 1.5 },
+                    {
+                        at: '2026-10-05T00:45:00+02:00',
+                        cumulative_ds_cost_sek: 1.5,
+                        cumulative_grid_only_cost_sek: 2.25,
+                    },
+                    { at: '2026-10-05T01:00:00+02:00', cumulative_ds_cost_sek: 2, cumulative_grid_only_cost_sek: 3 },
+                ],
+            },
+        ],
+    }
+    const unavailableComparison: GridOnlyComparison = {
+        status: 'unavailable',
+        reason: 'no_usable_observations',
+        method_version: 'grid-only-bill-v1',
+        coverage: { covered_slots: 0, total_slots: 4, excluded_slots: 4 },
+        time_axis: axis,
+    }
+    const fallBackComparison: GridOnlyComparison = {
+        status: 'partial',
+        reason: 'partial_coverage',
+        method_version: 'grid-only-bill-v1',
+        coverage: { covered_slots: 8, total_slots: 100, excluded_slots: 92 },
+        time_axis: {
+            timezone: 'Europe/Stockholm',
+            start: '2026-10-25T00:00:00+02:00',
+            end: '2026-10-26T00:00:00+01:00',
         },
-        {
-            label: 'Unavailable · unsupported selected period',
-            comparison: { status: 'incomplete_period', reason: 'unsupported_period_measurements' },
-        },
-        { label: 'No battery', comparison: { status: 'no_battery', reason: 'battery_not_configured' } },
+        through: '2026-10-25T03:00:00+01:00',
+        grid_only_cost_sek: 10,
+        grid_only_wear_cost_sek: 0,
+        ds_electricity_cost_sek: 7,
+        ds_wear_cost_sek: 1,
+        ds_cost_sek: 8,
+        saving_sek: 2,
+        points: [
+            {
+                start: '2026-10-25T02:00:00+02:00',
+                end: '2026-10-25T02:00:00+01:00',
+                import_cost_sek: 3.5,
+                export_revenue_sek: 0,
+                ds_electricity_cost_sek: 3.5,
+                ds_wear_cost_sek: 0.5,
+                grid_only_wear_cost_sek: 0,
+                ds_cost_sek: 4,
+                grid_only_cost_sek: 5,
+                cumulative_ds_cost_sek: 4,
+                cumulative_grid_only_cost_sek: 5,
+            },
+            {
+                start: '2026-10-25T02:00:00+01:00',
+                end: '2026-10-25T03:00:00+01:00',
+                import_cost_sek: 3.5,
+                export_revenue_sek: 0,
+                ds_electricity_cost_sek: 3.5,
+                ds_wear_cost_sek: 0.5,
+                grid_only_wear_cost_sek: 0,
+                ds_cost_sek: 4,
+                grid_only_cost_sek: 5,
+                cumulative_ds_cost_sek: 8,
+                cumulative_grid_only_cost_sek: 10,
+            },
+        ],
+        segments: [
+            {
+                start: '2026-10-25T02:00:00+02:00',
+                end: '2026-10-25T03:00:00+01:00',
+                points: [
+                    { at: '2026-10-25T02:00:00+02:00', cumulative_ds_cost_sek: 0, cumulative_grid_only_cost_sek: 0 },
+                    { at: '2026-10-25T02:15:00+02:00', cumulative_ds_cost_sek: 1, cumulative_grid_only_cost_sek: 1.25 },
+                    { at: '2026-10-25T02:30:00+02:00', cumulative_ds_cost_sek: 2, cumulative_grid_only_cost_sek: 2.5 },
+                    { at: '2026-10-25T02:45:00+02:00', cumulative_ds_cost_sek: 3, cumulative_grid_only_cost_sek: 3.75 },
+                    { at: '2026-10-25T02:00:00+01:00', cumulative_ds_cost_sek: 4, cumulative_grid_only_cost_sek: 5 },
+                    { at: '2026-10-25T02:15:00+01:00', cumulative_ds_cost_sek: 5, cumulative_grid_only_cost_sek: 6.25 },
+                    { at: '2026-10-25T02:30:00+01:00', cumulative_ds_cost_sek: 6, cumulative_grid_only_cost_sek: 7.5 },
+                    { at: '2026-10-25T02:45:00+01:00', cumulative_ds_cost_sek: 7, cumulative_grid_only_cost_sek: 8.75 },
+                    { at: '2026-10-25T03:00:00+01:00', cumulative_ds_cost_sek: 8, cumulative_grid_only_cost_sek: 10 },
+                ],
+            },
+        ],
+    }
+    const costChartFixtures: { label: string; comparison: GridOnlyComparison }[] = [
+        { label: 'Complete · positive difference', comparison: completeComparison(8, 10) },
+        { label: 'Complete · negative difference', comparison: completeComparison(10, 8) },
+        { label: 'Partial · covered segments', comparison: gapComparison },
+        { label: 'Unavailable · no usable inputs', comparison: unavailableComparison },
+        { label: 'Fall-back · repeated 02:00 offsets', comparison: fallBackComparison },
     ]
 
     return (
@@ -543,7 +703,7 @@ export default function DesignSystem() {
                                         end_date: '2026-10-05',
                                         bucket: 'hour',
                                         points: costPoints,
-                                        battery_comparison: comparison,
+                                        grid_only_comparison: comparison,
                                     } as CostSeriesResponse
                                 }
                             />

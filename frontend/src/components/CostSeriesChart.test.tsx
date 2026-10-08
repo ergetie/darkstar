@@ -1,153 +1,154 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import CostSeriesChart from './CostSeriesChart'
-import type { CostSeriesResponse } from '../lib/api'
+import type { CostSeriesResponse, GridOnlyComparison } from '../lib/api'
 
-const series = {
-    period: 'today',
-    start_date: '2026-10-04',
-    end_date: '2026-10-04',
-    bucket: 'hour',
-    points: [
-        {
-            start: '2026-10-04T00:00:00',
-            import_cost_sek: 2,
-            export_revenue_sek: 0.5,
-            net_cost_sek: 1.5,
-            cumulative_net_cost_sek: 1.5,
-        },
-    ],
-    baseline: null,
-} as CostSeriesResponse
+const axis = {
+    timezone: 'Europe/Stockholm',
+    start: '2026-10-05T00:00:00+02:00',
+    end: '2026-10-06T00:00:00+02:00',
+}
 
-const comparisonOf = (overrides: Record<string, unknown> = {}) =>
-    ({
-        status: 'available',
-        reason: 'validated',
+const actualPoint = {
+    start: '2026-10-05T12:00:00+02:00',
+    import_cost_sek: 3,
+    export_revenue_sek: 1,
+    net_cost_sek: 2,
+    cumulative_net_cost_sek: 2,
+}
+
+function comparison(status: 'available' | 'partial' | 'unavailable' = 'available'): GridOnlyComparison {
+    if (status === 'unavailable') {
+        return {
+            status,
+            reason: 'no_usable_observations',
+            method_version: 'grid-only-bill-v1',
+            coverage: { covered_slots: 0, total_slots: 96, excluded_slots: 96 },
+            time_axis: axis,
+        }
+    }
+    const partial = status === 'partial'
+    return {
+        status,
+        reason: partial ? 'partial_coverage' : 'complete_coverage',
+        method_version: 'grid-only-bill-v1',
+        coverage: partial
+            ? { covered_slots: 3, total_slots: 4, excluded_slots: 1 }
+            : { covered_slots: 4, total_slots: 4, excluded_slots: 0 },
+        time_axis: axis,
+        through: '2026-10-05T13:00:00+02:00',
+        grid_only_cost_sek: 10,
+        grid_only_wear_cost_sek: 0,
+        ds_electricity_cost_sek: 7,
+        ds_wear_cost_sek: 1,
+        ds_cost_sek: 8,
+        saving_sek: 2,
         points: [
             {
-                start: '2026-10-04T00:00:00',
-                darkstar_cumulative_comparison_cost_sek: 1.5,
-                self_use_cumulative_comparison_cost_sek: 2.5,
+                start: '2026-10-05T12:00:00+02:00',
+                end: '2026-10-05T13:00:00+02:00',
+                import_cost_sek: 3,
+                export_revenue_sek: 1,
+                ds_electricity_cost_sek: 7,
+                ds_wear_cost_sek: 1,
+                grid_only_wear_cost_sek: 0,
+                ds_cost_sek: 8,
+                grid_only_cost_sek: 10,
+                cumulative_ds_cost_sek: 8,
+                cumulative_grid_only_cost_sek: 10,
             },
         ],
-        ...overrides,
-    }) as CostSeriesResponse['battery_comparison']
+        segments: [
+            {
+                start: '2026-10-05T12:00:00+02:00',
+                end: '2026-10-05T12:15:00+02:00',
+                points: [
+                    { at: '2026-10-05T12:00:00+02:00', cumulative_ds_cost_sek: 0, cumulative_grid_only_cost_sek: 0 },
+                    { at: '2026-10-05T12:15:00+02:00', cumulative_ds_cost_sek: 2, cumulative_grid_only_cost_sek: 2.5 },
+                ],
+            },
+            {
+                start: '2026-10-05T12:30:00+02:00',
+                end: '2026-10-05T13:00:00+02:00',
+                points: [
+                    { at: '2026-10-05T12:30:00+02:00', cumulative_ds_cost_sek: 2, cumulative_grid_only_cost_sek: 2.5 },
+                    { at: '2026-10-05T12:45:00+02:00', cumulative_ds_cost_sek: 5, cumulative_grid_only_cost_sek: 6.25 },
+                    { at: '2026-10-05T13:00:00+02:00', cumulative_ds_cost_sek: 8, cumulative_grid_only_cost_sek: 10 },
+                ],
+            },
+        ],
+    }
+}
+
+const series = (gridOnly?: GridOnlyComparison): CostSeriesResponse => ({
+    period: 'today',
+    bucket: 'hour',
+    points: [actualPoint],
+    grid_only_comparison: gridOnly,
+})
 
 const dottedPath = (container: HTMLElement) => container.querySelector('path[stroke-dasharray="1 3"]')
-const hoverFirst = (container: HTMLElement) =>
-    fireEvent.mouseEnter(container.querySelector('.absolute.inset-0.flex > div') as HTMLElement)
 
 describe('CostSeriesChart', () => {
-    it('renders one chart without any tabs, ignoring legacy baseline data', () => {
-        const legacy = {
-            ...series,
-            points: [{ ...series.points[0], baseline_cumulative_net_cost_sek: 2.5 }],
-        } as CostSeriesResponse
-        const { container } = render(<CostSeriesChart series={legacy} loading={false} />)
-
-        expect(screen.getByText('Actual cost so far')).toHaveClass('whitespace-nowrap')
-        for (const label of ['import', 'export', 'Actual']) {
-            expect(screen.getByText(label)).toHaveClass('whitespace-nowrap')
-        }
-        expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    it('draws the solid DS and dotted Grid-only lines with no comparison switch', () => {
+        const { container } = render(<CostSeriesChart series={series(comparison())} loading={false} />)
+        expect(dottedPath(container)).not.toBeNull()
+        expect(screen.getByText('DS')).toBeInTheDocument()
+        expect(screen.getByText('Grid-only')).toBeInTheDocument()
+        expect(screen.queryByText('Without Darkstar')).not.toBeInTheDocument()
         expect(screen.queryByRole('tab')).not.toBeInTheDocument()
-        expect(screen.queryByText('Without Darkstar')).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /comparison/i })).not.toBeInTheDocument()
+    })
+
+    it('shades only between matching covered segments and breaks at the excluded slot', () => {
+        const { container } = render(<CostSeriesChart series={series(comparison('partial'))} loading={false} />)
+        expect(container.querySelectorAll('[data-testid="grid-only-line"]')).toHaveLength(2)
+        expect(container.querySelectorAll('[data-testid="ds-line"]')).toHaveLength(2)
+        expect(container.querySelectorAll('[data-testid="cost-chart-saving"]').length).toBeGreaterThan(0)
+    })
+
+    it('falls back to Actual and omits comparison lines when no amount is available', () => {
+        const { container } = render(<CostSeriesChart series={series(comparison('unavailable'))} loading={false} />)
+        expect(container.querySelector('[data-testid="actual-line"]')).not.toBeNull()
         expect(dottedPath(container)).toBeNull()
+        expect(screen.getByText('Actual')).toBeInTheDocument()
+        expect(screen.queryByText('Grid-only')).not.toBeInTheDocument()
     })
 
-    it('draws the dotted Without Darkstar line and legend entry when comparison amounts exist', () => {
-        const { container } = render(
-            <CostSeriesChart series={{ ...series, battery_comparison: comparisonOf() }} loading={false} />,
-        )
-        expect(dottedPath(container)).not.toBeNull()
-        expect(screen.getByText('Without Darkstar')).toBeInTheDocument()
-        expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    it('shows a local bucket readout for keyboard focus and pointer hover', () => {
+        render(<CostSeriesChart series={series(comparison())} loading={false} />)
+        const bucket = screen.getByRole('button', { name: 'Hour 12:00 cost details' })
+        fireEvent.focus(bucket)
+        expect(screen.getByTestId('cost-chart-readout')).toHaveTextContent('12:00')
+        expect(screen.getByTestId('cost-chart-readout')).toHaveTextContent('DS')
+        expect(screen.getByTestId('cost-chart-readout')).toHaveTextContent('Grid-only')
+        fireEvent.blur(bucket)
+        expect(screen.queryByTestId('cost-chart-readout')).not.toBeInTheDocument()
     })
 
-    it('shades the saving without adding text, only when the without line exists', () => {
-        const { container, rerender } = render(<CostSeriesChart series={series} loading={false} />)
-        expect(container.querySelectorAll('[data-testid="cost-chart-saving"]')).toHaveLength(0)
-
-        rerender(<CostSeriesChart series={{ ...series, battery_comparison: comparisonOf() }} loading={false} />)
-        const shading = container.querySelectorAll('[data-testid="cost-chart-saving"]')
-        expect(shading.length).toBeGreaterThan(0)
-        expect(shading[0]).toHaveClass('fill-good')
-        expect(shading[0].textContent).toBe('')
-        expect(screen.getAllByText('Without Darkstar')).toHaveLength(1)
-    })
-
-    it('draws the dotted line for estimated comparisons too', () => {
-        const { container } = render(
-            <CostSeriesChart
-                series={{ ...series, battery_comparison: comparisonOf({ status: 'estimated' }) }}
-                loading={false}
-            />,
-        )
-        expect(dottedPath(container)).not.toBeNull()
-    })
-
-    it('omits the dotted line when the comparison is unavailable', () => {
-        const { container } = render(
-            <CostSeriesChart
-                series={{ ...series, battery_comparison: comparisonOf({ status: 'unavailable', reason: 'x' }) }}
-                loading={false}
-            />,
-        )
-        expect(dottedPath(container)).toBeNull()
-        expect(screen.queryByText('Without Darkstar')).not.toBeInTheDocument()
-    })
-
-    it('withholds non-finite comparison points', () => {
-        const invalid = {
-            ...series,
-            battery_comparison: comparisonOf({
-                status: 'estimated',
-                points: [
-                    {
-                        start: series.points[0].start,
-                        darkstar_cumulative_comparison_cost_sek: Number.NaN,
-                        self_use_cumulative_comparison_cost_sek: 2,
-                    },
-                ],
-            }),
-        }
-        const { container } = render(<CostSeriesChart series={invalid} loading={false} />)
-        expect(dottedPath(container)).toBeNull()
-        expect(screen.queryByText('Without Darkstar')).not.toBeInTheDocument()
+    it('retains the empty state and loading skeleton', () => {
+        const { rerender, container } = render(<CostSeriesChart series={null} loading />)
+        expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
+        rerender(<CostSeriesChart series={null} loading={false} seriesError />)
+        expect(screen.getByTestId('cost-chart-error')).toHaveTextContent('Unable to load chart data for this period')
+        expect(screen.queryByText('No recorded slots yet for this period')).not.toBeInTheDocument()
+        rerender(<CostSeriesChart series={series()} loading={false} />)
         expect(screen.getByText('Actual cost so far')).toBeInTheDocument()
+        rerender(<CostSeriesChart series={{ period: 'today', bucket: 'hour', points: [] }} loading={false} />)
+        expect(screen.getByText('No recorded slots yet for this period')).toBeInTheDocument()
     })
 
-    it('replaces the legend with the hover readout', () => {
-        const { container } = render(<CostSeriesChart series={series} loading={false} />)
-        hoverFirst(container)
-
-        expect(screen.queryByText('import')).not.toBeInTheDocument()
-        expect(screen.getByText(/total/)).toBeInTheDocument()
-        expect(screen.queryByText(/without/)).not.toBeInTheDocument()
-        expect(screen.getByText('Actual cost so far')).toHaveClass('whitespace-nowrap')
-    })
-
-    it('adds the without-Darkstar total to the hover readout with cost signs', () => {
-        // actual 1.5 + self-use 2.5 - darkstar 1.5 = 2.5 cost
-        const { container } = render(
-            <CostSeriesChart series={{ ...series, battery_comparison: comparisonOf() }} loading={false} />,
-        )
-        hoverFirst(container)
-        expect(screen.getByText(/total/)).toBeInTheDocument()
-        expect(screen.getByText('-1.50 kr')).toBeInTheDocument()
-        expect(screen.getByText('-2.50 kr')).toBeInTheDocument()
-        expect(screen.getByText(/without/)).toBeInTheDocument()
-    })
-
-    it('does not render a separate comparison axis for the completed interval', () => {
-        render(
-            <CostSeriesChart
-                series={{ ...series, battery_comparison: comparisonOf({ through: '2026-10-04T03:45:00' }) }}
-                loading={false}
-            />,
-        )
-        expect(screen.queryByText('03:45')).not.toBeInTheDocument()
-        expect(screen.getByText('24')).toBeInTheDocument()
+    it('identifies a repeated-hour bucket by offset even when the other occurrence has no data', () => {
+        const gridOnly = comparison('unavailable')
+        gridOnly.time_axis = {
+            timezone: 'Europe/Stockholm',
+            start: '2026-10-25T00:00:00+02:00',
+            end: '2026-10-26T00:00:00+01:00',
+        }
+        const value = series(gridOnly)
+        value.points = [{ ...actualPoint, start: '2026-10-25T02:00:00+01:00' }]
+        render(<CostSeriesChart series={value} loading={false} />)
+        fireEvent.focus(screen.getByRole('button', { name: 'Hour 02:00 +01:00 cost details' }))
+        expect(screen.getByTestId('cost-chart-readout')).toHaveTextContent('02:00 +01:00')
     })
 })

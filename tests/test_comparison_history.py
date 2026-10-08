@@ -411,12 +411,8 @@ def test_failed_audit_durability_rolls_back_and_removes_partial_output(tmp_path,
     connection.close()
 
 
-@pytest.mark.asyncio
-async def test_real_wal_annotation_undo_and_numeric_correction_change_cache_identity(tmp_path):
-    from types import SimpleNamespace
-
-    from backend.api.routers import energy
-    from backend.baseline import BaselineBattery
+def test_real_wal_annotation_undo_preserves_history_calibration_eligibility(tmp_path):
+    from backend.battery_comparison import fit_calibration
     from backend.comparison_history import _row_observation
 
     database = tmp_path / "history-wal.db"
@@ -440,36 +436,25 @@ async def test_real_wal_annotation_undo_and_numeric_correction_change_cache_iden
 
     rows = observations()
     end = rows[-1].start + timedelta(minutes=15)
-    battery = BaselineBattery(10, 10, 95, 4000, 4000)
-    store = SimpleNamespace(db_path=str(database))
-    energy._BATTERY_FIT_CACHE.clear()
-    try:
-        original = await energy._calibrated_fit(
-            store, battery, {}, rows, end, rows[-1].start, "a" * 64
-        )
-        assert original.history["eligible_count"] == 0
-        audit_path = tmp_path / "wal.audit.json"
-        _report, _backup = apply_manifest(manifest, manifest_path, connection, database, audit_path)
-        assert database.stat().st_mtime_ns == initial_stat.st_mtime_ns
-        assert database.stat().st_size == initial_stat.st_size
-        annotated_rows = observations()
-        annotated = await energy._calibrated_fit(
-            store, battery, {}, annotated_rows, end, rows[-1].start, "a" * 64
-        )
-        assert annotated is not original and annotated.history["eligible_count"] == 2
-        undo_audit(json.loads(audit_path.read_text()), connection, database)
-        assert database.stat().st_mtime_ns == initial_stat.st_mtime_ns
-        restored = await energy._calibrated_fit(
-            store, battery, {}, observations(), end, rows[-1].start, "a" * 64
-        )
-        assert restored is original and restored.history["eligible_count"] == 0
-        connection.execute("UPDATE slot_observations SET pv_kwh=pv_kwh+.1")
-        connection.commit()
-        assert database.stat().st_mtime_ns == initial_stat.st_mtime_ns
-        corrected = await energy._calibrated_fit(
-            store, battery, {}, observations(), end, rows[-1].start, "a" * 64
-        )
-        assert corrected is not restored
-    finally:
-        energy._BATTERY_FIT_CACHE.clear()
-        connection.close()
+    original = fit_calibration(rows, 10.0, end, "a" * 64)
+    assert original.history["eligible_count"] == 0
+    audit_path = tmp_path / "wal.audit.json"
+    _report, _backup = apply_manifest(manifest, manifest_path, connection, database, audit_path)
+    assert database.stat().st_mtime_ns == initial_stat.st_mtime_ns
+    assert database.stat().st_size == initial_stat.st_size
+    annotated_rows = observations()
+    annotated = fit_calibration(annotated_rows, 10.0, end, "a" * 64)
+    assert annotated.history["eligible_count"] == 2
+    undo_audit(json.loads(audit_path.read_text()), connection, database)
+    assert database.stat().st_mtime_ns == initial_stat.st_mtime_ns
+    restored_rows = observations()
+    restored = fit_calibration(restored_rows, 10.0, end, "a" * 64)
+    assert restored.history["eligible_count"] == 0
+    connection.execute("UPDATE slot_observations SET pv_kwh=pv_kwh+.1")
+    connection.commit()
+    assert database.stat().st_mtime_ns == initial_stat.st_mtime_ns
+    corrected_rows = observations()
+    corrected = fit_calibration(corrected_rows, 10.0, end, "a" * 64)
+    assert corrected.history["eligible_count"] == 0
+    assert corrected_rows[0].pv_kwh != restored_rows[0].pv_kwh
+    connection.close()

@@ -153,6 +153,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
     } | null>(null)
     const [loading, setLoading] = useState(true)
     const [costSeries, setCostSeries] = useState<CostSeriesResponse | null>(null)
+    const [costSeriesError, setCostSeriesError] = useState(false)
     const [comparisonInfoOpen, setComparisonInfoOpen] = useState(false)
     const comparisonInfoRef = React.useRef<HTMLDivElement>(null)
     useEffect(() => {
@@ -197,6 +198,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
             }
 
             setCostSeries(null)
+            setCostSeriesError(false)
             try {
                 setFetchError(null)
                 const [seriesResult, rangeResult] = await Promise.allSettled([
@@ -205,6 +207,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                 ])
                 if (cancelled) return
                 setCostSeries(seriesResult.status === 'fulfilled' ? seriesResult.value : null)
+                setCostSeriesError(seriesResult.status === 'rejected')
                 if (rangeResult.status === 'rejected') throw rangeResult.reason
                 const data = rangeResult.value
                 if (!cancelled) {
@@ -247,46 +250,35 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
     const displayExport = rangeData?.grid_export_kwh ?? exportKwh
     const isPositive = (displayNetCost ?? 0) <= 0
 
-    const candidateComparison = costSeries?.battery_comparison
-    const comparison =
-        candidateComparison &&
-        ((candidateComparison.status === 'available' && candidateComparison.basis !== 'configured_losses') ||
-            (candidateComparison.status === 'estimated' && candidateComparison.basis !== 'calibrated')) &&
-        candidateComparison.darkstar &&
-        candidateComparison.self_use &&
-        typeof candidateComparison.saving_sek === 'number' &&
-        Number.isFinite(candidateComparison.saving_sek) &&
-        [candidateComparison.darkstar, candidateComparison.self_use].every((side) =>
-            [
-                side.grid_cost_sek,
-                side.wear_cost_sek,
-                side.stored_energy_change_kwh,
-                side.stored_energy_value_sek,
-                side.comparison_cost_sek,
-            ].every(Number.isFinite),
-        )
-            ? {
-                  ...candidateComparison,
-                  saving_sek: candidateComparison.saving_sek,
-                  darkstar: candidateComparison.darkstar,
-                  self_use: candidateComparison.self_use,
-              }
-            : null
+    const gridOnly = costSeries?.grid_only_comparison
+    const comparison = gridOnly && (gridOnly.status === 'available' || gridOnly.status === 'partial') ? gridOnly : null
     const coverage = comparison?.coverage
     const partialCoverage =
-        coverage &&
-        Number.isFinite(coverage.covered_slots) &&
-        Number.isFinite(coverage.total_slots) &&
-        coverage.total_slots > 0 &&
-        coverage.excluded_slots > 0
+        comparison?.status === 'partial' && coverage && coverage.total_slots > 0
             ? {
                   ...coverage,
-                  // Never rounds up to 100% while slots are excluded.
-                  percent: Math.min(99, Math.max(1, Math.floor((coverage.covered_slots / coverage.total_slots) * 100))),
+                  percent: Math.min(99, Math.floor((coverage.covered_slots / coverage.total_slots) * 100)),
               }
             : null
-    // Older available responses came only from the strict fitted path.
-    const comparisonVerified = comparison?.status === 'available' && comparison.basis !== 'configured_losses'
+    const comparisonTone = comparison
+        ? comparison.saving_sek > 0
+            ? 'text-good'
+            : comparison.saving_sek < 0
+              ? 'text-bad'
+              : 'text-muted'
+        : 'text-muted'
+    const comparisonSign = comparison ? (comparison.saving_sek > 0 ? '+' : comparison.saving_sek < 0 ? '−' : '') : ''
+    const throughLabel = comparison
+        ? new Intl.DateTimeFormat('sv-SE', {
+              timeZone: comparison.time_axis.timezone,
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              hourCycle: 'h23',
+          }).format(new Date(comparison.through))
+        : null
 
     const periods = [
         { key: 'today', label: 'Today' },
@@ -408,12 +400,9 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                 {comparison && (
                     <div ref={comparisonInfoRef} className="mt-2 relative z-30 text-[10px]">
                         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                            <span className="text-muted">
-                                {comparison.saving_sek >= 0 ? 'Darkstar saved you' : 'Darkstar cost you extra'}
-                            </span>
-                            <span
-                                className={`text-sm font-semibold tabular-nums ${comparison.saving_sek >= 0 ? 'text-good' : 'text-bad'}`}
-                            >
+                            <span className="text-muted">DS vs grid-only</span>
+                            <span className={`text-sm font-semibold tabular-nums ${comparisonTone}`}>
+                                {comparisonSign}
                                 {Math.abs(comparison.saving_sek).toFixed(2)} kr
                             </span>
                             {partialCoverage && (
@@ -424,105 +413,75 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                             <button
                                 type="button"
                                 aria-expanded={comparisonInfoOpen}
-                                aria-label="How this is calculated"
+                                aria-controls="grid-only-bill-details"
+                                aria-label="Grid-only bill details"
                                 onClick={() => setComparisonInfoOpen((open) => !open)}
-                                className={`px-1.5 py-0.5 rounded-ds-sm border border-line/30 text-[9px] ${
-                                    comparisonVerified ? 'text-good' : 'text-muted'
-                                } hover:bg-surface2`}
+                                className="px-1.5 py-0.5 rounded-ds-sm border border-line/30 text-muted hover:bg-surface2"
                             >
-                                {comparisonVerified ? 'Verified' : 'Estimate'} ⓘ
+                                ⓘ
                             </button>
                         </div>
                         {comparisonInfoOpen && (
                             <div
+                                id="grid-only-bill-details"
                                 role="dialog"
+                                aria-label="DS versus grid-only bill details"
                                 className="absolute left-0 top-full z-30 mt-1 w-full max-w-full rounded-ds-sm border border-line bg-surface p-2 shadow-float text-muted"
                             >
                                 <div>
-                                    An estimate against a plain self-use inverter with the same battery and the same
-                                    EV/water timing. EV and water scheduling savings are not included.
+                                    Same recorded consumption bought entirely from the grid at each slot's price,
+                                    compared with actual import costs minus export income, including estimated battery
+                                    wear.
                                 </div>
-                                {comparison.through && (
-                                    <div className="mt-1">
-                                        Completed through{' '}
-                                        {(() => {
-                                            const d = new Date(comparison.through)
-                                            const p = (n: number) => String(n).padStart(2, '0')
-                                            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-                                        })()}
-                                    </div>
-                                )}
-                                {partialCoverage && (
-                                    <div className="mt-1">
-                                        Based on {partialCoverage.covered_slots} of {partialCoverage.total_slots}{' '}
-                                        completed 15-minute slots ({partialCoverage.excluded_slots} left out because
-                                        they are missing or could not be compared reliably).
-                                    </div>
-                                )}
-                                {!comparisonVerified && (
-                                    <div className="mt-1">
-                                        {comparison.calibration_status === 'unreliable_model'
-                                            ? 'Calibration checks did not pass; configured battery losses are used.'
-                                            : comparison.calibration_status === 'insufficient_data'
-                                              ? 'Not enough reliable history to verify; configured battery losses are used.'
-                                              : 'Not yet verified; configured battery losses are used.'}
-                                    </div>
-                                )}
-                                {!comparisonVerified &&
-                                    comparison.input_assumptions &&
-                                    (comparison.input_assumptions.legacy_recording_slots > 0 ||
-                                        comparison.input_assumptions.legacy_soc_mapping_slots > 0) && (
-                                        <div className="mt-1">
-                                            Older readings use assumed measurement sources and state-of-charge mapping.
-                                        </div>
-                                    )}
-                                {comparisonVerified && (
-                                    <div className="mt-1">Verified: the model passed its accuracy checks.</div>
-                                )}
-                                <details className="mt-1">
-                                    <summary className="cursor-pointer">Cost adjustments and assumptions</summary>
-                                    <div className="mt-1 pl-2">
-                                        Comparison cost = grid + wear − stored energy value.
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 mt-1 pl-2">
-                                        <span>Common energy price</span>
-                                        <span className="tabular-nums">
-                                            {comparison.reference_price_sek_kwh?.toFixed(3)} kr/kWh
-                                        </span>
-                                        <span>Darkstar grid / wear / stored energy</span>
-                                        <span className="tabular-nums">
-                                            {comparison.darkstar.grid_cost_sek.toFixed(2)} /{' '}
-                                            {comparison.darkstar.wear_cost_sek.toFixed(2)} /{' '}
-                                            {comparison.darkstar.stored_energy_value_sek.toFixed(2)} kr
-                                        </span>
-                                        <span>Self-use grid / wear / stored energy</span>
-                                        <span className="tabular-nums">
-                                            {comparison.self_use.grid_cost_sek.toFixed(2)} /{' '}
-                                            {comparison.self_use.wear_cost_sek.toFixed(2)} /{' '}
-                                            {comparison.self_use.stored_energy_value_sek.toFixed(2)} kr
-                                        </span>
-                                    </div>
-                                </details>
+                                <div className="mt-1">Whole-installation comparison, including solar and exports.</div>
+                                <div className="mt-1">
+                                    Grid-only electricity{' '}
+                                    <span className="text-text tabular-nums">
+                                        {comparison.grid_only_cost_sek.toFixed(2)} kr
+                                    </span>
+                                </div>
+                                <div>
+                                    Grid-only battery wear{' '}
+                                    <span className="text-text tabular-nums">
+                                        {comparison.grid_only_wear_cost_sek.toFixed(2)} kr
+                                    </span>
+                                </div>
+                                <div className="mt-1">
+                                    DS electricity{' '}
+                                    <span className="text-text tabular-nums">
+                                        {comparison.ds_electricity_cost_sek.toFixed(2)} kr
+                                    </span>
+                                </div>
+                                <div>
+                                    DS battery wear{' '}
+                                    <span className="text-text tabular-nums">
+                                        {comparison.ds_wear_cost_sek.toFixed(2)} kr
+                                    </span>
+                                </div>
+                                <div>
+                                    DS incl. battery wear{' '}
+                                    <span className="text-text tabular-nums">
+                                        {comparison.ds_cost_sek.toFixed(2)} kr
+                                    </span>
+                                </div>
+                                <div className="mt-1">
+                                    Completed through {throughLabel} · {comparison.coverage.covered_slots} of{' '}
+                                    {comparison.coverage.total_slots} slots
+                                    {comparison.coverage.excluded_slots > 0
+                                        ? ` (${comparison.coverage.excluded_slots} excluded)`
+                                        : ''}
+                                </div>
                             </div>
                         )}
                     </div>
                 )}
-                {costSeries?.battery_comparison &&
-                    costSeries.battery_comparison.status !== 'available' &&
-                    costSeries.battery_comparison.status !== 'estimated' &&
-                    costSeries.battery_comparison.status !== 'no_battery' && (
-                        <div className="mt-2 text-[10px] text-muted" role="status">
-                            {costSeries.battery_comparison.status === 'insufficient_data'
-                                ? 'Battery comparison needs more reliable history to estimate battery losses, even when viewing today.'
-                                : costSeries.battery_comparison.status === 'unreliable_model'
-                                  ? 'The battery comparison estimate did not pass its accuracy checks.'
-                                  : costSeries.battery_comparison.status === 'incomplete_period'
-                                    ? costSeries.battery_comparison.reason === 'unsupported_period_measurements'
-                                        ? 'This period includes measurements that cannot be compared reliably.'
-                                        : 'Battery comparison unavailable because the selected period has missing or incomplete observations.'
-                                    : 'No completed observations are available for a battery comparison.'}
-                        </div>
-                    )}
+                {gridOnly && (gridOnly.status === 'no_data' || gridOnly.status === 'unavailable') && (
+                    <div className="mt-2 text-[10px] text-muted" role="status">
+                        {gridOnly.reason === 'no_completed_observations'
+                            ? 'No completed slots are available yet.'
+                            : 'No usable recorded inputs are available for this period.'}
+                    </div>
+                )}
             </div>
 
             {/* Financial Breakdown: one row per figure, label left, amount right */}
@@ -581,20 +540,14 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                         </span>
                     </div>
                     <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
-                        <span className="text-muted">Battery Charge</span>
-                        <span className="text-bad font-medium tabular-nums whitespace-nowrap">
-                            {`-${rangeData.grid_charge_cost_sek.toFixed(1)} kr`}
-                        </span>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
                         <span
                             className="text-muted cursor-help"
-                            title="House use covered by solar/battery instead of the grid, valued at the import price."
+                            title="Informational only. Battery charging costs are already included in Grid Import above and are not deducted again."
                         >
-                            Self-Use Saved
+                            Battery Charge
                         </span>
-                        <span className="text-accent font-medium tabular-nums whitespace-nowrap">
-                            {`${rangeData.self_consumption_savings_sek.toFixed(1)} kr`}
+                        <span className="text-bad font-medium tabular-nums whitespace-nowrap">
+                            {`-${rangeData.grid_charge_cost_sek.toFixed(1)} kr`}
                         </span>
                     </div>
                     <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
@@ -608,7 +561,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
 
             {/* Cost chart: fills the remaining card height */}
             <div className="flex-1 flex flex-col relative z-10 mb-2">
-                <CostSeriesChart series={costSeries} loading={loading} />
+                <CostSeriesChart series={costSeries} loading={loading} seriesError={costSeriesError} />
             </div>
 
             {/* Grid Flow Stats */}

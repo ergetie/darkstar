@@ -1,136 +1,16 @@
-import asyncio
-import hashlib
-import json
 import logging
 import math
-import time
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends
 
 from backend.api.deps import get_learning_store
-from backend.baseline import BaselineBattery, BaselineSlot, simulate_self_use_with_end_state
-from backend.battery_comparison import (
-    METHOD_VERSION,
-    BatteryModel,
-    CalibrationResult,
-    ComparisonBattery,
-    GridModel,
-    RecordedObservation,
-    build_comparison,
-    build_estimated_comparison,
-    combine_run_comparisons,
-    comparison_row_usable,
-    estimate_soc_endpoint_eligible,
-    fit_calibration,
-    history_coverage,
-    observation_value_digest,
-    split_comparison_runs,
-    trusted_row_provenance,
-    trusted_soc_endpoint,
-    trusted_soc_provenance,
-)
 from backend.core.secrets import load_yaml
+from backend.grid_only_comparison import GridOnlyObservation, build_grid_only_comparison
 from backend.learning.store import LearningStore
-from backend.measurement_provenance import (
-    boundary_fingerprint,
-    legacy_estimate_boundary_fingerprint,
-    parse_quality_flags,
-)
 
 logger = logging.getLogger("darkstar.api.energy")
-
-_BATTERY_FIT_CACHE: dict[str, tuple[float, CalibrationResult]] = {}
-_BATTERY_FIT_CACHE_TTL_SECONDS = 900
-_BATTERY_FIT_CACHE_LIMIT = 16
-
-
-def _cached_fit_key(
-    store: LearningStore,
-    battery: BaselineBattery,
-    config: dict[str, Any],
-    latest: datetime,
-    end: datetime,
-    observations: list[RecordedObservation],
-    expected_boundary: str,
-) -> str:
-    try:
-        db_stat = Path(store.db_path).stat()
-        database_identity: tuple[int, int, int, int] | None = (
-            db_stat.st_dev,
-            db_stat.st_ino,
-            db_stat.st_size,
-            db_stat.st_mtime_ns,
-        )
-    except OSError:
-        database_identity = None
-    provenance_rows: list[tuple[str, str, dict[str, Any]]] = []
-    for row in observations:
-        if row.start.tzinfo is None or not (
-            end.astimezone(UTC) - timedelta(days=30)
-            <= row.start.astimezone(UTC)
-            < end.astimezone(UTC)
-        ):
-            continue
-        raw_flags = parse_quality_flags(row.quality_flags)
-        relevant_flags = {
-            "source": raw_flags.get("source"),
-            "exclude": raw_flags.get("exclude") is True,
-            "recording": raw_flags.get("recording"),
-            "legacy_attestation": raw_flags.get("legacy_attestation"),
-            "comparison_history": raw_flags.get("comparison_history"),
-        }
-        provenance_rows.append(
-            (row.start.astimezone(UTC).isoformat(), observation_value_digest(row), relevant_flags)
-        )
-    provenance_rows.sort(key=lambda item: item[0])
-    provenance_digest = hashlib.sha256(
-        json.dumps(provenance_rows, sort_keys=True, default=str, separators=(",", ":")).encode()
-    ).hexdigest()
-    relevant = {
-        "db": str(store.db_path),
-        "db_identity": database_identity,
-        "battery": battery.__dict__,
-        "sensors": config.get("input_sensors", {}),
-        "meter": config.get("meter", config.get("system", {}).get("meter")),
-        "method": METHOD_VERSION,
-        "boundary": expected_boundary,
-        "provenance_digest": provenance_digest,
-        "cohort": history_coverage(observations, end, expected_boundary).get("cohort_id"),
-        "latest": latest.astimezone(UTC).isoformat(),
-        "end": end.astimezone(UTC).isoformat(),
-    }
-    return hashlib.sha256(json.dumps(relevant, sort_keys=True, default=str).encode()).hexdigest()
-
-
-async def _calibrated_fit(
-    store: LearningStore,
-    battery: BaselineBattery,
-    config: dict[str, Any],
-    observations: list[RecordedObservation],
-    end: datetime,
-    latest: datetime,
-    expected_boundary: str | None = None,
-) -> CalibrationResult:
-    expected_boundary = expected_boundary or boundary_fingerprint(config)
-    key = await asyncio.to_thread(
-        _cached_fit_key, store, battery, config, latest, end, observations, expected_boundary
-    )
-    now = time.monotonic()
-    cached = _BATTERY_FIT_CACHE.get(key)
-    if cached is not None and now - cached[0] < _BATTERY_FIT_CACHE_TTL_SECONDS:
-        return cached[1]
-    result = await asyncio.to_thread(
-        fit_calibration, observations, battery.capacity_kwh, end, expected_boundary
-    )
-    _BATTERY_FIT_CACHE[key] = (time.monotonic(), result)
-    while len(_BATTERY_FIT_CACHE) > _BATTERY_FIT_CACHE_LIMIT:
-        oldest = min(_BATTERY_FIT_CACHE, key=lambda item: _BATTERY_FIT_CACHE[item][0])
-        del _BATTERY_FIT_CACHE[oldest]
-    return result
-
 
 router = APIRouter(prefix="/api", tags=["energy"])
 
@@ -501,43 +381,6 @@ async def get_energy_range(
         }
 
 
-def _baseline_battery(config: dict[str, Any]) -> BaselineBattery | None:
-    """Battery for the without-Darkstar baseline, or None when there is no usable battery."""
-    system_cfg = config.get("system", {})
-    if not system_cfg.get("has_battery", True):
-        return None
-    cfg = system_cfg.get("battery", config.get("battery", {}))
-    battery = BaselineBattery(
-        capacity_kwh=float(cfg.get("capacity_kwh", 0.0)),
-        min_soc_percent=float(cfg.get("min_soc_percent", 0.0)),
-        max_soc_percent=float(cfg.get("max_soc_percent", 100.0)),
-        max_charge_w=float(cfg.get("max_charge_w", 0.0)),
-        max_discharge_w=float(cfg.get("max_discharge_w", 0.0)),
-        charge_efficiency=float(cfg.get("charge_efficiency", 0.95)),
-        discharge_efficiency=float(cfg.get("discharge_efficiency", 0.95)),
-    )
-    battery_values = (
-        battery.capacity_kwh,
-        battery.min_soc_percent,
-        battery.max_soc_percent,
-        battery.max_charge_w,
-        battery.max_discharge_w,
-        battery.charge_efficiency,
-        battery.discharge_efficiency,
-    )
-    if (
-        not all(math.isfinite(value) for value in battery_values)
-        or battery.capacity_kwh <= 0
-        or not 0 <= battery.min_soc_percent < battery.max_soc_percent <= 100
-        or battery.max_charge_w <= 0
-        or battery.max_discharge_w <= 0
-        or not 0 < battery.charge_efficiency <= 1
-        or not 0 < battery.discharge_efficiency <= 1
-    ):
-        return None
-    return battery
-
-
 @router.get(
     "/energy/cost-series",
     summary="Get Cost Series",
@@ -552,7 +395,7 @@ async def get_cost_series(
     end_date: str | None = None,
     store: LearningStore = Depends(get_learning_store),
 ) -> dict[str, Any]:
-    """Cost per bucket from SlotObservation, with the cumulative net cost."""
+    """Return metered cash-flow buckets and a directly priced grid-only comparison."""
     import pytz
     from sqlalchemy import select
 
@@ -560,36 +403,28 @@ async def get_cost_series(
 
     config = load_yaml("config.yaml")
     tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
-    now_local = datetime.now(tz)
+    now_utc = datetime.now(UTC)
+    now_local = now_utc.astimezone(tz)
 
     try:
         query_start, query_end = _resolve_period(period, start_date, end_date, now_local.date())
-    except ValueError as e:
-        return {"period": period, "bucket": "hour", "points": [], "error": str(e)}
+    except ValueError as exc:
+        return {"period": period, "bucket": "hour", "points": [], "error": str(exc)}
 
     hourly = query_start == query_end
-    day_start = tz.localize(datetime(query_start.year, query_start.month, query_start.day))
-    next_day = query_end + timedelta(days=1)
-    day_end_excl = tz.localize(datetime(next_day.year, next_day.month, next_day.day))
-
-    battery = _baseline_battery(config)
-
-    compare_end_local = min(day_end_excl, now_local)
-    compare_end_utc = compare_end_local.astimezone(UTC)
-    # Only complete 15-minute slots enter calibration and comparison. Keep the
-    # legacy cash-flow series' started-slot coverage below unchanged.
-    complete_boundary_utc = now_local.astimezone(UTC).replace(
-        minute=now_local.astimezone(UTC).minute - now_local.astimezone(UTC).minute % 15,
-        second=0,
-        microsecond=0,
+    day_start_local = tz.localize(datetime.combine(query_start, datetime.min.time()))
+    day_end_date = query_end + timedelta(days=1)
+    day_end_local = tz.localize(datetime.combine(day_end_date, datetime.min.time()))
+    day_start_utc = day_start_local.astimezone(UTC)
+    day_end_utc = day_end_local.astimezone(UTC)
+    actual_end_utc = min(day_end_utc, now_utc)
+    minute_floor_utc = now_utc.replace(
+        minute=now_utc.minute - now_utc.minute % 15, second=0, microsecond=0
     )
-    comparison_cutoff = min(compare_end_utc, complete_boundary_utc)
-    read_start_utc = min(
-        day_start.astimezone(UTC) - timedelta(days=1),
-        compare_end_utc - timedelta(days=31),
-    )
-    read_end_utc = compare_end_utc + timedelta(days=1)
+    comparison_cutoff_utc = min(day_end_utc, minute_floor_utc)
 
+    # The cost-series route only needs the selected period. Wide historical scans and
+    # preceding-SoC reads belonged to the retired simulation/calibration path.
     async with store.AsyncSession() as session:
         result = await session.execute(
             select(
@@ -598,448 +433,110 @@ async def get_cost_series(
                 SlotObservation.import_price_sek_kwh,
                 SlotObservation.export_kwh,
                 SlotObservation.export_price_sek_kwh,
-                SlotObservation.pv_kwh,
                 SlotObservation.load_kwh,
                 SlotObservation.water_kwh,
                 SlotObservation.ev_charging_kwh,
                 SlotObservation.batt_charge_kwh,
                 SlotObservation.batt_discharge_kwh,
-                SlotObservation.soc_start_percent,
-                SlotObservation.soc_end_percent,
                 SlotObservation.quality_flags,
             ).where(
-                # Wide ISO bounds keep offset-formatted rows around DST; precise
-                # selected-period and completed-slot filtering happens in UTC below.
-                SlotObservation.slot_start >= read_start_utc.astimezone(tz).isoformat(),
-                SlotObservation.slot_start < read_end_utc.astimezone(tz).isoformat(),
+                SlotObservation.slot_start >= day_start_local.isoformat(),
+                SlotObservation.slot_start < day_end_local.isoformat(),
             )
         )
         rows = result.fetchall()
-        # Include the single immediately preceding completed slot when the first
-        # selected observation has no start SoC. Comparison code verifies contiguity.
-        prior_result = await session.execute(
-            select(
-                SlotObservation.slot_start,
-                SlotObservation.soc_end_percent,
-                SlotObservation.quality_flags,
-            ).where(
-                SlotObservation.slot_start >= (day_start - timedelta(minutes=30)).isoformat(),
-                SlotObservation.slot_start < day_start.isoformat(),
-            )
-        )
-        prior_rows = prior_result.fetchall()
 
-    # Parse once and order chronologically (not by string, so DST changes sort correctly).
-    slots: list[tuple[datetime, Any]] = []
+    parsed_rows: list[tuple[datetime, Any, datetime]] = []
     for row in rows:
         try:
-            start = datetime.fromisoformat(str(row[0]))
-        except ValueError:
+            raw_start = datetime.fromisoformat(str(row[0]))
+        except (TypeError, ValueError):
             continue
-        local = start.astimezone(tz) if start.tzinfo else tz.localize(start)
-        slots.append((local, row))
-    slots.sort(key=lambda item: item[0])
+        local_start = raw_start.astimezone(tz) if raw_start.tzinfo else tz.localize(raw_start)
+        if not query_start <= local_start.date() <= query_end:
+            continue
+        if local_start.astimezone(UTC) >= actual_end_utc:
+            continue
+        parsed_rows.append((local_start, row, raw_start))
+    parsed_rows.sort(key=lambda item: item[0].astimezone(UTC))
 
-    def observation(row: Any, local: datetime) -> RecordedObservation:
-        return RecordedObservation(
-            # Preserve missing timezone information for comparison validation;
-            # the actual cash-flow view retains its historical localization.
-            start=datetime.fromisoformat(str(row[0])),
-            import_kwh=None if row[1] is None else float(row[1]),
-            import_price=None if row[2] is None else float(row[2]),
-            export_kwh=None if row[3] is None else float(row[3]),
-            export_price=None if row[4] is None else float(row[4]),
-            pv_kwh=None if row[5] is None else float(row[5]),
-            load_kwh=None if row[6] is None else float(row[6]),
-            water_kwh=None if row[7] is None else float(row[7]),
-            ev_kwh=None if row[8] is None else float(row[8]),
-            charge_kwh=None if row[9] is None else float(row[9]),
-            discharge_kwh=None if row[10] is None else float(row[10]),
-            soc_start_percent=None if row[11] is None else float(row[11]),
-            soc_end_percent=None if row[12] is None else float(row[12]),
-            quality_flags=row[13],
-        )
-
-    selected_slots = [
-        (local, row)
-        for local, row in slots
-        if local.date() >= query_start
-        and local.date() <= query_end
-        and local.astimezone(UTC) < compare_end_utc
-    ]
-    selected_complete = [
-        (local, row)
-        for local, row in selected_slots
-        if local.astimezone(UTC) + timedelta(minutes=15) <= comparison_cutoff
-    ]
-    expected_starts: list[datetime] = []
-    expected_cursor = day_start.astimezone(UTC)
-    while expected_cursor < comparison_cutoff:
-        expected_starts.append(expected_cursor)
-        expected_cursor += timedelta(minutes=15)
-    all_observations = [observation(row, local) for local, row in slots]
-    expected_boundary = boundary_fingerprint(config)
-    prior_soc: float | None = None
-    if selected_complete:
-        first_utc = selected_complete[0][0].astimezone(UTC)
-        candidate_prior = [
-            (local, float(row[12]))
-            for local, row in slots
-            if row[12] is not None and local.astimezone(UTC) + timedelta(minutes=15) == first_utc
-        ]
-        if candidate_prior:
-            prior_soc = candidate_prior[-1][1]
-        else:
-            for raw_start, raw_soc, _raw_flags in prior_rows:
-                try:
-                    parsed = datetime.fromisoformat(str(raw_start))
-                    parsed = parsed.astimezone(tz) if parsed.tzinfo else tz.localize(parsed)
-                except (ValueError, TypeError):
-                    continue
-                if (
-                    parsed.astimezone(UTC) + timedelta(minutes=15) == first_utc
-                    and raw_soc is not None
-                ):
-                    prior_soc = float(raw_soc)
-    slots = selected_slots
-
-    # Per bucket: import cost, export revenue, baseline import cost, baseline export revenue.
-    buckets: dict[datetime, list[float]] = {}
-    real_charge_kwh = real_discharge_kwh = 0.0
-    for local, row in slots:
-        key = local.replace(minute=0, second=0, microsecond=0)
+    # Keep actual cash-flow accounting on every selected started slot, including the
+    # current in-progress slot. Comparison eligibility is calculated separately below.
+    actual_buckets: dict[datetime, list[float]] = {}
+    for local_start, row, _raw_start in parsed_rows:
+        key = local_start.replace(minute=0, second=0, microsecond=0)
         if not hourly:
-            key = key.replace(hour=0)
-        bucket = buckets.setdefault(key, [0.0, 0.0, 0.0, 0.0])
+            key = tz.localize(datetime(local_start.year, local_start.month, local_start.day))
+        bucket = actual_buckets.setdefault(key, [0.0, 0.0])
         bucket[0] += float(row[1] or 0.0) * float(row[2] or 0.0)
         bucket[1] += float(row[3] or 0.0) * float(row[4] or 0.0)
-        real_charge_kwh += float(row[9] or 0.0)
-        real_discharge_kwh += float(row[10] or 0.0)
 
-    baseline_summary: dict[str, float | None] | None = None
-    if battery is not None and slots:
-        simulation = simulate_self_use_with_end_state(
-            [
-                BaselineSlot(
-                    pv_kwh=float(row[5] or 0.0),
-                    load_kwh=float(row[6] or 0.0),
-                    water_kwh=float(row[7] or 0.0),
-                    ev_kwh=float(row[8] or 0.0),
-                    soc_end_percent=None if row[12] is None else float(row[12]),
-                )
-                for _, row in slots
-            ],
-            battery,
-            prior_soc,
-        )
-        flows = simulation.flows
-        baseline_charge_kwh = baseline_discharge_kwh = 0.0
-        for (local, row), flow in zip(slots, flows, strict=True):
-            key = local.replace(minute=0, second=0, microsecond=0)
-            if not hourly:
-                key = key.replace(hour=0)
-            bucket = buckets[key]
-            bucket[2] += flow.import_kwh * float(row[2] or 0.0)
-            bucket[3] += flow.export_kwh * float(row[4] or 0.0)
-            baseline_charge_kwh += flow.charge_kwh
-            baseline_discharge_kwh += flow.discharge_kwh
+    expected_starts: list[datetime] = []
+    cursor = day_start_utc
+    while cursor < comparison_cutoff_utc:
+        expected_starts.append(cursor)
+        cursor += timedelta(minutes=15)
 
-        cycle_cost_kwh = float(
-            config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0)
-        )
-        baseline_net = sum(b[2] - b[3] for b in buckets.values())
-        baseline_wear = (baseline_charge_kwh + baseline_discharge_kwh) * cycle_cost_kwh * 0.5
-        real_net = sum(b[0] - b[1] for b in buckets.values())
-        real_wear = (real_charge_kwh + real_discharge_kwh) * cycle_cost_kwh * 0.5
+    completed_rows: list[tuple[Any, datetime]] = []
+    for local_start, row, raw_start in parsed_rows:
+        if local_start.astimezone(UTC) + timedelta(minutes=15) <= comparison_cutoff_utc:
+            completed_rows.append((row, raw_start))
 
-        # Energy left in the battery at the end of the period is worth something: value the
-        # difference between the real and the simulated end state at the period's average
-        # import price, net of the discharge loss. Unknown real end SoC means no adjustment.
-        real_end_soc = next((float(r[12]) for _, r in reversed(slots) if r[12] is not None), None)
-        stored_diff_kwh: float | None = None
-        stored_value_sek: float | None = None
-        if real_end_soc is not None:
-            stored_diff_kwh = (
-                (real_end_soc - simulation.end_soc_percent) / 100.0 * battery.capacity_kwh
+    system_config = config.get("system", {})
+    battery_present = system_config.get("has_battery", True)
+    if battery_present:
+        try:
+            cycle_cost_kwh = float(
+                config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0)
             )
-            prices = [float(r[2]) for _, r in slots if r[2] is not None]
-            avg_import_price = sum(prices) / len(prices) if prices else 0.0
-            stored_value_sek = stored_diff_kwh * avg_import_price * battery.discharge_efficiency
-        baseline_summary = {
-            "net_cost_sek": round(baseline_net, 3),
-            "battery_wear_cost_sek": round(baseline_wear, 3),
-            "net_cost_incl_wear_sek": round(baseline_net + baseline_wear, 3),
-            "saving_incl_wear_sek": round(
-                (baseline_net + baseline_wear) - (real_net + real_wear) + (stored_value_sek or 0.0),
-                3,
-            ),
-            "stored_energy_difference_kwh": (
-                None if stored_diff_kwh is None else round(stored_diff_kwh, 3)
-            ),
-            "stored_energy_value_sek": (
-                None if stored_value_sek is None else round(stored_value_sek, 3)
-            ),
-        }
-
-    battery_comparison: dict[str, Any]
-    if battery is None:
-        battery_comparison = {
-            "status": "no_battery",
-            "reason": "battery_not_configured",
-            "method_version": METHOD_VERSION,
-            "history": {"considered_count": 0, "eligible_count": 0, "exclusions": {}},
-        }
-    elif not expected_starts or not selected_complete:
-        battery_comparison = {
-            "status": "no_data",
-            "reason": "no_completed_observations",
-            "method_version": METHOD_VERSION,
-            "history": {"considered_count": 0, "eligible_count": 0, "exclusions": {}},
-        }
+        except (TypeError, ValueError, OverflowError):
+            # Keep malformed configured wear visible as unavailable data; never
+            # silently substitute a zero-cost battery.
+            cycle_cost_kwh = math.nan
     else:
-        fit_end = comparison_cutoff
-        latest_completed = max(
-            (
-                item.start
-                for item in all_observations
-                if item.start.tzinfo is not None and item.start.astimezone(UTC) < fit_end
-            ),
-            default=None,
+        cycle_cost_kwh = 0.0
+    comparison_observations = [
+        GridOnlyObservation(
+            start=raw_start,
+            import_kwh=row[1],
+            import_price_sek_kwh=row[2],
+            export_kwh=row[3],
+            export_price_sek_kwh=row[4],
+            load_kwh=row[5],
+            water_kwh=row[6],
+            ev_charging_kwh=row[7],
+            batt_charge_kwh=row[8],
+            batt_discharge_kwh=row[9],
+            quality_flags=row[10],
         )
-        fit = await _calibrated_fit(
-            store,
-            battery,
-            config,
-            all_observations,
-            fit_end,
-            latest_completed or fit_end,
-            expected_boundary,
-        )
-        comp_battery = ComparisonBattery(
-            capacity_kwh=battery.capacity_kwh,
-            min_soc_percent=battery.min_soc_percent,
-            max_soc_percent=battery.max_soc_percent,
-            max_charge_w=battery.max_charge_w,
-            max_discharge_w=battery.max_discharge_w,
-        )
-
-        def comparison_bucket(start: datetime) -> str:
-            local = start.astimezone(tz)
-            key = local.replace(minute=0, second=0, microsecond=0)
-            if not hourly:
-                key = tz.localize(datetime(local.year, local.month, local.day))
-            return key.isoformat()
-
-        selected_observations = [observation(row, local) for local, row in selected_complete]
-        assumed_estimate_boundaries = frozenset({legacy_estimate_boundary_fingerprint(config)})
-        # Segment the period: usable slots form maximal runs of consecutive 15-minute
-        # slots (UTC elapsed time); unusable or missing slots are excluded and break runs.
-        rows_by_start = {
-            local.astimezone(UTC): item
-            for (local, _), item in zip(selected_complete, selected_observations, strict=True)
-        }
-        usable_by_start = {
-            start: comparison_row_usable(item, expected_boundary, assumed_estimate_boundaries)
-            for start, item in rows_by_start.items()
-        }
-        runs = split_comparison_runs(
-            expected_starts, rows_by_start, lambda item: usable_by_start[item.start.astimezone(UTC)]
-        )
-        usable_rows = [item for run in runs for item in run]
-        total_slots = len(expected_starts)
-        expected_cohort = (fit.history or {}).get("cohort_id")
-        if expected_cohort is None and usable_rows:
-            inferred = trusted_row_provenance(usable_rows[0], expected_boundary)
-            expected_cohort = inferred[0] if inferred is not None else None
-        period_matches_cohort = bool(expected_cohort) and all(
-            (provenance := trusted_row_provenance(item, expected_boundary)) is not None
-            and provenance[0] == expected_cohort
-            for item in usable_rows
-        )
-
-        def run_start_socs(
-            first_observation: RecordedObservation,
-        ) -> tuple[float | None, float | None]:
-            """Strict and estimate start SoC for a run: own start, else preceding slot's end."""
-            first_utc = first_observation.start.astimezone(UTC)
-            first_flags = parse_quality_flags(first_observation.quality_flags)
-            if first_observation.soc_start_percent is not None and trusted_soc_endpoint(
-                first_observation, "start"
-            ):
-                return first_observation.soc_start_percent, first_observation.soc_start_percent
-            if (
-                first_observation.soc_start_percent is not None
-                and first_flags.get("source") == "recorder"
-                and "recording" not in first_flags
-                and "comparison_history" not in first_flags
-            ):
-                # Only metadata-absent legacy endpoints may be explicitly assumed.
-                return None, first_observation.soc_start_percent
-            strict: float | None = None
-            estimate: float | None = None
-            for prior_observation in all_observations:
-                if prior_observation.start.tzinfo is None:
-                    continue
-                if prior_observation.start.astimezone(UTC) + timedelta(minutes=15) != first_utc:
-                    continue
-                prior_trusted = trusted_soc_provenance(prior_observation, "end", expected_boundary)
-                prior_assumable = estimate_soc_endpoint_eligible(
-                    prior_observation, "end", expected_boundary, assumed_estimate_boundaries
-                )
-                if prior_observation.soc_end_percent is not None:
-                    if (
-                        period_matches_cohort
-                        and prior_trusted is not None
-                        and prior_trusted[0] == expected_cohort
-                    ):
-                        strict = prior_observation.soc_end_percent
-                    if prior_assumable:
-                        estimate = prior_observation.soc_end_percent
-                break
-            return strict, estimate
-
-        cycle_cost = float(config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0))
-        comparison: dict[str, Any] | None = None
-        failure_reason: str | None = None
-        strict_period_reason: str | None = None
-        covered_rows: list[RecordedObservation] = []
-        # The calibrated (Verified) path validates the whole selected period, so it is
-        # only attempted when every expected slot is usable and forms a single run.
-        if (
-            fit.status == "available"
-            and fit.diagnostics is not None
-            and period_matches_cohort
-            and len(runs) == 1
-            and len(runs[0]) == total_slots
-        ):
-            strict_prior_soc, _ = run_start_socs(runs[0][0])
-            comparison, strict_period_reason = build_comparison(
-                runs[0],
-                strict_prior_soc,
-                comp_battery,
-                fit.diagnostics,
-                cycle_cost,
-                comparison_bucket,
-            )
-            if comparison is not None:
-                covered_rows = list(runs[0])
-        if comparison is None and runs:
-            configured_grid = GridModel(eta_out=1.0, eta_in=1.0)
-            configured_storage = BatteryModel(
-                eta_charge=battery.charge_efficiency,
-                eta_discharge=battery.discharge_efficiency,
-            )
-            run_results: list[tuple[dict[str, Any], int]] = []
-            for run in runs:
-                _, estimate_prior_soc = run_start_socs(run[0])
-                run_rows = list(run)
-                if estimate_prior_soc is None:
-                    # No real start SoC: drop the first slot and start from its measured end.
-                    if len(run_rows) < 2:
-                        failure_reason = failure_reason or "missing_start_soc"
-                        continue
-                    estimate_prior_soc = run_rows[0].soc_end_percent
-                    run_rows = run_rows[1:]
-                run_result, run_reason = build_estimated_comparison(
-                    run_rows,
-                    estimate_prior_soc,
-                    comp_battery,
-                    configured_grid,
-                    configured_storage,
-                    cycle_cost,
-                    comparison_bucket,
-                    expected_boundary,
-                    assumed_estimate_boundaries,
-                )
-                if run_result is None:
-                    failure_reason = failure_reason or run_reason
-                    continue
-                run_results.append((run_result, len(run_rows)))
-                covered_rows.extend(run_rows)
-            if run_results:
-                comparison = combine_run_comparisons(run_results)
-            if comparison is not None:
-                selected_observations = covered_rows
-                comparison["input_assumptions"] = {
-                    "legacy_recording_slots": sum(
-                        "recording" not in parse_quality_flags(item.quality_flags)
-                        and trusted_row_provenance(item, expected_boundary) is None
-                        for item in selected_observations
-                    ),
-                    "legacy_soc_mapping_slots": sum(
-                        trusted_row_provenance(item, expected_boundary) is None
-                        and any(
-                            trusted_row_provenance(item, boundary) is not None
-                            for boundary in assumed_estimate_boundaries
-                        )
-                        for item in selected_observations
-                    ),
-                }
-                comparison["calibration_status"] = (
-                    "unreliable_model"
-                    if strict_period_reason == "period_validation_failed"
-                    else fit.status
-                )
-                comparison["calibration_reason"] = strict_period_reason or fit.reason
-                if fit.diagnostics is not None:
-                    comparison["calibration"] = fit.diagnostics.as_dict()
-                comparison["history"] = fit.history or {
-                    "considered_count": 0,
-                    "eligible_count": 0,
-                    "exclusions": {},
-                }
-        coverage = {
-            "covered_slots": len(covered_rows),
-            "total_slots": total_slots,
-            "excluded_slots": total_slots - len(covered_rows),
-        }
-        if comparison is not None:
-            if comparison.get("basis") == "calibrated":
-                comparison["history"] = fit.history or {}
-            comparison["coverage"] = coverage
-            battery_comparison = comparison
-        else:
-            if strict_period_reason == "period_validation_failed":
-                status, reason = "unreliable_model", "period_validation_failed"
-            elif not runs:
-                status, reason = "incomplete_period", "unsupported_period_measurements"
-            elif failure_reason is not None:
-                status, reason = "incomplete_period", failure_reason
-            else:
-                status, reason = fit.status, fit.reason
-            battery_comparison = {
-                "status": status,
-                "reason": reason,
-                "method_version": METHOD_VERSION,
-                "calibration_status": fit.status,
-                "calibration_reason": strict_period_reason or fit.reason,
-                "history": fit.history
-                or {"considered_count": 0, "eligible_count": 0, "exclusions": {}},
-                "through": (
-                    selected_complete[-1][0].astimezone(UTC) + timedelta(minutes=15)
-                ).isoformat(),
-                "coverage": coverage,
-            }
-            if fit.diagnostics is not None:
-                battery_comparison["calibration"] = fit.diagnostics.as_dict()
+        for row, raw_start in completed_rows
+    ]
+    grid_only_comparison = build_grid_only_comparison(
+        comparison_observations,
+        expected_starts,
+        timezone=tz,
+        hourly=hourly,
+        axis_start=day_start_utc,
+        axis_end=day_end_utc,
+        has_completed_observations=bool(completed_rows),
+        battery_present=battery_present,
+        cycle_cost_kwh=cycle_cost_kwh,
+    )
 
     points: list[dict[str, Any]] = []
     cumulative = 0.0
-    baseline_cumulative = 0.0
-    for key in sorted(buckets):
-        import_cost, export_rev, baseline_import_cost, baseline_export_rev = buckets[key]
-        cumulative += import_cost - export_rev
-        point: dict[str, Any] = {
-            "start": key.isoformat(),
-            "import_cost_sek": round(import_cost, 3),
-            "export_revenue_sek": round(export_rev, 3),
-            "net_cost_sek": round(import_cost - export_rev, 3),
-            "cumulative_net_cost_sek": round(cumulative, 3),
-        }
-        if baseline_summary is not None:
-            baseline_cumulative += baseline_import_cost - baseline_export_rev
-            point["baseline_cumulative_net_cost_sek"] = round(baseline_cumulative, 3)
-        points.append(point)
+    for key in sorted(actual_buckets):
+        import_cost, export_revenue = actual_buckets[key]
+        cumulative += import_cost - export_revenue
+        points.append(
+            {
+                "start": key.isoformat(),
+                "import_cost_sek": round(import_cost, 3),
+                "export_revenue_sek": round(export_revenue, 3),
+                "net_cost_sek": round(import_cost - export_revenue, 3),
+                "cumulative_net_cost_sek": round(cumulative, 3),
+            }
+        )
 
     return {
         "period": period,
@@ -1047,6 +544,5 @@ async def get_cost_series(
         "end_date": query_end.isoformat(),
         "bucket": "hour" if hourly else "day",
         "points": points,
-        "baseline": baseline_summary,
-        "battery_comparison": battery_comparison,
+        "grid_only_comparison": grid_only_comparison,
     }

@@ -5,7 +5,6 @@ Production-grade test suite for EV plug-in replanning fixes.
 Covers asyncio cross-thread dispatch, config path fixes, and executor gating.
 """
 
-import asyncio
 from pathlib import Path
 from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -290,8 +289,12 @@ class TestExecutorEVSwitchGating:
             soc_projected=50,
         )
 
-        # Mock _control_ev_charger to capture what value is passed
-        with patch.object(engine, "_control_ev_charger", new_callable=AsyncMock) as mock_control:
+        # Mock _control_ev_charger to capture what value is passed without executing HA actions.
+        with (
+            patch.object(engine, "_control_ev_charger", new_callable=AsyncMock) as mock_control,
+            patch.object(engine.history, "log_execution", return_value=1),
+            patch.object(engine.history, "update_slot_observation"),
+        ):
             # Mock the load disaggregator to return actual EV charging
             mock_disaggregator = MagicMock()
             mock_disaggregator.update_current_power = AsyncMock()
@@ -300,9 +303,7 @@ class TestExecutorEVSwitchGating:
 
             # Mock other dependencies
             engine.ha_client = MagicMock()
-            engine.dispatcher = MagicMock()
-
-            # Mock _gather_system_state
+            engine.dispatcher = MagicMock(execute=AsyncMock(return_value=[]))
             state = SystemState(current_soc_percent=50.0)
             with (
                 patch.object(
@@ -324,7 +325,9 @@ class TestExecutorEVSwitchGating:
                 )
 
                 # Run the tick
-                await engine._tick()
+                result = await engine._tick()
+
+                assert result["success"] is True
 
                 # Verify _control_ev_charger was called with the slot
                 # (which has no per-device EV plans, so no switch will be turned on)
