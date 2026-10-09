@@ -19,6 +19,7 @@ export interface WaterHeaterEntity {
     power_kw: number
     min_kwh_per_day: number
     max_hours_between_heating: number
+    idle_power_threshold_kw?: number
     water_min_spacing_hours: number
     sensor: string
     target_entity: string
@@ -91,6 +92,7 @@ const createDefaultWaterHeater = (index: number): WaterHeaterEntity => ({
     power_kw: 3.0,
     min_kwh_per_day: 6.0,
     max_hours_between_heating: 8,
+    idle_power_threshold_kw: 0,
     water_min_spacing_hours: 4,
     sensor: '',
     target_entity: '',
@@ -1071,9 +1073,46 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                         }
                                                         disabled={disabled}
                                                         step={1}
-                                                        min={1}
-                                                        max={24}
+                                                        min={0}
                                                     />
+                                                    <p className="text-[10px] text-muted mt-1">
+                                                        Soft comfort ceiling; 0 disables it. Values above 24 hours are
+                                                        supported.
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <label
+                                                        htmlFor={`water-heater-idle-cutoff-${index}`}
+                                                        className="text-[10px] uppercase font-bold text-muted mb-1.5 block"
+                                                    >
+                                                        Idle Power Cutoff (W)
+                                                    </label>
+                                                    <NumberInput
+                                                        id={`water-heater-idle-cutoff-${index}`}
+                                                        aria-describedby={`water-heater-idle-cutoff-help-${index}`}
+                                                        value={
+                                                            ((entity as WaterHeaterEntity).idle_power_threshold_kw ??
+                                                                0) * 1000
+                                                        }
+                                                        onChange={(val) => {
+                                                            const watts = Number(val)
+                                                            if (!Number.isFinite(watts) || watts < 0) return
+
+                                                            updateEntity(index, {
+                                                                idle_power_threshold_kw: watts / 1000,
+                                                            } as Partial<WaterHeaterEntity>)
+                                                        }}
+                                                        disabled={disabled}
+                                                        step={10}
+                                                        min={0}
+                                                    />
+                                                    <p
+                                                        id={`water-heater-idle-cutoff-help-${index}`}
+                                                        className="text-[10px] text-muted mt-1"
+                                                    >
+                                                        Power at or below this threshold is treated as idle and excluded
+                                                        from heating totals. Set to 0 to disable idle filtering.
+                                                    </p>
                                                 </div>
                                                 <div>
                                                     <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">

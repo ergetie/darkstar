@@ -295,3 +295,28 @@ async def test_all_disabled_devices_have_disabled_zero_backfill_provenance(make_
     assert row["ev_charging_kwh"] == row["water_kwh"] == 0.0
     assert components["ev"]["method"] == components["water"]["method"] == "disabled_zero"
     assert components["load"]["method"] == "derived_history"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing_heater", [False, True])
+async def test_water_cutoff_backfill_retains_idle_load_and_truthful_coverage(
+    make_engine, missing_heater
+):
+    heaters = [{"id": "tank", "sensor": "sensor.wh", "idle_power_threshold_kw": 0.1}]
+    if missing_heater:
+        heaters.append({"id": "unknown"})
+    config = make_config(water_heaters=heaters)
+    engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10)))
+    await run(
+        engine,
+        constant_history({"sensor.load": 4, "sensor.wh": 0.06, "sensor.ev": 0, "sensor.grid": 4}),
+    )
+    row = stored(learning_engine).iloc[0]
+    assert row["water_kwh"] == 0
+    assert row["load_kwh"] == 1
+    assert row["import_kwh"] == 1
+    metadata = row["quality_flags"]
+    assert metadata["water_heater_energy"]["devices"]["tank"]["energy_kwh"] == 0
+    assert metadata["recording"]["components"]["water"]["method"] == (
+        "unknown" if missing_heater else "power_history"
+    )

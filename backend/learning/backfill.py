@@ -16,6 +16,11 @@ from backend.core.slot_energy import (
     compute_slot_energy,
     isolate_base_load,
 )
+from backend.core.water_heating import (
+    DEFAULT_IDLE_POWER_THRESHOLD_KW,
+    WATER_HEATER_ENERGY_SCHEMA_VERSION,
+    WATER_HEATER_ENERGY_SEMANTICS,
+)
 from backend.learning import get_learning_engine
 from backend.measurement_provenance import metadata_object, recording_metadata
 from backend.validation import get_max_energy_per_slot, validate_energy_values
@@ -146,14 +151,16 @@ class BackfillEngine:
             enabled_devices = [item for item in configured_devices if item.get("enabled", True)]
             if configured_devices and not enabled_devices:
                 components[name]["method"] = "disabled_zero"
-            if components[name]["method"] == "power_history" and any(
+            if name == "water" and any(value is None for value in device_values.values()):
+                components[name]["method"] = "unknown"
+            elif components[name]["method"] == "power_history" and any(
                 value is None for value in device_values.values()
             ):
                 components[name]["method"] = "mixed"
             if components[name]["method"] == "power_history" and any(
                 not item.get("sensor") for item in enabled_devices
             ):
-                components[name]["method"] = "mixed"
+                components[name]["method"] = "unknown" if name == "water" else "mixed"
         if components["load"]["method"] == "power_history":
             components["load"]["method"] = (
                 "mixed"
@@ -170,6 +177,27 @@ class BackfillEngine:
             owner="backfill",
         )
 
+        water_heater_energy: dict[str, float] = {}
+        water_heater_devices: dict[str, dict[str, Any]] = {}
+        for heater in self.config.get("water_heaters", []):
+            if not heater.get("enabled", True):
+                continue
+            heater_id = str(heater.get("id", ""))
+            sensor = heater.get("sensor")
+            value = energy.water.get(str(sensor)) if sensor else None
+            source = "power_history" if value is not None else "unavailable"
+            if heater_id:
+                if value is not None:
+                    water_heater_energy[heater_id] = float(value)
+                water_heater_devices[heater_id] = {
+                    "energy_kwh": float(value) if value is not None else None,
+                    "source": source,
+                    "idle_power_threshold_kw": float(
+                        heater.get("idle_power_threshold_kw", DEFAULT_IDLE_POWER_THRESHOLD_KW)
+                    ),
+                    "coverage": "complete" if value is not None else "unavailable",
+                }
+
         return {
             "slot_start": slot_start,
             "slot_end": slot_end,
@@ -178,13 +206,22 @@ class BackfillEngine:
             "import_kwh": energy.import_kwh,
             "export_kwh": energy.export_kwh,
             "water_kwh": water_kwh,
+            "water_heater_energy": water_heater_energy or None,
             "ev_charging_kwh": ev_kwh,
             "batt_charge_kwh": energy.batt_charge,
             "batt_discharge_kwh": energy.batt_discharge,
             "soc_start_percent": self._value_at(soc_points, slot_start),
             "soc_end_percent": self._value_at(soc_points, slot_end),
             "duration_minutes": SLOT_MINUTES,
-            "quality_flags": {"source": "backfill", "recording": recording},
+            "quality_flags": {
+                "source": "backfill",
+                "recording": recording,
+                "water_heater_energy": {
+                    "schema_version": WATER_HEATER_ENERGY_SCHEMA_VERSION,
+                    "semantics": WATER_HEATER_ENERGY_SEMANTICS,
+                    "devices": water_heater_devices,
+                },
+            },
         }
 
     def integrate_slots(

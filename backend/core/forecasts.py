@@ -613,6 +613,9 @@ async def get_all_input_data(
     # Load config
     with Path(config_path).open() as f:
         config = yaml.safe_load(f)
+    from backend.core.water_heating import validate_water_heating_config
+
+    validate_water_heating_config(config)
 
     # --- AUTO-RUN ML INFERENCE IF ANY AURORA DOMAIN IS ACTIVE ---
     _forecasting_cfg: Any = config.get("forecasting", {}) or {}
@@ -653,9 +656,17 @@ async def get_all_input_data(
     forecast_result = await get_forecast_data(price_data, config)
     forecast_data = forecast_result.get("slots", [])
     extended_forecast_data = forecast_result.get("extended_slots", [])
+    timezone = pytz.timezone(str(config.get("timezone", "Europe/Stockholm")))
+    now = datetime.now(timezone)
+    horizon_start = now.replace(minute=now.minute // 15 * 15, second=0, microsecond=0)
+    progress_cutoff = next(
+        (slot["start_time"] for slot in price_data if slot["start_time"] >= horizon_start),
+        price_data[0]["start_time"] if price_data else None,
+    )
     initial_state = await ha_client.get_initial_state(
         config_path,
         ev_plug_overrides=ev_plug_overrides,
+        progress_cutoff=progress_cutoff,
     )
 
     return {

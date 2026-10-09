@@ -24,6 +24,11 @@ from backend.core.ev_plug import (
     resolve_plug_state,
 )
 from backend.core.ha_timestamps import reading_timestamp
+from backend.core.water_heating import (
+    DEFAULT_IDLE_POWER_THRESHOLD_KW,
+    normalize_active_power_kw,
+    validate_water_heating_config,
+)
 from backend.health import set_load_forecast_status
 
 logger = logging.getLogger("darkstar.core.ha_client")
@@ -210,13 +215,8 @@ async def get_ha_sensor_kw_normalized(entity_id: str) -> float | None:
         return None
 
     try:
-        value = float(raw_value)
-        # Check units
         attributes = state_data.get("attributes", {})
-        unit = str(attributes.get("unit_of_measurement", "")).upper()
-        if unit == "W":
-            return value / 1000.0
-        return value
+        return normalize_active_power_kw(raw_value, attributes.get("unit_of_measurement", "kW"))
     except (TypeError, ValueError):
         return None
 
@@ -233,15 +233,6 @@ def _state_timestamp(state: dict[str, Any]) -> datetime | None:
             except (TypeError, ValueError):
                 continue
     return None
-
-
-def _power_to_kw(value: float, unit: str | None) -> float:
-    unit = str(unit or "").upper()
-    if unit == "W":
-        return value / 1000.0
-    if unit == "MW":
-        return value * 1000.0
-    return value
 
 
 def parse_power_states(states: list[dict[str, Any]]) -> list[PowerPoint]:
@@ -270,7 +261,9 @@ def parse_power_states(states: list[dict[str, Any]]) -> list[PowerPoint]:
             cached_unit = unit
         if unit is None or unit == "":
             unit = cached_unit
-        points.append((ts, _power_to_kw(value, unit)))
+        normalized = normalize_active_power_kw(value, unit)
+        if normalized is not None:
+            points.append((ts, normalized))
     return points
 
 
@@ -474,6 +467,7 @@ async def get_ha_datetime(entity_id: str) -> datetime | None:
 async def get_initial_state(
     config_path: str = "config.yaml",
     ev_plug_overrides: dict[str, bool] | None = None,
+    progress_cutoff: datetime | None = None,
 ) -> dict[str, Any]:
     """
     Get the initial battery state (Asynchronous).
@@ -483,9 +477,12 @@ async def get_initial_state(
         ev_plug_overrides: Per-charger plug-state overrides ({charger_id: plugged}).
             A charger listed here uses the override instead of its HA plug sensor
             (avoids the REST race right after a plug event).
+        progress_cutoff: First solver slot start; measured energy after this instant
+            remains part of the horizon rather than being credited as delivered.
     """
     plug_overrides: dict[str, bool] = ev_plug_overrides or {}
     config = secrets.load_yaml(config_path)
+    validate_water_heating_config(config)
 
     # Use system.battery if available, otherwise fall back to battery
     battery_config = config.get("system", {}).get("battery", config.get("battery", {}))
@@ -666,11 +663,82 @@ async def get_initial_state(
     )
     ev_plugged_in = ev_charger_states[0]["plugged_in"] if ev_charger_states else False
 
+    raw_water_heaters = config.get("water_heaters", [])
+    enabled_water_heaters: list[dict[str, Any]] = []
+    if isinstance(raw_water_heaters, list) and system_config.get("has_water_heater", True):
+        for raw_heater in cast("list[object]", raw_water_heaters):
+            if isinstance(raw_heater, dict):
+                heater = cast("dict[str, Any]", raw_heater)
+                if heater.get("enabled", True):
+                    enabled_water_heaters.append(heater)
+
+    def water_power_reader(sensor_id: str) -> Callable[[], Coroutine[Any, Any, float | None]]:
+        async def read() -> float | None:
+            return await get_ha_sensor_kw_normalized(sensor_id)
+
+        return read
+
+    water_power_reads: list[tuple[str, Callable[[], Coroutine[Any, Any, float | None]]]] = []
+    if progress_cutoff is not None:
+        for heater in enabled_water_heaters:
+            heater_id = heater.get("id")
+            sensor_id = heater.get("sensor")
+            if heater_id and sensor_id:
+                water_power_reads.append(
+                    (f"water_power_{heater_id}", water_power_reader(str(sensor_id)))
+                )
+    water_power_results = (
+        await gather_sensor_reads(water_power_reads, context="water_initial_state")
+        if water_power_reads
+        else {}
+    )
+    current_water_power: dict[str, float | None] = {}
+    for heater in enabled_water_heaters:
+        heater_id = str(heater.get("id", ""))
+        if not heater_id:
+            continue
+        raw_power = water_power_results.get(f"water_power_{heater_id}")
+        current_water_power[heater_id] = (
+            normalize_active_power_kw(
+                raw_power,
+                "kW",
+                float(heater.get("idle_power_threshold_kw", DEFAULT_IDLE_POWER_THRESHOLD_KW)),
+            )
+            if raw_power is not None
+            else None
+        )
+
+    if progress_cutoff is not None and enabled_water_heaters:
+        from backend.core.water_progress import read_water_heating_progress
+
+        water_heater_states: list[dict[str, Any]] = await read_water_heating_progress(
+            config,
+            progress_cutoff,
+            str(config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")),
+            current_power_kw=current_water_power,
+            measured_until=datetime.now(pytz.UTC),
+        )
+        water_heated_today_kwh = sum(state["heated_today_kwh"] for state in water_heater_states)
+    else:
+        water_heater_states = [
+            {
+                "id": str(heater.get("id", "")),
+                "heated_today_kwh": 0.0,
+                "progress_source": "unknown",
+                "progress_coverage": "unavailable",
+                "active_heating": None,
+            }
+            for heater in enabled_water_heaters
+            if heater.get("id")
+        ]
+
     initial_state: dict[str, Any] = {
         "battery_soc_percent": battery_soc_percent,
         "battery_kwh": battery_kwh,
         "battery_cost_sek_per_kwh": battery_cost_sek_per_kwh,
         "water_heated_today_kwh": water_heated_today_kwh,
+        "water_heater_states": water_heater_states,
+        "water_progress_cutoff": progress_cutoff,
         # Legacy scalar fields (backward compat)
         "ev_soc_percent": ev_soc_percent,
         "ev_plugged_in": ev_plugged_in,

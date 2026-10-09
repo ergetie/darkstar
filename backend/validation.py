@@ -4,8 +4,11 @@ This module provides functions to validate energy sensor values against physical
 reasonable limits derived from the system configuration.
 """
 
+import copy
 import logging
 from typing import Any
+
+from backend.measurement_provenance import metadata_object
 
 logger = logging.getLogger("darkstar.validation")
 
@@ -106,4 +109,19 @@ def validate_energy_values(record: dict[str, Any], max_kwh: float) -> dict[str, 
             )
             validated_record[field] = 0.0
 
+    if "water_kwh" in record and record["water_kwh"] != validated_record.get("water_kwh"):
+        flags = copy.deepcopy(metadata_object(record.get("quality_flags")))
+        recording = metadata_object(flags.get("recording"))
+        component = metadata_object(metadata_object(recording.get("components")).get("water"))
+        if component:
+            component["method"] = "unknown"
+        devices = metadata_object(metadata_object(flags.get("water_heater_energy")).get("devices"))
+        for entry in devices.values():
+            device_metadata = metadata_object(entry)
+            if device_metadata:
+                device_metadata.update(
+                    energy_kwh=None, source="unavailable", coverage="unavailable"
+                )
+        validated_record["water_heater_energy"] = None
+        validated_record["quality_flags"] = flags
     return validated_record

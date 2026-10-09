@@ -1558,6 +1558,7 @@ export function buildLiveData(
     const actualDischarge: (number | null)[] = []
     const actualExport: (number | null)[] = []
     const actualWater: (number | null)[] = []
+    const actualWaterSource: (string | null)[] = []
     const actualEvCharging: (number | null)[] = []
     const gridImport: (number | null)[] = []
 
@@ -1592,7 +1593,7 @@ export function buildLiveData(
             const rawExportKwh = slot.export_kwh ?? null
             exp.push(rawExportKwh != null ? rawExportKwh / hourFraction : null)
 
-            water.push(slot.water_heating_kw ?? null)
+            water.push(slot.planned_water_heating_kw ?? slot.water_heating_kw ?? null)
             waterBoost.push(
                 slot.water_heating_boost && Object.values(slot.water_heating_boost).some(Boolean) ? true : null,
             )
@@ -1632,6 +1633,7 @@ export function buildLiveData(
             actualDischarge.push(slot.actual_discharge_kw ?? null)
             actualExport.push(slot.actual_export_kw ?? null)
             actualWater.push(slot.actual_water_kw ?? null)
+            actualWaterSource.push(slot.actual_water_source ?? null)
             actualEvCharging.push(slot.actual_ev_charging_kw ?? null)
 
             // Planned grid import: the backend writes it per slot but it is not in the ScheduleSlot type
@@ -1664,6 +1666,7 @@ export function buildLiveData(
             actualDischarge.push(null)
             actualExport.push(null)
             actualWater.push(null)
+            actualWaterSource.push(null)
             actualEvCharging.push(null)
             gridImport.push(null)
         }
@@ -1710,6 +1713,7 @@ export function buildLiveData(
                 actualDischarge,
                 actualExport,
                 actualWater,
+                actualWaterSource,
                 actualEvCharging,
                 gridImport,
                 resolutionMinutes,

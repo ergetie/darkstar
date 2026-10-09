@@ -204,6 +204,86 @@ class TestBackendSave:
         assert saved_data["timezone"] == "Europe/Stockholm"
         assert "deferrable_loads" not in saved_data
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"water_heating": {"defer_up_to_hours": 30}},
+            {
+                "water_heaters": [
+                    {
+                        "id": "main_tank",
+                        "name": "Main Tank",
+                        "enabled": True,
+                        "power_kw": 3.0,
+                        "min_kwh_per_day": 6.0,
+                        "max_hours_between_heating": 28,
+                        "water_min_spacing_hours": 4,
+                        "idle_power_threshold_kw": float("nan"),
+                        "sensor": "sensor.tank_power",
+                        "target_entity": "number.tank_target",
+                        "control_type": "temperature",
+                        "type": "binary",
+                    }
+                ]
+            },
+        ],
+    )
+    @pytest.mark.parametrize("valid", [False, True])
+    async def test_water_settings_are_persisted_or_rejected_atomically(
+        self, tmp_path, monkeypatch, payload, valid
+    ):
+        from unittest.mock import AsyncMock
+
+        from fastapi import HTTPException
+
+        from backend.api.routers import config as config_router
+
+        config_file = tmp_path / "config.yaml"
+        default_file = tmp_path / "config.default.yaml"
+        template = Path(__file__).parents[2] / "config.default.yaml"
+        original = template.read_text(encoding="utf-8")
+        config_file.write_text(original, encoding="utf-8")
+        default_file.write_text(original, encoding="utf-8")
+
+        real_path = Path
+        monkeypatch.setattr(
+            config_router,
+            "Path",
+            lambda value: (
+                config_file
+                if value == "config.yaml"
+                else default_file
+                if value == "config.default.yaml"
+                else real_path(value)
+            ),
+        )
+        monkeypatch.setattr(
+            config_router, "_phase_sensor_units_for_config", AsyncMock(return_value={})
+        )
+        before = config_file.read_bytes()
+
+        if valid:
+            from ruamel.yaml import YAML
+
+            saved = YAML().load(original)
+            heater = dict(saved["water_heaters"][0])
+            heater.update(max_hours_between_heating=28, idle_power_threshold_kw=0.1)
+            await config_router.save_config(
+                {"water_heating": {"defer_up_to_hours": 23}, "water_heaters": [heater]}
+            )
+            saved = YAML().load(config_file.read_text())
+            assert saved["water_heating"]["defer_up_to_hours"] == 23
+            assert saved["water_heaters"][0]["max_hours_between_heating"] == 28
+            assert saved["water_heaters"][0]["idle_power_threshold_kw"] == 0.1
+            return
+
+        with pytest.raises(HTTPException) as exc_info:
+            await config_router.save_config(payload)
+
+        assert exc_info.value.status_code == 400
+        assert config_file.read_bytes() == before
+
 
 class TestBackupSystem:
     """Test timestamped backup system."""

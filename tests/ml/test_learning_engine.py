@@ -308,6 +308,95 @@ async def test_partial_live_correction_merges_only_accepted_component_provenance
 
 
 @pytest.mark.asyncio
+async def test_water_heater_energy_metadata_round_trips_zero_and_corrections(learning_engine):
+    slot_start = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
+
+    def water_flags(energy, source):
+        flags = _provenance_flags(
+            "recorder",
+            {"water": {"method": source, "owner": "recorder"}},
+        )
+        flags["exclude"] = True
+        flags["operator_note"] = "preserve me"
+        flags["water_heater_energy"] = {
+            "schema_version": 1,
+            "semantics": "active-water-energy-v1",
+            "devices": {
+                "tank": {
+                    "energy_kwh": energy,
+                    "source": source,
+                    "idle_power_threshold_kw": 0.1,
+                    "coverage": "complete",
+                }
+            },
+        }
+        return flags
+
+    initial = water_flags(0.0, "power_history")
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "water_kwh": 0.0,
+                    "quality_flags": initial,
+                }
+            ]
+        )
+    )
+    rows = await learning_engine.store.get_water_heater_energy_range(
+        slot_start, slot_start + timedelta(minutes=15)
+    )
+    assert rows[0]["energy"]["tank"]["energy_kwh"] == 0.0
+    assert rows[0]["energy"]["tank"]["coverage"] is True
+
+    correction = water_flags(0.25, "snapshot")
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "water_kwh": 0.25,
+                    "quality_flags": correction,
+                }
+            ]
+        )
+    )
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        flags = json.loads(
+            conn.execute("SELECT quality_flags FROM slot_observations").fetchone()[0]
+        )
+    assert flags["exclude"] is True
+    assert flags["operator_note"] == "preserve me"
+    assert flags["water_heater_energy"]["devices"]["tank"]["source"] == "snapshot"
+
+    no_attribution = _provenance_flags(
+        "recorder", {"water": {"method": "power_history", "owner": "recorder"}}
+    )
+    await learning_engine.store_slot_observations(
+        pd.DataFrame(
+            [
+                {
+                    "slot_start": slot_start,
+                    "slot_end": slot_start + timedelta(minutes=15),
+                    "water_kwh": 0.0,
+                    "quality_flags": no_attribution,
+                }
+            ]
+        )
+    )
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        flags = json.loads(
+            conn.execute("SELECT quality_flags FROM slot_observations").fetchone()[0]
+        )
+    assert "water_heater_energy" not in flags
+    assert flags["exclude"] is True
+    assert flags["operator_note"] == "preserve me"
+
+
+@pytest.mark.asyncio
 async def test_backfill_fills_missing_component_as_backfill_owned_and_refreshes_own_values(
     learning_engine,
 ):
@@ -530,3 +619,73 @@ async def test_incoming_exclusion_overrides_old_false_and_price_change_invalidat
     assert row[:2] == (1.0, 2.0)
     assert flags["exclude"] is True and flags["custom"] == "retained"
     assert "legacy_attestation" not in flags
+
+
+@pytest.mark.asyncio
+async def test_water_actuals_accept_only_value_bound_legacy_attestation(learning_engine):
+    from dataclasses import replace
+
+    from backend.battery_comparison import observation_value_digest
+    from tests.test_battery_comparison import recording
+
+    start = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
+    observed = replace(recording()[0], start=start)
+    values = {
+        "slot_start": start,
+        "slot_end": start + timedelta(minutes=15),
+        "import_kwh": observed.import_kwh,
+        "export_kwh": observed.export_kwh,
+        "import_price_sek_kwh": observed.import_price,
+        "export_price_sek_kwh": observed.export_price,
+        "pv_kwh": observed.pv_kwh,
+        "load_kwh": observed.load_kwh,
+        "water_kwh": observed.water_kwh,
+        "ev_charging_kwh": observed.ev_kwh,
+        "batt_charge_kwh": observed.charge_kwh,
+        "batt_discharge_kwh": observed.discharge_kwh,
+        "soc_start_percent": observed.soc_start_percent,
+        "soc_end_percent": observed.soc_end_percent,
+    }
+    await learning_engine.store_slot_observations(pd.DataFrame([values]))
+    flags = {
+        "source": "recorder",
+        "comparison_history": {
+            "schema_version": 1,
+            "disposition": "verified_measured_energy",
+            "evidence_digest": "b" * 64,
+        },
+        "legacy_attestation": {
+            "schema_version": 1,
+            "disposition": "verified_measured_energy",
+            "semantics": "slot-energy-v1",
+            "boundary_fingerprint": "a" * 64,
+            "methods": dict.fromkeys(
+                [
+                    "import",
+                    "export",
+                    "pv",
+                    "load",
+                    "water",
+                    "ev",
+                    "battery_charge",
+                    "battery_discharge",
+                ],
+                "power_history_energy",
+            ),
+            "soc_method": "live_soc_history",
+            "evidence_digest": "b" * 64,
+            "affected_measurement_digest": observation_value_digest(observed),
+        },
+    }
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        conn.execute("UPDATE slot_observations SET quality_flags = ?", (json.dumps(flags),))
+    before = await learning_engine.store.get_observations_range(
+        start, start + timedelta(minutes=15)
+    )
+    assert before[0]["actual_water_available"] is True
+    assert before[0]["actual_water_source"] == "legacy"
+    assert before[0]["water_heater_energy"] is None
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        conn.execute("UPDATE slot_observations SET water_kwh = water_kwh + 1")
+    after = await learning_engine.store.get_observations_range(start, start + timedelta(minutes=15))
+    assert after[0]["actual_water_available"] is False

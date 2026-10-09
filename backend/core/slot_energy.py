@@ -8,9 +8,13 @@ No cumulative energy counter is read anywhere.
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from backend.core.ha_client import PowerPoint, integrate_power_points
+from backend.core.water_heating import (
+    DEFAULT_IDLE_POWER_THRESHOLD_KW,
+    normalize_active_power_kw,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +39,9 @@ class SlotEnergySources:
     # (device id, power sensor) per enabled EV charger / water heater
     ev_chargers: tuple[tuple[str, str], ...]
     water_heaters: tuple[tuple[str, str], ...]
+    water_idle_power_thresholds_kw: dict[str, float] = field(
+        default_factory=lambda: cast("dict[str, float]", {})
+    )
 
     def entity_ids(self) -> list[str]:
         """All entities whose history is needed for a slot, without duplicates."""
@@ -83,10 +90,15 @@ def build_slot_sources(config: dict[str, Any]) -> SlotEnergySources:
                 ev_chargers.append((str(ev_charger.get("id", "")), str(ev_charger["sensor"])))
 
     water_heaters: list[tuple[str, str]] = []
+    water_idle_power_thresholds_kw: dict[str, float] = {}
     if system.get("has_water_heater", True):
         for water_heater in config.get("water_heaters", []):
             if water_heater.get("enabled", True) and water_heater.get("sensor"):
-                water_heaters.append((str(water_heater.get("id", "")), str(water_heater["sensor"])))
+                sensor_id = str(water_heater["sensor"])
+                water_heaters.append((str(water_heater.get("id", "")), sensor_id))
+                water_idle_power_thresholds_kw[sensor_id] = float(
+                    water_heater.get("idle_power_threshold_kw", DEFAULT_IDLE_POWER_THRESHOLD_KW)
+                )
 
     dual = meter_type == "dual"
     return SlotEnergySources(
@@ -101,6 +113,7 @@ def build_slot_sources(config: dict[str, Any]) -> SlotEnergySources:
         battery_inverted=bool(input_sensors.get("battery_power_inverted", False)),
         ev_chargers=tuple(ev_chargers),
         water_heaters=tuple(water_heaters),
+        water_idle_power_thresholds_kw=water_idle_power_thresholds_kw,
     )
 
 
@@ -148,7 +161,16 @@ def compute_slot_energy(
     for _, sensor in sources.ev_chargers:
         energy.ev[sensor] = positive(sensor)
     for _, sensor in sources.water_heaters:
-        energy.water[sensor] = positive(sensor)
+        cutoff = sources.water_idle_power_thresholds_kw.get(sensor, DEFAULT_IDLE_POWER_THRESHOLD_KW)
+        active_points = [
+            (
+                timestamp,
+                max(0.0, normalize_active_power_kw(value, "kW", cutoff) or 0.0),
+            )
+            for timestamp, value in series.get(sensor, [])
+        ]
+        integrated = integrate_power_points(active_points, start, end)
+        energy.water[sensor] = None if integrated is None else integrated[0]
 
     return energy
 

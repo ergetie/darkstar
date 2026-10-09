@@ -94,6 +94,7 @@ water_heaters:
     min_kwh_per_day: 6.0             # Minimum daily energy requirement (kWh)
     max_hours_between_heating: 8     # Max comfort gap between heating cycles
     water_min_spacing_hours: 4       # Minimum gap between heating starts
+    idle_power_threshold_kw: 0.0     # Ignore readings below this kW cutoff when measuring active heating
     sensor: ''                       # Home Assistant entity for power reading
     target_entity: ''                # Thermostat entity for controlling this heater
     type: binary                     # Load type: binary (on/off) or modulating
@@ -106,6 +107,7 @@ water_heaters:
   #   min_kwh_per_day: 4.0
   #   max_hours_between_heating: 12
   #   water_min_spacing_hours: 4
+  #   idle_power_threshold_kw: 0.10  # Example: ignore a 0.06 kW idle draw
   #   sensor: sensor.wh2_power
   #   target_entity: ''
   #   type: binary

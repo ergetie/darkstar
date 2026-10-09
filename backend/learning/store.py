@@ -11,6 +11,8 @@ from sqlalchemy import Integer, cast, desc, func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.battery_comparison import RecordedObservation, trusted_row_provenance
+from backend.core.water_heating import parse_water_heater_energy_metadata, water_component_recording
 from backend.learning.models import (
     EvChargerObservation,
     LearningDailyMetric,
@@ -21,7 +23,11 @@ from backend.learning.models import (
     SlotPlan,
     SystemState,
 )
-from backend.measurement_provenance import metadata_object, parse_quality_flags, soc_metadata
+from backend.measurement_provenance import (
+    metadata_object,
+    parse_quality_flags,
+    soc_metadata,
+)
 
 logger = logging.getLogger("darkstar.learning.store")
 
@@ -162,6 +168,10 @@ class LearningStore:
                 existing = await session.get(SlotObservation, slot_start)
                 old_flags = parse_flags(existing.quality_flags if existing else None)
                 new_flags = parse_flags(record.get("quality_flags"))
+                incoming_water_energy = parse_water_heater_energy_metadata(
+                    new_flags.get("water_heater_energy")
+                )
+                new_flags.pop("water_heater_energy", None)
                 old_recording = metadata_object(old_flags.get("recording"))
                 new_recording = metadata_object(new_flags.get("recording"))
                 recording: dict[str, Any] | None = None
@@ -209,6 +219,7 @@ class LearningStore:
                 }
                 changed_measurement = False
                 accepted_measurement = False
+                accepted_water_measurement = False
                 for column, component in field_components.items():
                     incoming_present = has_measurement(column)
                     incoming_value = record.get(column)
@@ -231,6 +242,8 @@ class LearningStore:
                         )
                     if incoming_present:
                         accepted_measurement = True
+                        if component == "water":
+                            accepted_water_measurement = True
                         values[column] = incoming_value
                         if old_value != incoming_value:
                             changed_measurement = True
@@ -325,6 +338,11 @@ class LearningStore:
                     if authoritative or old_flags.get("source") == "recorder"
                     else "backfill"
                 )
+                if accepted_water_measurement:
+                    if incoming_water_energy is None:
+                        merged_flags.pop("water_heater_energy", None)
+                    else:
+                        merged_flags["water_heater_energy"] = incoming_water_energy
                 if old_flags.get("exclude") is True or new_flags.get("exclude") is True:
                     merged_flags["exclude"] = True
                 elif "exclude" in old_flags:
@@ -1161,13 +1179,7 @@ class LearningStore:
 
         async with self.AsyncSession() as session:
             stmt = (
-                select(
-                    SlotObservation.slot_start,
-                    SlotObservation.slot_end,
-                    SlotObservation.pv_kwh,
-                    SlotObservation.load_kwh,
-                    SlotObservation.water_kwh,
-                )
+                select(SlotObservation.__table__)
                 .where(
                     SlotObservation.slot_start >= start_iso,
                     SlotObservation.slot_start < end_iso,
@@ -1176,7 +1188,78 @@ class LearningStore:
             )
 
             result = await session.execute(stmt)
-            return [row._asdict() for row in result.all()]  # type: ignore
+            observations: list[dict[str, Any]] = []
+            for row in result.mappings():
+                stored: dict[str, Any] = dict(row)
+                observation = {
+                    key: stored[key]
+                    for key in ("slot_start", "slot_end", "pv_kwh", "load_kwh", "water_kwh")
+                }
+                flags = parse_quality_flags(stored.get("quality_flags"))
+                recording = water_component_recording(flags)
+                water = metadata_object(metadata_object(recording or {}).get("components"))
+                water_component = metadata_object(water.get("water"))
+                method = water_component.get("method")
+                source = (
+                    method
+                    if method in {"power_history", "snapshot", "mixed"}
+                    and water_component.get("owner") in {"recorder", "backfill"}
+                    else None
+                )
+                boundary = recording.get("boundary_fingerprint") if recording is not None else None
+                if "recording" not in flags and flags.get("legacy_attestation"):
+                    legacy = RecordedObservation(
+                        start=datetime.fromisoformat(stored["slot_start"]),
+                        import_kwh=stored["import_kwh"],
+                        export_kwh=stored["export_kwh"],
+                        import_price=stored["import_price_sek_kwh"],
+                        export_price=stored["export_price_sek_kwh"],
+                        pv_kwh=stored["pv_kwh"],
+                        load_kwh=stored["load_kwh"],
+                        water_kwh=stored["water_kwh"],
+                        ev_kwh=stored["ev_charging_kwh"],
+                        charge_kwh=stored["batt_charge_kwh"],
+                        discharge_kwh=stored["batt_discharge_kwh"],
+                        soc_start_percent=stored["soc_start_percent"],
+                        soc_end_percent=stored["soc_end_percent"],
+                        quality_flags=flags,
+                    )
+                    trusted = trusted_row_provenance(legacy)
+                    if trusted is not None:
+                        source, boundary = "legacy", trusted[1]
+                energy_metadata = parse_water_heater_energy_metadata(
+                    flags.get("water_heater_energy")
+                )
+                observation["water_heater_energy"] = (
+                    energy_metadata["devices"] if energy_metadata is not None else None
+                )
+                observation["actual_water_available"] = source is not None
+                observation["actual_water_source"] = source
+                observation["water_boundary_fingerprint"] = boundary
+                observations.append(observation)
+            return observations
+
+    async def get_water_heater_energy_range(
+        self, start: datetime, end: datetime
+    ) -> list[dict[str, Any]]:
+        """Read per-heater interval energy and provenance without inventing legacy attribution."""
+        # ISO strings sort by wall time, not instant during the repeated DST hour.
+        observations = await self.get_observations_range(
+            start - timedelta(days=1), end + timedelta(days=1)
+        )
+        return [
+            {
+                "slot_start": row["slot_start"],
+                "slot_end": row["slot_end"],
+                "water_kwh": row["water_kwh"],
+                "energy": row["water_heater_energy"],
+                "coverage": "measured" if row["actual_water_available"] else "unknown",
+                "source": row["actual_water_source"],
+                "boundary_fingerprint": row["water_boundary_fingerprint"],
+            }
+            for row in observations
+            if start <= datetime.fromisoformat(row["slot_start"]) < end
+        ]
 
     async def get_db_stats(self) -> dict[str, Any]:
         """Get database statistics (size, row counts) using Async SQLAlchemy."""

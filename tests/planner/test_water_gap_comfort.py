@@ -12,6 +12,9 @@ Covers:
 from datetime import datetime, timedelta
 from itertools import pairwise
 
+import pytest
+import pytz
+
 from planner.solver.adapter import _comfort_level_to_penalty
 from planner.solver.kepler import KeplerSolver
 from planner.solver.types import KeplerConfig, KeplerInput, KeplerInputSlot, WaterHeaterInput
@@ -42,7 +45,7 @@ def _heater(power_kw: float = 1.0, min_kwh_per_day: float = 1.0) -> WaterHeaterI
         id="wh1",
         power_kw=power_kw,
         min_kwh_per_day=min_kwh_per_day,
-        max_hours_between_heating=0.0,  # per-device field is unused by the solver (Decision 3)
+        max_hours_between_heating=8.0,
         min_spacing_hours=0.0,
     )
 
@@ -149,12 +152,8 @@ def test_gap_penalty_disabled_when_ceiling_zero():
     slots = _day_slots(cheap_hours={0, 1, 2})
     input_data = KeplerInput(slots=slots, initial_soc_kwh=0.0)
 
-    disabled_result = solver.solve(
-        input_data, _config(max_gap_hours=0.0, gap_penalty_sek=50.0)
-    )
-    no_penalty_result = solver.solve(
-        input_data, _config(max_gap_hours=8.0, gap_penalty_sek=0.0)
-    )
+    disabled_result = solver.solve(input_data, _config(max_gap_hours=0.0, gap_penalty_sek=50.0))
+    no_penalty_result = solver.solve(input_data, _config(max_gap_hours=8.0, gap_penalty_sek=0.0))
 
     assert disabled_result.is_optimal
     disabled_heat_map = [1 if s.water_heat_kw > 0 else 0 for s in disabled_result.slots]
@@ -162,6 +161,56 @@ def test_gap_penalty_disabled_when_ceiling_zero():
     # Both bunch heating into the cheapest window; identical plans confirm the
     # gap term had zero effect when the ceiling is 0, even with a high weight.
     assert disabled_heat_map == no_penalty_heat_map
+
+
+def test_each_heater_uses_its_own_gap_deadband():
+    slots = _day_slots(cheap_hours={0})
+    config = _config(max_gap_hours=1.0, gap_penalty_sek=1000.0)
+    config.defer_up_to_hours = 0.0
+    config.water_heaters = [
+        WaterHeaterInput("long_gap", 1.0, 1.0, 28.0, 0.0),
+        WaterHeaterInput("short_gap", 1.0, 1.0, 8.0, 0.0),
+    ]
+    result = KeplerSolver().solve(KeplerInput(slots=slots, initial_soc_kwh=0.0), config)
+
+    long_slots = [
+        i for i, slot in enumerate(result.slots) if slot.water_heater_results.get("long_gap", 0) > 0
+    ]
+    short_slots = [
+        i
+        for i, slot in enumerate(result.slots)
+        if slot.water_heater_results.get("short_gap", 0) > 0
+    ]
+    assert len(long_slots) == 2
+    assert len(short_slots) == 2
+
+    def observed_max_gap(indices: list[int]) -> float:
+        return max(indices[0] * 0.5, (indices[-1] - indices[0]) * 0.5, (47 - indices[-1]) * 0.5)
+
+    assert observed_max_gap(long_slots) > 8.5
+    assert observed_max_gap(short_slots) <= 8.5
+
+
+def test_completed_daily_quota_can_still_receive_comfort_top_up():
+    slots = _day_slots(cheap_hours={0, 6, 12, 18})
+    completed = _heater(min_kwh_per_day=1.0)
+    completed.heated_today_kwh = 1.0
+    solver = KeplerSolver()
+    input_data = KeplerInput(slots=slots, initial_soc_kwh=0.0)
+
+    quota_only = _config(max_gap_hours=0.0, gap_penalty_sek=1000.0, heater=completed)
+    quota_only.defer_up_to_hours = 0.0
+    comfort = _config(max_gap_hours=8.0, gap_penalty_sek=1000.0, heater=completed)
+    comfort.defer_up_to_hours = 0.0
+
+    quota_result = solver.solve(input_data, quota_only)
+    comfort_result = solver.solve(input_data, comfort)
+
+    quota_kwh = sum(slot.water_heat_kw * 0.5 for slot in quota_result.slots)
+    comfort_kwh = sum(slot.water_heat_kw * 0.5 for slot in comfort_result.slots)
+    assert quota_result.is_optimal and comfort_result.is_optimal
+    assert quota_kwh == 0.0
+    assert comfort_kwh > 0.0
 
 
 def test_comfort_level_gap_penalty_monotonic_ceiling_unchanged():
@@ -230,3 +279,27 @@ def test_curtailment_preferred_over_lossmaking_export():
     assert result.is_optimal
     assert result.slots[0].grid_export_kwh < 0.01
     assert result.slots[1].grid_export_kwh > 4.0
+
+
+def test_fractional_quota_boundary_splits_constant_slot_energy_between_buckets():
+    tz = pytz.timezone("Europe/Stockholm")
+    start = tz.localize(datetime(2026, 1, 15, 6))
+    slots = [
+        KeplerInputSlot(
+            start_time=start,
+            end_time=start + timedelta(minutes=15),
+            load_kwh=0,
+            pv_kwh=0,
+            import_price_sek_kwh=1,
+            export_price_sek_kwh=0,
+        )
+    ]
+    heater = _heater(min_kwh_per_day=0.125)
+    heater.power_kw = 1
+    config = _config(max_gap_hours=0, gap_penalty_sek=0, heater=heater)
+    config.defer_up_to_hours = 6.125  # The midpoint of the only slot.
+    result = KeplerSolver().solve(KeplerInput(slots=slots, initial_soc_kwh=0), config)
+    assert result.is_optimal
+    assert result.slots[0].water_heat_kw == pytest.approx(1)
+    # Both 0.125 kWh quotas are met by one shared 0.25 kWh slot.
+    assert result.total_cost_sek < 1

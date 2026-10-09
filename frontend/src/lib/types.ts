@@ -9,6 +9,8 @@ export type ScheduleSlot = {
     charge_kw?: number
     discharge_kw?: number // legacy
     water_heating_kw?: number
+    planned_water_heating_kw?: number | null
+    planned_water_heaters?: Record<string, { heating_kw: number }>
     ev_charging_kw?: number // EV charging power for this slot
     export_kwh?: number
     projected_soc_percent?: number
@@ -22,9 +24,14 @@ export type ScheduleSlot = {
     actual_charge_kw?: number
     actual_export_kw?: number
     actual_discharge_kw?: number
-    actual_load_kwh?: number
-    actual_pv_kwh?: number
-    actual_water_kw?: number
+    actual_load_kwh?: number | null
+    actual_pv_kwh?: number | null
+    actual_water_kw?: number | null
+    actual_water_available?: boolean
+    actual_water_source?: 'power_history' | 'snapshot' | 'mixed' | 'legacy' | null
+    actual_water_heaters_kw?: Record<string, number>
+    actual_water_heater_sources?: Record<string, string>
+    is_completed?: boolean
     actual_ev_charging_kw?: number
     water_heating_boost?: Record<string, boolean>
     custom_entity_active?: Record<string, boolean>

@@ -317,8 +317,8 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                             disabled={isDisabled}
                             className={isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
                             step={numField.step ? Number(numField.step) : undefined}
-                            min={numField.min ? Number(numField.min) : undefined}
-                            max={numField.max ? Number(numField.max) : undefined}
+                            min={numField.min != null ? Number(numField.min) : undefined}
+                            max={numField.max != null ? Number(numField.max) : undefined}
                         />
                     )
                 }

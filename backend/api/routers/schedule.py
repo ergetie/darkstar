@@ -199,7 +199,6 @@ async def schedule_today_with_history(
 
     today_local = datetime.now(tz).date()
     now = datetime.now(tz)
-    now_naive = now.replace(tzinfo=None)
 
     # 1. Load schedule.json
     schedule_map: dict[datetime, dict[str, Any]] = {}
@@ -251,8 +250,6 @@ async def schedule_today_with_history(
 
                 # Kw calculation: kWh / hours = kW
                 # water_kwh -> water_heating_kw
-                water_kw = float(row["water_kwh"] or 0.0) / duration_hours
-
                 # ev_charging_kwh -> actual_ev_charging_kw
                 ev_charging_kw = float(row["ev_charging_kwh"] or 0.0) / duration_hours
 
@@ -268,6 +265,7 @@ async def schedule_today_with_history(
                 export_kwh = float(row["export_kwh"] or 0.0)
 
                 exec_map[key] = {
+                    "slot_end": local_end,
                     "actual_charge_kw": round(charge_kw, 3),
                     "actual_discharge_kw": round(discharge_kw, 3),
                     "actual_export_kwh": round(export_kwh, 3),
@@ -276,7 +274,6 @@ async def schedule_today_with_history(
                         if row["soc_end_percent"] is not None
                         else None
                     ),
-                    "water_heating_kw": round(water_kw, 3),
                     "actual_ev_charging_kw": round(ev_charging_kw, 3),
                     "import_price_sek_kwh": float(row["import_price_sek_kwh"] or 0.0),
                 }
@@ -311,7 +308,7 @@ async def schedule_today_with_history(
         logger.warning(f"Failed to load forecast map: {e}")
 
     # 4. Planned Actions Map (LearningStore Async)
-    planned_map: dict[datetime, dict[str, float | None]] = {}
+    planned_map: dict[datetime, dict[str, Any]] = {}
     try:
         today_start_dt = tz.localize(datetime.combine(today_local, datetime.min.time()))
 
@@ -328,6 +325,7 @@ async def schedule_today_with_history(
                 duration_hours = _slot_duration_hours(st, row.get("slot_end"))
 
                 planned_map[key] = {
+                    "slot_end": row.get("slot_end"),
                     "battery_charge_kw": float(row["planned_charge_kwh"] or 0.0) / duration_hours,
                     "battery_discharge_kw": float(row["planned_discharge_kwh"] or 0.0)
                     / duration_hours,
@@ -351,7 +349,7 @@ async def schedule_today_with_history(
         logger.warning(f"Failed to load planned map: {e}")
 
     # 5. Observations Map (LearningStore Async) - Actual PV/Load data
-    obs_map: dict[datetime, dict[str, float]] = {}
+    obs_map: dict[datetime, dict[str, Any]] = {}
     try:
         today_start_dt = tz.localize(datetime.combine(today_local, datetime.min.time()))
         tomorrow_end_dt = today_start_dt + timedelta(days=2)
@@ -367,10 +365,47 @@ async def schedule_today_with_history(
                 # Convert kWh to kW for water
                 duration_hours = _slot_duration_hours(st, row.get("slot_end"))
 
+                metadata = row.get("water_heater_energy")
+                row_end = None
+                if row.get("slot_end") is not None:
+                    parsed_end = datetime.fromisoformat(str(row["slot_end"]))
+                    row_end = (
+                        tz.localize(parsed_end)
+                        if parsed_end.tzinfo is None
+                        else parsed_end.astimezone(tz)
+                    )
+                device_kw: dict[str, float] = {}
+                device_sources: dict[str, str] = {}
+                if row.get("actual_water_available") and isinstance(metadata, dict):
+                    for heater_id, raw_entry in cast("dict[object, object]", metadata).items():
+                        if not isinstance(raw_entry, dict):
+                            continue
+                        entry = cast("dict[str, object]", raw_entry)
+                        energy_kwh = entry.get("energy_kwh")
+                        if (
+                            entry.get("coverage") is True
+                            and isinstance(energy_kwh, int | float)
+                            and not isinstance(energy_kwh, bool)
+                        ):
+                            device_kw[str(heater_id)] = float(energy_kwh) / duration_hours
+                            device_sources[str(heater_id)] = str(entry.get("source", "unknown"))
                 obs_map[key] = {
-                    "actual_pv_kwh": float(row["pv_kwh"] or 0),
-                    "actual_load_kwh": float(row["load_kwh"] or 0),
-                    "actual_water_kw": float(row["water_kwh"] or 0) / duration_hours,
+                    "slot_end": row_end,
+                    "actual_pv_kwh": (
+                        float(row["pv_kwh"]) if row.get("pv_kwh") is not None else None
+                    ),
+                    "actual_load_kwh": (
+                        float(row["load_kwh"]) if row.get("load_kwh") is not None else None
+                    ),
+                    "actual_water_kw": (
+                        float(row["water_kwh"]) / duration_hours
+                        if row.get("actual_water_available") and row.get("water_kwh") is not None
+                        else None
+                    ),
+                    "actual_water_available": bool(row.get("actual_water_available")),
+                    "actual_water_source": row.get("actual_water_source"),
+                    "actual_water_heaters_kw": device_kw,
+                    "actual_water_heater_sources": device_sources,
                 }
             except Exception:
                 continue
@@ -383,6 +418,7 @@ async def schedule_today_with_history(
     # [REV F36] Match Api.schedule() rounding for the starting slot (only return from now forward)
     # [REV F36] Match Api.schedule() rounding for the starting slot (only return from now forward)
     now = datetime.now(tz)
+    now_naive = now.replace(tzinfo=None)
     # planned_start_naive removed (unused)
 
     # Collect all keys for the entire day (History + Future)
@@ -391,7 +427,12 @@ async def schedule_today_with_history(
     today_start_dt = tz.localize(datetime.combine(today_local, datetime.min.time()))
     today_start_naive = today_start_dt.replace(tzinfo=None)
 
-    raw_keys = set(schedule_map.keys()) | set(exec_map.keys()) | set(planned_map.keys())
+    raw_keys = (
+        set(schedule_map.keys())
+        | set(exec_map.keys())
+        | set(planned_map.keys())
+        | set(obs_map.keys())
+    )
     all_keys = sorted({k for k in raw_keys if k >= today_start_naive})
 
     merged_slots: list[dict[str, Any]] = []
@@ -402,26 +443,54 @@ async def schedule_today_with_history(
             slot = schedule_map[key].copy()
         else:
             # Synthetic slot
+            plan_end = (
+                planned_map.get(key, {}).get("slot_end")
+                or obs_map.get(key, {}).get("slot_end")
+                or exec_map.get(key, {}).get("slot_end")
+            )
             slot = {
                 "start_time": tz.localize(key).isoformat(),
-                "end_time": tz.localize(key + timedelta(minutes=60)).isoformat(),
+                "end_time": str(plan_end)
+                if plan_end
+                else tz.localize(key + timedelta(minutes=15)).isoformat(),
             }
         slot["is_historical"] = False
 
         # Attach history
         # [REV F36] FIX: Ensure we never mark future slots as 'executed' even if DB has rogue entries.
         # This prevents 'actuals' (0.0) from hiding 'planned' (e.g. 5.0) in the chart.
-        is_future_check = key >= now_naive
+        slot_end_raw = slot.get("end_time")
+        slot_end: datetime | None = None
+        if slot_end_raw:
+            try:
+                parsed_end = datetime.fromisoformat(str(slot_end_raw).replace("Z", "+00:00"))
+                slot_end = (
+                    tz.localize(parsed_end)
+                    if parsed_end.tzinfo is None
+                    else parsed_end.astimezone(tz)
+                )
+            except ValueError:
+                slot_end = None
+        if slot_end is None and key in obs_map:
+            slot_end = obs_map[key].get("slot_end")
+        if slot_end is None and key in exec_map:
+            slot_end = exec_map[key].get("slot_end")
+        if slot_end is None and key in planned_map and planned_map[key].get("slot_end"):
+            plan_end = datetime.fromisoformat(str(planned_map[key]["slot_end"]))
+            slot_end = tz.localize(plan_end) if plan_end.tzinfo is None else plan_end.astimezone(tz)
+        slot_completed = slot_end is not None and slot_end <= now
+        slot["is_completed"] = slot_completed
 
-        if key in exec_map and not is_future_check:
+        # Execution telemetry such as SoC can be useful during the active slot.
+        # Water measurements remain separately gated by completion below.
+        if key in exec_map and key <= now_naive:
             h = exec_map[key]
             slot["is_executed"] = True
-            slot["is_historical"] = True
+            slot["is_historical"] = slot_completed
             slot["actual_charge_kw"] = h.get("actual_charge_kw")
             slot["actual_discharge_kw"] = h.get("actual_discharge_kw")
             slot["actual_export_kwh"] = h.get("actual_export_kwh")
             slot["actual_soc"] = h.get("actual_soc")
-            slot["water_heating_kw"] = h.get("water_heating_kw", slot.get("water_heating_kw"))
             slot["actual_ev_charging_kw"] = h.get("actual_ev_charging_kw")
             # Add historical price from DB if not already present
             if "import_price_sek_kwh" not in slot:
@@ -443,9 +512,11 @@ async def schedule_today_with_history(
         # Attach planned actions from slot_plans database (Historical Overlay)
         if key in planned_map:
             p = planned_map[key]
+            if "water_heaters" in slot:
+                slot["planned_water_heaters"] = slot["water_heaters"]
             # [REV F36] Only source battery actions from DB for historical slots.
             # Future slots (>= now) MUST come from schedule.json only to avoid stale DB data.
-            is_future = key >= now_naive
+            is_future = not slot_completed
 
             if not is_future:
                 # Historical: Add from DB if missing (though schedule_today_with_history prioritizes schedule.json)
@@ -476,12 +547,18 @@ async def schedule_today_with_history(
                 if "water_heating_kw" not in slot or slot.get("water_heating_kw") is None:
                     slot["water_heating_kw"] = p.get("water_heating_kw", 0.0)
 
+        slot["planned_water_heating_kw"] = slot.get("water_heating_kw")
+
         # Attach actual observations (PV, Load, Water) from slot_observations
-        if key in obs_map and not is_future_check:
+        if key in obs_map and slot_completed:
             obs = obs_map[key]
             slot["actual_pv_kwh"] = obs["actual_pv_kwh"]
             slot["actual_load_kwh"] = obs["actual_load_kwh"]
             slot["actual_water_kw"] = obs["actual_water_kw"]
+            slot["actual_water_available"] = obs["actual_water_available"]
+            slot["actual_water_source"] = obs["actual_water_source"]
+            slot["actual_water_heaters_kw"] = obs["actual_water_heaters_kw"]
+            slot["actual_water_heater_sources"] = obs["actual_water_heater_sources"]
 
         merged_slots.append(slot)
 

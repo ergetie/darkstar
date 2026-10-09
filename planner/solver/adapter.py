@@ -90,6 +90,8 @@ def build_water_heater_inputs(
         state = state_by_id.get(heater_id, {})
         heated_today = float(state.get("heated_today_kwh", 0.0))
         force_on_slots: list[int] | None = state.get("force_on_slots")
+        progress_source = str(state.get("progress_source", "unknown"))
+        progress_coverage = str(state.get("progress_coverage", "unavailable"))
 
         result.append(
             WaterHeaterInput(
@@ -100,6 +102,8 @@ def build_water_heater_inputs(
                 min_spacing_hours=spacing_hours,
                 force_on_slots=force_on_slots if force_on_slots else None,
                 heated_today_kwh=heated_today,
+                progress_source=progress_source,
+                progress_coverage=progress_coverage,
             )
         )
 
@@ -571,7 +575,7 @@ def config_to_kepler_config(
         # Global water heating settings
         # PRODUCTION FIX B1: Disable gap constraint when enable_top_ups=false
         water_heating_max_gap_hours=float(
-            wh_cfg.get("max_hours_between_heating", 8.0)
+            max((heater.max_hours_between_heating for heater in water_inputs), default=0.0)
             if wh_cfg.get("enable_top_ups", True)
             else 0.0
         ),
@@ -593,7 +597,8 @@ def config_to_kepler_config(
                 heater_power_kw=sum(h.power_kw for h in water_inputs),
             )
         ),
-        defer_up_to_hours=float(wh_cfg.get("defer_up_to_hours", 0.0)),
+        defer_up_to_hours=float(wh_cfg.get("defer_up_to_hours", 6.0)),
+        timezone_name=str(planner_config.get("timezone", "Europe/Stockholm")),
         # Rev E4: Export Toggle
         enable_export=bool(planner_config.get("export", {}).get("enable_export", True)),
         # Export SoC Floor: minimum SoC required to allow grid export

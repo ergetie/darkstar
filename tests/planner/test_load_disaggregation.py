@@ -256,3 +256,27 @@ class TestBackwardCompatibility:
         disaggregator = LoadDisaggregator(config)
         assert len(disaggregator.list_active_loads()) == 1
         assert disaggregator.get_load_by_id("arc15") is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("raw_kw", "active_kw"), [(-0.06, 0), (0.06, 0), (0.1, 0.1), (3, 3)])
+async def test_water_active_cutoff_leaves_idle_in_live_base_load(raw_kw, active_kw):
+    service = LoadDisaggregator(
+        {
+            "config_version": 2,
+            "water_heaters": [
+                {
+                    "id": "tank",
+                    "sensor": "sensor.water",
+                    "power_kw": 3,
+                    "idle_power_threshold_kw": 0.1,
+                }
+            ],
+        }
+    )
+    with patch(
+        "backend.loads.service.get_ha_sensor_kw_normalized", new=AsyncMock(return_value=raw_kw)
+    ):
+        controllable = await service.update_current_power()
+    assert controllable == pytest.approx(active_kw)
+    assert service.calculate_base_load(4, controllable) == pytest.approx(4 - active_kw)

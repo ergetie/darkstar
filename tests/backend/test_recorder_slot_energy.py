@@ -532,3 +532,78 @@ async def test_sanitized_spike_zero_is_not_certified_as_measured_history():
     row, _ = await record(config, {"sensor.load": constant("sensor.load", 100)})
     assert row["load_kwh"] == 0
     assert row["quality_flags"]["recording"]["components"]["load"]["method"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_water_cutoff_filters_idle_energy_but_keeps_it_in_base_load():
+    config = base_config(
+        system={"has_water_heater": True},
+        water_heaters=[
+            {
+                "id": "tank",
+                "enabled": True,
+                "sensor": "sensor.water",
+                "idle_power_threshold_kw": 0.1,
+            }
+        ],
+    )
+    history = {
+        "sensor.load": series("sensor.load", [(0, 0.06), (300, 3.1)]),
+        "sensor.water": series("sensor.water", [(0, 0.06), (300, 3.1)]),
+        "sensor.grid": constant("sensor.grid", 1.2),
+    }
+
+    row, _ = await record(config, history)
+
+    assert row["water_kwh"] == pytest.approx(3.1 * 600 / 3600)
+    assert row["load_kwh"] == pytest.approx(0.06 * 300 / 3600)
+    assert row["import_kwh"] == pytest.approx(1.2 * 0.25)
+    metadata = row["quality_flags"]["water_heater_energy"]["devices"]["tank"]
+    assert metadata == {
+        "energy_kwh": pytest.approx(3.1 * 600 / 3600),
+        "source": "power_history",
+        "idle_power_threshold_kw": 0.1,
+        "coverage": "complete",
+    }
+
+
+@pytest.mark.asyncio
+async def test_water_measured_zero_and_omitted_cutoff_keep_legacy_semantics():
+    config = base_config(
+        system={"has_water_heater": True},
+        water_heaters=[{"id": "tank", "enabled": True, "sensor": "sensor.water"}],
+    )
+    zero, _ = await record(config, {"sensor.water": constant("sensor.water", 0.0)})
+    idle, _ = await record(config, {"sensor.water": constant("sensor.water", 0.06)})
+
+    zero_metadata = zero["quality_flags"]["water_heater_energy"]["devices"]["tank"]
+    assert zero_metadata["energy_kwh"] == 0.0
+    assert zero_metadata["coverage"] == "complete"
+    assert idle["water_kwh"] == pytest.approx(0.06 * 0.25)
+
+
+@pytest.mark.asyncio
+async def test_water_without_power_sensor_cannot_certify_aggregate_actual():
+    config = base_config(
+        system={"has_water_heater": True},
+        water_heaters=[{"id": "measured", "sensor": "sensor.water"}, {"id": "unmeasured"}],
+    )
+    recorded, _ = await record(config, {"sensor.water": constant("sensor.water", 3)})
+    assert recorded["water_kwh"] == pytest.approx(0.75)
+    assert recorded["quality_flags"]["recording"]["components"]["water"]["method"] == "unknown"
+    assert recorded["quality_flags"]["water_heater_energy"]["devices"]["measured"][
+        "energy_kwh"
+    ] == pytest.approx(0.75)
+
+
+@pytest.mark.asyncio
+async def test_unavailable_water_measurement_does_not_write_default_zero():
+    config = base_config(
+        system={"has_water_heater": True}, water_heaters=[{"id": "tank", "sensor": "sensor.water"}]
+    )
+    recorded, _ = await record(config, None, snapshots={"sensor.water": None})
+    assert recorded["water_kwh"] is None
+    assert (
+        recorded["quality_flags"]["water_heater_energy"]["devices"]["tank"]["coverage"]
+        == "unavailable"
+    )

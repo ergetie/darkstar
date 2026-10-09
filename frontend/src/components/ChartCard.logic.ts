@@ -36,6 +36,7 @@ export interface SlotSeries {
     actualDischarge?: Series
     actualExport?: Series
     actualWater?: Series
+    actualWaterSource?: (string | null)[]
     actualEvCharging?: Series
 }
 
@@ -345,7 +346,17 @@ export function buildSlotInfo(series: SlotSeries, index: number, opts: SlotInfoO
 
     const loadRows: InfoRow[] = []
     if (on(series.water, index) || on(series.actualWater, index)) {
-        loadRows.push(row('water', 'Water heating', 'water', series.actualWater, series.water, formatKw))
+        const estimated = past && ['snapshot', 'mixed'].includes(series.actualWaterSource?.[index] ?? '')
+        loadRows.push(
+            row(
+                'water',
+                estimated ? 'Water heating (estimate)' : 'Water heating',
+                'water',
+                series.actualWater,
+                series.water,
+                formatKw,
+            ),
+        )
     }
     const evPlanned = (at(series.evCharging, index) ?? 0) + (at(series.evSurplus, index) ?? 0)
     if (evPlanned >= ACTIVE_KW || on(series.actualEvCharging, index)) {

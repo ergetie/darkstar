@@ -31,6 +31,7 @@ from backend.core.ev_power import (
     nominal_voltage_v,
 )
 from backend.core.version import get_version
+from backend.core.water_heating import validate_water_heating_config
 from backend.learning.store import LearningStore
 from planner.errors import PlannerError, PlannerErrorCode
 from planner.inputs.data_prep import apply_safety_margins, prepare_df
@@ -136,6 +137,7 @@ def _detect_mid_block_slots(
     enabled_heater_ids: list[str],
     now_slot: pd.Timestamp,
     tz: pytz.BaseTzInfo,
+    water_heater_states: list[dict[str, Any]] | None = None,
 ) -> dict[str, set[pd.Timestamp]]:
     """Return remaining scheduled slots for heaters active in the current block."""
     force_water_by_heater: dict[str, set[pd.Timestamp]] = {
@@ -156,9 +158,16 @@ def _detect_mid_block_slots(
     if current_idx < 0:
         return force_water_by_heater
 
+    active_state_by_id = {
+        str(state.get("id")): state.get("active_heating")
+        for state in (water_heater_states or [])
+        if state.get("id")
+    }
     current_slot = previous_schedule[current_idx]
     current_water_heaters: dict[str, Any] = current_slot.get("water_heaters", {})
     for heater_id in enabled_heater_ids:
+        if active_state_by_id.get(heater_id) is False:
+            continue
         heater_data: dict[str, Any] = current_water_heaters.get(heater_id, {})
         currently_heating = float(heater_data.get("heating_kw", 0.0)) > 0
         if not currently_heating:
@@ -1260,6 +1269,7 @@ class PlannerPipeline:
 
     def _validate_config(self) -> None:
         """Validate critical configuration values."""
+        validate_water_heating_config(self.config)
         required_sections = ["battery", "battery_economics"]
         for section in required_sections:
             if section not in self.config:
@@ -1361,6 +1371,7 @@ class PlannerPipeline:
         active_config = self.config
         if overrides:
             active_config = self._apply_overrides(self.config, overrides)
+        validate_water_heating_config(active_config)
 
         # System Profile Toggles (Rev O1)
         system_cfg = active_config.get("system", {})
@@ -1403,10 +1414,10 @@ class PlannerPipeline:
                 real_now = pd.Timestamp(now_override, tz="UTC").tz_convert(tz)
             else:
                 real_now = pd.Timestamp(now_override).tz_convert(tz)
-            now_slot = real_now.ceil("15min")
+            now_slot = real_now.tz_convert("UTC").ceil("15min").tz_convert(tz)
         else:
             real_now = pd.Timestamp.now(tz=tz)
-            now_slot = real_now.floor("15min")
+            now_slot = real_now.tz_convert("UTC").floor("15min").tz_convert(tz)
         now_dt: datetime = now_slot.to_pydatetime()
 
         # Per-device mid-block detection (task 3.1)
@@ -1417,12 +1428,16 @@ class PlannerPipeline:
             for wh in water_heaters_cfg
             if wh.get("enabled", True) and wh.get("id")
         ]
+        initial_state: dict[str, Any] = input_data.get("initial_state", {})
         force_water_by_heater = _detect_mid_block_slots(
-            previous_schedule, enabled_heater_ids, now_slot, tz
+            previous_schedule,
+            enabled_heater_ids,
+            now_slot,
+            tz,
+            cast("list[dict[str, Any]]", initial_state.get("water_heater_states", [])),
         )
 
         # Current real SoC from Home Assistant (price reserve and Kepler both start from it)
-        initial_state = input_data.get("initial_state", {})
         initial_soc_kwh = float(
             initial_state.get("battery_kwh", initial_state.get("battery_soc_kwh", 0.0))
         )
@@ -1557,6 +1572,31 @@ class PlannerPipeline:
             df["adjusted_pv_kwh"] = df["pv_forecast_kwh"]
             df["adjusted_load_kwh"] = df["load_forecast_kwh"]
 
+        # Acquisition may cross a slot boundary before the solver horizon is built.
+        horizon = df[df.index >= now_slot]
+        progress_cutoff = (horizon.index[0] if not horizon.empty else df.index[0]).to_pydatetime()
+        if (
+            has_water_heater
+            and initial_state.get("water_progress_cutoff") is not None
+            and initial_state["water_progress_cutoff"] != progress_cutoff
+        ):
+            from backend.core.water_progress import read_water_heating_progress
+
+            previous_states = {
+                state["id"]: state for state in initial_state.get("water_heater_states", [])
+            }
+            refreshed_states = await read_water_heating_progress(
+                active_config,
+                progress_cutoff,
+                str(
+                    active_config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+                ),
+                measured_until=real_now.to_pydatetime(),
+            )
+            for state in refreshed_states:
+                state["active_heating"] = previous_states.get(state["id"], {}).get("active_heating")
+            initial_state = {**initial_state, "water_heater_states": refreshed_states}
+
         # 4. Per-device today's energy tracking (task 3.2)
         # Look for per-device states first, fall back to distributing aggregate
         ha_water_states_raw: list[dict[str, Any]] = initial_state.get("water_heater_states", [])
@@ -1564,11 +1604,13 @@ class PlannerPipeline:
 
         # Build per-device heated_today lookup from HA states or aggregate fallback
         water_heated_today_by_id: dict[str, float] = {}
+        water_state_by_id: dict[str, dict[str, Any]] = {}
         if ha_water_states_raw:
             for wh_state in ha_water_states_raw:
                 hid = str(wh_state.get("id", ""))
                 if hid:
                     water_heated_today_by_id[hid] = float(wh_state.get("heated_today_kwh", 0.0))
+                    water_state_by_id[hid] = wh_state
         elif ha_water_today_total > 0 and len(enabled_heater_ids) == 1:
             # Single heater: assign total to it
             water_heated_today_by_id[enabled_heater_ids[0]] = ha_water_today_total
@@ -1613,6 +1655,12 @@ class PlannerPipeline:
                 {
                     "id": heater_id,
                     "heated_today_kwh": water_heated_today_by_id.get(heater_id, 0.0),
+                    "progress_source": water_state_by_id.get(heater_id, {}).get(
+                        "progress_source", "unknown"
+                    ),
+                    "progress_coverage": water_state_by_id.get(heater_id, {}).get(
+                        "progress_coverage", "unavailable"
+                    ),
                     "force_on_slots": force_on_slots_by_heater.get(heater_id),
                 }
             )

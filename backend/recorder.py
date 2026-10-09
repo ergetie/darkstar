@@ -29,6 +29,12 @@ from backend.core.ha_client import (
 )
 from backend.core.prices import get_current_slot_prices
 from backend.core.slot_energy import build_slot_sources, compute_slot_energy, isolate_base_load
+from backend.core.water_heating import (
+    DEFAULT_IDLE_POWER_THRESHOLD_KW,
+    WATER_HEATER_ENERGY_SCHEMA_VERSION,
+    WATER_HEATER_ENERGY_SEMANTICS,
+    normalize_active_power_kw,
+)
 from backend.learning.backfill import BackfillEngine
 
 # Local imports
@@ -184,14 +190,43 @@ async def record_observation_from_current_state(
     # Water heater energy (per heater and aggregate)
     water_kwh = 0.0
     water_heater_energy: dict[str, float] = {}  # Task 8.1: per-device recording
+    water_heater_devices: dict[str, dict[str, Any]] = {}
+    water_methods: list[str] = []
     for heater_id, sensor in sources.water_heaters:
         integrated = energy.water.get(sensor)
-        device_kwh = or_snapshot(integrated, max(0.0, power_results.get(f"wh_{sensor}") or 0.0))
+        cutoff = sources.water_idle_power_thresholds_kw.get(sensor, DEFAULT_IDLE_POWER_THRESHOLD_KW)
+        snapshot = power_results.get(f"wh_{sensor}")
+        active_snapshot = (
+            max(0.0, normalize_active_power_kw(snapshot, "kW", cutoff) or 0.0)
+            if snapshot is not None
+            else None
+        )
+        source = (
+            "power_history"
+            if integrated is not None
+            else "snapshot"
+            if active_snapshot is not None
+            else "unavailable"
+        )
+        device_kwh = (
+            integrated
+            if integrated is not None
+            else active_snapshot * 0.25
+            if active_snapshot is not None
+            else 0.0
+        )
+        water_methods.append(source)
         water_kwh += device_kwh
-        if heater_id:
+        if heater_id and source != "unavailable":
             water_heater_energy[heater_id] = device_kwh
-        source = "history energy" if integrated is not None else "snapshot fallback"
-        logger.debug(f"Water {heater_id}: {source}={device_kwh:.3f} kWh")
+        if heater_id:
+            water_heater_devices[heater_id] = {
+                "energy_kwh": device_kwh if source != "unavailable" else None,
+                "source": source,
+                "idle_power_threshold_kw": cutoff,
+                "coverage": "complete" if source != "unavailable" else "unavailable",
+            }
+        logger.debug("Water %s: %s=%.3f kWh", heater_id, source, device_kwh)
 
     def method_for(integrated: float | None, configured: bool, enabled: bool = True) -> str:
         if not enabled:
@@ -213,9 +248,6 @@ async def record_observation_from_current_state(
         else []
     )
     ev_methods = [method_for(energy.ev.get(sensor), True) for _, sensor in sources.ev_chargers]
-    water_methods = [
-        method_for(energy.water.get(sensor), True) for _, sensor in sources.water_heaters
-    ]
 
     def aggregate_method(methods: list[str], enabled: bool, configured: bool) -> str:
         if not enabled:
@@ -224,6 +256,8 @@ async def record_observation_from_current_state(
             return "unconfigured_zero"
         if not configured:
             return "mixed"
+        if "unavailable" in methods:
+            return "unknown"
         if "snapshot" in methods:
             return "mixed" if "power_history" in methods else "snapshot"
         return "power_history"
@@ -242,6 +276,10 @@ async def record_observation_from_current_state(
         bool(sources.water_heaters)
         and all(item.get("sensor") for item in water_config if item.get("enabled", True)),
     )
+    if any(not item.get("sensor") for item in water_config if item.get("enabled", True)):
+        water_method = "unknown"
+    if not water_methods and water_method == "unconfigured_zero":
+        water_heater_devices = {}
 
     # Isolate base load: subtract known deferrable loads from total load.
     # Applies when load is the integrated total, or a power snapshot without disaggregator.
@@ -376,7 +414,11 @@ async def record_observation_from_current_state(
         "load_kwh": load_kwh,
         "import_kwh": import_kwh,
         "export_kwh": export_kwh,
-        "water_kwh": water_kwh,  # Task 8.3: aggregate preserved for backward compat
+        "water_kwh": (
+            None
+            if water_methods and all(method == "unavailable" for method in water_methods)
+            else water_kwh
+        ),
         "water_heater_energy": water_heater_energy if water_heater_energy else None,  # Task 8.2
         "ev_charging_kwh": ev_charging_kwh,
         "ev_charger_energy": ev_charger_energy if ev_charger_energy else None,
@@ -386,7 +428,15 @@ async def record_observation_from_current_state(
         "import_price_sek_kwh": import_price,
         "export_price_sek_kwh": export_price,
         "created_at": datetime.now(UTC).isoformat(),
-        "quality_flags": {"source": "recorder", "recording": recording},
+        "quality_flags": {
+            "source": "recorder",
+            "recording": recording,
+            "water_heater_energy": {
+                "schema_version": WATER_HEATER_ENERGY_SCHEMA_VERSION,
+                "semantics": WATER_HEATER_ENERGY_SEMANTICS,
+                "devices": water_heater_devices,
+            },
+        },
     }
 
     logger.info(

@@ -70,6 +70,50 @@ def test_validate_config_valid_config_no_issues():
     assert len(errors) == 0
 
 
+@pytest.mark.parametrize("defer", [0, 23])
+def test_water_heating_accepts_deferral_endpoints_and_long_gap(defer):
+    issues = _validate_config_for_save(
+        {
+            "system": {"has_battery": False, "has_water_heater": False},
+            "water_heating": {"defer_up_to_hours": defer},
+            "water_heaters": [
+                {
+                    "id": "tank",
+                    "max_hours_between_heating": 28,
+                    "idle_power_threshold_kw": 0.1,
+                }
+            ],
+        }
+    )
+    water_errors = [
+        issue for issue in issues
+        if issue["severity"] == "error"
+        and ("defer_up_to_hours" in issue["message"] or "idle_power_threshold_kw" in issue["message"])
+    ]
+    assert water_errors == []
+
+
+@pytest.mark.parametrize("defer", [30, float("inf"), float("nan"), -0.1])
+def test_water_heating_rejects_invalid_deferral_with_actionable_field(defer):
+    issues = _validate_config_for_save(
+        {"system": {"has_battery": False}, "water_heating": {"defer_up_to_hours": defer}}
+    )
+    errors = [issue["message"] for issue in issues if issue["severity"] == "error"]
+    assert any("water_heating.defer_up_to_hours" in message and "0 and 23" in message for message in errors)
+
+
+@pytest.mark.parametrize("cutoff", [-0.1, float("inf"), float("nan")])
+def test_water_heating_rejects_invalid_idle_cutoff(cutoff):
+    issues = _validate_config_for_save(
+        {
+            "system": {"has_battery": False, "has_water_heater": False},
+            "water_heaters": [{"id": "tank", "idle_power_threshold_kw": cutoff}],
+        }
+    )
+    errors = [issue["message"] for issue in issues if issue["severity"] == "error"]
+    assert any("idle_power_threshold_kw" in message and "finite and non-negative" in message for message in errors)
+
+
 def test_validate_config_battery_entities_not_required_if_no_battery():
     config = {
         "executor": {"enabled": True, "inverter": {}},

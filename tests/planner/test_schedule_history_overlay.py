@@ -1,3 +1,4 @@
+import json
 import sys
 from datetime import datetime, time, timedelta
 from pathlib import Path
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from backend.api.routers.schedule import schedule_today_with_history
 from backend.learning.models import Base
 from backend.learning.store import LearningStore
+from backend.measurement_provenance import recording_metadata
 
 
 @pytest.mark.anyio
@@ -284,12 +286,28 @@ async def test_history_uses_real_slot_duration(tmp_path):
             )
             await conn.execute(
                 text(
-                    "INSERT INTO slot_observations (slot_start, slot_end, water_kwh) "
-                    "VALUES (:s, :e, 1.5)"
+                    "INSERT INTO slot_observations (slot_start, slot_end, water_kwh, quality_flags) "
+                    "VALUES (:s, :e, 1.5, :flags)"
                 ),
                 {
                     "s": half_slot.isoformat(),
                     "e": (half_slot + timedelta(minutes=30)).isoformat(),
+                    "flags": json.dumps(
+                        {
+                            "water_heater_energy": {
+                                "schema_version": 1,
+                                "semantics": "active-water-energy-v1",
+                                "devices": {
+                                    "tank": {
+                                        "energy_kwh": 0.5,
+                                        "source": "power_history",
+                                        "idle_power_threshold_kw": 0.0,
+                                        "coverage": "complete",
+                                    }
+                                },
+                            }
+                        }
+                    ),
                 },
             )
     finally:
@@ -324,4 +342,209 @@ async def test_history_uses_real_slot_duration(tmp_path):
     by_start = {s["start_time"]: s for s in result["slots"]}
     assert by_start[hour_slot.isoformat()]["ev_charging_kw"] == pytest.approx(11.0)
     assert by_start[null_slot.isoformat()]["water_heating_kw"] == pytest.approx(2.0)
-    assert by_start[half_slot.isoformat()]["actual_water_kw"] == pytest.approx(3.0)
+    # Legacy aggregate-only rows without ownership evidence stay unknown.
+    assert by_start[half_slot.isoformat()]["actual_water_kw"] is None
+    assert by_start[half_slot.isoformat()]["actual_water_heaters_kw"] == {}
+    assert by_start[half_slot.isoformat()]["planned_water_heating_kw"] == pytest.approx(0.0)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("now_time", "completed"),
+    [(time(18, 56), False), (time(19, 0), True)],
+)
+async def test_current_water_slot_keeps_plan_until_end_and_then_shows_supported_actual(
+    tmp_path, now_time, completed
+):
+    db_path = tmp_path / "planner_learning.db"
+    tz = pytz.timezone("Europe/Stockholm")
+    today = datetime.now(tz).date()
+    slot_start = tz.localize(datetime.combine(today, time(18, 45)))
+    slot_end = slot_start + timedelta(minutes=15)
+    config = {
+        "system": {"has_water_heater": True},
+        "water_heaters": [
+            {
+                "id": "tank",
+                "enabled": True,
+                "sensor": "sensor.tank",
+                "idle_power_threshold_kw": 0.1,
+            },
+            {
+                "id": "upstairs",
+                "enabled": True,
+                "sensor": "sensor.upstairs",
+                "idle_power_threshold_kw": 0.1,
+            },
+        ],
+    }
+    flags = {
+        "source": "recorder",
+        "recording": recording_metadata(
+            config,
+            {"water": {"method": "power_history", "owner": "recorder"}},
+            "unavailable",
+        ),
+        "water_heater_energy": {
+            "schema_version": 1,
+            "semantics": "active-water-energy-v1",
+            "devices": {
+                "tank": {
+                    "energy_kwh": 0.0,
+                    "source": "power_history",
+                    "idle_power_threshold_kw": 0.1,
+                    "coverage": "complete",
+                },
+                "upstairs": {
+                    "energy_kwh": 0.25,
+                    "source": "snapshot",
+                    "idle_power_threshold_kw": 0.1,
+                    "coverage": "complete",
+                },
+            },
+        },
+    }
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(
+                text(
+                    "INSERT INTO slot_plans (slot_start, slot_end, planned_soc_percent, "
+                    "planned_water_heating_kwh) VALUES (:s, :e, 50.0, 0.75)"
+                ),
+                {"s": slot_start.isoformat(), "e": slot_end.isoformat()},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO slot_observations (slot_start, slot_end, water_kwh, quality_flags) "
+                    "VALUES (:s, :e, 0.25, :flags)"
+                ),
+                {
+                    "s": slot_start.isoformat(),
+                    "e": slot_end.isoformat(),
+                    "flags": json.dumps(flags),
+                },
+            )
+    finally:
+        await engine.dispose()
+
+    fixed_now = tz.localize(datetime.combine(today, now_time))
+    mock_config = {"learning": {"sqlite_path": str(db_path)}, "timezone": "Europe/Stockholm"}
+    with (
+        patch("backend.api.routers.schedule.load_yaml", return_value=mock_config),
+        patch("backend.api.routers.schedule.get_nordpool_data", new=AsyncMock(return_value=[])),
+        patch("backend.api.routers.schedule.Path") as MockPath,
+        patch("backend.api.routers.schedule.datetime") as mock_datetime,
+    ):
+        mock_datetime.now.return_value = fixed_now
+        mock_datetime.fromisoformat.side_effect = datetime.fromisoformat
+        mock_datetime.combine.side_effect = datetime.combine
+        mock_datetime.min = datetime.min
+        MockPath.side_effect = lambda _arg: MagicMock(exists=MagicMock(return_value=False))
+
+        store = LearningStore(str(db_path), tz)
+        try:
+            result = await schedule_today_with_history(store=store)
+        finally:
+            await store.close()
+
+    slot = next(row for row in result["slots"] if row["start_time"] == slot_start.isoformat())
+    assert slot["water_heating_kw"] == pytest.approx(3.0)
+    assert slot["planned_water_heating_kw"] == pytest.approx(3.0)
+    assert slot["is_completed"] is completed
+    assert slot.get("actual_water_kw") == (1.0 if completed else None)
+    if completed:
+        assert slot["actual_water_available"] is True
+        assert slot["actual_water_source"] == "power_history"
+        assert slot["actual_water_heaters_kw"] == {"tank": 0.0, "upstairs": 1.0}
+        assert slot["actual_water_heater_sources"] == {
+            "tank": "power_history",
+            "upstairs": "snapshot",
+        }
+        assert sum(slot["actual_water_heaters_kw"].values()) == pytest.approx(
+            slot["actual_water_kw"]
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("now_time", [time(18, 56), time(19, 0)])
+async def test_live_water_plan_wins_over_stale_database_and_current_telemetry(tmp_path, now_time):
+    tz = pytz.timezone("Europe/Stockholm")
+    day = datetime.now(tz).date()
+    start = tz.localize(datetime.combine(day, time(18, 45)))
+    end = start + timedelta(minutes=15)
+    live = {
+        "start_time": start.isoformat(),
+        "end_time": end.isoformat(),
+        "water_heating_kw": 3.1,
+        "water_heaters": {"tank": {"heating_kw": 3.1}},
+        "grid_import_kw": 4.0,
+    }
+    schedule_file = tmp_path / "schedule.json"
+    schedule_file.write_text(json.dumps({"schedule": [live]}))
+    store = MagicMock()
+    store.get_history_range = AsyncMock(
+        return_value=[
+            {
+                "slot_start": start.isoformat(),
+                "slot_end": end.isoformat(),
+                "batt_charge_kwh": 0,
+                "batt_discharge_kwh": 0,
+                "export_kwh": 0,
+                "soc_end_percent": 50,
+                "ev_charging_kwh": 0,
+                "import_price_sek_kwh": 1,
+            }
+        ]
+    )
+    store.get_forecasts_range = AsyncMock(return_value=[])
+    store.get_plans_range = AsyncMock(
+        return_value=[
+            {
+                "slot_start": start.isoformat(),
+                "slot_end": end.isoformat(),
+                "planned_charge_kwh": 0,
+                "planned_discharge_kwh": 0,
+                "planned_water_heating_kwh": 0,
+                "planned_soc_percent": 50,
+                "projected_soc_percent": 50,
+                "planned_ev_charging_kwh": 0,
+                "planned_export_kwh": 0,
+            }
+        ]
+    )
+    store.get_observations_range = AsyncMock(
+        return_value=[
+            {
+                "slot_start": start.isoformat(),
+                "slot_end": end.isoformat(),
+                "water_kwh": 0,
+                "pv_kwh": None,
+                "load_kwh": None,
+                "actual_water_available": False,
+            }
+        ]
+    )
+    with (
+        patch("backend.api.routers.schedule.Path", return_value=schedule_file),
+        patch(
+            "backend.api.routers.schedule.load_yaml", return_value={"timezone": "Europe/Stockholm"}
+        ),
+        patch("backend.api.routers.schedule.get_nordpool_data", new=AsyncMock(return_value=[])),
+        patch("backend.api.routers.schedule.datetime") as clock,
+    ):
+        clock.now.return_value = tz.localize(datetime.combine(day, now_time))
+        clock.fromisoformat.side_effect = datetime.fromisoformat
+        clock.combine.side_effect = datetime.combine
+        clock.min = datetime.min
+        result = await schedule_today_with_history(store=store)
+    slot = result["slots"][0]
+    assert slot["water_heating_kw"] == 3.1
+    assert slot["planned_water_heating_kw"] == 3.1
+    assert slot["water_heaters"] == {"tank": {"heating_kw": 3.1}}
+    assert slot["planned_water_heaters"] == slot["water_heaters"]
+    assert slot["grid_import_kw"] == 4.0
+    assert slot["actual_soc"] == 50
+    assert slot["is_historical"] is (now_time == time(19, 0))
+    assert slot.get("actual_water_kw") is None

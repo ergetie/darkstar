@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ScheduleSlot } from '../lib/types'
 
@@ -139,4 +139,59 @@ describe('ChartCard mobile slot selection', () => {
 
         await waitFor(() => expect(panel(view.container)).toBeNull())
     })
+})
+
+// The chart and selected-slot panel consume the same API plan/actual contract.
+describe('water plan and actual rendering', () => {
+    beforeEach(() => {
+        charts.length = 0
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.stubGlobal('localStorage', makeMemoryStorage())
+        vi.stubGlobal(
+            'matchMedia',
+            vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+        )
+    })
+    afterEach(() => {
+        vi.useRealTimers()
+        vi.unstubAllGlobals()
+    })
+
+    it.each([
+        { now: '2026-10-04T16:56:00Z', actual: null, source: null, expected: '3.1 kW', estimate: false },
+        { now: '2026-10-04T17:00:00Z', actual: null, source: null, expected: '3.1 kW', estimate: false },
+        {
+            now: '2026-10-04T17:00:00Z',
+            actual: 0,
+            source: 'power_history' as const,
+            expected: '0.0 kW',
+            estimate: false,
+        },
+        { now: '2026-10-04T17:00:00Z', actual: 1.2, source: 'snapshot' as const, expected: '1.2 kW', estimate: true },
+        { now: '2026-10-04T17:00:00Z', actual: 1.2, source: 'legacy' as const, expected: '1.2 kW', estimate: false },
+    ])(
+        'renders the retained plan and supported actual: $now/$source/$actual',
+        async ({ now, actual, source, expected, estimate }) => {
+            vi.setSystemTime(new Date(now))
+            const slots = makeSlots(96, 15)
+            // 18:45–19:00 Stockholm, while the chart buckets use UTC day alignment.
+            slots[67] = {
+                ...slots[67],
+                end_time: '2026-10-04T17:00:00Z',
+                water_heating_kw: 3.1,
+                planned_water_heating_kw: 3.1,
+                actual_water_kw: actual,
+                actual_water_available: actual !== null,
+                actual_water_source: source,
+            }
+            const view = await renderWithSelection(slots, 67)
+            fireEvent.click(view.getByRole('button', { name: 'Details' }))
+            const selected = panel(view.container)
+            expect(selected?.textContent).toContain(expected)
+            expect(selected?.textContent).toContain(estimate ? 'Water heating (estimate)' : 'Water heating')
+            const data = chart().data as { datasets: { label: string; data: (number | null)[] }[] }
+            expect(data.datasets.find((dataset) => dataset.label === 'Water Heating (kW)')?.data[67]).toBe(3.1)
+            expect(data.datasets.find((dataset) => dataset.label === 'Actual Water (kW)')?.data[67]).toBe(actual)
+        },
+    )
 })

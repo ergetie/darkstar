@@ -7,11 +7,12 @@ Migrated from backend/kepler/solver.py during Rev K13 modularization.
 
 import logging
 from collections import defaultdict
-from datetime import timedelta  # Rev WH2
 from typing import Any, cast
 
 import pulp  # type: ignore[import,no-redef]
+import pytz
 
+from backend.core.water_heating import water_quota_window
 from planner.errors import PlannerError, PlannerErrorCode
 
 from .types import (
@@ -122,12 +123,17 @@ class KeplerSolver:
                     water_start[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
                         f"water_start_{safe_d}", range(T), cat="Binary"
                     )
-                discomfort[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
-                    f"discomfort_{safe_d}", range(T), lowBound=0.0
-                )
-                gap_over[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
-                    f"gap_over_{safe_d}", range(T), lowBound=0.0
-                )
+                if (
+                    config.water_heating_max_gap_hours > 0
+                    and heater.max_hours_between_heating > 0
+                    and config.water_gap_penalty_sek > 0
+                ):
+                    discomfort[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
+                        f"discomfort_{safe_d}", range(T), lowBound=0.0
+                    )
+                    gap_over[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
+                        f"gap_over_{safe_d}", range(T), lowBound=0.0
+                    )
 
         # EV Charging as deferrable load (per-device, multi-charger support)
         # Variables for plugged-in chargers and for assumed-plugged ones
@@ -701,25 +707,35 @@ class KeplerSolver:
         if water_enabled:
             avg_slot_hours: float = sum(slot_hours) / len(slot_hours) if slot_hours else 0.25
 
-            # Build day → slot indices map (shared across all devices, global deferral)
-            slots_by_day: defaultdict[Any, list[int]] = defaultdict(list)
+            # Each local-time bucket is shared by every heater and measured at
+            # the same configured deferral boundary, including across DST.
+            slots_by_day: defaultdict[Any, list[tuple[int, float]]] = defaultdict(list)
             defer_hours: float = config.defer_up_to_hours
+            local_timezone = pytz.timezone(config.timezone_name)
             for t in range(T):
-                dt: Any = slots[t].start_time
-                bucket_date: Any = dt.date()
-                if defer_hours > 0 and dt.hour < defer_hours:
-                    bucket_date = bucket_date - timedelta(days=1)
-                slots_by_day[bucket_date].append(t)
+                cursor = slots[t].start_time
+                end = slots[t].end_time
+                if cursor.tzinfo is None:
+                    cursor = local_timezone.localize(cursor)
+                if end.tzinfo is None:
+                    end = local_timezone.localize(end)
+                while cursor < end:
+                    bucket_start, bucket_end = water_quota_window(
+                        cursor, defer_hours, local_timezone
+                    )
+                    segment_end = min(bucket_end, end)
+                    hours = (segment_end - cursor).total_seconds() / 3600.0
+                    slots_by_day[bucket_start.date()].append((t, hours))
+                    cursor = segment_end
             sorted_days = sorted(slots_by_day.keys())
 
             for heater in water_heaters:
                 d = heater.id
                 # Per-device kWh per slot (power differs between heaters)
-                kwh_per_slot: float = heater.power_kw * avg_slot_hours
 
                 # Constraint 1: Per-device, per-day daily minimum (task 2.4)
                 for i, day in enumerate(sorted_days):
-                    day_slot_indices: list[int] = slots_by_day[day]
+                    day_slots = slots_by_day[day]
                     if i == 0:
                         # First day: deduct per-device heated-today progress
                         day_min_kwh: float = max(
@@ -730,7 +746,9 @@ class KeplerSolver:
 
                     if day_min_kwh > 0:
                         prob += (  # type: ignore[operator]
-                            pulp.lpSum(water_heat[d][t] for t in day_slot_indices) * kwh_per_slot
+                            pulp.lpSum(
+                                water_heat[d][t] * heater.power_kw * hours for t, hours in day_slots
+                            )
                             >= day_min_kwh - water_min_kwh_violation[d][i]
                         )
 
@@ -757,7 +775,7 @@ class KeplerSolver:
                         )
 
                 # Constraint 4: Per-device gap-comfort deadband (Decision 1)
-                if gap_penalty_active:
+                if gap_penalty_active and heater.max_hours_between_heating > 0:
                     gap_m: float = 100.0
                     for t in range(T):
                         duration: float = slot_hours[t]
@@ -771,7 +789,7 @@ class KeplerSolver:
                                 >= discomfort[d][t - 1] + duration - water_heat[d][t] * gap_m
                             )
                         prob += (  # type: ignore[operator]
-                            gap_over[d][t] >= discomfort[d][t] - config.water_heating_max_gap_hours
+                            gap_over[d][t] >= discomfort[d][t] - heater.max_hours_between_heating
                         )
 
         # Terminal SoC Target (BIDIRECTIONAL soft constraint)

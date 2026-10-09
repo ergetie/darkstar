@@ -39,6 +39,24 @@ def test_active_heater_gets_remaining_slots_and_idle_heater_does_not(
     assert "2 remaining slots" in caplog.text
 
 
+def test_live_idle_state_does_not_replay_stale_mid_block_lock() -> None:
+    now = pd.Timestamp("2026-01-15T10:00:00+01:00")
+    schedule = [
+        _slot("2026-01-15T10:00:00+01:00", {"tank": 3.0}),
+        _slot("2026-01-15T10:15:00+01:00", {"tank": 3.0}),
+    ]
+
+    forced = _detect_mid_block_slots(
+        schedule,
+        ["tank"],
+        now,
+        pytz.timezone("Europe/Stockholm"),
+        water_heater_states=[{"id": "tank", "active_heating": False}],
+    )
+
+    assert forced["tank"] == set()
+
+
 @pytest.mark.parametrize("payload", [None, {"schedule": []}, {"not_schedule": True}])
 def test_missing_or_empty_previous_schedule_logs_warning(
     tmp_path: Path, payload: dict | None, caplog: pytest.LogCaptureFixture

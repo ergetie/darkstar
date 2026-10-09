@@ -20,6 +20,8 @@ class WaterHeaterInput:
     min_spacing_hours: float
     force_on_slots: list[int] | None = None
     heated_today_kwh: float = 0.0
+    progress_source: str = "unknown"
+    progress_coverage: str = "unavailable"
 
 
 @dataclass
@@ -100,6 +102,7 @@ class KeplerConfig:
     # Global water heating settings (apply to all heaters)
     water_heating_max_gap_hours: float = 0.0  # Threshold for gap penalty (0 = disabled)
     water_gap_penalty_sek: float = 0.0  # Penalty per hour of gap beyond water_heating_max_gap_hours (0 = disabled); scaled by comfort_level
+    timezone_name: str = "Europe/Stockholm"
     water_block_penalty_sek: float = 0.0  # Penalty per slot for overshooting block window
     water_reliability_penalty_sek: float = 0.0  # Penalty per day for missing daily minimum
     max_block_hours: float = 2.0  # Rev K24: Dynamic window size per comfort level (global)

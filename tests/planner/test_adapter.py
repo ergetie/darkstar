@@ -733,3 +733,20 @@ class TestResolveBatteryPowerLimits:
         charge_kw, discharge_kw = resolve_battery_power_limits(config)
         assert kepler.max_charge_power_kw == charge_kw
         assert kepler.max_discharge_power_kw == discharge_kw
+
+
+@pytest.mark.parametrize("top_ups", [True, False])
+def test_water_defaults_and_gap_enablement_match_per_device_contract(top_ups):
+    config = {
+        "config_version": 2,
+        "battery": {"capacity_kwh": 13.5, "max_charge_a": 100, "max_discharge_a": 100},
+        "water_heaters": [
+            {"id": "tank", "power_kw": 3, "min_kwh_per_day": 4, "max_hours_between_heating": 28}
+        ],
+        # An obsolete shared gap must not override the heater's actual ceiling.
+        "water_heating": {"enable_top_ups": top_ups, "max_hours_between_heating": 0},
+    }
+    result = config_to_kepler_config(config, [pd.Timestamp("2026-01-15T12:00:00+01:00")])
+    assert result.defer_up_to_hours == 6
+    assert result.water_heaters[0].max_hours_between_heating == 28
+    assert (result.water_heating_max_gap_hours > 0) is top_ups

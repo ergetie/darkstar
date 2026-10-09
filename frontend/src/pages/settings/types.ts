@@ -59,6 +59,7 @@ export interface BaseField {
     /** Inclusive numeric bounds, validated on edit (number fields only) */
     min?: number
     max?: number
+    step?: number
     /** Number fields only: render as quick choices plus a "Custom…" number input */
     presets?: {
         options: { value: number; label: string }[]
@@ -1154,6 +1155,10 @@ export const waterSections: SettingsSection[] = [
                 label: 'Max defer hours',
                 path: ['water_heating', 'defer_up_to_hours'],
                 type: 'number',
+                min: 0,
+                max: 23,
+                step: 0.5,
+                helper: 'Local-time quota boundary: 0 starts at midnight; 23 extends each daily quota to 23:00 the next day.',
                 isAdvanced: true,
             },
             {

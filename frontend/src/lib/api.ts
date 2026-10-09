@@ -109,6 +109,7 @@ export type ConfigResponse = {
     }
     water_heating?: {
         comfort_level?: number
+        defer_up_to_hours?: number
         vacation_mode?: { enabled?: boolean; end_date?: string | null }
     }
     pricing?: {
@@ -154,6 +155,7 @@ export type ConfigResponse = {
         power_kw: number
         min_kwh_per_day: number
         max_hours_between_heating: number
+        idle_power_threshold_kw?: number
         water_min_spacing_hours: number
         sensor: string
         target_entity?: string

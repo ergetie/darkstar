@@ -44,3 +44,11 @@ async def test_current_slot_preserves_actual_soc(monkeypatch, tmp_path, soc):
     slot = result["slots"][0]
     assert slot["actual_soc"] == soc
     assert slot["is_executed"] is True
+    assert slot["is_completed"] is False
+    # Execution telemetry is useful during an active slot; water actuals stay
+    # hidden until the slot ends and provenance can describe a complete sample.
+    assert slot["actual_charge_kw"] == 0.0
+    assert slot["actual_discharge_kw"] == 0.0
+    assert slot["actual_export_kwh"] == 0.0
+    assert slot["actual_ev_charging_kw"] == 0.0
+    assert "actual_water_kw" not in slot

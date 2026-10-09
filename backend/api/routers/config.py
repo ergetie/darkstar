@@ -24,6 +24,7 @@ from backend.core.prices import (
 )
 from backend.core.secrets import load_home_assistant_config, load_notifications_config, load_yaml
 from backend.core.time_windows import parse_window
+from backend.core.water_heating import validate_water_heating_config
 from backend.loads.base import EV_CHARGER_LOAD_TYPES, WATER_HEATER_LOAD_TYPES
 from backend.services.installation_stats_contract import (
     effective_installation_stats,
@@ -765,6 +766,17 @@ def _validate_config_for_save(
     water_cfg = config.get("water_heating", {})
     battery_cfg = config.get("battery", {})
     config_version = config.get("config_version", 1)
+
+    try:
+        validate_water_heating_config(config)
+    except ValueError as exc:
+        issues.append(
+            {
+                "severity": "error",
+                "message": str(exc),
+                "guidance": "Correct the water-heating setting explicitly; invalid values are not clamped.",
+            }
+        )
 
     # Battery: ERROR if enabled but no capacity (breaks MILP solver)
     if system_cfg.get("has_battery", True):

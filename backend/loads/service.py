@@ -5,6 +5,10 @@ from typing import Any
 
 from backend.core.ev_power import charger_disabled_reason, charger_max_kw, nominal_voltage_v
 from backend.core.ha_client import get_ha_sensor_kw_normalized
+from backend.core.water_heating import (
+    DEFAULT_IDLE_POWER_THRESHOLD_KW,
+    normalize_active_power_kw,
+)
 
 from .base import DeferrableLoad, LoadType
 
@@ -18,6 +22,7 @@ class LoadDisaggregator:
         self.config = config
         self.loads_registry: dict[str, DeferrableLoad] = {}
         self._ev_charger_ids: set[str] = set()  # REV F76: Track EV charger IDs
+        self._water_idle_cutoffs_kw: dict[str, float] = {}
         self.metrics = {
             "negative_base_load_count": 0,
             "total_calculations": 0,
@@ -90,6 +95,9 @@ class LoadDisaggregator:
                 nominal_power_kw=nominal_power,
             )
             self.register_load(load)
+            self._water_idle_cutoffs_kw[load_id] = float(
+                wh.get("idle_power_threshold_kw", DEFAULT_IDLE_POWER_THRESHOLD_KW)
+            )
             logger.info(f"Registered water heater from ARC15 config: {load_id}")
 
         # Process EV chargers
@@ -226,7 +234,17 @@ class LoadDisaggregator:
                     logger.debug(f"Sensor {load.sensor_key} unavailable for load {load.id}")
                 else:
                     load.is_healthy = True
-                    load.current_power_kw = val
+                    load.current_power_kw = (
+                        max(
+                            0.0,
+                            normalize_active_power_kw(
+                                val, "kW", self._water_idle_cutoffs_kw[load.id]
+                            )
+                            or 0.0,
+                        )
+                        if load.id in self._water_idle_cutoffs_kw
+                        else val
+                    )
                     total_controllable_kw += load.current_power_kw
             except Exception as e:
                 load.is_healthy = False
