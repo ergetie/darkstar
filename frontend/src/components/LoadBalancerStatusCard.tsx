@@ -86,11 +86,13 @@ function SurplusEvRow({
             : 'paused'
 
     return (
-        <div className="flex items-start justify-between gap-3 rounded-lg border border-line/20 bg-surface2/50 px-3 py-2 text-[11px]">
-            <div className="min-w-0">
+        <div className="flex items-start justify-between gap-2 rounded-lg border border-line/20 bg-surface2/50 px-3 py-2 text-[11px]">
+            <div className="min-w-0 break-words">
                 <div className="flex items-center gap-2">
                     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${ev.paused ? 'bg-bad' : 'bg-good'}`} />
-                    <span className="truncate font-semibold text-text">{ev.charger_name}</span>
+                    <span className="break-words font-semibold text-text" title={ev.charger_name}>
+                        {ev.charger_name}
+                    </span>
                 </div>
                 <div className="mt-0.5 text-muted">
                     {surplusText} → {dispatchText}
@@ -143,9 +145,15 @@ export default function LoadBalancerStatusCard() {
 
     if (!status) {
         return (
-            <Card className="p-4 md:p-5">
-                <div className="animate-pulse text-muted text-sm">Loading load balancer status…</div>
-            </Card>
+            <div className="grid shrink-0 grid-cols-1 gap-3 lg:grid-cols-3">
+                <Card className="min-w-0 p-3 md:p-4 lg:col-span-2">
+                    <div className="animate-pulse text-muted text-sm">Loading load balancer status…</div>
+                </Card>
+                <Card className="min-w-0 p-3 md:p-4">
+                    <div className="text-xs font-bold uppercase tracking-wider text-muted">Controlled Loads</div>
+                    <p className="mt-2 text-[11px] text-muted">Loading…</p>
+                </Card>
+            </div>
         )
     }
 
@@ -154,33 +162,48 @@ export default function LoadBalancerStatusCard() {
         // surface here even when fuse protection itself is off/unconfigured.
         const surplusOnlyEv = status.ev.filter((ev) => ev.surplus_mode)
         return (
-            <Card className="p-4 md:p-5 space-y-3">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-surface2 text-muted">
-                        <Gauge size={18} />
+            <div className="grid shrink-0 grid-cols-1 gap-3 lg:grid-cols-3">
+                <Card className="min-w-0 p-3 md:p-4 lg:col-span-2">
+                    <div className="flex flex-wrap items-start gap-3">
+                        <div className="p-2 rounded-lg bg-surface2 text-muted">
+                            <Gauge size={18} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-text">Load Balancing is disabled</div>
+                            <p className="text-[11px] text-muted mt-0.5">
+                                Enable it in Settings once your main fuse rating and per-phase current sensors are
+                                configured to protect your fuse in real time.
+                            </p>
+                        </div>
+                        <Link
+                            to="/settings?tab=load-balancing"
+                            className="shrink-0 text-xs font-semibold text-accent hover:underline whitespace-nowrap"
+                        >
+                            Go to Settings
+                        </Link>
                     </div>
-                    <div className="flex-1">
-                        <div className="text-sm font-semibold text-text">Load Balancing is disabled</div>
-                        <p className="text-[11px] text-muted mt-0.5">
-                            Enable it in Settings once your main fuse rating and per-phase current sensors are
-                            configured to protect your fuse in real time.
-                        </p>
-                    </div>
-                    <Link
-                        to="/settings?tab=load-balancing"
-                        className="shrink-0 text-xs font-semibold text-accent hover:underline whitespace-nowrap"
+                </Card>
+                <Card className="min-w-0 p-3 md:p-4">
+                    <div className="text-xs font-bold uppercase tracking-wider text-muted">Controlled Loads</div>
+                    <div
+                        role="region"
+                        aria-label="Controlled loads"
+                        className="mt-2 min-w-0 space-y-1.5 lg:max-h-[160px] lg:overflow-y-auto lg:pr-1"
                     >
-                        Go to Settings
-                    </Link>
-                </div>
-                {surplusOnlyEv.length > 0 && (
-                    <div className="space-y-1.5">
-                        {surplusOnlyEv.map((ev) => (
-                            <SurplusEvRow key={ev.charger_id} ev={ev} measuredSurplusKw={status.measured_surplus_kw} />
-                        ))}
+                        {surplusOnlyEv.length > 0 ? (
+                            surplusOnlyEv.map((ev) => (
+                                <SurplusEvRow
+                                    key={ev.charger_id}
+                                    ev={ev}
+                                    measuredSurplusKw={status.measured_surplus_kw}
+                                />
+                            ))
+                        ) : (
+                            <p className="text-[11px] text-muted">No controlled loads.</p>
+                        )}
                     </div>
-                )}
-            </Card>
+                </Card>
+            </div>
         )
     }
 
@@ -197,90 +220,101 @@ export default function LoadBalancerStatusCard() {
     const isStale = ageSeconds !== null && ageSeconds > Math.max(3 * tickIntervalS, 15)
 
     return (
-        <Card className="p-4 md:p-5 space-y-4">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <Gauge size={16} className="text-muted" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-muted">Load Balancing</span>
-                    {ageSeconds !== null && (
-                        <span
-                            data-testid="lb-freshness"
-                            className={`text-[10px] font-medium ${
-                                isStale ? 'rounded bg-bad/10 px-1.5 py-0.5 font-bold text-bad' : 'text-muted'
-                            }`}
-                        >
-                            {isStale
-                                ? `stale — last update ${formatAge(ageSeconds)}`
-                                : `updated ${formatAge(ageSeconds)}`}
-                        </span>
-                    )}
+        <div className="grid shrink-0 grid-cols-1 gap-3 lg:grid-cols-3">
+            <Card className="min-w-0 space-y-2.5 p-3 md:p-4 lg:col-span-2">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <Gauge size={16} className="text-muted" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-muted">Load Balancing</span>
+                        {ageSeconds !== null && (
+                            <span
+                                data-testid="lb-freshness"
+                                className={`text-[10px] font-medium ${
+                                    isStale ? 'rounded bg-bad/10 px-1.5 py-0.5 font-bold text-bad' : 'text-muted'
+                                }`}
+                            >
+                                {isStale
+                                    ? `stale — last update ${formatAge(ageSeconds)}`
+                                    : `updated ${formatAge(ageSeconds)}`}
+                            </span>
+                        )}
+                    </div>
+                    <div
+                        className={`flex shrink-0 items-center gap-1.5 text-xs font-bold uppercase tracking-wide ${stateColor}`}
+                    >
+                        <StateIcon size={14} />
+                        {STATE_LABELS[status.state] || status.state}
+                    </div>
                 </div>
-                <div className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide ${stateColor}`}>
-                    <StateIcon size={14} />
-                    {STATE_LABELS[status.state] || status.state}
-                </div>
-            </div>
 
-            <div className="space-y-2.5">
-                {[1, 2, 3].map((phase) => {
-                    const currentA = status.phase_current_a[String(phase)] ?? status.phase_current_a[phase] ?? 0
-                    const pct = fuseA > 0 ? Math.min(100, (currentA / fuseA) * 100) : 0
-                    return (
-                        <div key={phase}>
-                            <div className="flex items-center justify-between text-[10px] text-muted mb-1">
-                                <span className="font-bold">L{phase}</span>
-                                <span className="font-mono">
-                                    {/* Raw reading as secondary text: near-zero homes see life in the numbers */}
-                                    <span className="mr-1.5 text-muted/60" data-testid={`lb-raw-l${phase}`}>
+                <div className="grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3">
+                    {[1, 2, 3].map((phase) => {
+                        const currentA = status.phase_current_a[String(phase)] ?? status.phase_current_a[phase] ?? 0
+                        const pct = fuseA > 0 ? Math.min(100, (currentA / fuseA) * 100) : 0
+                        return (
+                            <div key={phase} className="min-w-0">
+                                <div className="mb-1 flex min-w-0 flex-wrap items-center justify-between gap-x-1 text-[10px] text-muted">
+                                    <span className="font-bold">L{phase}</span>
+                                    <span
+                                        className="whitespace-nowrap font-mono text-right"
+                                        title={`Raw current: ${currentA.toFixed(3)}A`}
+                                    >
+                                        {currentA.toFixed(1)} / {fuseA} A
+                                    </span>
+                                    <span className="sr-only" data-testid={`lb-raw-l${phase}`}>
                                         {currentA.toFixed(3)}A
                                     </span>
-                                    <span>
-                                        {currentA.toFixed(1)}A / {fuseA}A
-                                    </span>
-                                </span>
+                                </div>
+                                <div className="relative h-2 overflow-hidden rounded-full bg-surface2">
+                                    <div
+                                        className={`h-full rounded-full transition-all duration-500 ${phaseColor(currentA, fuseA, margin)}`}
+                                        style={{ width: `${pct}%` }}
+                                    />
+                                    <div
+                                        className="absolute top-0 h-full w-px bg-line/60"
+                                        style={{ left: `${margin}%` }}
+                                        title={`Target safety margin (${margin}%)`}
+                                    />
+                                </div>
                             </div>
-                            <div className="relative h-2 rounded-full bg-surface2 overflow-hidden">
-                                <div
-                                    className={`h-full rounded-full transition-all duration-500 ${phaseColor(currentA, fuseA, margin)}`}
-                                    style={{ width: `${pct}%` }}
-                                />
-                                <div
-                                    className="absolute top-0 h-full w-px bg-line/60"
-                                    style={{ left: `${margin}%` }}
-                                    title={`Target safety margin (${margin}%)`}
-                                />
-                            </div>
-                        </div>
-                    )
-                })}
-            </div>
+                        )
+                    })}
+                </div>
+            </Card>
 
-            {status.ev.length > 0 && (
-                <div className="space-y-1.5">
+            <Card className="min-w-0 p-3 md:p-4">
+                <div className="text-xs font-bold uppercase tracking-wider text-muted">Controlled Loads</div>
+                <div
+                    role="region"
+                    aria-label="Controlled loads"
+                    className="mt-2 min-w-0 space-y-1.5 lg:max-h-[180px] lg:overflow-y-auto lg:pr-1"
+                >
                     {status.ev.map((ev) => (
                         <div
                             key={ev.charger_id}
-                            className="flex items-start justify-between gap-3 text-[11px] rounded-lg bg-surface2/50 border border-line/20 px-3 py-2"
+                            className="flex min-w-0 items-start justify-between gap-2 rounded-lg border border-line/20 bg-surface2/50 px-2 py-1.5 text-[11px]"
                         >
-                            <div className="flex items-center gap-2 min-w-0">
+                            <div className="flex min-w-0 flex-1 items-start gap-2">
                                 <span
-                                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${EV_STATE_DOTS[ev.state] || 'bg-muted'}`}
+                                    className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${EV_STATE_DOTS[ev.state] || 'bg-muted'}`}
                                 />
-                                <div className="min-w-0">
-                                    <div className="font-semibold text-text truncate">{ev.charger_name}</div>
+                                <div className="min-w-0 flex-1">
+                                    <div className="break-words font-semibold text-text" title={ev.charger_name}>
+                                        {ev.charger_name}
+                                    </div>
                                     {ev.relief_1p && (
                                         <div
-                                            className="text-warn text-[10px] font-semibold mt-0.5"
+                                            className="mt-0.5 break-words text-[10px] font-semibold text-warn"
                                             data-testid="lb-relief"
                                         >
                                             {reliefText(ev)}
                                         </div>
                                     )}
                                     {ev.reason && !(ev.relief_1p && ev.reason === ev.relief_reason) && (
-                                        <div className="text-muted text-[10px] mt-0.5">{ev.reason}</div>
+                                        <div className="mt-0.5 break-words text-[10px] text-muted">{ev.reason}</div>
                                     )}
                                     {ev.surplus_mode && (
-                                        <div className="text-muted text-[10px] mt-0.5">
+                                        <div className="mt-0.5 break-words text-[10px] text-muted">
                                             Surplus charging
                                             {status.measured_surplus_kw !== null &&
                                             status.measured_surplus_kw !== undefined
@@ -292,26 +326,28 @@ export default function LoadBalancerStatusCard() {
                                     )}
                                 </div>
                             </div>
-                            <div className="shrink-0 text-right">
-                                <div className="font-mono text-text">{chargerSetpointText(ev)}</div>
-                                <div className="text-[9px] font-bold uppercase tracking-wide text-muted">
+                            <div className="w-[42%] min-w-0 shrink-0 text-right">
+                                <div className="break-words font-mono text-text">{chargerSetpointText(ev)}</div>
+                                <div className="text-[10px] font-bold uppercase tracking-wide text-muted">
                                     {EV_STATE_LABELS[ev.state] || ev.state}
                                 </div>
                             </div>
                         </div>
                     ))}
+                    {shedLoads.map((load) => (
+                        <div
+                            key={load.load_id}
+                            className="rounded-lg border border-bad/30 bg-bad/10 px-2 py-1.5 text-[11px] text-bad"
+                        >
+                            <div className="break-words font-semibold">Shed: {load.load_id}</div>
+                            {load.reason && <div className="mt-0.5 break-words">{load.reason}</div>}
+                        </div>
+                    ))}
+                    {status.ev.length === 0 && shedLoads.length === 0 && (
+                        <p className="text-[11px] text-muted">No controlled loads.</p>
+                    )}
                 </div>
-            )}
-
-            {shedLoads.length > 0 && (
-                <div className="text-[11px] rounded-lg bg-bad/10 border border-bad/30 text-bad px-3 py-2">
-                    Shed: {shedLoads.map((s) => s.load_id).join(', ')}
-                </div>
-            )}
-
-            {status.ev.length === 0 && shedLoads.length === 0 && status.state === 'idle' && (
-                <p className="text-[11px] text-muted">All phases within limits.</p>
-            )}
-        </Card>
+            </Card>
+        </div>
     )
 }

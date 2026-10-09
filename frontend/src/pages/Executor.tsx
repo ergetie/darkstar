@@ -337,7 +337,7 @@ function Toggle({
             aria-checked={enabled}
             disabled={disabled}
             onClick={() => onChange(!enabled)}
-            className={`relative inline-flex items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${sizeClasses} ${
+            className={`relative inline-flex shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${sizeClasses} ${
                 enabled ? 'bg-accent' : 'bg-surface2'
             } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
         >
@@ -623,32 +623,11 @@ export default function Executor() {
     }
 
     return (
-        <div className="px-4 pt-16 pb-24 lg:px-8 lg:pt-8 lg:pb-8 min-h-screen lg:h-screen flex flex-col gap-6 overflow-auto lg:overflow-hidden">
-            {/* Header */}
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                <div>
-                    <h1 className="text-lg font-medium text-text flex items-center gap-2">
-                        Executor Control Center
-                        <span
-                            className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider ${
-                                status?.enabled
-                                    ? status?.shadow_mode
-                                        ? 'bg-warn/20 border-warn/50 text-warn'
-                                        : 'bg-good/20 border-good/50 text-good'
-                                    : 'bg-neutral/20 border-neutral/50 text-neutral'
-                            }`}
-                        >
-                            {status?.enabled ? (status?.shadow_mode ? 'Shadow' : 'Active') : 'Disabled'}
-                        </span>
-                    </h1>
-                    <p className="text-[11px] text-muted">
-                        Native execution engine — controls inverter and water heater based on the schedule.
-                    </p>
-                </div>
-            </div>
+        <div className="px-4 pt-16 pb-24 lg:px-8 lg:pt-4 lg:pb-4 min-h-screen lg:h-screen flex flex-col gap-3 overflow-auto lg:overflow-hidden">
+            <h1 className="sr-only">Executor Control Center</h1>
 
             {error && (
-                <div className="rounded-xl p-3 bg-bad/10 border border-bad/30 flex items-center gap-3">
+                <div className="shrink-0 rounded-xl p-3 bg-bad/10 border border-bad/30 flex items-center gap-3">
                     <AlertTriangle className="h-4 w-4 text-bad" />
                     <span className="text-bad text-[11px] flex-1">{error}</span>
                     <button onClick={() => setError(null)} className="text-bad hover:text-bad/80 text-lg">
@@ -657,27 +636,20 @@ export default function Executor() {
                 </div>
             )}
 
-            {/* Top Section - Status & Controls */}
-            <div className="grid gap-4 lg:grid-cols-12">
-                {/* Status Hero Card */}
-                <Card className={`lg:col-span-5 p-4 md:p-5 bg-gradient-to-br ${statusColor} relative overflow-hidden`}>
-                    <div className="relative z-10 flex items-start gap-4">
-                        {/* Avatar & Pulse */}
-                        <div className="relative flex items-center justify-center shrink-0">
-                            <div
-                                className={`absolute h-14 w-14 rounded-full ${statusPulse} opacity-30 animate-pulse`}
-                            />
-                            <div className="relative flex items-center justify-center w-12 h-12 rounded-full bg-surface/90 border border-line/80 shadow-float ring-2 ring-accent/20">
-                                <Cpu className="h-6 w-6 text-accent drop-shadow-[0_0_12px_rgba(56,189,248,0.75)]" />
-                            </div>
+            {/* Status, controls, and counters share one compact desktop row. */}
+            <div className="grid shrink-0 gap-3 lg:grid-cols-12">
+                <Card className={`min-w-0 p-3 lg:col-span-3 bg-gradient-to-br ${statusColor} relative overflow-hidden`}>
+                    <div className="relative z-10 flex items-center gap-2">
+                        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface/90 border border-line/80">
+                            <div className={`absolute inset-0 rounded-full ${statusPulse} opacity-25 animate-pulse`} />
+                            <Cpu className="relative h-4 w-4 text-accent" />
                         </div>
-
-                        <div className="flex-1 min-w-0">
-                            <div className="text-xs font-semibold text-text uppercase tracking-wide">Status</div>
+                        <div className="min-w-0">
+                            <div className="text-xs font-semibold text-muted">Status</div>
                             <div className="text-lg font-medium text-text">
                                 {status?.enabled ? (status?.shadow_mode ? 'Shadow Mode' : 'Executing') : 'Standby'}
                             </div>
-                            <div className="text-[11px] text-muted flex items-center gap-2 mt-1">
+                            <div className="text-[11px] text-muted flex items-center gap-1.5">
                                 <span
                                     className={`h-1.5 w-1.5 rounded-full ${
                                         status?.last_run_status === 'success'
@@ -696,137 +668,114 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    {/* Quick Stats */}
-                    <div className="mt-4 pt-3 border-t border-line/10 grid grid-cols-3 gap-3">
-                        <div>
-                            <div className="text-[10px] text-muted/70 uppercase">Last Run</div>
-                            <div className="text-sm font-mono text-text">{formatTime(status?.last_run_at)}</div>
+                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-line/20 pt-2">
+                        <div className="min-w-0">
+                            <span className="text-[10px] text-muted">Last </span>
+                            <span className="text-sm font-mono text-text">{formatTime(status?.last_run_at)}</span>
                         </div>
-                        <div>
-                            <div className="text-[10px] text-muted/70 uppercase">Next Run</div>
-                            <div className="text-sm font-mono text-text">{formatTime(status?.next_run_at)}</div>
+                        <div className="min-w-0">
+                            <span className="text-[10px] text-muted">Next </span>
+                            <span className="text-sm font-mono text-text">{formatTime(status?.next_run_at)}</span>
                         </div>
-                        <div>
-                            <div className="text-[10px] text-muted/70 uppercase">Profile</div>
-                            <div
-                                className="text-sm font-mono text-text truncate max-w-[80px]"
-                                title={status?.profile_name}
-                            >
-                                {status?.profile_name || '—'}
-                            </div>
+                        <div className="min-w-0 truncate text-[10px]" title={status?.profile_name}>
+                            <span className="text-muted">Profile </span>
+                            <span className="font-mono text-text">{status?.profile_name || '—'}</span>
                         </div>
-                        <div>
-                            <div className="text-[10px] text-muted/70 uppercase">Version</div>
-                            <div className="text-sm font-mono text-text">{status?.version || '—'}</div>
+                        <div className="min-w-0 truncate text-[10px]" title={status?.version}>
+                            <span className="text-muted">Version </span>
+                            <span className="font-mono text-text">{status?.version || '—'}</span>
                         </div>
                     </div>
 
                     {status?.override_active && (
-                        <div className="mt-3 p-2 rounded-lg bg-warn/20 border border-warn/30">
-                            <div className="flex items-center gap-2 text-[11px] text-warn">
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                                <span className="font-medium">Override Active:</span>
-                                <span>{status.override_type}</span>
-                            </div>
+                        <div className="mt-2 rounded-lg border border-warn/30 bg-warn/10 px-2 py-1.5 text-[11px] text-warn flex items-center gap-1.5">
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            <span className="font-medium">Override Active:</span>
+                            <span className="min-w-0 break-words">{status.override_type}</span>
                         </div>
                     )}
 
                     {status?.profile_error && (
-                        <div className="mt-3 p-2 rounded-lg bg-bad/20 border border-bad/30">
-                            <div className="flex items-center gap-2 text-[11px] text-bad">
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                                <span className="font-medium">Profile Error:</span>
-                                <span>{status.profile_error}</span>
-                            </div>
+                        <div className="mt-2 rounded-lg border border-bad/30 bg-bad/10 px-2 py-1.5 text-[11px] text-bad flex items-start gap-1.5">
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            <span className="min-w-0 break-words">
+                                <strong>Profile Error:</strong> {status.profile_error}
+                            </span>
                         </div>
                     )}
 
                     {status?.profile_name === 'generic' && !status?.profile_error && (
-                        <div className="mt-3 p-2 rounded-lg bg-warn/10 border border-warn/20">
-                            <div className="flex items-center gap-2 text-[11px] text-warn/80">
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                                <span className="font-medium">Using Generic Profile</span>
-                                <span className="text-[10px] opacity-70">(Legacy compatibility mode)</span>
-                            </div>
+                        <div className="mt-2 rounded-lg border border-warn/20 bg-warn/10 px-2 py-1.5 text-[11px] text-warn/80 flex items-start gap-1.5">
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            <span>
+                                <strong>Using Generic Profile</strong> (Legacy compatibility mode)
+                            </span>
                         </div>
                     )}
                 </Card>
 
-                {/* Controls Card */}
-                <Card className="lg:col-span-4 p-4 md:p-5 flex flex-col">
-                    <div className="flex items-center gap-2 mb-4">
-                        <Settings className="h-4 w-4 text-accent" />
+                <Card className="min-w-0 p-3 lg:col-span-6">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Settings className="h-3.5 w-3.5 text-accent" />
                         <span className="text-xs font-medium text-text">Controls</span>
                     </div>
-
-                    {/* Enabled Toggle */}
-                    <div className="flex items-center justify-between p-2.5 rounded-lg bg-surface2/50 border border-line/50">
-                        <div className="flex flex-col">
-                            <span className="text-[11px] font-medium text-text">Executor Enabled</span>
-                            <span className="text-[9px] text-muted">Execute actions on Home Assistant</span>
-                        </div>
-                        <Toggle
-                            enabled={status?.enabled ?? false}
-                            onChange={handleToggleEnabled}
-                            disabled={toggling}
-                            size="sm"
-                        />
-                    </div>
-
-                    {/* Shadow Mode Toggle */}
-                    <div className="flex items-center justify-between p-2.5 rounded-lg bg-surface2/50 border border-line/50 mt-2">
-                        <div className="flex flex-col">
-                            <div className="text-[11px] font-medium text-text flex items-center gap-1.5">
-                                Shadow Mode
-                                <Eye className="h-3 w-3 text-muted" />
+                    <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+                        <div className="min-w-0 flex items-center justify-between gap-2 rounded-lg border border-line/40 bg-surface2/40 px-2 py-1.5">
+                            <div className="min-w-0">
+                                <div className="text-[11px] font-medium text-text">Executor Enabled</div>
+                                <div className="text-[10px] text-muted">Execute actions on Home Assistant</div>
                             </div>
-                            <span className="text-[9px] text-muted">Log only, don't execute actions</span>
+                            <Toggle
+                                enabled={status?.enabled ?? false}
+                                onChange={handleToggleEnabled}
+                                disabled={toggling}
+                                size="sm"
+                            />
                         </div>
-                        <Toggle
-                            enabled={status?.shadow_mode ?? false}
-                            onChange={handleToggleShadow}
-                            disabled={toggling}
-                            size="sm"
-                        />
-                    </div>
-
-                    {/* Notifications Button */}
-                    <button
-                        onClick={() => setShowNotifications(true)}
-                        className="flex items-center justify-between p-2.5 rounded-lg bg-surface2/50 border border-line/50 mt-2 hover:bg-surface2 transition-colors w-full"
-                    >
-                        <div className="flex items-center gap-2">
-                            <Bell className="h-4 w-4 text-muted" />
-                            <span className="text-[11px] font-medium text-text">Notifications</span>
-                        </div>
-                        {notifications &&
-                            Object.entries(notifications).some(([k, v]) => k.startsWith('on_') && v === true) && (
-                                <div className="relative">
-                                    <span className="absolute inset-0 rounded-full bg-accent/50 blur-sm animate-pulse" />
-                                    <span className="relative h-2.5 w-2.5 rounded-full bg-accent block ring-2 ring-accent/30" />
+                        <div className="min-w-0 flex items-center justify-between gap-2 rounded-lg border border-line/40 bg-surface2/40 px-2 py-1.5">
+                            <div className="min-w-0">
+                                <div className="text-[11px] font-medium text-text flex items-center gap-1">
+                                    Shadow Mode <Eye className="h-3 w-3 shrink-0 text-muted" />
                                 </div>
-                            )}
-                    </button>
-
-                    {/* Run Now Button */}
-                    <div className="mt-auto pt-4">
+                                <div className="text-[10px] text-muted">Log only, don't execute actions</div>
+                            </div>
+                            <Toggle
+                                enabled={status?.shadow_mode ?? false}
+                                onChange={handleToggleShadow}
+                                disabled={toggling}
+                                size="sm"
+                            />
+                        </div>
+                        <button
+                            onClick={() => setShowNotifications(true)}
+                            className="min-h-[44px] min-w-0 flex items-center justify-between gap-2 rounded-lg border border-line/40 bg-surface2/40 px-2 py-1.5 text-left hover:bg-surface2 transition-colors md:min-h-10"
+                        >
+                            <span className="flex min-w-0 items-center gap-1.5">
+                                <Bell className="h-3.5 w-3.5 shrink-0 text-muted" />
+                                <span className="truncate text-[11px] font-medium text-text">Notifications</span>
+                            </span>
+                            {notifications &&
+                                Object.entries(notifications).some(([k, v]) => k.startsWith('on_') && v === true) && (
+                                    <span className="h-2 w-2 shrink-0 rounded-full bg-accent ring-2 ring-accent/20" />
+                                )}
+                        </button>
                         <button
                             onClick={handleManualRun}
                             disabled={running}
-                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-surface hover:bg-surface2 border border-line/50 text-[11px] font-medium transition-all ${
+                            className={`min-h-[44px] min-w-0 flex items-center justify-center gap-2 rounded-lg border border-line/40 bg-surface2/40 px-2 py-1.5 text-[11px] font-medium transition-colors hover:bg-surface2 md:min-h-10 ${
                                 running
-                                    ? 'opacity-70 cursor-not-allowed text-muted'
+                                    ? 'cursor-not-allowed text-muted opacity-70'
                                     : 'text-text hover:border-accent/50'
                             }`}
                         >
                             {running ? (
                                 <>
-                                    <div className="h-3.5 w-3.5 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                                    <div className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
                                     <span>Running...</span>
                                 </>
                             ) : (
                                 <>
-                                    <Play className="h-3.5 w-3.5 text-accent" />
+                                    <Play className="h-3 w-3 text-accent" />
                                     <span>Run Now</span>
                                 </>
                             )}
@@ -834,30 +783,28 @@ export default function Executor() {
                     </div>
                 </Card>
 
-                {/* Stats Card */}
-                <Card className="lg:col-span-3 p-4 md:p-5 flex flex-col">
-                    <div className="flex items-center gap-2 mb-4">
-                        <Gauge className="h-4 w-4 text-accent" />
+                <Card className="min-w-0 p-3 lg:col-span-3">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Gauge className="h-3.5 w-3.5 text-accent" />
                         <span className="text-xs font-medium text-text">7-Day Stats</span>
                     </div>
-
                     {stats && (
-                        <div className="grid grid-cols-2 gap-3 flex-1">
-                            <div className="p-3 rounded-lg bg-surface2/30 border border-line/30">
-                                <div className="text-xl font-bold text-text">{stats.total_executions}</div>
-                                <div className="text-[10px] text-muted">Total Runs</div>
+                        <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                                <span className="text-muted">Total Runs</span>
+                                <span className="text-sm font-semibold text-text">{stats.total_executions}</span>
                             </div>
-                            <div className="p-3 rounded-lg bg-good/10 border border-good/20">
-                                <div className="text-xl font-bold text-good">{stats.success_rate}%</div>
-                                <div className="text-[10px] text-muted">Success Rate</div>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                                <span className="text-muted">Success Rate</span>
+                                <span className="text-sm font-semibold text-good">{stats.success_rate}%</span>
                             </div>
-                            <div className="p-3 rounded-lg bg-warn/10 border border-warn/20">
-                                <div className="text-xl font-bold text-warn">{stats.override_count}</div>
-                                <div className="text-[10px] text-muted">Overrides</div>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                                <span className="text-muted">Overrides</span>
+                                <span className="text-sm font-semibold text-warn">{stats.override_count}</span>
                             </div>
-                            <div className="p-3 rounded-lg bg-bad/10 border border-bad/20">
-                                <div className="text-xl font-bold text-bad">{stats.failed}</div>
-                                <div className="text-[10px] text-muted">Failed</div>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                                <span className="text-muted">Failed</span>
+                                <span className="text-sm font-semibold text-bad">{stats.failed}</span>
                             </div>
                         </div>
                     )}
@@ -868,11 +815,11 @@ export default function Executor() {
             <LoadBalancerStatusCard />
 
             {/* Execution History */}
-            <Card className="p-4 md:p-5 flex-1 flex flex-col overflow-hidden">
+            <Card className="p-3 md:p-4 flex-1 min-h-[320px] lg:min-h-0 flex flex-col overflow-hidden">
                 {/* Recording-policy explainer: a sparse history is a quiet system, not a dead one */}
                 <div
                     data-testid="history-explainer"
-                    className="mb-3 rounded-lg border border-line/20 bg-surface2/30 px-3 py-2 text-[10px] text-muted"
+                    className="mb-2 shrink-0 rounded-lg border border-line/20 bg-surface2/30 px-3 py-1.5 text-[10px] text-muted"
                 >
                     {status?.last_run_at ? (
                         <>
@@ -889,8 +836,8 @@ export default function Executor() {
                     Only changes (mode, dispatched actions, overrides, load-balancer transitions) plus one heartbeat per
                     15-minute slot are recorded — most ticks produce no row by design.
                 </div>
-                <div className="flex items-center justify-between mb-4">
-                    <div className="flex flex-col md:flex-row md:items-center gap-4">
+                <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-3">
                         <div className="flex items-center gap-2">
                             <History className="h-4 w-4 text-accent" />
                             <span className="text-xs font-medium text-text">Execution History</span>
@@ -976,7 +923,7 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <button
                             onClick={() => {
                                 const filters: any = {}
@@ -1012,7 +959,7 @@ export default function Executor() {
                 </div>
 
                 {(history?.length ?? 0) === 0 ? (
-                    <div className="text-center py-12 text-muted">
+                    <div className="flex-1 min-h-0 overflow-y-auto text-center py-8 text-muted">
                         <Clock className="h-10 w-10 mx-auto opacity-20 mb-3" />
                         <p className="text-[11px]">No execution history yet.</p>
                         <p className="text-[10px] mt-1 text-muted/70">Run the executor to see results here.</p>

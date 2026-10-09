@@ -73,7 +73,7 @@ describe('LoadBalancerStatusCard', () => {
         expect(screen.getByText('Garage EV')).toBeInTheDocument()
         expect(screen.getByText('10A (planned 16A)')).toBeInTheDocument()
         expect(screen.getByText('Reduced 16A -> 10A (headroom -6.0A)')).toBeInTheDocument()
-        expect(screen.getByText('26.0A / 20A')).toBeInTheDocument()
+        expect(screen.getByText('26.0 / 20 A')).toBeInTheDocument()
     })
 
     it('renders a distinct row per dynamically-throttled charger', async () => {
@@ -217,10 +217,11 @@ describe('LoadBalancerStatusCard freshness indicator (load-balancing-completion 
         }
     })
 
-    it('shows the raw per-phase reading as secondary text so near-zero homes read as live', async () => {
+    it('shows one readable phase value and keeps the raw reading available by tooltip and screen reader', async () => {
         vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue(enabledStatus())
         renderCard()
         expect(await screen.findByTestId('lb-raw-l1')).toHaveTextContent('0.237A')
         expect(screen.getByTestId('lb-raw-l2')).toHaveTextContent('0.100A')
+        expect(screen.getByText('0.2 / 20 A')).toHaveAttribute('title', 'Raw current: 0.237A')
     })
 })
