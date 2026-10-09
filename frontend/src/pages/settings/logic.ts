@@ -36,32 +36,12 @@ export const shouldRenderField = (
     }
 
     if (field.showIf) {
-        // For system.* showIf checks, use config if available (form may not have system fields)
-        if (field.showIf.configKey.startsWith('system.') && config) {
-            const systemKey = field.showIf.configKey.replace('system.', '')
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const configValue = (config as any)?.system?.[systemKey]
-            const expectedVal = field.showIf.value ?? true
-
-            if (typeof expectedVal === 'boolean') {
-                return configValue === expectedVal
-            }
-
-            if (Array.isArray(expectedVal)) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return expectedVal.includes(configValue as any) || expectedVal.some((v) => v === configValue)
-            }
-
-            return configValue === expectedVal
-        }
-
-        // Standard form-based check (now using getValue fallback to config)
         const currentVal = getValue(field.showIf.configKey)
         const expectedVal = field.showIf.value ?? true
 
         // If expectedVal is a boolean, treat currentVal as a boolean string ('true'/'false')
         if (typeof expectedVal === 'boolean') {
-            return (currentVal === 'true') === expectedVal
+            return currentVal !== undefined && (currentVal === 'true') === expectedVal
         }
 
         // Support array of valid values (OR logic)

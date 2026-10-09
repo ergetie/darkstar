@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
     Settings as SettingsIcon,
@@ -28,20 +28,13 @@ import { Api } from '../../lib/api'
 import { SettingsSearch } from './search/SettingsSearch'
 import { jumpToField } from './search/jump'
 
-interface SystemFlags {
-    has_solar?: boolean
-    has_battery?: boolean
-    has_water_heater?: boolean
-    has_ev_charger?: boolean
-}
-
 const ALL_TABS = [
     { id: 'system', label: 'System', icon: <SettingsIcon size={16} /> },
     { id: 'parameters', label: 'Parameters', icon: <Sliders size={16} /> },
-    { id: 'solar', label: 'Solar', icon: <Sun size={16} />, showIf: 'system.has_solar' },
-    { id: 'battery', label: 'Battery', icon: <Battery size={16} />, showIf: 'system.has_battery' },
-    { id: 'ev', label: 'EV', icon: <EvIcon size={16} />, showIf: 'system.has_ev_charger' },
-    { id: 'water', label: 'Heating', icon: <Droplets size={16} />, showIf: 'system.has_water_heater' },
+    { id: 'solar', label: 'Solar', icon: <Sun size={16} /> },
+    { id: 'battery', label: 'Battery', icon: <Battery size={16} /> },
+    { id: 'ev', label: 'EV', icon: <EvIcon size={16} /> },
+    { id: 'water', label: 'Heating', icon: <Droplets size={16} /> },
     {
         id: 'load-balancing',
         label: 'Load Balancing',
@@ -70,7 +63,6 @@ export default function Settings() {
         return saved === 'true'
     })
 
-    const [systemFlags, setSystemFlags] = useState<SystemFlags>({})
     const [configLoading, setConfigLoading] = useState(true)
     const [fullConfig, setFullConfig] = useState<Record<string, unknown> | null>(null)
     const [pendingJump, setPendingJump] = useState<{ tabId: string; fieldKey: string } | null>(() =>
@@ -81,36 +73,29 @@ export default function Settings() {
         localStorage.setItem(STORAGE_KEY, String(advancedMode))
     }, [advancedMode])
 
-    // Load system flags on mount and when config changes
-    const loadSystemFlags = useCallback(() => {
+    // Load config on mount and when it changes so settings search stays current.
+    const loadConfig = useCallback(() => {
         Api.config()
             .then((config) => {
-                const system = ((config as Record<string, unknown>).system as Record<string, unknown>) || {}
-                setSystemFlags({
-                    has_solar: Boolean(system.has_solar),
-                    has_battery: Boolean(system.has_battery),
-                    has_water_heater: Boolean(system.has_water_heater),
-                    has_ev_charger: Boolean(system.has_ev_charger),
-                })
                 setFullConfig(config as Record<string, unknown>)
             })
-            .catch((err) => console.error('Failed to load config for tab visibility:', err))
+            .catch((err) => console.error('Failed to load config for settings search:', err))
             .finally(() => setConfigLoading(false))
     }, [])
 
     useEffect(() => {
-        loadSystemFlags()
-    }, [loadSystemFlags])
+        loadConfig()
+    }, [loadConfig])
 
-    // Listen for config changes to update tab visibility instantly
+    // Keep settings search in sync when another tab saves config.
     useEffect(() => {
         const handleConfigChanged = () => {
-            loadSystemFlags()
+            loadConfig()
         }
 
         window.addEventListener('config-changed', handleConfigChanged)
         return () => window.removeEventListener('config-changed', handleConfigChanged)
-    }, [loadSystemFlags])
+    }, [loadConfig])
 
     const setActiveTab = React.useCallback(
         (tab: string) => {
@@ -142,15 +127,7 @@ export default function Settings() {
         }
     }, [activeTab, advancedMode, setActiveTab])
 
-    // Filter tabs based on system flags
-    const tabs = useMemo(() => {
-        return ALL_TABS.filter((t) => {
-            if (t.advancedOnly && !advancedMode) return false
-            if (!t.showIf) return true
-            const flagKey = t.showIf.replace('system.', '') as keyof SystemFlags
-            return systemFlags[flagKey] === true
-        })
-    }, [advancedMode, systemFlags])
+    const tabs = ALL_TABS.filter((t) => !t.advancedOnly || advancedMode)
 
     const renderTabContent = () => {
         switch (activeTab) {
@@ -178,7 +155,7 @@ export default function Settings() {
         }
     }
 
-    // Show loading while fetching system flags
+    // Show loading while fetching config for settings search.
     if (configLoading) {
         return (
             <main className="p-4 lg:p-8">

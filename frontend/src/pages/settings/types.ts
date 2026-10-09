@@ -1515,7 +1515,6 @@ export const advancedSections: SettingsSection[] = [
         title: 'Excess PV Dispatch',
         description:
             'Configure the ordered priority list of sinks for forecast excess PV energy. The house battery is always implicitly first; the planner schedules surplus into the listed sinks in order, and multiple sinks can be active at once when surplus is large enough.',
-        showIf: { configKey: 'system.has_solar', value: true },
         fields: [
             {
                 key: 'executor.excess_pv.priority',
