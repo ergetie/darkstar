@@ -177,6 +177,12 @@ class EVChargerDeviceConfig:
     # (load-balancer-graceful-degradation D6). Must be one of `phases`.
     phase_1_line: int = 1
 
+    # Charging-loss model (ev-charging-losses D1/D6)
+    charge_overhead_kw: float = 0.25
+    start_loss_kwh: float = 0.15
+    charge_efficiency: float = 0.95
+    energy_added_sensor: str | None = None
+
 
 class BalancedLoadType(Enum):
     """Type of device a load-balancing entry refers to."""
@@ -900,6 +906,16 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                     )
                 ),
                 phase_1_line=_parse_phase_1_line(charger, charger_id, charger_phases),
+                charge_overhead_kw=float(
+                    charger.get("charge_overhead_kw", EVChargerDeviceConfig.charge_overhead_kw)
+                ),
+                start_loss_kwh=float(
+                    charger.get("start_loss_kwh", EVChargerDeviceConfig.start_loss_kwh)
+                ),
+                charge_efficiency=float(
+                    charger.get("charge_efficiency", EVChargerDeviceConfig.charge_efficiency)
+                ),
+                energy_added_sensor=_str_or_none(charger.get("energy_added_sensor")),
             )
         )
 

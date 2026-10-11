@@ -69,9 +69,16 @@ from planner.vacation_state import load_last_anti_legionella, save_last_anti_leg
 
 
 def _ev_delivered_today_kwh(
-    db_path: str, charger_id: str, tz: pytz.BaseTzInfo, now: datetime
+    db_path: str,
+    charger_id: str,
+    tz: pytz.BaseTzInfo,
+    now: datetime,
+    efficiency: float = 1.0,
 ) -> float | None:
-    """One charger's recorded EV energy since local midnight of ``now``.
+    """One charger's energy delivered to the car since local midnight of ``now``.
+
+    Per slot this is the recorded car-side energy where present, else the
+    wallbox energy x ``efficiency`` (ev-charging-losses D3).
 
     Reads the per-charger ``ev_charger_observations`` rows (ev-per-charger-energy)
     for slots starting in ``[local midnight, now)``. ``now`` is the planner's
@@ -90,9 +97,10 @@ def _ev_delivered_today_kwh(
         return None
     try:
         row = conn.execute(
-            "SELECT SUM(energy_kwh), COUNT(*) FROM ev_charger_observations "
+            "SELECT SUM(COALESCE(car_energy_kwh, energy_kwh * ?)), COUNT(*) "
+            "FROM ev_charger_observations "
             "WHERE charger_id = ? AND slot_start >= ? AND slot_start < ?",
-            (charger_id, start_local.isoformat(), local_now.isoformat()),
+            (efficiency, charger_id, start_local.isoformat(), local_now.isoformat()),
         ).fetchone()
     except Exception as exc:
         logger.debug("EV %s: per-charger delivered energy unavailable: %s", charger_id, exc)
@@ -102,6 +110,11 @@ def _ev_delivered_today_kwh(
     if not row or not row[1]:
         return None
     return float(row[0] or 0.0)
+
+
+def _charge_efficiency(charger_cfg: dict[str, Any]) -> float:
+    """Configured wall-to-car efficiency of a charger (ev-charging-losses)."""
+    return float(charger_cfg.get("charge_efficiency", 0.95))
 
 
 def _load_previous_schedule(schedule_path: Path = DEFAULT_SCHEDULE_PATH) -> list[dict[str, Any]]:
@@ -383,6 +396,7 @@ def _resolve_ev_charger_plan_state(
         "plugged_in": plugged_in,
         "assumed_plugged": assumed_plugged,
         "unreachable": bool(ha_state.get("unreachable", False)),
+        "power_kw": ha_state.get("power_kw"),
         "deadline": deadline,
         "required_kwh": required_kwh,
         "keep_on_after_target": keep_on_after_target,
@@ -431,7 +445,9 @@ def _calculate_required_kwh(
     from datetime import datetime as _datetime
 
     charger_id = str(charger_cfg.get("id", ""))
-    delivered = _ev_delivered_today_kwh(db_path, charger_id, tz, now or _datetime.now(tz))
+    delivered = _ev_delivered_today_kwh(
+        db_path, charger_id, tz, now or _datetime.now(tz), _charge_efficiency(charger_cfg)
+    )
     if delivered is None:
         return required
     return max(0.0, required - delivered)
@@ -819,7 +835,9 @@ def _persist_ev_multi_day_state(
 
             delivered_kwh: float | None = None
             if sqlite_path:
-                delivered_kwh = _ev_delivered_today_kwh(sqlite_path, charger_id, tz, now)
+                delivered_kwh = _ev_delivered_today_kwh(
+                    sqlite_path, charger_id, tz, now, _charge_efficiency(cfg)
+                )
             remaining_kwh = None if required_kwh is None else max(0.0, required_kwh)
 
             margin = state.get("effective_margin_percent")

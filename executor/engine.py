@@ -197,6 +197,9 @@ EV_BACKOFF_MAX_S = 600
 _EV_PHASE_ACTIVE_THRESHOLD_A = 0.5
 _EV_PHASE_ACTIVE_THRESHOLD_W = 100.0
 
+# Planned surplus kW above this counts as surplus charging for a charger
+_EV_SURPLUS_ACTIVE_KW = 0.01
+
 # Seconds a new setpoint must stand before the car's measured draw is trusted
 # as the baseline for further amps adjustments (the car needs time to follow).
 EV_DRAW_SETTLE_S = 30
@@ -1843,7 +1846,7 @@ class ExecutorEngine:
             # actual-power sensor to catch up would leave a brief window where
             # the battery could discharge into the EV during surplus charging.
             surplus_eligible: bool = bool(
-                slot and any(v > 0.01 for v in slot.ev_surplus_kw.values())
+                slot and any(v > _EV_SURPLUS_ACTIVE_KW for v in slot.ev_surplus_kw.values())
             )
             # Source isolation: Block discharge for scheduled, actual, or surplus-eligible charging
             ev_should_charge_block: bool = (
@@ -3216,6 +3219,15 @@ class ExecutorEngine:
                     planner_target_a = charger_cfg.min_current_a
                 else:
                     planner_target_a = None
+            relief_available = bool(
+                charger_cfg.phase_switching_enabled
+                and charger_cfg.phase_mode_entity
+                and self.dispatcher is not None
+                and charger_cfg.phase_1_line in (charger_cfg.phases or [1, 2, 3])
+                and (phase_ctrl or PhaseModeController()).relief_available(
+                    now, charger_cfg.phase_switch_min_dwell_s
+                )
+            )
             ev_inputs_by_id[charger_id] = EVBalancerInput(
                 charger_id=charger_id,
                 phases=phases,
@@ -3227,14 +3239,14 @@ class ExecutorEngine:
                     self._effective_baseline_a(charger_cfg, dev_state, now) if dev_state else None
                 ),
                 phase_1_line=charger_cfg.phase_1_line,
-                relief_available=bool(
-                    charger_cfg.phase_switching_enabled
-                    and charger_cfg.phase_mode_entity
-                    and self.dispatcher is not None
-                    and charger_cfg.phase_1_line in (charger_cfg.phases or [1, 2, 3])
-                    and (phase_ctrl or PhaseModeController()).relief_available(
-                        now, charger_cfg.phase_switch_min_dwell_s
-                    )
+                relief_available=relief_available,
+                # Only consulted when relief is possible (ev-charging-losses
+                # D7); _pause_goal_risk fails open.
+                goal_at_risk=(
+                    self._pause_goal_risk(charger_id, slot, now)[0] if relief_available else False
+                ),
+                surplus_slot=bool(
+                    slot and slot.ev_surplus_kw.get(charger_id, 0.0) > _EV_SURPLUS_ACTIVE_KW
                 ),
             )
 
@@ -3942,7 +3954,7 @@ class ExecutorEngine:
             for cid in blocked
             if slot.ev_charger_plans.get(cid, 0.0) > 0.1
             or slot.ev_keep_on.get(cid, False)
-            or slot.ev_surplus_kw.get(cid, 0.0) > 0.01
+            or slot.ev_surplus_kw.get(cid, 0.0) > _EV_SURPLUS_ACTIVE_KW
         }
         if not blocked_active:
             return slot

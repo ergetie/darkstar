@@ -546,6 +546,17 @@ async def get_initial_state(
                 # Raw state: unavailable/unknown must be told apart from unplugged.
                 per_device_reads.append((key, lambda e=plug_sensor: get_ha_entity_state(e)))
 
+            # Measured charger power: tells Kepler whether a session is running
+            # now, so continuing it costs no start loss (ev-charging-losses D2).
+            power_sensor = ev.get("sensor", "")
+            if power_sensor:
+                per_device_reads.append(
+                    (
+                        f"ev_power_{charger_id}",
+                        lambda e=power_sensor: get_ha_sensor_kw_normalized(e),
+                    )
+                )
+
         per_device_results: dict[str, Any] = {}
         if per_device_reads:
             per_device_results = await gather_sensor_reads(
@@ -644,6 +655,7 @@ async def get_initial_state(
                     "soc_age_minutes": soc_age_minutes,
                     "plugged_in": plugged_in,
                     "unreachable": unreachable,
+                    "power_kw": per_device_results.get(f"ev_power_{charger_id}"),
                 }
             )
             # Only a plugged charger's stale SoC suspends goal charging and

@@ -13,6 +13,7 @@ No column is intentionally written by both owners.
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, cast
 
@@ -21,6 +22,7 @@ import pytz
 import yaml
 
 from backend.core.ha_client import (
+    _state_timestamp,  # type: ignore[reportPrivateUsage]
     gather_sensor_reads,
     get_ha_sensor_float,
     get_ha_sensor_kw_normalized,
@@ -56,6 +58,112 @@ def _load_config() -> dict[str, Any]:
             return {}
     except FileNotFoundError:
         return {}
+
+
+def _numeric_states(states: list[dict[str, Any]]) -> list[tuple[datetime, float | None]]:
+    """Time-sorted ``(timestamp, value)`` of HA history states; non-numeric states map to None."""
+    out: list[tuple[datetime, float | None]] = []
+    for state in states:
+        ts = _state_timestamp(state)
+        if ts is None:
+            continue
+        try:
+            value: float | None = float(state.get("state", ""))
+        except (TypeError, ValueError):
+            value = None
+        out.append((ts, value))
+    out.sort(key=lambda item: item[0])
+    return out
+
+
+def car_energy_from_added_sensor(states: list[dict[str, Any]]) -> float | None:
+    """Energy-added sensor change over the slot. A drop is a session reset: the
+    post-reset value counts from zero. None when the slot has no numeric reading."""
+    values = [v for _, v in _numeric_states(states) if v is not None]
+    if not values:
+        return None
+    total = 0.0
+    for prev, cur in pairwise(values):
+        total += cur - prev if cur >= prev else cur
+    return total
+
+
+def car_energy_from_soc(
+    states: list[dict[str, Any]],
+    capacity_kwh: float,
+    slot_start: datetime,
+    slot_end: datetime,
+    stale_after_minutes: float,
+) -> float | None:
+    """``ΔSoC / 100 x capacity`` over the slot, only when SoC is fresh at both ends:
+    the first and last readings are numeric and within ``stale_after_minutes`` of
+    the slot start and end. None otherwise."""
+    points = _numeric_states(states)
+    if not points or capacity_kwh <= 0:
+        return None
+    window = timedelta(minutes=stale_after_minutes)
+    (first_ts, first), (last_ts, last) = points[0], points[-1]
+    if first is None or last is None:
+        return None
+    if first_ts > slot_start + window or last_ts < slot_end - window:
+        return None
+    return max(0.0, (last - first) / 100.0 * capacity_kwh)
+
+
+def _car_energy_entities(config: dict[str, Any]) -> list[str]:
+    """Car-side entities to fetch with the slot history (ev-charging-losses D4)."""
+    entities: list[str] = []
+    for ev in _enabled_ev_chargers(config):
+        sensor = str(ev.get("energy_added_sensor") or "").strip()
+        soc = str(ev.get("soc_sensor") or "").strip()
+        if sensor:
+            entities.append(sensor)
+        elif soc:
+            entities.append(soc)
+    return entities
+
+
+def _enabled_ev_chargers(config: dict[str, Any]) -> list[dict[str, Any]]:
+    raw: Any = config.get("ev_chargers")
+    if not isinstance(raw, list):
+        return []
+    return [
+        cast("dict[str, Any]", ev)
+        for ev in cast("list[Any]", raw)
+        if isinstance(ev, dict) and cast("dict[str, Any]", ev).get("enabled", True)
+    ]
+
+
+def _ev_car_energy(
+    config: dict[str, Any],
+    ev_charger_energy: dict[str, float],
+    history: dict[str, list[dict[str, Any]]],
+    slot_start: datetime,
+    slot_end: datetime,
+) -> dict[str, dict[str, Any]]:
+    """Per-charger car-side energy and its source (``sensor`` | ``soc``) for the slot."""
+    result: dict[str, dict[str, Any]] = {}
+    for ev in _enabled_ev_chargers(config):
+        charger_id = str(ev.get("id") or "")
+        if charger_id not in ev_charger_energy:
+            continue
+        sensor = str(ev.get("energy_added_sensor") or "").strip()
+        soc = str(ev.get("soc_sensor") or "").strip()
+        kwh: float | None = None
+        source = "sensor" if sensor else "soc"
+        if sensor:
+            kwh = car_energy_from_added_sensor(history.get(sensor, []))
+        elif soc:
+            kwh = car_energy_from_soc(
+                history.get(soc, []),
+                float(ev.get("battery_capacity_kwh") or 0.0),
+                slot_start,
+                slot_end,
+                float(ev.get("soc_stale_after_minutes", 15) or 15),
+            )
+        if kwh is not None:
+            result[charger_id] = {"kwh": kwh, "source": source}
+    return result
 
 
 async def record_observation_from_current_state(
@@ -161,7 +269,10 @@ async def record_observation_from_current_state(
 
     # One history request for every power entity of the slot, integrated over exactly
     # [slot_start, slot_end]. A failed request leaves every metric on its snapshot.
-    history = await get_power_history_batch(sources.entity_ids(), slot_start, slot_end)
+    car_entities = _car_energy_entities(config)
+    history = await get_power_history_batch(
+        sources.entity_ids() + car_entities, slot_start, slot_end
+    )
     series = {entity: parse_power_states(states) for entity, states in (history or {}).items()}
     energy = compute_slot_energy(sources, series, slot_start, slot_end)
 
@@ -186,6 +297,10 @@ async def record_observation_from_current_state(
             ev_charger_energy[charger_id] = device_kwh
         source = "history energy" if integrated is not None else "snapshot fallback"
         logger.debug(f"EV {charger_id}: {source}={device_kwh:.3f} kWh")
+
+    ev_charger_car_energy = _ev_car_energy(
+        config, ev_charger_energy, history or {}, slot_start, slot_end
+    )
 
     # Water heater energy (per heater and aggregate)
     water_kwh = 0.0
@@ -422,6 +537,7 @@ async def record_observation_from_current_state(
         "water_heater_energy": water_heater_energy if water_heater_energy else None,  # Task 8.2
         "ev_charging_kwh": ev_charging_kwh,
         "ev_charger_energy": ev_charger_energy if ev_charger_energy else None,
+        "ev_charger_car_energy": ev_charger_car_energy or None,
         "batt_charge_kwh": batt_charge_kwh,
         "batt_discharge_kwh": batt_discharge_kwh,
         "soc_end_percent": soc_percent,

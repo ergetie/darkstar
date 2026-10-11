@@ -368,16 +368,19 @@ class LearningStore:
                         session,
                         slot_start,  # type: ignore[reportUnknownArgumentType]
                         record.get("ev_charger_energy"),
+                        record.get("ev_charger_car_energy"),
                     )
             await session.commit()
 
     @staticmethod
     async def _replace_ev_charger_observations(
-        session: Any, slot_start: str, per_charger: Any
+        session: Any, slot_start: str, per_charger: Any, car_energy: Any = None
     ) -> None:
         """Replace a slot's per-charger EV energy rows (same transaction as the slot upsert).
 
         Re-recording a slot replaces its rows rather than duplicating them.
+        ``car_energy`` maps charger_id -> {"kwh", "source"} (ev-charging-losses D4);
+        chargers without an entry get NULL car energy.
         """
         from sqlalchemy import delete
 
@@ -389,11 +392,25 @@ class LearningStore:
         for charger_id, energy in type_cast("dict[Any, Any]", per_charger).items():
             if not charger_id or energy is None or pd.isna(energy):
                 continue
+            car_raw: Any = (
+                type_cast("dict[Any, Any]", car_energy).get(charger_id)
+                if isinstance(car_energy, dict)
+                else None
+            )
+            car: dict[str, Any] = (
+                type_cast("dict[str, Any]", car_raw) if isinstance(car_raw, dict) else {}
+            )
+            car_kwh_raw: Any = car.get("kwh")
+            car_kwh: float | None = (
+                float(car_kwh_raw) if car_kwh_raw is not None and not pd.isna(car_kwh_raw) else None
+            )
             session.add(
                 EvChargerObservation(
                     slot_start=slot_start,
                     charger_id=str(charger_id),
                     energy_kwh=max(0.0, float(energy)),
+                    car_energy_kwh=car_kwh,
+                    car_energy_source=str(car.get("source")) if car_kwh is not None else None,
                 )
             )
 

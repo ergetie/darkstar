@@ -40,6 +40,10 @@ class EvChargerObservation(Base):
     slot_start: Mapped[str] = mapped_column(String, primary_key=True)
     charger_id: Mapped[str] = mapped_column(String, primary_key=True)
     energy_kwh: Mapped[float] = mapped_column(Float, nullable=False)
+    # Car-side energy for the slot (ev-charging-losses D4): from the charger's
+    # energy-added sensor ("sensor") or fresh SoC delta x capacity ("soc").
+    car_energy_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    car_energy_source: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
 
 

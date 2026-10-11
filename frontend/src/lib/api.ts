@@ -175,6 +175,10 @@ export type ConfigResponse = {
         min_current_a?: number
         max_current_a?: number
         phases?: number[]
+        charge_overhead_kw?: number
+        start_loss_kwh?: number
+        charge_efficiency?: number
+        energy_added_sensor?: string
     }[]
     executor?: {
         excess_pv?: {

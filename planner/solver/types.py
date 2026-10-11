@@ -55,6 +55,14 @@ class EVChargerInput:
     # "current" chargers are eligible for excess-PV surplus charging — surplus
     # is inherently fractional and a binary charger can't modulate to match it.
     control_type: str = "binary"
+    # Charging-loss model (ev-charging-losses D1): car energy per slot =
+    # efficiency x wall energy - overhead x hours on - start loss x starts.
+    charge_overhead_kw: float = 0.0
+    start_loss_kwh: float = 0.0
+    charge_efficiency: float = 1.0
+    # Charger measured as charging at plan time: the first slot continuing it
+    # is not a start.
+    charging_now: bool = False
 
 
 @dataclass

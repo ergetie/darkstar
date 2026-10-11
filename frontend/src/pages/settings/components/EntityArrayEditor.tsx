@@ -63,6 +63,12 @@ export interface EVChargerEntity {
     phase_switch_min_dwell_s?: number
     /** Grid phase (1-3) the charger uses in 1-phase mode */
     phase_1_line?: number
+    /** Charging-loss model (ev-charging-losses); learned automatically */
+    charge_overhead_kw?: number
+    start_loss_kwh?: number
+    /** Fraction 0.5-1.0 (shown as %) */
+    charge_efficiency?: number
+    energy_added_sensor?: string
     ha_ready_by_entity?: string
     ha_target_soc_entity?: string
     target_soc_percent?: number
@@ -128,6 +134,10 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     phase_switch_hysteresis_kw: 0.5,
     phase_switch_min_dwell_s: 600,
     phase_1_line: 1,
+    charge_overhead_kw: 0.25,
+    start_loss_kwh: 0.15,
+    charge_efficiency: 0.95,
+    energy_added_sensor: '',
     target_soc_percent: 80,
     ready_by: '07:00',
     repeat: 'daily',
@@ -269,6 +279,45 @@ const PluggedStatesField: React.FC<PluggedStatesFieldProps> = ({ value, options,
                 States that mean the vehicle is connected; separate multiple states with commas.
             </p>
         </div>
+    )
+}
+
+/** Titled group of fields inside an expanded EV charger; `collapsible` renders it as a closed <details>. */
+const EvSection: React.FC<{ title: string; intro?: string; collapsible?: boolean; children: React.ReactNode }> = ({
+    title,
+    intro,
+    collapsible,
+    children,
+}) => {
+    const heading = 'text-xs font-bold uppercase tracking-[0.14em] text-text'
+    const marker = <span aria-hidden className="h-4 w-1 shrink-0 rounded-full bg-accent" />
+    const body = (
+        <>
+            {intro && <p className="text-[10px] text-muted mb-3">{intro}</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{children}</div>
+        </>
+    )
+    const frame = 'sm:col-span-2 border-t-2 border-muted/30 pt-5 first:border-t-0 first:pt-0'
+    if (collapsible) {
+        return (
+            <details className={`group/section ${frame}`} aria-label={title}>
+                <summary className={`${heading} flex cursor-pointer select-none items-center gap-2 outline-none`}>
+                    {marker}
+                    {title}
+                    <ChevronDown size={12} className="text-muted transition-transform group-open/section:rotate-180" />
+                </summary>
+                <div className="mt-3">{body}</div>
+            </details>
+        )
+    }
+    return (
+        <section className={frame} aria-label={title}>
+            <h4 className={`${heading} mb-3 flex items-center gap-2`}>
+                {marker}
+                {title}
+            </h4>
+            {body}
+        </section>
     )
 }
 
@@ -421,805 +470,817 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                     </div>
                 )}
 
-                {entities.map((entity, index) => (
-                    <div
-                        key={entity.id || index}
-                        className={`overflow-visible border rounded-xl bg-surface-elevated mb-2 transition-all duration-200 ${
-                            entity.enabled ? 'border-line/40' : 'border-line/20 opacity-75'
-                        }`}
-                    >
-                        <button
-                            type="button"
-                            onClick={() => setExpandedIndex(expandedIndex === index ? null : index)}
-                            className="w-full flex items-center justify-between p-3 hover:bg-surface2 transition-colors text-left rounded-xl"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div
-                                    className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                                        entity.enabled
-                                            ? 'bg-accent/10 border border-accent/20 text-accent'
-                                            : 'bg-surface2 border border-line/30 text-muted'
-                                    }`}
-                                >
-                                    {index + 1}
-                                </div>
-                                <div>
-                                    <div className="text-sm font-semibold flex items-center gap-2">
-                                        {entity.name || `${isWaterHeater ? 'Water Heater' : 'EV Charger'} ${index + 1}`}
-                                        {!entity.enabled && (
-                                            <span className="text-[10px] px-1.5 py-0.5 bg-surface2 text-muted rounded-full">
-                                                Disabled
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="text-[10px] text-muted uppercase tracking-tight">
-                                        {isWaterHeater
-                                            ? `${(entity as WaterHeaterEntity).power_kw} kW · ${(entity as WaterHeaterEntity).min_kwh_per_day} kWh/day · ${(entity as WaterHeaterEntity).sensor || 'No sensor'}`
-                                            : `${evChargerPowerLimits(entity as EVChargerEntity, nominalVoltageV)?.maxKw.toFixed(1) ?? '?'} kW max · ${(entity as EVChargerEntity).battery_capacity_kwh} kWh battery · ${entity.sensor || 'No sensor'}${(entity as EVChargerEntity).soc_sensor || (entity as EVChargerEntity).plug_sensor ? ` · SoC: ${(entity as EVChargerEntity).soc_sensor || '-'}${(entity as EVChargerEntity).plug_sensor ? ` · Plug: ${(entity as EVChargerEntity).plug_sensor}` : ''}` : ''}`}
-                                    </div>
-                                </div>
+                {entities.map((entity, index) => {
+                    const idField = (
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                ID (Read-only)
+                            </label>
+                            <input
+                                type="text"
+                                value={entity.id}
+                                disabled
+                                className="w-full rounded-lg border border-line/30 bg-surface2/50 px-3 py-2 text-sm text-muted cursor-not-allowed"
+                            />
+                            <p className="text-[10px] text-muted mt-1">Unique identifier used internally</p>
+                        </div>
+                    )
+                    const nameField = (
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                Display Name *
+                            </label>
+                            <input
+                                type="text"
+                                value={entity.name}
+                                onChange={(e) => updateEntity(index, { name: e.target.value })}
+                                disabled={disabled}
+                                placeholder={`e.g. Main ${isWaterHeater ? 'Tank' : 'Charger'}`}
+                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                            />
+                        </div>
+                    )
+                    const powerField =
+                        isWaterHeater || (entity as EVChargerEntity).type !== 'current' ? (
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                    {isWaterHeater ? 'Power Rating' : 'Rated Charging Power'} (kW) *
+                                    {!isWaterHeater && (
+                                        <span className="normal-case font-normal text-muted/70 ml-1">
+                                            Power when on (e.g. 3.7, 7.4, 11 kW). Missing or zero disables the charger.
+                                        </span>
+                                    )}
+                                </label>
+                                <NumberInput
+                                    value={
+                                        isWaterHeater
+                                            ? (entity as WaterHeaterEntity).power_kw
+                                            : ((entity as EVChargerEntity).rated_power_kw ?? 0)
+                                    }
+                                    onChange={(val) =>
+                                        updateEntity(index, {
+                                            [isWaterHeater ? 'power_kw' : 'rated_power_kw']: Number(val),
+                                        } as Partial<WaterHeaterEntity | EVChargerEntity>)
+                                    }
+                                    disabled={disabled}
+                                    step={0.1}
+                                    min={0}
+                                />
                             </div>
-                            <div className="flex items-center gap-2">
-                                {!disabled && (
-                                    <>
-                                        <span onClick={(e) => e.stopPropagation()}>
-                                            <Switch
-                                                checked={entity.enabled}
-                                                onCheckedChange={() => toggleEnabled(index)}
-                                            />
-                                        </span>
-                                        <span
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                removeEntity(index)
-                                            }}
-                                            className="p-1.5 rounded-lg text-muted hover:text-bad hover:bg-bad/10 transition-colors ml-2 cursor-pointer"
-                                            role="button"
-                                            aria-label="Delete"
-                                            tabIndex={0}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter' || e.key === ' ') {
-                                                    e.stopPropagation()
-                                                    removeEntity(index)
-                                                }
-                                            }}
+                        ) : (
+                            <div>
+                                <div className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                    Charging Power (derived)
+                                </div>
+                                {(() => {
+                                    const limits = evChargerPowerLimits(entity as EVChargerEntity, nominalVoltageV)
+                                    return (
+                                        <div
+                                            data-testid="ev-derived-power"
+                                            className="rounded-lg border border-line/30 bg-surface2/50 px-3 py-2 text-sm text-text"
                                         >
-                                            <Trash2 size={14} />
-                                        </span>
+                                            {limits
+                                                ? `${limits.minKw.toFixed(1)}–${limits.maxKw.toFixed(1)} kW`
+                                                : evChargerDisabledReason(entity as EVChargerEntity, nominalVoltageV)}
+                                            <span className="block text-[10px] text-muted">
+                                                From min/max current × phases × {nominalVoltageV} V
+                                            </span>
+                                        </div>
+                                    )
+                                })()}
+                            </div>
+                        )
+                    const capacityField = (
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                {isWaterHeater ? 'Daily Energy Requirement' : 'Battery Capacity'} (kWh)
+                            </label>
+                            <NumberInput
+                                value={
+                                    isWaterHeater
+                                        ? (entity as WaterHeaterEntity).min_kwh_per_day
+                                        : (entity as EVChargerEntity).battery_capacity_kwh
+                                }
+                                onChange={(val) =>
+                                    updateEntity(index, {
+                                        [isWaterHeater ? 'min_kwh_per_day' : 'battery_capacity_kwh']: Number(val),
+                                    } as Partial<WaterHeaterEntity | EVChargerEntity>)
+                                }
+                                disabled={disabled}
+                                step={0.1}
+                                min={0}
+                            />
+                        </div>
+                    )
+                    const sensorField = (
+                        <div className="sm:col-span-2">
+                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                Power sensor *
+                            </label>
+                            <EntitySelect
+                                entities={haEntities}
+                                value={entity.sensor}
+                                onChange={(val) => updateEntity(index, { sensor: val })}
+                                loading={haLoading}
+                                placeholder="Select Home Assistant power sensor..."
+                                disabled={disabled}
+                            />
+                        </div>
+                    )
+                    const typeField = (
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">Load Type</label>
+                            <select
+                                value={entity.type}
+                                onChange={(e) =>
+                                    updateEntity(index, {
+                                        type: e.target.value as 'binary' | 'modulating' | 'current',
+                                    })
+                                }
+                                disabled={disabled}
+                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                            >
+                                {isWaterHeater ? (
+                                    <>
+                                        <option value="binary">Binary (On/Off)</option>
+                                        <option value="modulating">Modulating</option>
+                                    </>
+                                ) : (
+                                    <>
+                                        <option value="binary">Binary (On/Off)</option>
+                                        <option value="current">Dynamic</option>
                                     </>
                                 )}
-                                {expandedIndex === index ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                            </div>
-                        </button>
-
-                        <AnimatePresence initial={false}>
-                            {expandedIndex === index && (
-                                <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: 'auto', opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.2 }}
-                                    className="overflow-visible"
-                                >
-                                    <div className="p-4 border-t border-line/10 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        {/* ID Field - Read Only */}
-                                        <div>
-                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                ID (Read-only)
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={entity.id}
-                                                disabled
-                                                className="w-full rounded-lg border border-line/30 bg-surface2/50 px-3 py-2 text-sm text-muted cursor-not-allowed"
-                                            />
-                                            <p className="text-[10px] text-muted mt-1">
-                                                Unique identifier used internally
-                                            </p>
-                                        </div>
-
-                                        {/* Name Field */}
-                                        <div>
-                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                Display Name *
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={entity.name}
-                                                onChange={(e) => updateEntity(index, { name: e.target.value })}
-                                                disabled={disabled}
-                                                placeholder={`e.g. Main ${isWaterHeater ? 'Tank' : 'Charger'}`}
-                                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
-                                            />
-                                        </div>
-
-                                        {/* Power Rating */}
-                                        {isWaterHeater || (entity as EVChargerEntity).type !== 'current' ? (
-                                            <div>
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    {isWaterHeater ? 'Power Rating' : 'Rated Charging Power'} (kW) *
-                                                    {!isWaterHeater && (
-                                                        <span className="normal-case font-normal text-muted/70 ml-1">
-                                                            Power when on (e.g. 3.7, 7.4, 11 kW). Missing or zero
-                                                            disables the charger.
-                                                        </span>
-                                                    )}
-                                                </label>
-                                                <NumberInput
-                                                    value={
-                                                        isWaterHeater
-                                                            ? (entity as WaterHeaterEntity).power_kw
-                                                            : ((entity as EVChargerEntity).rated_power_kw ?? 0)
-                                                    }
-                                                    onChange={(val) =>
-                                                        updateEntity(index, {
-                                                            [isWaterHeater ? 'power_kw' : 'rated_power_kw']:
-                                                                Number(val),
-                                                        } as Partial<WaterHeaterEntity | EVChargerEntity>)
-                                                    }
-                                                    disabled={disabled}
-                                                    step={0.1}
-                                                    min={0}
-                                                />
-                                            </div>
-                                        ) : (
-                                            <div>
-                                                <div className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Charging Power (derived)
-                                                </div>
-                                                {(() => {
-                                                    const limits = evChargerPowerLimits(
-                                                        entity as EVChargerEntity,
-                                                        nominalVoltageV,
-                                                    )
-                                                    return (
-                                                        <div
-                                                            data-testid="ev-derived-power"
-                                                            className="rounded-lg border border-line/30 bg-surface2/50 px-3 py-2 text-sm text-text"
-                                                        >
-                                                            {limits
-                                                                ? `${limits.minKw.toFixed(1)}–${limits.maxKw.toFixed(1)} kW`
-                                                                : evChargerDisabledReason(
-                                                                      entity as EVChargerEntity,
-                                                                      nominalVoltageV,
-                                                                  )}
-                                                            <span className="block text-[10px] text-muted">
-                                                                From min/max current × phases × {nominalVoltageV} V
-                                                            </span>
-                                                        </div>
-                                                    )
-                                                })()}
-                                            </div>
-                                        )}
-
-                                        {/* Daily Energy / Battery Capacity */}
-                                        <div>
-                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                {isWaterHeater ? 'Daily Energy Requirement' : 'Battery Capacity'} (kWh)
-                                            </label>
-                                            <NumberInput
-                                                value={
-                                                    isWaterHeater
-                                                        ? (entity as WaterHeaterEntity).min_kwh_per_day
-                                                        : (entity as EVChargerEntity).battery_capacity_kwh
-                                                }
-                                                onChange={(val) =>
-                                                    updateEntity(index, {
-                                                        [isWaterHeater ? 'min_kwh_per_day' : 'battery_capacity_kwh']:
-                                                            Number(val),
-                                                    } as Partial<WaterHeaterEntity | EVChargerEntity>)
-                                                }
-                                                disabled={disabled}
-                                                step={0.1}
-                                                min={0}
-                                            />
-                                        </div>
-
-                                        {/* Power Sensor */}
-                                        <div className="sm:col-span-2">
-                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                Power sensor *
-                                            </label>
-                                            <EntitySelect
-                                                entities={haEntities}
-                                                value={entity.sensor}
-                                                onChange={(val) => updateEntity(index, { sensor: val })}
-                                                loading={haLoading}
-                                                placeholder="Select Home Assistant power sensor..."
-                                                disabled={disabled}
-                                            />
-                                        </div>
-
-                                        {/* Target Entity (Water Heater only - ARC15) */}
-                                        {isWaterHeater && (
-                                            <>
-                                                <div>
-                                                    <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                        Control Type
-                                                    </label>
-                                                    <select
-                                                        value={
-                                                            (entity as WaterHeaterEntity).control_type ?? 'temperature'
-                                                        }
-                                                        onChange={(e) =>
-                                                            updateEntity(index, {
-                                                                control_type: e.target.value as
-                                                                    'temperature' | 'switch',
-                                                            } as Partial<WaterHeaterEntity>)
-                                                        }
-                                                        disabled={disabled}
-                                                        className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
-                                                    >
-                                                        <option value="temperature">Temperature setpoint</option>
-                                                        <option value="switch">Switch ON/OFF</option>
-                                                    </select>
-                                                    <p className="text-[10px] text-muted mt-1">
-                                                        How Darkstar commands this heater. This is separate from Load
-                                                        Type.
-                                                    </p>
-                                                </div>
-                                                <div className="sm:col-span-2">
-                                                    <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                        {(entity as WaterHeaterEntity).control_type === 'switch'
-                                                            ? 'Switch entity'
-                                                            : 'Temperature control entity'}
-                                                    </label>
-                                                    <EntitySelect
-                                                        entities={haEntities.filter((haEntity) =>
-                                                            (entity as WaterHeaterEntity).control_type === 'switch'
-                                                                ? ['switch', 'input_boolean'].includes(haEntity.domain)
-                                                                : ['number', 'input_number'].includes(haEntity.domain),
-                                                        )}
-                                                        value={(entity as WaterHeaterEntity).target_entity}
-                                                        onChange={(val) =>
-                                                            updateEntity(index, {
-                                                                target_entity: val,
-                                                            } as Partial<WaterHeaterEntity>)
-                                                        }
-                                                        loading={haLoading}
-                                                        placeholder={
-                                                            (entity as WaterHeaterEntity).control_type === 'switch'
-                                                                ? 'Select Home Assistant switch...'
-                                                                : 'Select Home Assistant number...'
-                                                        }
-                                                        disabled={disabled}
-                                                    />
-                                                    <p className="text-[10px] text-muted mt-1">
-                                                        {(entity as WaterHeaterEntity).control_type === 'switch'
-                                                            ? 'Switch or input_boolean entity. Scheduled heating turns it on; idle and shed periods turn it off.'
-                                                            : 'Number or input_number entity. The executor writes temp_off/temp_normal/temp_boost based on the schedule.'}
-                                                    </p>
-                                                </div>
-                                            </>
-                                        )}
-
-                                        {/* SoC Sensor (EV only) */}
-                                        {!isWaterHeater && (
-                                            <div className="sm:col-span-2">
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    SoC Sensor
-                                                </label>
-                                                <EntitySelect
-                                                    entities={haEntities}
-                                                    value={(entity as EVChargerEntity).soc_sensor}
-                                                    onChange={(val) =>
-                                                        updateEntity(index, {
-                                                            soc_sensor: val,
-                                                        } as Partial<EVChargerEntity>)
-                                                    }
-                                                    loading={haLoading}
-                                                    placeholder="Select Home Assistant SoC sensor..."
-                                                    disabled={disabled}
-                                                />
-                                                <p className="text-[10px] text-muted mt-1">
-                                                    EV battery state of charge (%) - Required for smart charging
-                                                </p>
-                                            </div>
-                                        )}
-
-                                        {/* Plug Sensor (EV only) */}
-                                        {!isWaterHeater && (
-                                            <div className="sm:col-span-2">
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Plug Sensor
-                                                </label>
-                                                <EntitySelect
-                                                    entities={haEntities}
-                                                    value={(entity as EVChargerEntity).plug_sensor}
-                                                    onChange={(val) =>
-                                                        updateEntity(index, {
-                                                            plug_sensor: val,
-                                                        } as Partial<EVChargerEntity>)
-                                                    }
-                                                    loading={haLoading}
-                                                    placeholder="Select Home Assistant plug sensor..."
-                                                    disabled={disabled}
-                                                />
-                                                <p className="text-[10px] text-muted mt-1">
-                                                    Select the charger-specific connected states below when the sensor
-                                                    reports named values.
-                                                </p>
-                                            </div>
-                                        )}
-
-                                        {/* Plug-state mapping (EV only) */}
-                                        {!isWaterHeater && (
-                                            <PluggedStatesField
-                                                value={(entity as EVChargerEntity).plugged_in_states || ''}
-                                                options={
-                                                    haEntities.find(
-                                                        (haEntity) =>
-                                                            haEntity.entity_id ===
-                                                            (entity as EVChargerEntity).plug_sensor,
-                                                    )?.options
-                                                }
-                                                onChange={(value) =>
-                                                    updateEntity(index, {
-                                                        plugged_in_states: value,
-                                                    } as Partial<EVChargerEntity>)
-                                                }
-                                                disabled={disabled}
-                                            />
-                                        )}
-
-                                        {/* Switch Entity (EV only) */}
-                                        {!isWaterHeater && (
-                                            <div className="sm:col-span-2">
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Charging Control Entity
-                                                    {(entity as EVChargerEntity).type === 'current' && (
-                                                        <span className="text-bad"> *</span>
-                                                    )}
-                                                </label>
-                                                <EntitySelect
-                                                    entities={haEntities}
-                                                    value={(entity as EVChargerEntity).switch_entity || ''}
-                                                    onChange={(val) =>
-                                                        updateEntity(index, {
-                                                            switch_entity: val,
-                                                        } as Partial<EVChargerEntity>)
-                                                    }
-                                                    loading={haLoading}
-                                                    placeholder="Select Home Assistant charging-control entity..."
-                                                    disabled={disabled}
-                                                />
-                                                {evChargerMissingControlEntity(entity as EVChargerEntity) && (
-                                                    <p className="text-[11px] text-bad mt-1" role="alert">
-                                                        Required for current-type chargers: this entity starts and stops
-                                                        charging.
-                                                    </p>
-                                                )}
-                                                <p className="text-[10px] text-muted mt-1">
-                                                    Switch-like entities use turn on/off. Select-like entities use the
-                                                    mapped options below.
-                                                </p>
-                                            </div>
-                                        )}
-
-                                        {/* Select-like charging mappings (EV only) */}
-                                        {!isWaterHeater &&
-                                            ['select', 'input_select'].includes(
-                                                entityDomain(
-                                                    (entity as EVChargerEntity).switch_entity,
-                                                    haEntities.find(
-                                                        (haEntity) =>
-                                                            haEntity.entity_id ===
-                                                            (entity as EVChargerEntity).switch_entity,
-                                                    ),
-                                                ),
-                                            ) && (
-                                                <div className="sm:col-span-2 grid grid-cols-2 gap-3">
-                                                    <MappingValueField
-                                                        label="Charging Enabled Value"
-                                                        value={(entity as EVChargerEntity).charge_enabled_value || ''}
-                                                        fallback={DEFAULT_CHARGE_ENABLED_VALUE}
-                                                        options={
-                                                            haEntities.find(
-                                                                (haEntity) =>
-                                                                    haEntity.entity_id ===
-                                                                    (entity as EVChargerEntity).switch_entity,
-                                                            )?.options
-                                                        }
-                                                        onChange={(value) =>
-                                                            updateEntity(index, {
-                                                                charge_enabled_value: value,
-                                                            } as Partial<EVChargerEntity>)
-                                                        }
-                                                        disabled={disabled}
-                                                    />
-                                                    <MappingValueField
-                                                        label="Charging Disabled Value"
-                                                        value={(entity as EVChargerEntity).charge_disabled_value || ''}
-                                                        fallback={DEFAULT_CHARGE_DISABLED_VALUE}
-                                                        options={
-                                                            haEntities.find(
-                                                                (haEntity) =>
-                                                                    haEntity.entity_id ===
-                                                                    (entity as EVChargerEntity).switch_entity,
-                                                            )?.options
-                                                        }
-                                                        onChange={(value) =>
-                                                            updateEntity(index, {
-                                                                charge_disabled_value: value,
-                                                            } as Partial<EVChargerEntity>)
-                                                        }
-                                                        disabled={disabled}
-                                                    />
-                                                </div>
+                            </select>
+                            {!isWaterHeater && (entity as EVChargerEntity).type === 'current' && (
+                                <details className="mt-2 text-[11px] text-muted">
+                                    <summary className="font-semibold text-accent hover:underline cursor-pointer select-none outline-none">
+                                        Choosing dynamic current means:
+                                    </summary>
+                                    <div className="mt-1.5 rounded-lg border border-ai/20 bg-ai/5 p-2.5 leading-relaxed">
+                                        <ul className="list-disc space-y-0.5 pl-4">
+                                            <li>The planner sets the charge current for every slot.</li>
+                                            <li>
+                                                The charger is automatically load-balanced — it appears in the give-way
+                                                list in the{' '}
+                                                <Link
+                                                    to="/settings?tab=load-balancing"
+                                                    className="font-semibold text-accent hover:underline"
+                                                >
+                                                    Load Balancing tab
+                                                </Link>
+                                                .
+                                            </li>
+                                            <li>It becomes eligible for PV-surplus charging.</li>
+                                        </ul>
+                                    </div>
+                                </details>
+                            )}
+                            {!isWaterHeater &&
+                                (entity as EVChargerEntity).type === 'current' &&
+                                !(entity as EVChargerEntity).soc_sensor && (
+                                    <div
+                                        role="alert"
+                                        className="mt-2 rounded-lg border border-accent/40 bg-accent/10 p-2.5 text-[11px] leading-relaxed text-text"
+                                    >
+                                        <span className="font-semibold">No SoC sensor configured:</span> Darkstar cannot
+                                        track this car&apos;s charging progress or recover load-balancer throttling
+                                        shortfall — plans assume the battery starts at 0%. Set the SoC sensor under Car
+                                        &amp; goal.
+                                    </div>
+                                )}
+                        </div>
+                    )
+                    return (
+                        <div
+                            key={entity.id || index}
+                            className={`overflow-visible border rounded-xl bg-surface-elevated mb-2 transition-all duration-200 ${
+                                entity.enabled ? 'border-line/40' : 'border-line/20 opacity-75'
+                            }`}
+                        >
+                            <button
+                                type="button"
+                                onClick={() => setExpandedIndex(expandedIndex === index ? null : index)}
+                                className="w-full flex items-center justify-between p-3 hover:bg-surface2 transition-colors text-left rounded-xl"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div
+                                        className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                                            entity.enabled
+                                                ? 'bg-accent/10 border border-accent/20 text-accent'
+                                                : 'bg-surface2 border border-line/30 text-muted'
+                                        }`}
+                                    >
+                                        {index + 1}
+                                    </div>
+                                    <div>
+                                        <div className="text-sm font-semibold flex items-center gap-2">
+                                            {entity.name ||
+                                                `${isWaterHeater ? 'Water Heater' : 'EV Charger'} ${index + 1}`}
+                                            {!entity.enabled && (
+                                                <span className="text-[10px] px-1.5 py-0.5 bg-surface2 text-muted rounded-full">
+                                                    Disabled
+                                                </span>
                                             )}
-
-                                        {/* HA Ready-By Entity (EV only) */}
-                                        {!isWaterHeater && (
-                                            <div className="sm:col-span-2">
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    HA Ready-By Entity
-                                                </label>
-                                                <EntitySelect
-                                                    entities={haEntities}
-                                                    value={(entity as EVChargerEntity).ha_ready_by_entity || ''}
-                                                    onChange={(val) =>
-                                                        updateEntity(index, {
-                                                            ha_ready_by_entity: val,
-                                                        } as Partial<EVChargerEntity>)
-                                                    }
-                                                    loading={haLoading}
-                                                    placeholder="Select Home Assistant input_datetime..."
-                                                    disabled={disabled}
+                                        </div>
+                                        <div className="text-[10px] text-muted uppercase tracking-tight">
+                                            {isWaterHeater
+                                                ? `${(entity as WaterHeaterEntity).power_kw} kW · ${(entity as WaterHeaterEntity).min_kwh_per_day} kWh/day · ${(entity as WaterHeaterEntity).sensor || 'No sensor'}`
+                                                : `${evChargerPowerLimits(entity as EVChargerEntity, nominalVoltageV)?.maxKw.toFixed(1) ?? '?'} kW max · ${(entity as EVChargerEntity).battery_capacity_kwh} kWh battery · ${entity.sensor || 'No sensor'}${(entity as EVChargerEntity).soc_sensor || (entity as EVChargerEntity).plug_sensor ? ` · SoC: ${(entity as EVChargerEntity).soc_sensor || '-'}${(entity as EVChargerEntity).plug_sensor ? ` · Plug: ${(entity as EVChargerEntity).plug_sensor}` : ''}` : ''}`}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {!disabled && (
+                                        <>
+                                            <span onClick={(e) => e.stopPropagation()}>
+                                                <Switch
+                                                    checked={entity.enabled}
+                                                    onCheckedChange={() => toggleEnabled(index)}
                                                 />
-                                                <p className="text-[10px] text-muted mt-1">
-                                                    HA entity to sync ready-by time (e.g. input_datetime.ev_ready_by)
-                                                </p>
-                                            </div>
-                                        )}
-
-                                        {/* HA Target-SoC Entity (optional) (EV only) */}
-                                        {!isWaterHeater && (
-                                            <div className="sm:col-span-2">
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    HA Target-SoC Entity (optional)
-                                                </label>
-                                                <EntitySelect
-                                                    entities={haEntities}
-                                                    value={(entity as EVChargerEntity).ha_target_soc_entity || ''}
-                                                    onChange={(val) =>
-                                                        updateEntity(index, {
-                                                            ha_target_soc_entity: val,
-                                                        } as Partial<EVChargerEntity>)
+                                            </span>
+                                            <span
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    removeEntity(index)
+                                                }}
+                                                className="p-1.5 rounded-lg text-muted hover:text-bad hover:bg-bad/10 transition-colors ml-2 cursor-pointer"
+                                                role="button"
+                                                aria-label="Delete"
+                                                tabIndex={0}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' || e.key === ' ') {
+                                                        e.stopPropagation()
+                                                        removeEntity(index)
                                                     }
-                                                    loading={haLoading}
-                                                    placeholder="Select Home Assistant input_number..."
-                                                    disabled={disabled}
-                                                />
-                                                <p className="text-[10px] text-muted mt-1">
-                                                    HA entity to sync target SoC % (e.g. input_number.ev_target_soc)
-                                                </p>
-                                            </div>
-                                        )}
-
-                                        {/* Replan on Plugin (EV only) */}
-                                        {!isWaterHeater && (
-                                            <div>
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Re-plan on Plugin
-                                                </label>
-                                                <div className="flex items-center gap-2 mt-2">
-                                                    <Switch
-                                                        checked={(entity as EVChargerEntity).replan_on_plugin ?? true}
-                                                        onCheckedChange={(checked) =>
-                                                            updateEntity(index, {
-                                                                replan_on_plugin: checked,
-                                                            } as Partial<EVChargerEntity>)
-                                                        }
-                                                        disabled={disabled}
-                                                    />
-                                                    <span className="text-xs text-text">
-                                                        Re-run planner immediately when plugged in
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Type Selection */}
-                                        <div>
-                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                Load Type
-                                            </label>
-                                            <select
-                                                value={entity.type}
-                                                onChange={(e) =>
-                                                    updateEntity(index, {
-                                                        type: e.target.value as 'binary' | 'modulating' | 'current',
-                                                    })
-                                                }
-                                                disabled={disabled}
-                                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                                                }}
                                             >
-                                                {isWaterHeater ? (
-                                                    <>
-                                                        <option value="binary">Binary (On/Off)</option>
-                                                        <option value="modulating">Modulating</option>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <option value="binary">Binary (On/Off)</option>
-                                                        <option value="current">Dynamic</option>
-                                                    </>
-                                                )}
-                                            </select>
-                                            {!isWaterHeater && (entity as EVChargerEntity).type === 'current' && (
-                                                <details className="mt-2 text-[11px] text-muted">
-                                                    <summary className="font-semibold text-accent hover:underline cursor-pointer select-none outline-none">
-                                                        Choosing dynamic current means:
-                                                    </summary>
-                                                    <div className="mt-1.5 rounded-lg border border-ai/20 bg-ai/5 p-2.5 leading-relaxed">
-                                                        <ul className="list-disc space-y-0.5 pl-4">
-                                                            <li>The planner sets the charge current for every slot.</li>
-                                                            <li>
-                                                                The charger is automatically load-balanced — it appears
-                                                                in the give-way list in the{' '}
-                                                                <Link
-                                                                    to="/settings?tab=load-balancing"
-                                                                    className="font-semibold text-accent hover:underline"
+                                                <Trash2 size={14} />
+                                            </span>
+                                        </>
+                                    )}
+                                    {expandedIndex === index ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                </div>
+                            </button>
+
+                            <AnimatePresence initial={false}>
+                                {expandedIndex === index && (
+                                    <motion.div
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: 'auto', opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="overflow-visible"
+                                    >
+                                        <div className="p-4 border-t border-line/10 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            {isWaterHeater ? (
+                                                <>
+                                                    {idField}
+                                                    {nameField}
+                                                    {powerField}
+                                                    {capacityField}
+                                                    {sensorField}
+                                                    {/* Target Entity (Water Heater only - ARC15) */}
+                                                    {isWaterHeater && (
+                                                        <>
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Control Type
+                                                                </label>
+                                                                <select
+                                                                    value={
+                                                                        (entity as WaterHeaterEntity).control_type ??
+                                                                        'temperature'
+                                                                    }
+                                                                    onChange={(e) =>
+                                                                        updateEntity(index, {
+                                                                            control_type: e.target.value as
+                                                                                'temperature' | 'switch',
+                                                                        } as Partial<WaterHeaterEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
                                                                 >
-                                                                    Load Balancing tab
-                                                                </Link>
-                                                                .
-                                                            </li>
-                                                            <li>It becomes eligible for PV-surplus charging.</li>
-                                                        </ul>
-                                                    </div>
-                                                </details>
-                                            )}
-                                            {!isWaterHeater &&
-                                                (entity as EVChargerEntity).type === 'current' &&
-                                                !(entity as EVChargerEntity).soc_sensor && (
-                                                    <div
-                                                        role="alert"
-                                                        className="mt-2 rounded-lg border border-accent/40 bg-accent/10 p-2.5 text-[11px] leading-relaxed text-text"
-                                                    >
-                                                        <span className="font-semibold">No SoC sensor configured:</span>{' '}
-                                                        Darkstar cannot track this car&apos;s charging progress or
-                                                        recover load-balancer throttling shortfall — plans assume the
-                                                        battery starts at 0%. Set the SoC sensor above.
-                                                    </div>
-                                                )}
-                                        </div>
+                                                                    <option value="temperature">
+                                                                        Temperature setpoint
+                                                                    </option>
+                                                                    <option value="switch">Switch ON/OFF</option>
+                                                                </select>
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    How Darkstar commands this heater. This is separate
+                                                                    from Load Type.
+                                                                </p>
+                                                            </div>
+                                                            <div className="sm:col-span-2">
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    {(entity as WaterHeaterEntity).control_type ===
+                                                                    'switch'
+                                                                        ? 'Switch entity'
+                                                                        : 'Temperature control entity'}
+                                                                </label>
+                                                                <EntitySelect
+                                                                    entities={haEntities.filter((haEntity) =>
+                                                                        (entity as WaterHeaterEntity).control_type ===
+                                                                        'switch'
+                                                                            ? ['switch', 'input_boolean'].includes(
+                                                                                  haEntity.domain,
+                                                                              )
+                                                                            : ['number', 'input_number'].includes(
+                                                                                  haEntity.domain,
+                                                                              ),
+                                                                    )}
+                                                                    value={(entity as WaterHeaterEntity).target_entity}
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            target_entity: val,
+                                                                        } as Partial<WaterHeaterEntity>)
+                                                                    }
+                                                                    loading={haLoading}
+                                                                    placeholder={
+                                                                        (entity as WaterHeaterEntity).control_type ===
+                                                                        'switch'
+                                                                            ? 'Select Home Assistant switch...'
+                                                                            : 'Select Home Assistant number...'
+                                                                    }
+                                                                    disabled={disabled}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    {(entity as WaterHeaterEntity).control_type ===
+                                                                    'switch'
+                                                                        ? 'Switch or input_boolean entity. Scheduled heating turns it on; idle and shed periods turn it off.'
+                                                                        : 'Number or input_number entity. The executor writes temp_off/temp_normal/temp_boost based on the schedule.'}
+                                                                </p>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                    {typeField}
+                                                    {/* Water Heater Specific Fields */}
+                                                    {isWaterHeater && (
+                                                        <>
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Max Hours Between Heating
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        (entity as WaterHeaterEntity)
+                                                                            .max_hours_between_heating
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            max_hours_between_heating: Number(val),
+                                                                        } as Partial<WaterHeaterEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={1}
+                                                                    min={0}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    Soft comfort ceiling; 0 disables it. Values above 24
+                                                                    hours are supported.
+                                                                </p>
+                                                            </div>
+                                                            <div>
+                                                                <label
+                                                                    htmlFor={`water-heater-idle-cutoff-${index}`}
+                                                                    className="text-[10px] uppercase font-bold text-muted mb-1.5 block"
+                                                                >
+                                                                    Idle Power Cutoff (W)
+                                                                </label>
+                                                                <NumberInput
+                                                                    id={`water-heater-idle-cutoff-${index}`}
+                                                                    aria-describedby={`water-heater-idle-cutoff-help-${index}`}
+                                                                    value={
+                                                                        ((entity as WaterHeaterEntity)
+                                                                            .idle_power_threshold_kw ?? 0) * 1000
+                                                                    }
+                                                                    onChange={(val) => {
+                                                                        const watts = Number(val)
+                                                                        if (!Number.isFinite(watts) || watts < 0) return
 
-                                        {/* Replan on Unplug (EV only) */}
-                                        {!isWaterHeater && (
-                                            <div>
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Re-plan on Unplug
-                                                </label>
-                                                <div className="flex items-center gap-2 mt-2">
-                                                    <Switch
-                                                        checked={(entity as EVChargerEntity).replan_on_unplug ?? false}
-                                                        onCheckedChange={(checked) =>
-                                                            updateEntity(index, {
-                                                                replan_on_unplug: checked,
-                                                            } as Partial<EVChargerEntity>)
-                                                        }
-                                                        disabled={disabled}
-                                                    />
-                                                    <span className="text-xs text-text">
-                                                        Re-run planner immediately when unplugged
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        )}
+                                                                        updateEntity(index, {
+                                                                            idle_power_threshold_kw: watts / 1000,
+                                                                        } as Partial<WaterHeaterEntity>)
+                                                                    }}
+                                                                    disabled={disabled}
+                                                                    step={10}
+                                                                    min={0}
+                                                                />
+                                                                <p
+                                                                    id={`water-heater-idle-cutoff-help-${index}`}
+                                                                    className="text-[10px] text-muted mt-1"
+                                                                >
+                                                                    Power at or below this threshold is treated as idle
+                                                                    and excluded from heating totals. Set to 0 to
+                                                                    disable idle filtering.
+                                                                </p>
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Min Spacing (hours)
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        (entity as WaterHeaterEntity)
+                                                                            .water_min_spacing_hours
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            water_min_spacing_hours: Number(val),
+                                                                        } as Partial<WaterHeaterEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={0.5}
+                                                                    min={0}
+                                                                    max={12}
+                                                                />
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <EvSection title="Charger">
+                                                        {idField}
+                                                        {nameField}
+                                                        {powerField}
+                                                        {sensorField}
+                                                        {/* Plug Sensor (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div className="sm:col-span-2">
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Plug Sensor
+                                                                </label>
+                                                                <EntitySelect
+                                                                    entities={haEntities}
+                                                                    value={(entity as EVChargerEntity).plug_sensor}
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            plug_sensor: val,
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    loading={haLoading}
+                                                                    placeholder="Select Home Assistant plug sensor..."
+                                                                    disabled={disabled}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    Select the charger-specific connected states below
+                                                                    when the sensor reports named values.
+                                                                </p>
+                                                            </div>
+                                                        )}
 
-                                        {/* Missed-goal grace window (EV only) */}
-                                        {!isWaterHeater && (
-                                            <div>
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Missed Goal Grace (hours)
-                                                </label>
-                                                <NumberInput
-                                                    value={(entity as EVChargerEntity).missed_goal_grace_hours ?? 4}
-                                                    onChange={(val) =>
-                                                        updateEntity(index, {
-                                                            missed_goal_grace_hours: Number(val),
-                                                        } as Partial<EVChargerEntity>)
-                                                    }
-                                                    disabled={disabled}
-                                                    step={0.5}
-                                                    min={0}
-                                                    max={24}
-                                                />
-                                                <p className="text-[10px] text-muted mt-1">
-                                                    Keep charging toward a missed goal while still plugged in. 0 = off
-                                                </p>
-                                            </div>
-                                        )}
-
-                                        {/* Stale SoC carry window (EV only) */}
-                                        {!isWaterHeater && (
-                                            <div>
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    SoC Stale After (minutes)
-                                                </label>
-                                                <NumberInput
-                                                    value={(entity as EVChargerEntity).soc_stale_after_minutes ?? 15}
-                                                    onChange={(val) =>
-                                                        updateEntity(index, {
-                                                            soc_stale_after_minutes: Number(val),
-                                                        } as Partial<EVChargerEntity>)
-                                                    }
-                                                    disabled={disabled}
-                                                    step={5}
-                                                    min={0}
-                                                    max={240}
-                                                />
-                                                <p className="text-[10px] text-muted mt-1">
-                                                    Keep using the last SoC reading this long if the sensor drops out.
-                                                    After that, goal charging pauses until a reading returns
-                                                </p>
-                                            </div>
-                                        )}
-
-                                        {/* Water Heater Specific Fields */}
-                                        {isWaterHeater && (
-                                            <>
-                                                <div>
-                                                    <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                        Max Hours Between Heating
-                                                    </label>
-                                                    <NumberInput
-                                                        value={(entity as WaterHeaterEntity).max_hours_between_heating}
-                                                        onChange={(val) =>
-                                                            updateEntity(index, {
-                                                                max_hours_between_heating: Number(val),
-                                                            } as Partial<WaterHeaterEntity>)
-                                                        }
-                                                        disabled={disabled}
-                                                        step={1}
-                                                        min={0}
-                                                    />
-                                                    <p className="text-[10px] text-muted mt-1">
-                                                        Soft comfort ceiling; 0 disables it. Values above 24 hours are
-                                                        supported.
-                                                    </p>
-                                                </div>
-                                                <div>
-                                                    <label
-                                                        htmlFor={`water-heater-idle-cutoff-${index}`}
-                                                        className="text-[10px] uppercase font-bold text-muted mb-1.5 block"
-                                                    >
-                                                        Idle Power Cutoff (W)
-                                                    </label>
-                                                    <NumberInput
-                                                        id={`water-heater-idle-cutoff-${index}`}
-                                                        aria-describedby={`water-heater-idle-cutoff-help-${index}`}
-                                                        value={
-                                                            ((entity as WaterHeaterEntity).idle_power_threshold_kw ??
-                                                                0) * 1000
-                                                        }
-                                                        onChange={(val) => {
-                                                            const watts = Number(val)
-                                                            if (!Number.isFinite(watts) || watts < 0) return
-
-                                                            updateEntity(index, {
-                                                                idle_power_threshold_kw: watts / 1000,
-                                                            } as Partial<WaterHeaterEntity>)
-                                                        }}
-                                                        disabled={disabled}
-                                                        step={10}
-                                                        min={0}
-                                                    />
-                                                    <p
-                                                        id={`water-heater-idle-cutoff-help-${index}`}
-                                                        className="text-[10px] text-muted mt-1"
-                                                    >
-                                                        Power at or below this threshold is treated as idle and excluded
-                                                        from heating totals. Set to 0 to disable idle filtering.
-                                                    </p>
-                                                </div>
-                                                <div>
-                                                    <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                        Min Spacing (hours)
-                                                    </label>
-                                                    <NumberInput
-                                                        value={(entity as WaterHeaterEntity).water_min_spacing_hours}
-                                                        onChange={(val) =>
-                                                            updateEntity(index, {
-                                                                water_min_spacing_hours: Number(val),
-                                                            } as Partial<WaterHeaterEntity>)
-                                                        }
-                                                        disabled={disabled}
-                                                        step={0.5}
-                                                        min={0}
-                                                        max={12}
-                                                    />
-                                                </div>
-                                            </>
-                                        )}
-
-                                        {/* EV Charger Specific Fields */}
-                                        {!isWaterHeater && (
-                                            <>
-                                                {/* Current Control Fields (type: current) */}
-                                                {(entity as EVChargerEntity).type === 'current' && (
-                                                    <>
-                                                        <div className="sm:col-span-2">
-                                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                                Current Entity
-                                                            </label>
-                                                            <EntitySelect
-                                                                entities={haEntities}
-                                                                value={(entity as EVChargerEntity).current_entity || ''}
-                                                                onChange={(val) =>
-                                                                    updateEntity(index, {
-                                                                        current_entity: val,
-                                                                    } as Partial<EVChargerEntity>)
+                                                        {/* Plug-state mapping (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <PluggedStatesField
+                                                                value={
+                                                                    (entity as EVChargerEntity).plugged_in_states || ''
                                                                 }
-                                                                loading={haLoading}
-                                                                placeholder="Select Home Assistant current control entity..."
-                                                                disabled={disabled}
-                                                            />
-                                                            <p className="text-[10px] text-muted mt-1">
-                                                                HA number entity that sets charge current (A)
-                                                            </p>
-                                                        </div>
-
-                                                        <div>
-                                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                                Min Current (A)
-                                                            </label>
-                                                            <NumberInput
-                                                                value={(entity as EVChargerEntity).min_current_a ?? 6}
-                                                                onChange={(val) =>
+                                                                options={
+                                                                    haEntities.find(
+                                                                        (haEntity) =>
+                                                                            haEntity.entity_id ===
+                                                                            (entity as EVChargerEntity).plug_sensor,
+                                                                    )?.options
+                                                                }
+                                                                onChange={(value) =>
                                                                     updateEntity(index, {
-                                                                        min_current_a: Number(val),
+                                                                        plugged_in_states: value,
                                                                     } as Partial<EVChargerEntity>)
                                                                 }
                                                                 disabled={disabled}
-                                                                step={1}
-                                                                min={0}
                                                             />
-                                                        </div>
+                                                        )}
 
-                                                        <div>
-                                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                                Max Current (A)
-                                                            </label>
-                                                            <NumberInput
-                                                                value={(entity as EVChargerEntity).max_current_a ?? ''}
-                                                                onChange={(val) =>
-                                                                    updateEntity(index, {
-                                                                        max_current_a: Number(val),
-                                                                    } as Partial<EVChargerEntity>)
-                                                                }
-                                                                disabled={disabled}
-                                                                step={1}
-                                                                min={(entity as EVChargerEntity).min_current_a ?? 6}
-                                                            />
-                                                        </div>
+                                                        {/* Switch Entity (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div className="sm:col-span-2">
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Charging Control Entity
+                                                                    {(entity as EVChargerEntity).type === 'current' && (
+                                                                        <span className="text-bad"> *</span>
+                                                                    )}
+                                                                </label>
+                                                                <EntitySelect
+                                                                    entities={haEntities}
+                                                                    value={
+                                                                        (entity as EVChargerEntity).switch_entity || ''
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            switch_entity: val,
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    loading={haLoading}
+                                                                    placeholder="Select Home Assistant charging-control entity..."
+                                                                    disabled={disabled}
+                                                                />
+                                                                {evChargerMissingControlEntity(
+                                                                    entity as EVChargerEntity,
+                                                                ) && (
+                                                                    <p
+                                                                        className="text-[11px] text-bad mt-1"
+                                                                        role="alert"
+                                                                    >
+                                                                        Required for current-type chargers: this entity
+                                                                        starts and stops charging.
+                                                                    </p>
+                                                                )}
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    Switch-like entities use turn on/off. Select-like
+                                                                    entities use the mapped options below.
+                                                                </p>
+                                                            </div>
+                                                        )}
 
-                                                        <div className="sm:col-span-2">
-                                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                                Phases *
-                                                            </label>
-                                                            <div className="flex gap-2">
-                                                                {[1, 2, 3].map((phase) => {
-                                                                    const phases =
-                                                                        (entity as EVChargerEntity).phases ?? []
-                                                                    const checked = phases.includes(phase)
-                                                                    return (
-                                                                        <button
-                                                                            key={phase}
-                                                                            type="button"
-                                                                            disabled={disabled}
-                                                                            onClick={() => {
-                                                                                const nextPhases = checked
-                                                                                    ? phases.filter((p) => p !== phase)
-                                                                                    : [...phases, phase].sort(
-                                                                                          (a, b) => a - b,
-                                                                                      )
-                                                                                updateEntity(index, {
-                                                                                    phases: nextPhases,
-                                                                                } as Partial<EVChargerEntity>)
-                                                                            }}
-                                                                            className={`
+                                                        {/* Select-like charging mappings (EV only) */}
+                                                        {!isWaterHeater &&
+                                                            ['select', 'input_select'].includes(
+                                                                entityDomain(
+                                                                    (entity as EVChargerEntity).switch_entity,
+                                                                    haEntities.find(
+                                                                        (haEntity) =>
+                                                                            haEntity.entity_id ===
+                                                                            (entity as EVChargerEntity).switch_entity,
+                                                                    ),
+                                                                ),
+                                                            ) && (
+                                                                <div className="sm:col-span-2 grid grid-cols-2 gap-3">
+                                                                    <MappingValueField
+                                                                        label="Charging Enabled Value"
+                                                                        value={
+                                                                            (entity as EVChargerEntity)
+                                                                                .charge_enabled_value || ''
+                                                                        }
+                                                                        fallback={DEFAULT_CHARGE_ENABLED_VALUE}
+                                                                        options={
+                                                                            haEntities.find(
+                                                                                (haEntity) =>
+                                                                                    haEntity.entity_id ===
+                                                                                    (entity as EVChargerEntity)
+                                                                                        .switch_entity,
+                                                                            )?.options
+                                                                        }
+                                                                        onChange={(value) =>
+                                                                            updateEntity(index, {
+                                                                                charge_enabled_value: value,
+                                                                            } as Partial<EVChargerEntity>)
+                                                                        }
+                                                                        disabled={disabled}
+                                                                    />
+                                                                    <MappingValueField
+                                                                        label="Charging Disabled Value"
+                                                                        value={
+                                                                            (entity as EVChargerEntity)
+                                                                                .charge_disabled_value || ''
+                                                                        }
+                                                                        fallback={DEFAULT_CHARGE_DISABLED_VALUE}
+                                                                        options={
+                                                                            haEntities.find(
+                                                                                (haEntity) =>
+                                                                                    haEntity.entity_id ===
+                                                                                    (entity as EVChargerEntity)
+                                                                                        .switch_entity,
+                                                                            )?.options
+                                                                        }
+                                                                        onChange={(value) =>
+                                                                            updateEntity(index, {
+                                                                                charge_disabled_value: value,
+                                                                            } as Partial<EVChargerEntity>)
+                                                                        }
+                                                                        disabled={disabled}
+                                                                    />
+                                                                </div>
+                                                            )}
+                                                        {typeField}
+                                                    </EvSection>
+                                                    <EvSection title="Car & goal">
+                                                        {/* SoC Sensor (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div className="sm:col-span-2">
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    SoC Sensor
+                                                                </label>
+                                                                <EntitySelect
+                                                                    entities={haEntities}
+                                                                    value={(entity as EVChargerEntity).soc_sensor}
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            soc_sensor: val,
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    loading={haLoading}
+                                                                    placeholder="Select Home Assistant SoC sensor..."
+                                                                    disabled={disabled}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    EV battery state of charge (%) - Required for smart
+                                                                    charging
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                        {capacityField}
+                                                        {/* Stale SoC carry window (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    SoC Stale After (minutes)
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        (entity as EVChargerEntity)
+                                                                            .soc_stale_after_minutes ?? 15
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            soc_stale_after_minutes: Number(val),
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={5}
+                                                                    min={0}
+                                                                    max={240}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    Keep using the last SoC reading this long if the
+                                                                    sensor drops out. After that, goal charging pauses
+                                                                    until a reading returns
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                        {/* Missed-goal grace window (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Missed Goal Grace (hours)
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        (entity as EVChargerEntity)
+                                                                            .missed_goal_grace_hours ?? 4
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            missed_goal_grace_hours: Number(val),
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={0.5}
+                                                                    min={0}
+                                                                    max={24}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    Keep charging toward a missed goal while still
+                                                                    plugged in. 0 = off
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                        {/* HA Ready-By Entity (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div className="sm:col-span-2">
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    HA Ready-By Entity
+                                                                </label>
+                                                                <EntitySelect
+                                                                    entities={haEntities}
+                                                                    value={
+                                                                        (entity as EVChargerEntity)
+                                                                            .ha_ready_by_entity || ''
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            ha_ready_by_entity: val,
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    loading={haLoading}
+                                                                    placeholder="Select Home Assistant input_datetime..."
+                                                                    disabled={disabled}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    HA entity to sync ready-by time (e.g.
+                                                                    input_datetime.ev_ready_by)
+                                                                </p>
+                                                            </div>
+                                                        )}
+
+                                                        {/* HA Target-SoC Entity (optional) (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div className="sm:col-span-2">
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    HA Target-SoC Entity (optional)
+                                                                </label>
+                                                                <EntitySelect
+                                                                    entities={haEntities}
+                                                                    value={
+                                                                        (entity as EVChargerEntity)
+                                                                            .ha_target_soc_entity || ''
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            ha_target_soc_entity: val,
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    loading={haLoading}
+                                                                    placeholder="Select Home Assistant input_number..."
+                                                                    disabled={disabled}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    HA entity to sync target SoC % (e.g.
+                                                                    input_number.ev_target_soc)
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                    </EvSection>
+                                                    {(entity as EVChargerEntity).type === 'current' && (
+                                                        <EvSection title="Current control">
+                                                            <div className="sm:col-span-2">
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Current Entity
+                                                                </label>
+                                                                <EntitySelect
+                                                                    entities={haEntities}
+                                                                    value={
+                                                                        (entity as EVChargerEntity).current_entity || ''
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            current_entity: val,
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    loading={haLoading}
+                                                                    placeholder="Select Home Assistant current control entity..."
+                                                                    disabled={disabled}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    HA number entity that sets charge current (A)
+                                                                </p>
+                                                            </div>
+
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Min Current (A)
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        (entity as EVChargerEntity).min_current_a ?? 6
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            min_current_a: Number(val),
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={1}
+                                                                    min={0}
+                                                                />
+                                                            </div>
+
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Max Current (A)
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        (entity as EVChargerEntity).max_current_a ?? ''
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            max_current_a: Number(val),
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={1}
+                                                                    min={(entity as EVChargerEntity).min_current_a ?? 6}
+                                                                />
+                                                            </div>
+
+                                                            <div className="sm:col-span-2">
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Phases *
+                                                                </label>
+                                                                <div className="flex gap-2">
+                                                                    {[1, 2, 3].map((phase) => {
+                                                                        const phases =
+                                                                            (entity as EVChargerEntity).phases ?? []
+                                                                        const checked = phases.includes(phase)
+                                                                        return (
+                                                                            <button
+                                                                                key={phase}
+                                                                                type="button"
+                                                                                disabled={disabled}
+                                                                                onClick={() => {
+                                                                                    const nextPhases = checked
+                                                                                        ? phases.filter(
+                                                                                              (p) => p !== phase,
+                                                                                          )
+                                                                                        : [...phases, phase].sort(
+                                                                                              (a, b) => a - b,
+                                                                                          )
+                                                                                    updateEntity(index, {
+                                                                                        phases: nextPhases,
+                                                                                    } as Partial<EVChargerEntity>)
+                                                                                }}
+                                                                                className={`
                                                                                 px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-200
                                                                                 ${
                                                                                     checked
@@ -1228,226 +1289,390 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                                 }
                                                                                 disabled:opacity-40 disabled:cursor-not-allowed
                                                                             `}
-                                                                        >
-                                                                            L{phase}
-                                                                        </button>
-                                                                    )
-                                                                })}
+                                                                            >
+                                                                                L{phase}
+                                                                            </button>
+                                                                        )
+                                                                    })}
+                                                                </div>
+                                                                {((entity as EVChargerEntity).phases ?? []).length ===
+                                                                0 ? (
+                                                                    <p
+                                                                        className="text-[10px] text-warn mt-1.5"
+                                                                        data-testid="ev-phases-required"
+                                                                        role="alert"
+                                                                    >
+                                                                        Required. Configure phases for{' '}
+                                                                        {entity.name || entity.id} to enable planning.
+                                                                    </p>
+                                                                ) : (
+                                                                    <p className="text-[10px] text-muted mt-1.5">
+                                                                        Phases this charger draws current on.
+                                                                    </p>
+                                                                )}
                                                             </div>
-                                                            {((entity as EVChargerEntity).phases ?? []).length === 0 ? (
-                                                                <p
-                                                                    className="text-[10px] text-warn mt-1.5"
-                                                                    data-testid="ev-phases-required"
-                                                                    role="alert"
-                                                                >
-                                                                    Required. Configure phases for{' '}
-                                                                    {entity.name || entity.id} to enable planning.
-                                                                </p>
-                                                            ) : (
-                                                                <p className="text-[10px] text-muted mt-1.5">
-                                                                    Phases this charger draws current on.
-                                                                </p>
-                                                            )}
-                                                        </div>
 
-                                                        {/* Commanded 1<->3 Phase Switching (excess-pv-priority-dispatch) */}
-                                                        <div className="sm:col-span-2">
-                                                            <div className="bg-surface2/30 rounded-lg p-4 border border-line/20 space-y-3">
-                                                                <div className="flex items-center justify-between">
-                                                                    <label className="text-[10px] uppercase font-bold text-muted">
-                                                                        Commanded Phase Switching
-                                                                    </label>
+                                                            {/* Commanded 1<->3 Phase Switching (excess-pv-priority-dispatch) */}
+                                                            <div className="sm:col-span-2">
+                                                                <div className="bg-surface2/30 rounded-lg p-4 border border-line/20 space-y-3">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <label className="text-[10px] uppercase font-bold text-muted">
+                                                                            Commanded Phase Switching
+                                                                        </label>
+                                                                        <Switch
+                                                                            checked={
+                                                                                (entity as EVChargerEntity)
+                                                                                    .phase_switching_enabled ?? false
+                                                                            }
+                                                                            onCheckedChange={(checked) =>
+                                                                                updateEntity(index, {
+                                                                                    phase_switching_enabled: checked,
+                                                                                } as Partial<EVChargerEntity>)
+                                                                            }
+                                                                            disabled={disabled}
+                                                                        />
+                                                                    </div>
+                                                                    <p className="text-[10px] text-muted">
+                                                                        Lets Darkstar switch this charger to 1-phase
+                                                                        mode so small PV surpluses (~1.4-4.1kW) still
+                                                                        charge the car. Requires the charger&apos;s
+                                                                        phase-mode entity (e.g. go-e Gemini Flex via the
+                                                                        MQTT integration).
+                                                                    </p>
+                                                                    <div>
+                                                                        <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                            Phase Mode Entity
+                                                                        </label>
+                                                                        <EntitySelect
+                                                                            entities={haEntities.filter(
+                                                                                (haEntity) =>
+                                                                                    isPhaseModeDomain(
+                                                                                        haEntity.entity_id,
+                                                                                    ) ||
+                                                                                    // keep a saved non-select entity visible
+                                                                                    // so its inline error makes sense
+                                                                                    haEntity.entity_id ===
+                                                                                        (entity as EVChargerEntity)
+                                                                                            .phase_mode_entity,
+                                                                            )}
+                                                                            value={
+                                                                                (entity as EVChargerEntity)
+                                                                                    .phase_mode_entity || ''
+                                                                            }
+                                                                            onChange={(val) =>
+                                                                                updateEntity(index, {
+                                                                                    phase_mode_entity: val,
+                                                                                } as Partial<EVChargerEntity>)
+                                                                            }
+                                                                            loading={haLoading}
+                                                                            placeholder="Select Home Assistant phase-mode entity..."
+                                                                            disabled={disabled}
+                                                                        />
+                                                                        {(entity as EVChargerEntity)
+                                                                            .phase_switching_enabled &&
+                                                                            !(entity as EVChargerEntity)
+                                                                                .phase_mode_entity && (
+                                                                                <p className="text-[10px] text-bad mt-1">
+                                                                                    Required when phase switching is
+                                                                                    enabled.
+                                                                                </p>
+                                                                            )}
+                                                                        {(entity as EVChargerEntity)
+                                                                            .phase_mode_entity &&
+                                                                            !isPhaseModeDomain(
+                                                                                (entity as EVChargerEntity)
+                                                                                    .phase_mode_entity || '',
+                                                                            ) && (
+                                                                                <p
+                                                                                    className="text-[10px] text-bad mt-1"
+                                                                                    role="alert"
+                                                                                    data-testid="ev-phase-mode-domain-error"
+                                                                                >
+                                                                                    {
+                                                                                        (entity as EVChargerEntity)
+                                                                                            .phase_mode_entity
+                                                                                    }{' '}
+                                                                                    is read-only. Pick a writable select
+                                                                                    or input_select entity (e.g.
+                                                                                    select.*_psm).
+                                                                                </p>
+                                                                            )}
+                                                                    </div>
+                                                                    {(entity as EVChargerEntity)
+                                                                        .phase_switching_enabled && (
+                                                                        <div className="grid grid-cols-2 gap-3">
+                                                                            <MappingValueField
+                                                                                label="1-Phase Option"
+                                                                                value={
+                                                                                    (entity as EVChargerEntity)
+                                                                                        .phase_1_value || ''
+                                                                                }
+                                                                                fallback={DEFAULT_PHASE_1_VALUE}
+                                                                                options={
+                                                                                    haEntities.find(
+                                                                                        (haEntity) =>
+                                                                                            haEntity.entity_id ===
+                                                                                            (entity as EVChargerEntity)
+                                                                                                .phase_mode_entity,
+                                                                                    )?.options
+                                                                                }
+                                                                                onChange={(value) =>
+                                                                                    updateEntity(index, {
+                                                                                        phase_1_value: value,
+                                                                                    } as Partial<EVChargerEntity>)
+                                                                                }
+                                                                                disabled={disabled}
+                                                                            />
+                                                                            <MappingValueField
+                                                                                label="3-Phase Option"
+                                                                                value={
+                                                                                    (entity as EVChargerEntity)
+                                                                                        .phase_3_value || ''
+                                                                                }
+                                                                                fallback={DEFAULT_PHASE_3_VALUE}
+                                                                                options={
+                                                                                    haEntities.find(
+                                                                                        (haEntity) =>
+                                                                                            haEntity.entity_id ===
+                                                                                            (entity as EVChargerEntity)
+                                                                                                .phase_mode_entity,
+                                                                                    )?.options
+                                                                                }
+                                                                                onChange={(value) =>
+                                                                                    updateEntity(index, {
+                                                                                        phase_3_value: value,
+                                                                                    } as Partial<EVChargerEntity>)
+                                                                                }
+                                                                                disabled={disabled}
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                    {(entity as EVChargerEntity)
+                                                                        .phase_switching_enabled && (
+                                                                        <PhaseOneLineSelector
+                                                                            charger={entity as EVChargerEntity}
+                                                                            disabled={disabled}
+                                                                            onChange={(line) =>
+                                                                                updateEntity(index, {
+                                                                                    phase_1_line: line,
+                                                                                } as Partial<EVChargerEntity>)
+                                                                            }
+                                                                        />
+                                                                    )}
+                                                                    <div className="grid grid-cols-2 gap-3">
+                                                                        <div>
+                                                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
+                                                                                <span>Hysteresis (kW)</span>
+                                                                                <Tooltip text="Buffer added to the 3-phase minimum (4.14 kW). Target power must exceed 3ph_min + Hysteresis to switch to 3-phase, and drop below to switch back. Prevents boundary oscillation. Default: 0.5 kW." />
+                                                                            </label>
+                                                                            <NumberInput
+                                                                                value={
+                                                                                    (entity as EVChargerEntity)
+                                                                                        .phase_switch_hysteresis_kw ??
+                                                                                    0.5
+                                                                                }
+                                                                                onChange={(val) =>
+                                                                                    updateEntity(index, {
+                                                                                        phase_switch_hysteresis_kw:
+                                                                                            Number(val),
+                                                                                    } as Partial<EVChargerEntity>)
+                                                                                }
+                                                                                disabled={disabled}
+                                                                                step={0.1}
+                                                                                min={0}
+                                                                            />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
+                                                                                <span>Dwell (seconds)</span>
+                                                                                <Tooltip text="Minimum time power must remain above/below the threshold before switching, and the minimum lockout between switches. Protects physical charger contactor relays and EV onboard chargers. Default: 600s (10 min)." />
+                                                                            </label>
+                                                                            <NumberInput
+                                                                                value={
+                                                                                    (entity as EVChargerEntity)
+                                                                                        .phase_switch_min_dwell_s ?? 600
+                                                                                }
+                                                                                onChange={(val) =>
+                                                                                    updateEntity(index, {
+                                                                                        phase_switch_min_dwell_s:
+                                                                                            Number(val),
+                                                                                    } as Partial<EVChargerEntity>)
+                                                                                }
+                                                                                disabled={disabled}
+                                                                                step={30}
+                                                                                min={0}
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </EvSection>
+                                                    )}
+                                                    <EvSection
+                                                        title="Charging losses"
+                                                        collapsible
+                                                        intro="Learned automatically when learning is on. Adjust only to override."
+                                                    >
+                                                        {/* Charging losses (EV only, ev-charging-losses) */}
+                                                        {!isWaterHeater && (
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
+                                                                    <span>Charging Overhead (kW)</span>
+                                                                    <Tooltip text="Power the car uses for itself while charging (electronics, cooling) that never reaches the battery. Makes slow charging relatively expensive. Learned automatically when learning is on. Default: 0.25 kW." />
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        (entity as EVChargerEntity)
+                                                                            .charge_overhead_kw ?? 0.25
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            charge_overhead_kw: Number(val),
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={0.05}
+                                                                    min={0}
+                                                                    max={2}
+                                                                />
+                                                            </div>
+                                                        )}
+
+                                                        {!isWaterHeater && (
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
+                                                                    <span>Start Loss (kWh)</span>
+                                                                    <Tooltip text="Energy lost every time charging starts (car wake-up and warm-up). Makes the planner avoid on/off charging. Learned automatically when learning is on. Default: 0.15 kWh." />
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        (entity as EVChargerEntity).start_loss_kwh ??
+                                                                        0.15
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            start_loss_kwh: Number(val),
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={0.05}
+                                                                    min={0}
+                                                                    max={1}
+                                                                />
+                                                            </div>
+                                                        )}
+
+                                                        {!isWaterHeater && (
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
+                                                                    <span>Charge Efficiency (%)</span>
+                                                                    <Tooltip text="Share of the wallbox energy that ends up in the car battery, on top of the overhead and start loss. Learned automatically when learning is on. Default: 95%." />
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        Math.round(
+                                                                            ((entity as EVChargerEntity)
+                                                                                .charge_efficiency ?? 0.95) * 1000,
+                                                                        ) / 10
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            charge_efficiency: Number(val) / 100,
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={1}
+                                                                    min={50}
+                                                                    max={100}
+                                                                />
+                                                            </div>
+                                                        )}
+
+                                                        {!isWaterHeater && (
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
+                                                                    <span>Energy Added Sensor (optional)</span>
+                                                                    <Tooltip text="Optional. The car's own 'charge energy added' sensor (kWh), used to measure how much energy actually reached the battery. Without it, Darkstar estimates this from the SoC change." />
+                                                                </label>
+                                                                <EntitySelect
+                                                                    entities={haEntities}
+                                                                    value={
+                                                                        (entity as EVChargerEntity)
+                                                                            .energy_added_sensor ?? ''
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            energy_added_sensor: val,
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    loading={haLoading}
+                                                                    placeholder="Select energy added sensor (optional)..."
+                                                                    disabled={disabled}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </EvSection>
+                                                    <EvSection title="Re-plan">
+                                                        {/* Replan on Plugin (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Re-plan on Plugin
+                                                                </label>
+                                                                <div className="flex items-center gap-2 mt-2">
                                                                     <Switch
                                                                         checked={
                                                                             (entity as EVChargerEntity)
-                                                                                .phase_switching_enabled ?? false
+                                                                                .replan_on_plugin ?? true
                                                                         }
                                                                         onCheckedChange={(checked) =>
                                                                             updateEntity(index, {
-                                                                                phase_switching_enabled: checked,
+                                                                                replan_on_plugin: checked,
                                                                             } as Partial<EVChargerEntity>)
                                                                         }
                                                                         disabled={disabled}
                                                                     />
-                                                                </div>
-                                                                <p className="text-[10px] text-muted">
-                                                                    Lets Darkstar switch this charger to 1-phase mode so
-                                                                    small PV surpluses (~1.4-4.1kW) still charge the
-                                                                    car. Requires the charger&apos;s phase-mode entity
-                                                                    (e.g. go-e Gemini Flex via the MQTT integration).
-                                                                </p>
-                                                                <div>
-                                                                    <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                                        Phase Mode Entity
-                                                                    </label>
-                                                                    <EntitySelect
-                                                                        entities={haEntities.filter(
-                                                                            (haEntity) =>
-                                                                                isPhaseModeDomain(haEntity.entity_id) ||
-                                                                                // keep a saved non-select entity visible
-                                                                                // so its inline error makes sense
-                                                                                haEntity.entity_id ===
-                                                                                    (entity as EVChargerEntity)
-                                                                                        .phase_mode_entity,
-                                                                        )}
-                                                                        value={
-                                                                            (entity as EVChargerEntity)
-                                                                                .phase_mode_entity || ''
-                                                                        }
-                                                                        onChange={(val) =>
-                                                                            updateEntity(index, {
-                                                                                phase_mode_entity: val,
-                                                                            } as Partial<EVChargerEntity>)
-                                                                        }
-                                                                        loading={haLoading}
-                                                                        placeholder="Select Home Assistant phase-mode entity..."
-                                                                        disabled={disabled}
-                                                                    />
-                                                                    {(entity as EVChargerEntity)
-                                                                        .phase_switching_enabled &&
-                                                                        !(entity as EVChargerEntity)
-                                                                            .phase_mode_entity && (
-                                                                            <p className="text-[10px] text-bad mt-1">
-                                                                                Required when phase switching is
-                                                                                enabled.
-                                                                            </p>
-                                                                        )}
-                                                                    {(entity as EVChargerEntity).phase_mode_entity &&
-                                                                        !isPhaseModeDomain(
-                                                                            (entity as EVChargerEntity)
-                                                                                .phase_mode_entity || '',
-                                                                        ) && (
-                                                                            <p
-                                                                                className="text-[10px] text-bad mt-1"
-                                                                                role="alert"
-                                                                                data-testid="ev-phase-mode-domain-error"
-                                                                            >
-                                                                                {
-                                                                                    (entity as EVChargerEntity)
-                                                                                        .phase_mode_entity
-                                                                                }{' '}
-                                                                                is read-only. Pick a writable select or
-                                                                                input_select entity (e.g. select.*_psm).
-                                                                            </p>
-                                                                        )}
-                                                                </div>
-                                                                {(entity as EVChargerEntity)
-                                                                    .phase_switching_enabled && (
-                                                                    <div className="grid grid-cols-2 gap-3">
-                                                                        <MappingValueField
-                                                                            label="1-Phase Option"
-                                                                            value={
-                                                                                (entity as EVChargerEntity)
-                                                                                    .phase_1_value || ''
-                                                                            }
-                                                                            fallback={DEFAULT_PHASE_1_VALUE}
-                                                                            options={
-                                                                                haEntities.find(
-                                                                                    (haEntity) =>
-                                                                                        haEntity.entity_id ===
-                                                                                        (entity as EVChargerEntity)
-                                                                                            .phase_mode_entity,
-                                                                                )?.options
-                                                                            }
-                                                                            onChange={(value) =>
-                                                                                updateEntity(index, {
-                                                                                    phase_1_value: value,
-                                                                                } as Partial<EVChargerEntity>)
-                                                                            }
-                                                                            disabled={disabled}
-                                                                        />
-                                                                        <MappingValueField
-                                                                            label="3-Phase Option"
-                                                                            value={
-                                                                                (entity as EVChargerEntity)
-                                                                                    .phase_3_value || ''
-                                                                            }
-                                                                            fallback={DEFAULT_PHASE_3_VALUE}
-                                                                            options={
-                                                                                haEntities.find(
-                                                                                    (haEntity) =>
-                                                                                        haEntity.entity_id ===
-                                                                                        (entity as EVChargerEntity)
-                                                                                            .phase_mode_entity,
-                                                                                )?.options
-                                                                            }
-                                                                            onChange={(value) =>
-                                                                                updateEntity(index, {
-                                                                                    phase_3_value: value,
-                                                                                } as Partial<EVChargerEntity>)
-                                                                            }
-                                                                            disabled={disabled}
-                                                                        />
-                                                                    </div>
-                                                                )}
-                                                                {(entity as EVChargerEntity)
-                                                                    .phase_switching_enabled && (
-                                                                    <PhaseOneLineSelector
-                                                                        charger={entity as EVChargerEntity}
-                                                                        disabled={disabled}
-                                                                        onChange={(line) =>
-                                                                            updateEntity(index, {
-                                                                                phase_1_line: line,
-                                                                            } as Partial<EVChargerEntity>)
-                                                                        }
-                                                                    />
-                                                                )}
-                                                                <div className="grid grid-cols-2 gap-3">
-                                                                    <div>
-                                                                        <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
-                                                                            <span>Hysteresis (kW)</span>
-                                                                            <Tooltip text="Buffer added to the 3-phase minimum (4.14 kW). Target power must exceed 3ph_min + Hysteresis to switch to 3-phase, and drop below to switch back. Prevents boundary oscillation. Default: 0.5 kW." />
-                                                                        </label>
-                                                                        <NumberInput
-                                                                            value={
-                                                                                (entity as EVChargerEntity)
-                                                                                    .phase_switch_hysteresis_kw ?? 0.5
-                                                                            }
-                                                                            onChange={(val) =>
-                                                                                updateEntity(index, {
-                                                                                    phase_switch_hysteresis_kw:
-                                                                                        Number(val),
-                                                                                } as Partial<EVChargerEntity>)
-                                                                            }
-                                                                            disabled={disabled}
-                                                                            step={0.1}
-                                                                            min={0}
-                                                                        />
-                                                                    </div>
-                                                                    <div>
-                                                                        <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
-                                                                            <span>Dwell (seconds)</span>
-                                                                            <Tooltip text="Minimum time power must remain above/below the threshold before switching, and the minimum lockout between switches. Protects physical charger contactor relays and EV onboard chargers. Default: 600s (10 min)." />
-                                                                        </label>
-                                                                        <NumberInput
-                                                                            value={
-                                                                                (entity as EVChargerEntity)
-                                                                                    .phase_switch_min_dwell_s ?? 600
-                                                                            }
-                                                                            onChange={(val) =>
-                                                                                updateEntity(index, {
-                                                                                    phase_switch_min_dwell_s:
-                                                                                        Number(val),
-                                                                                } as Partial<EVChargerEntity>)
-                                                                            }
-                                                                            disabled={disabled}
-                                                                            step={30}
-                                                                            min={0}
-                                                                        />
-                                                                    </div>
+                                                                    <span className="text-xs text-text">
+                                                                        Re-run planner immediately when plugged in
+                                                                    </span>
                                                                 </div>
                                                             </div>
-                                                        </div>
-                                                    </>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                ))}
+                                                        )}
+                                                        {/* Replan on Unplug (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Re-plan on Unplug
+                                                                </label>
+                                                                <div className="flex items-center gap-2 mt-2">
+                                                                    <Switch
+                                                                        checked={
+                                                                            (entity as EVChargerEntity)
+                                                                                .replan_on_unplug ?? false
+                                                                        }
+                                                                        onCheckedChange={(checked) =>
+                                                                            updateEntity(index, {
+                                                                                replan_on_unplug: checked,
+                                                                            } as Partial<EVChargerEntity>)
+                                                                        }
+                                                                        disabled={disabled}
+                                                                    />
+                                                                    <span className="text-xs text-text">
+                                                                        Re-run planner immediately when unplugged
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </EvSection>
+                                                </>
+                                            )}
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
+                    )
+                })}
             </div>
 
             {enabledCount === 0 && entities.length > 0 && (

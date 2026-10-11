@@ -73,7 +73,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Goal:** Keep every planning run's full inputs and plan (and planner/executor errors) for a set period, so past decisions can be replayed and shared for support; the user can download it from the Debug page and clear it.
 
-**Notes:** Found 2026-10-06 (cmon89 investigation): past decisions could not be reconstructed. `schedule.json` already holds each run's full per-slot inputs (adjusted PV/load, prices) and plan, but is overwritten every run; `slot_plans`/`slot_forecasts` keep only the last value per slot; `debug.enable_planner_debug` stores only a 30-slot sample (`planner/output/debug.py`); the log rotates and is wiped on add-on restart. Verified that re-solving an archived `schedule.json` with the offline Kepler reproduces the real plan exactly (0/122 slots differ). Retention 60–90 days, gzip (~10 kB/run, ~0.5 MB/day). Include initial SoC, safety floor, config version, solver status. Storage location (DB vs files) to decide. Enables the automatic daily replay item.
+**Notes:** Found 2026-10-06 (cmon89 investigation): past decisions could not be reconstructed. `schedule.json` already holds each run's full per-slot inputs (adjusted PV/load, prices) and plan, but is overwritten every run; `slot_plans`/`slot_forecasts` keep only the last value per slot; `debug.enable_planner_debug` stores only a 30-slot sample (`planner/output/debug.py`); the log rotates and is wiped on add-on restart. Verified that re-solving an archived `schedule.json` with the offline Kepler reproduces the real plan exactly (0/122 slots differ). Retention 60–90 days, gzip (~10 kB/run, ~0.5 MB/day). Include initial SoC, safety floor, config version, solver status. Storage location (DB vs files) to decide. Enables the automatic daily replay item. Temporary stand-in on the maintainer's prod since 2026-10-06: a root cron (every minute) gzips each new `schedule.json` into `/opt/darkstar/data/plan_archive/`, and `debug.enable_planner_debug: true` is set. Remove both when this item ships or the investigation (`ops/investigations/cmon-underperformance-2026-10-06.md`) no longer needs them.
 
 #### [Learning] Automatic Daily Replay ("Missing Profit" Self-Check)
 
@@ -114,9 +114,3 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ---
 
 ## 💡 Future Ideas / Deferred
-
-#### [EV] 1-Phase Fallback Under-Delivery
-
-**Goal:** Evaluate whether the planner should account for runtime 1-phase degradation when planning EV goal charging.
-
-**Notes:** The planner plans at the configured phase count. When the load balancer drops a charger to 1-phase to relieve a phase overload (`load-balancer-graceful-degradation`), actual delivery falls below plan until the next re-plan. Accepted as a known limitation on 2026-09-25. Revisit trigger: production data shows goals missed or at risk because of frequent 1-phase relief.

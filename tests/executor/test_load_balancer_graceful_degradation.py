@@ -30,7 +30,16 @@ def fresh(at: datetime) -> dict[int, datetime]:
     return {1: at, 2: at, 3: at}
 
 
-def ev(setpoint, target=10, phases=(1, 2, 3), relief=False, line=1, draw=None) -> EVBalancerInput:
+def ev(
+    setpoint,
+    target=10,
+    phases=(1, 2, 3),
+    relief=False,
+    line=1,
+    draw=None,
+    at_risk=True,
+    surplus=False,
+) -> EVBalancerInput:
     return EVBalancerInput(
         "goe",
         list(phases),
@@ -41,6 +50,8 @@ def ev(setpoint, target=10, phases=(1, 2, 3), relief=False, line=1, draw=None) -
         effective_draw_a=draw,
         phase_1_line=line,
         relief_available=relief,
+        goal_at_risk=at_risk,
+        surplus_slot=surplus,
     )
 
 
@@ -361,6 +372,134 @@ class TestReliefLadder:
         assert out.ev_outputs[0].target_a == 6
 
 
+class TestReliefOnlyWhenGoalAtRisk:
+    """ev-charging-losses 6.3: lossy 1-phase relief only when the goal is at risk."""
+
+    def _sustain(self, lb, grid, entry, ticks=2):
+        return TestReliefLadder._sustain(self, lb, grid, entry, ticks)  # type: ignore[arg-type]
+
+    def test_goal_on_track_pauses_instead_of_1_phase(self):
+        out = self._sustain(make_lb(), {1: 8.0, 2: 8.0, 3: 20.0}, ev(6, relief=True, at_risk=False))
+        assert not out.relief_1p_requested
+        assert out.state == "paused"
+
+    def test_goal_at_risk_requests_1_phase(self):
+        out = self._sustain(make_lb(), {1: 8.0, 2: 8.0, 3: 20.0}, ev(6, relief=True, at_risk=True))
+        assert out.relief_1p_requested
+
+    def test_resume_stays_in_current_mode_when_on_track(self):
+        lb = make_lb()
+        _pause(lb, BASE, relief=True)
+        grid = {1: 2.0, 2: 2.0, 3: 12.0}  # only the 1-phase alternative fits
+        outs = _paused_ticks(lb, BASE, grid, ev(None, relief=True, at_risk=False), 120)
+        assert all(o.target_a is None and o.state == "paused" for _, o in outs)
+
+    def test_surplus_slot_on_track_requests_1_phase(self):
+        entry = ev(6, relief=True, at_risk=False, surplus=True)
+        out = self._sustain(make_lb(), {1: 8.0, 2: 8.0, 3: 20.0}, entry)
+        assert out.relief_1p_requested and out.state == "throttling"
+
+    def test_non_surplus_on_track_pauses(self):
+        entry = ev(6, relief=True, at_risk=False, surplus=False)
+        out = self._sustain(make_lb(), {1: 8.0, 2: 8.0, 3: 20.0}, entry)
+        assert not out.relief_1p_requested and out.state == "paused"
+
+    def test_resume_in_surplus_slot_may_use_1_phase(self):
+        lb = make_lb()
+        _pause(lb, BASE, relief=True)
+        grid = {1: 2.0, 2: 2.0, 3: 12.0}  # only the 1-phase alternative fits
+        entry = ev(None, relief=True, at_risk=False, surplus=True)
+        out = _paused_ticks(lb, BASE, grid, entry, 15)[-1][1]
+        assert out.relief_1p_requested and out.refit_from_pause and out.target_a == 10
+
+
+class TestEngineGoalRiskEvaluation:
+    """6.1: the engine evaluates goal risk before the tick and fails open."""
+
+    def _inputs(self, tmp_path, risk_patch, slot=None):
+        from unittest.mock import MagicMock, patch
+
+        from executor.config import ExecutorConfig
+        from executor.override import SlotPlan, SystemState
+
+        cfg = EVChargerDeviceConfig(
+            id="goe",
+            type="current",
+            current_entity="number.goe_current",
+            switch_entity="switch.goe",
+            min_current_a=6,
+            max_current_a=16,
+            phases=[1, 2, 3],
+            phase_switching_enabled=True,
+            phase_mode_entity="select.goe_psm",
+        )
+        with (
+            patch("executor.engine.load_executor_config") as mock_config,
+            patch("executor.engine.load_yaml", return_value={}),
+            patch.object(
+                ExecutorEngine, "_get_db_path", return_value=str(tmp_path / "learning.db")
+            ),
+        ):
+            mock_config.return_value = ExecutorConfig(
+                schedule_path=str(tmp_path / "schedule.json"),
+                timezone="Europe/Stockholm",
+                ev_chargers=[cfg],
+                load_balancing=LoadBalancingConfig(enabled=True, main_fuse_a=16),
+            )
+            engine = ExecutorEngine("config.yaml")
+        engine.dispatcher = MagicMock()
+        captured: list = []
+        engine._load_balancer.tick = lambda now, grid, upd, entries: captured.extend(entries)
+        state = SystemState(
+            grid_current_a={1: 2.0, 2: 2.0, 3: 2.0},
+            grid_current_updated_at={1: BASE, 2: BASE, 3: BASE},
+        )
+        with risk_patch:
+            engine._run_load_balancer(state, slot or SlotPlan(), BASE)
+        return captured[0]
+
+    def test_evaluation_error_fails_open(self, tmp_path):
+        from unittest.mock import patch
+
+        entry = self._inputs(
+            tmp_path, patch("executor.engine.pause_puts_goal_at_risk", side_effect=RuntimeError)
+        )
+        assert entry.relief_available and entry.goal_at_risk
+
+    def test_on_track_goal_is_passed_through(self, tmp_path):
+        from unittest.mock import patch
+
+        entry = self._inputs(
+            tmp_path, patch("executor.engine.pause_puts_goal_at_risk", return_value=(False, "ok"))
+        )
+        assert entry.relief_available and not entry.goal_at_risk
+        assert not entry.surplus_slot
+
+    def test_surplus_slot_flag_read_from_plan(self, tmp_path):
+        from unittest.mock import patch
+
+        from executor.override import SlotPlan
+
+        entry = self._inputs(
+            tmp_path,
+            patch("executor.engine.pause_puts_goal_at_risk", return_value=(False, "ok")),
+            SlotPlan(ev_surplus_kw={"goe": 3.5}),
+        )
+        assert entry.surplus_slot and not entry.goal_at_risk
+
+    def test_negligible_surplus_is_not_a_surplus_slot(self, tmp_path):
+        from unittest.mock import patch
+
+        from executor.override import SlotPlan
+
+        entry = self._inputs(
+            tmp_path,
+            patch("executor.engine.pause_puts_goal_at_risk", return_value=(False, "ok")),
+            SlotPlan(ev_surplus_kw={"goe": 0.005}),
+        )
+        assert not entry.surplus_slot
+
+
 class TestPhaseModeControllerRelief:
     def test_relief_overrides_power_threshold(self):
         ctrl = PhaseModeController()
@@ -522,6 +661,7 @@ def _replay():
             max_current_a=16 if one_phase else 10,
             phase_1_line=1,
             relief_available=len(phases) > 1 and ctrl.relief_available(now, 600),
+            goal_at_risk=True,
         )
         out = lb.tick(now, grid, fresh(now), [entry]).ev_outputs[0]
         if out.relief_1p_requested and ctrl.decide_relief(now, 600, True, True, False).should_switch:

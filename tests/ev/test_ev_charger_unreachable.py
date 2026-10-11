@@ -128,5 +128,6 @@ async def test_planner_state_uses_last_known_plug_when_unreachable(tmp_path):
             "soc_age_minutes": None,
             "plugged_in": True,
             "unreachable": True,
+            "power_kw": None,
         }
     ]

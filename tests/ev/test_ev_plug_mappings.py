@@ -54,6 +54,7 @@ async def test_initial_state_uses_charger_specific_plug_mapping(tmp_path):
             "soc_age_minutes": None,
             "plugged_in": True,
             "unreachable": False,
+            "power_kw": None,
         }
     ]
 

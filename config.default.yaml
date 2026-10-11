@@ -155,6 +155,11 @@ ev_chargers:
     phase_switch_hysteresis_kw: 0.5  # Deadband around the 3-phase minimum before switching
     phase_switch_min_dwell_s: 600    # Minimum time between phase switches (contactor protection)
     phase_1_line: 1                  # Grid phase (1-3) the charger uses in 1-phase mode; must be one of phases. The load balancer switches to 1-phase to relieve an overload on another phase
+    # Charging losses (learned automatically when learning.reflex_enabled is true)
+    charge_overhead_kw: 0.25         # Fixed car-side power lost while charging (kW), 0-2
+    start_loss_kwh: 0.15             # Energy lost on every charging start (kWh), 0-1
+    charge_efficiency: 0.95          # Fraction of wallbox energy that reaches the battery, 0.5-1.0
+    energy_added_sensor: ""          # Optional: car's "energy added" sensor (kWh) for measuring car-side energy
 
   # Example: Second EV (disabled by default)
   # - id: ev_charger_2

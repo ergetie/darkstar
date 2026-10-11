@@ -120,6 +120,13 @@ class EVBalancerInput:
     # Also gates the quick re-fit's switch to 1-phase (on [phase_1_line])
     # while paused (D17).
     relief_available: bool = False
+    # The engine's goal-risk verdict before the tick (ev-charging-losses D7):
+    # slow 1-phase relief is lossy, so it is offered only when pausing would
+    # put the EV goal at risk. Evaluation fails open (True).
+    goal_at_risk: bool = False
+    # The current plan slot is solar-surplus charging for this charger: pausing
+    # would export that power, so lossy 1-phase still beats it. Unreadable → False.
+    surplus_slot: bool = False
 
     def __post_init__(self) -> None:
         if self.effective_draw_a is None:
@@ -683,7 +690,8 @@ class LoadBalancer:
         Each tick checks, on the momentary reading within the target margin,
         whether the current phase mode has room for min_current_a on every
         binding phase and whether the 1-phase alternative (phase_1_line only,
-        offered while relief_available) has. Once one of them has fitted
+        offered while relief_available and the goal is at risk or the slot is
+        surplus) has. Once one of them has fitted
         continuously for the confirm window, the charger resumes — in its
         current mode when that fits, else switched to 1-phase — at the
         largest whole amps that fit, capped by the planner target. It then
@@ -700,7 +708,10 @@ class LoadBalancer:
         else:
             self._ev_fit_since.pop(cid, None)
         one_phase_offered = (
-            ev.relief_available and len(binding_phases) > 1 and ev.phase_1_line in binding_phases
+            ev.relief_available
+            and (ev.goal_at_risk or ev.surplus_slot)
+            and len(binding_phases) > 1
+            and ev.phase_1_line in binding_phases
         )
         one_phase_amps = (
             self._fit_amps([ev.phase_1_line], pool_headroom, main_fuse_a)
@@ -773,8 +784,9 @@ class LoadBalancer:
         """The overload cannot be absorbed above min_current_a.
 
         Ladder: severe overload pauses at once; otherwise hold the floor for
-        pause_debounce_s; then request 1-phase relief where it helps and is
-        available; otherwise pause.
+        pause_debounce_s; then request 1-phase relief where it helps, is
+        available and the EV goal is at risk or the slot is
+        solar-surplus charging; otherwise pause.
         """
         floor = ev.min_current_a
         severe = self._severe_phases(binding_phases, phase_current, main_fuse_a)
@@ -813,6 +825,7 @@ class LoadBalancer:
         overloaded = [p for p in binding_phases if pool_headroom.get(p, main_fuse_a) < 0]
         if (
             ev.relief_available
+            and (ev.goal_at_risk or ev.surplus_slot)
             and len(binding_phases) > 1
             and ev.phase_1_line in binding_phases
             and overloaded

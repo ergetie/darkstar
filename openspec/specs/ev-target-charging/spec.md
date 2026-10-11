@@ -46,7 +46,7 @@ Only when the charger has no SoC sensor configured at all SHALL the pipeline use
 
 ### Requirement: Kepler enforces the target as a soft requirement
 For each plugged charger with a goal, the Kepler solver SHALL add a soft constraint that the charger's requirement is covered by:
-- EV energy delivered in-horizon by the deadline, where scheduled and planned surplus energy both count;
+- EV energy delivered to the car in-horizon by the deadline. Scheduled and planned surplus energy both count, after charging losses as defined by `ev-charging-losses` (efficiency, overhead while on, start loss);
 - plus deferred energy priced by the tiered deferral value (see `ev-deferral-value`);
 - plus shortfall.
 
@@ -58,7 +58,7 @@ The shortfall penalty SHALL default to 50.0 SEK/kWh. It SHALL be configurable vi
 
 #### Scenario: Target reachable
 - **WHEN** the charger can deliver the required energy before the deadline and the deadline is inside the known horizon
-- **THEN** the schedule SHALL deliver at least the required energy by the deadline, using the cheapest available slots
+- **THEN** the schedule SHALL deliver at least the required energy to the car, after losses, by the deadline, using the cheapest available slots
 - **AND** SHALL prefer free surplus PV over grid import
 
 #### Scenario: Target not reachable in time

@@ -328,14 +328,43 @@ class KeplerSolver:
             )
 
         ev_surplus_kw: dict[str, dict[int, Any]] = {}
+        ev_surplus_on: dict[str, dict[int, Any]] = {}
+        # Objective Function Terms
+        total_cost: list[Any] = []
         for charger_id, charger, _reward in ev_surplus_items:
             safe_id = charger_id.replace("-", "_").replace(".", "_")
             ev_surplus_kw[charger_id] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
                 f"ev_surplus_kw_{safe_id}", range(T), lowBound=0.0, upBound=charger.max_power_kw
             )
+            # Surplus charging on/off, so it pays the charging overhead and
+            # start loss like scheduled charging (ev-charging-losses D2).
+            ev_surplus_on[charger_id] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
+                f"ev_surplus_on_{safe_id}", range(T), cat="Binary"
+            )
 
-        # Objective Function Terms
-        total_cost: list[Any] = []
+        # Charging-on indicator per plugged charger: scheduled or surplus.
+        def ev_on(d: str, t: int) -> Any:
+            if d in ev_surplus_on:
+                return ev_charge[d][t] + ev_surplus_on[d][t]
+            return ev_charge[d][t]
+
+        # ev_start[d][t] >= on[t] - on[t-1]; continuous suffices because it is
+        # only ever penalised (goal debit + start-loss import cost).
+        ev_start: dict[str, dict[int, Any]] = {}
+        for charger in plugged_chargers:
+            if charger.start_loss_kwh <= 0:
+                continue
+            d = charger.id
+            safe_d = d.replace("-", "_").replace(".", "_")
+            ev_start[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
+                f"ev_start_{safe_d}", range(T), lowBound=0.0, upBound=1.0
+            )
+            for t in range(T):
+                prev: Any = ev_on(d, t - 1) if t > 0 else (1 if charger.charging_now else 0)
+                prob += ev_start[d][t] >= ev_on(d, t) - prev
+                total_cost.append(
+                    charger.start_loss_kwh * slots[t].import_price_sek_kwh * ev_start[d][t]
+                )
 
         # Penalty constants
         MIN_SOC_PENALTY = 1000.0  # Hard constraint - don't violate min_soc!
@@ -399,7 +428,8 @@ class KeplerSolver:
             if ev_surplus_enabled:
                 for charger_id, charger, reward in ev_surplus_items:
                     var_t = ev_surplus_kw[charger_id][t]
-                    prob += var_t <= charger.max_power_kw * (1 - ev_charge[charger_id][t])
+                    prob += var_t <= charger.max_power_kw * ev_surplus_on[charger_id][t]
+                    prob += ev_surplus_on[charger_id][t] + ev_charge[charger_id][t] <= 1
                     if not excess_pv_flags[t]:
                         prob += var_t == 0
                     else:
@@ -675,12 +705,21 @@ class KeplerSolver:
             surplus_kw_for_charger = ev_surplus_kw.get(d)
             eligible_t = [t for t in range(T) if slots[t].end_time <= effective_deadline]
 
-            # Delivered in-horizon by the deadline: scheduled + planned surplus.
-            delivered_terms: list[Any] = [ev_energy[d][t] for t in eligible_t]
-            if surplus_kw_for_charger is not None:
-                delivered_terms.extend(
-                    surplus_kw_for_charger[t] * ev_slot_hours[t] for t in eligible_t
-                )
+            # Delivered to the car in-horizon by the deadline: scheduled +
+            # planned surplus wallbox energy, after charging losses
+            # (ev-charging-losses D1). Grid import keeps the full wall energy.
+            delivered_terms: list[Any] = []
+            for t in eligible_t:
+                wall_kwh: Any = ev_energy[d][t]
+                if surplus_kw_for_charger is not None:
+                    wall_kwh = wall_kwh + surplus_kw_for_charger[t] * ev_slot_hours[t]
+                delivered_terms.append(charger.charge_efficiency * wall_kwh)
+                if charger.charge_overhead_kw > 0:
+                    delivered_terms.append(
+                        -charger.charge_overhead_kw * ev_slot_hours[t] * ev_on(d, t)
+                    )
+                if d in ev_start:
+                    delivered_terms.append(-charger.start_loss_kwh * ev_start[d][t])
 
             safe_d = d.replace("-", "_").replace(".", "_")
             deferred_vars: list[Any] = []

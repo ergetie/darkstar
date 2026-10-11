@@ -89,15 +89,20 @@ This is a software safety net, not a certified protection device. If your EV cha
 8. Load balancing (Load Balancing tab)
 - Darkstar keeps each phase at or below the target safety margin (85% of the main fuse) when raising charging current.
 - If a phase goes over the fuse, charging amps drop at once, down to the minimum current.
-- If the overload still lasts 5 seconds at the minimum, a charger that can switch phases moves to 1-phase on a line with room ("1-phase on L1 — relieving L3"). Otherwise it pauses.
+- If the overload still lasts 5 seconds at the minimum, the charger pauses. Only when the charging goal is at risk does a charger that can switch phases move to 1-phase on a line with room instead ("1-phase on L1 — relieving L3"), because slow 1-phase charging loses a lot of energy.
 - Above 125% of the fuse it pauses immediately, without waiting.
-- A paused charger starts again as soon as its phases have had room for the minimum current for 10 seconds (the resume confirm time). It resumes in its current phase mode if that fits; otherwise, if 1-phase on its line fits and the dwell time has passed, it switches to 1-phase and resumes. It starts at the highest current that fits, up to the planned current. If it keeps pausing again soon after resuming, the wait grows to 30 seconds and then 2 minutes, and goes back to normal after 10 minutes of steady charging.
+- A paused charger starts again as soon as its phases have had room for the minimum current for 10 seconds (the resume confirm time). It resumes in its current phase mode if that fits; otherwise, if the goal is at risk, 1-phase on its line fits and the dwell time has passed, it switches to 1-phase and resumes. It starts at the highest current that fits, up to the planned current. If it keeps pausing again soon after resuming, the wait grows to 30 seconds and then 2 minutes, and goes back to normal after 10 minutes of steady charging.
 - Current only goes back up after the house load, averaged over 60 seconds, leaves room. After a phase switch, a charger waits the dwell time (10 minutes by default) before switching again.
 
 9. Phase switching (optional, per charger)
 - Turn on phase switching and pick the phase-mode entity. It must be a select or input_select entity; read-only entities such as binary_sensor cannot be used.
 - Pick the options Darkstar sends for 1-phase and 3-phase mode, and the line the charger uses in 1-phase mode.
-- Example (go-e): phase-mode entity select.<charger>_psm, 1-phase option one_phase, 3-phase option three_phases, 1-phase line L1.`,
+- Example (go-e): phase-mode entity select.<charger>_psm, 1-phase option one_phase, 3-phase option three_phases, 1-phase line L1.
+
+10. Charging losses (per charger)
+- The car loses a fixed overhead while charging (Charging Overhead, 0.25 kW by default) and some energy on every start (Start Loss, 0.15 kWh). Charge Efficiency (95%) is the share of wallbox energy that reaches the battery.
+- The planner counts the goal after these losses, so it prefers fewer, higher-power sessions over slow or on/off charging.
+- Optionally pick the car's "energy added" sensor. With learning on, Darkstar learns the three values from your own charging history and updates them here.`,
         aliases: [
             'car',
             'car charging',
@@ -107,6 +112,8 @@ This is a software safety net, not a certified protection device. If your EV cha
             'ready by',
             'phase switching',
             'plug-in reminder',
+            'charging losses',
+            'charging efficiency',
         ],
         relatedFieldKeys: [
             'ev_chargers',

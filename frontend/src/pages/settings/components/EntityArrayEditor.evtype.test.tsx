@@ -366,3 +366,20 @@ describe('Phase switching: 1-phase line and phase-mode picker (load-balancer-gra
         expect(evChargerArrayError(readOnly)).toMatch(/writable select/)
     })
 })
+
+describe('EV charger field sections', () => {
+    it('groups the charger fields into titled sections with losses collapsed', () => {
+        renderEditor(makeCharger())
+        for (const title of ['Charger', 'Car & goal', 'Current control', 'Charging losses', 'Re-plan']) {
+            expect(screen.getByLabelText(title)).toBeInTheDocument()
+        }
+        expect(screen.getByLabelText('Charging losses')).not.toHaveAttribute('open')
+        expect(screen.getByLabelText('Car & goal')).toHaveTextContent(/SoC Sensor/)
+        expect(screen.getByLabelText('Charging losses')).toHaveTextContent(/Energy Added Sensor \(optional\)/)
+    })
+
+    it('omits the current-control section for binary chargers', () => {
+        renderEditor(makeCharger({ type: 'binary' }))
+        expect(screen.queryByLabelText('Current control')).not.toBeInTheDocument()
+    })
+})

@@ -1,7 +1,7 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ruamel.yaml import YAML
 
@@ -39,6 +39,29 @@ SAFETY_RELAXATION_DAYS = 60  # No events for this long to trigger decrease
 CONFIDENCE_BIAS_THRESHOLD = 0.5  # kWh/slot avg bias to trigger adjustment
 CONFIDENCE_MIN_SAMPLES = 100  # Minimum data points for reliable bias calculation
 CONFIDENCE_LOOKBACK_DAYS = 14  # Days to analyze for bias
+
+# EV loss analyzer (ev-charging-losses D5): per-charger keys, written into the
+# charger's ev_chargers[] entry as "ev_chargers.<charger_id>.<key>".
+EV_LOSS_BOUNDS = {
+    "charge_overhead_kw": (0.0, 1.0),
+    "start_loss_kwh": (0.0, 0.5),
+    "charge_efficiency": (0.80, 1.00),
+}
+EV_LOSS_MAX_DAILY_CHANGE = {
+    "charge_overhead_kw": 0.05,
+    "start_loss_kwh": 0.03,
+    "charge_efficiency": 0.01,
+}
+EV_LOSS_DEFAULTS = {
+    "charge_overhead_kw": 0.25,
+    "start_loss_kwh": 0.15,
+    "charge_efficiency": 0.95,
+}
+EV_LOSS_LOOKBACK_DAYS = 30
+EV_LOSS_MIN_DAYS = 8
+EV_LOSS_MIN_STARTS = 20
+EV_LOSS_RATIO_RANGE = (0.3, 1.02)
+EV_LOSS_SLOT_MINUTES = 15
 
 # Capacity analyzer thresholds
 CAPACITY_LOOKBACK_DAYS = 30  # Days to analyze
@@ -94,6 +117,11 @@ class AuroraReflex:
         report.append(cap_msg)
         if cap_update:
             updates.update(cap_update)
+
+        # 4. Analyze EV charging losses (per charger)
+        ev_update, ev_msgs = await self.analyze_ev_losses()
+        report.extend(ev_msgs)
+        updates.update(ev_update)
 
         # Apply Updates
         if updates:
@@ -356,6 +384,129 @@ class AuroraReflex:
             f"Capacity: Healthy (estimated {estimated:.1f} kWh, configured {current_capacity:.1f} kWh)",
         )
 
+    async def _ev_loss_days(
+        self, charger_id: str
+    ) -> tuple[list[tuple[float, float, float, float]], int]:
+        """Clean charging days of one charger for the loss fit.
+
+        Returns ``([(wall_kwh, hours_on, starts, car_kwh), ...], total_starts)``. A charging
+        day is used only when every charging slot has car energy from the chosen
+        source (sensor, else SoC) and its car/wall ratio is plausible.
+        """
+        from sqlalchemy import select
+
+        from backend.learning.models import EvChargerObservation
+
+        cutoff = datetime.now(self.timezone) - timedelta(days=EV_LOSS_LOOKBACK_DAYS)
+        async with self.store.AsyncSession() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        EvChargerObservation.slot_start,
+                        EvChargerObservation.energy_kwh,
+                        EvChargerObservation.car_energy_kwh,
+                        EvChargerObservation.car_energy_source,
+                    ).where(
+                        EvChargerObservation.charger_id == charger_id,
+                        EvChargerObservation.energy_kwh > 0,
+                    )
+                )
+            ).all()
+
+        slots: list[tuple[datetime, float, float | None, str | None]] = []
+        for slot_start, wall, car, source in rows:
+            try:
+                ts = datetime.fromisoformat(str(slot_start))
+            except ValueError:
+                continue
+            if ts.tzinfo is None:
+                ts = self.timezone.localize(ts)  # type: ignore[union-attr]
+            if ts >= cutoff:
+                slots.append((ts, float(wall), car, source))
+        if not slots:
+            return [], 0
+
+        source = "sensor" if any(s[3] == "sensor" for s in slots) else "soc"
+        on_times = {s[0] for s in slots}
+        step = timedelta(minutes=EV_LOSS_SLOT_MINUTES)
+        by_day: dict[Any, list[tuple[datetime, float, float | None, str | None]]] = {}
+        for slot in slots:
+            by_day.setdefault(slot[0].astimezone(self.timezone).date(), []).append(slot)
+
+        days: list[tuple[float, float, float, float]] = []
+        total_starts = 0
+        low, high = EV_LOSS_RATIO_RANGE
+        for day_slots in by_day.values():
+            if any(s[2] is None or s[3] != source for s in day_slots):
+                continue
+            wall = sum(s[1] for s in day_slots)
+            car = sum(float(s[2] or 0.0) for s in day_slots)
+            if wall <= 0 or not low <= car / wall <= high:
+                continue
+            hours = len(day_slots) * step.total_seconds() / 3600.0
+            starts = sum(1 for s in day_slots if s[0] - step not in on_times)
+            days.append((wall, hours, float(starts), car))
+            total_starts += starts
+        return days, total_starts
+
+    async def analyze_ev_losses(self) -> tuple[dict[str, Any], list[str]]:
+        """Fit each charger's charge_efficiency, charge_overhead_kw and start_loss_kwh.
+
+        Least squares of ``car = eff x wall - overhead x hours_on - start_loss x starts``
+        over clean charging days of the last 30 days; written only with enough data,
+        clamped to bounds and the daily max change (ev-charging-losses D5).
+        """
+        import numpy as np
+
+        updates: dict[str, Any] = {}
+        report: list[str] = []
+        chargers: Any = self.config.get("ev_chargers") or []
+        for charger in chargers:
+            if not isinstance(charger, dict) or not charger.get("enabled", True):  # type: ignore[reportUnknownMemberType]
+                continue
+            charger_id = str(charger.get("id") or "")  # type: ignore[reportUnknownMemberType]
+            if not charger_id:
+                continue
+            days, starts = await self._ev_loss_days(charger_id)
+            if len(days) < EV_LOSS_MIN_DAYS or starts < EV_LOSS_MIN_STARTS:
+                report.append(
+                    f"EV losses {charger_id}: Insufficient data ({len(days)} clean days, "
+                    f"{starts} starts; need {EV_LOSS_MIN_DAYS} and {EV_LOSS_MIN_STARTS})"
+                )
+                continue
+
+            x = np.array([[wall, -hours, -n] for wall, hours, n, _ in days])
+            y = np.array([car for *_, car in days])
+            coef = np.linalg.lstsq(x, y, rcond=None)[0]
+            fitted = dict(
+                zip(
+                    ("charge_efficiency", "charge_overhead_kw", "start_loss_kwh"),
+                    (float(c) for c in coef),
+                    strict=True,
+                )
+            )
+
+            changes: list[str] = []
+            for key, target in fitted.items():
+                low, high = EV_LOSS_BOUNDS[key]
+                target = min(max(target, low), high)
+                param_path = f"ev_chargers.{charger_id}.{key}"
+                if not await self._can_update(param_path):
+                    continue
+                current = float(charger.get(key, EV_LOSS_DEFAULTS[key]))  # type: ignore[reportUnknownMemberType]
+                max_change = EV_LOSS_MAX_DAILY_CHANGE[key]
+                new_value = current + max(-max_change, min(max_change, target - current))
+                new_value = round(min(max(new_value, low), high), 3)
+                if new_value != round(current, 3):
+                    updates[param_path] = new_value
+                    changes.append(f"{key} {current:.3f} → {new_value:.3f} (fit {target:.3f})")
+            report.append(
+                f"EV losses {charger_id}: "
+                + ("; ".join(changes) if changes else "Stable")
+                + f" ({len(days)} days, {starts} starts)"
+            )
+        return updates, report
+
     async def update_config(self, updates: dict[str, Any], dry_run: bool) -> None:
         """
         Apply updates to config.yaml using ruamel.yaml to preserve comments.
@@ -369,9 +520,24 @@ class AuroraReflex:
 
             for key_path, new_value in updates.items():
                 keys = key_path.split(".")
-                target = data
+                node: Any = data
                 for k in keys[:-1]:
-                    target = target.setdefault(k, {})
+                    if isinstance(node, list):
+                        # List entries (ev_chargers) are addressed by their id.
+                        entries = [
+                            cast("dict[str, Any]", item)
+                            for item in cast("list[Any]", node)
+                            if isinstance(item, dict)
+                        ]
+                        node = next((entry for entry in entries if entry.get("id") == k), None)
+                        if node is None:
+                            break
+                    else:
+                        node = cast("dict[str, Any]", node).setdefault(k, {})
+                if not isinstance(node, dict):
+                    logger.warning(f"Reflex: cannot locate {key_path} in config, skipping")
+                    continue
+                target = cast("dict[str, Any]", node)
 
                 last_key = keys[-1]
                 old_value = target.get(last_key)

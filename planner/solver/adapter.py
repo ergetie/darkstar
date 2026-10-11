@@ -29,6 +29,9 @@ from .types import (
 
 logger = logging.getLogger(__name__)
 
+# Measured EV power above this counts as a running session (ev-charging-losses D2).
+CHARGING_NOW_THRESHOLD_KW = 0.1
+
 
 def _get_config_version(config: dict[str, Any]) -> int:
     """Detect config format version for ARC15 migration compatibility."""
@@ -184,6 +187,10 @@ def build_ev_charger_inputs(
                 keep_on_after_target=keep_on_after_target,
                 control_type=control_type,
                 min_power_kw=min_kw,
+                charge_overhead_kw=float(ev.get("charge_overhead_kw", 0.25)),
+                start_loss_kwh=float(ev.get("start_loss_kwh", 0.15)),
+                charge_efficiency=float(ev.get("charge_efficiency", 0.95)),
+                charging_now=float(state.get("power_kw") or 0.0) > CHARGING_NOW_THRESHOLD_KW,
             )
         )
 

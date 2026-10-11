@@ -723,6 +723,32 @@ def _validate_phase_1_line(ev: dict[str, Any], charger_label: Any) -> list[dict[
     return []
 
 
+_EV_LOSS_RANGES: dict[str, tuple[float, float, str]] = {
+    "charge_overhead_kw": (0.0, 2.0, "kW"),
+    "start_loss_kwh": (0.0, 1.0, "kWh"),
+    "charge_efficiency": (0.5, 1.0, ""),
+}
+
+
+def _validate_ev_loss_settings(ev: dict[str, Any], charger_label: Any) -> list[dict[str, str]]:
+    """ev-charging-losses: per-charger loss settings must be numbers within range."""
+    issues: list[dict[str, str]] = []
+    for key, (low, high, unit) in _EV_LOSS_RANGES.items():
+        if key not in ev:
+            continue
+        raw = ev[key]
+        if isinstance(raw, bool) or not isinstance(raw, int | float) or not low <= raw <= high:
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"EV charger '{charger_label}' ev_chargers[].{key} must be {low}-{high}: {raw}",
+                    "guidance": f"Set {key} to a number between {low} and {high} {unit}".rstrip()
+                    + ".",
+                }
+            )
+    return issues
+
+
 def _validate_config_for_save(
     config: dict[str, Any],
     phase_sensor_units: dict[str, dict[str, str]] | None = None,
@@ -1130,6 +1156,7 @@ def _validate_config_for_save(
 
                 # excess-pv-priority-dispatch 1.5: phase switching requires a phase-mode entity
                 charger_label = ev.get("id", i + 1)
+                issues.extend(_validate_ev_loss_settings(ev, charger_label))
                 phase_switching_enabled = bool(ev.get("phase_switching_enabled"))
                 phase_mode_entity = str(ev.get("phase_mode_entity") or "").strip()
                 phase_1_value = str(ev.get("phase_1_value", "1") or "").strip()
