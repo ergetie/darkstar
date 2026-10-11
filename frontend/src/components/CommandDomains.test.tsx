@@ -7,6 +7,7 @@ vi.mock('../lib/api', () => ({
     Api: {
         energyRange: vi.fn(),
         energyCostSeries: vi.fn().mockResolvedValue({ period: 'today', bucket: 'hour', points: [] }),
+        batteryBenchmark: vi.fn(),
         ev: {
             chargers: vi.fn(),
         },
@@ -385,5 +386,89 @@ describe('GridDomain grid-only comparison', () => {
         expect(screen.getAllByText('-38.23').length).toBeGreaterThan(0)
         expect(screen.getByTestId('cost-chart-error')).toHaveTextContent('Unable to load chart data for this period')
         expect(screen.queryByText('No recorded slots yet for this period')).not.toBeInTheDocument()
+    })
+})
+
+describe('GridDomain hindsight row', () => {
+    const benchDay = (date: string, status: string, missed: number | null, reason: string | null = null) => ({
+        date,
+        status,
+        reason,
+        missed_sek: missed,
+        capacity_kwh: 34.2,
+        implied_capacity_kwh: reason === 'capacity_mismatch' ? 19 : 31,
+    })
+    const benchmark = (days: ReturnType<typeof benchDay>[], totals: Record<string, unknown>) =>
+        ({ start_date: '2026-10-05', end_date: '2026-10-07', days, totals }) as never
+    const show30d = async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue({
+            ...(seriesWith(gridOnlyComparison()) as object),
+            start_date: '2026-10-05',
+            end_date: '2026-10-07',
+        } as never)
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+        fireEvent.click(screen.getByRole('button', { name: '30d' }))
+    }
+
+    it('shows missed value, score, scored days and excluded reasons', async () => {
+        vi.mocked(Api.batteryBenchmark).mockResolvedValue(
+            benchmark(
+                [
+                    benchDay('2026-10-05', 'scored', 2),
+                    benchDay('2026-10-06', 'excluded', null, 'capacity_mismatch'),
+                    benchDay('2026-10-07', 'scored', 3.4),
+                ],
+                { missed_sek: 5.4, score: 0.81, days_scored: 2, days_total: 3 },
+            ),
+        )
+        await show30d()
+        expect(await screen.findByText('DS vs hindsight')).toBeInTheDocument()
+        expect(Api.batteryBenchmark).toHaveBeenCalledWith('2026-10-05', '2026-10-07')
+        expect(screen.getByText('−5.40 kr')).toHaveClass('text-bad')
+        expect(screen.getByText('· 81%')).toBeInTheDocument()
+        expect(screen.getByText('· 2/3 days')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Hindsight benchmark details' }))
+        const panel = screen.getByRole('dialog', { name: 'DS versus hindsight details' })
+        expect(panel).toHaveTextContent('2026-10-06 battery capacity does not match recorded flows')
+        expect(panel).toHaveTextContent('recorded 19.0 kWh, configured 34.2 kWh')
+    })
+
+    it('shows a negative score as-is next to missed kr', async () => {
+        vi.mocked(Api.batteryBenchmark).mockResolvedValue(
+            benchmark([benchDay('2026-10-05', 'scored', 5)], {
+                missed_sek: 5,
+                score: -0.25,
+                days_scored: 1,
+                days_total: 1,
+            }),
+        )
+        await show30d()
+        expect(await screen.findByText('−5.00 kr')).toBeInTheDocument()
+        expect(screen.getByText('· -25%')).toBeInTheDocument()
+    })
+
+    it('shows the reason instead of an amount when nothing is scored', async () => {
+        vi.mocked(Api.batteryBenchmark).mockResolvedValue(
+            benchmark([benchDay('2026-10-05', 'excluded', null, 'not_clean_recording')], {
+                missed_sek: 0,
+                score: null,
+                days_scored: 0,
+                days_total: 1,
+            }),
+        )
+        await show30d()
+        expect(await screen.findByText('Not scored: not recorded from power history')).toBeInTheDocument()
+        expect(screen.queryByText('0.00 kr')).not.toBeInTheDocument()
+    })
+
+    it('is hidden and not fetched for Today', async () => {
+        vi.mocked(Api.batteryBenchmark).mockClear()
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(gridOnlyComparison()))
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+        await screen.findByText('DS vs grid-only')
+        expect(screen.queryByText('DS vs hindsight')).not.toBeInTheDocument()
+        expect(Api.batteryBenchmark).not.toHaveBeenCalled()
     })
 })

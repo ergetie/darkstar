@@ -174,6 +174,15 @@ class KeplerInputSlot:
 
 
 @dataclass
+class KeplerBenchmark:
+    """Hindsight benchmark mode: battery-only, no policy terms, fixed end stock."""
+
+    terminal_soc_kwh: float
+    # Per-slot True where the battery must not discharge (recorded EV charging).
+    no_discharge_slots: list[bool]
+
+
+@dataclass
 class KeplerInput:
     """Complete input for a solver run."""
 
@@ -182,6 +191,8 @@ class KeplerInput:
     # Hours left in slot 0 when planning starts mid-slot. Bounds EV energy in
     # that slot only; None means the full slot duration is available.
     first_slot_remaining_h: float | None = None
+    # Set only by the daily battery benchmark; live planning leaves it None.
+    benchmark: KeplerBenchmark | None = None
 
 
 @dataclass

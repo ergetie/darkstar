@@ -55,6 +55,18 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Reported on Discord 2026-09-24: after turning "Smart water heater" off and on, saving is blocked by a "VVB switch is wrong" error, and the Water tab cannot be reached to fix it. Likely trigger, not confirmed: the save-blocking validation in `backend/api/routers/config.py` for a `switch.*` target with control type `temperature`. Needs a reproduction; the exact error was in a screenshot.
 
+#### [Planner] Grid Charging Ignored By The Inverter AC Limit
+
+**Goal:** Stop the planner from scheduling grid charging the inverter cannot deliver.
+
+**Notes:** Found 2026-10-11 (battery benchmark investigation). For `dc_coupled`, `planner/solver/kepler.py:574-586` counts only PV-to-AC plus battery discharge against `max_inverter_ac_kw` (8 kW on the maintainer's prod); grid charging also passes through the inverter but is not counted. A hindsight re-solve on 2026-09-21/09-26 planned grid charging above 8 kW in a few slots. Adding the limit in the benchmark changed its result by <1 SEK over 22 days, so the live cost is likely small; not measured on live plans.
+
+#### [Learning] Forecast created_at Never Updated On Overwrite
+
+**Goal:** Know when each stored forecast was made, so forecast accuracy can be checked afterwards.
+
+**Notes:** Found 2026-10-11. `slot_forecasts` rows are overwritten every run but `created_at` keeps the first insert time (`store.py:458-476`, unlike `store_plan` at line 567), so rows look ~7 days old. Earlier forecast versions (day-ahead, morning) are not kept anywhere, so day-ahead accuracy cannot be measured. Related: the Planner Run Archive item.
+
 ---
 
 ## 🔧 Improvements
@@ -65,6 +77,18 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Found 2026-10-06 (cmon89): `forecasting.pv_confidence_percent` was 60 while Reflex only moves it within 70–120 (`backend/learning/reflex.py:22`) and his forecasts were 96 % accurate over 30 days (PV 938 actual vs 905 forecast). Nothing warned him. A replay estimated 60 % vs 83 % at ~53 kr over 25 days. His `learning.max_daily_param_change.pv_confidence_percent` was also 60 (default 1.0). Must cover every Reflex-tuned parameter (bounds table in `reflex.py`) and similar settings, e.g. max-daily-change values far from defaults. Harmless leftovers (e.g. an enabled `water_heaters` entry with `has_water_heater: false`, which the planner ignores) get at most a one-time info note, not a warning.
 
+#### [Forecasting] Systematic PV Over-Forecast In Summer
+
+**Goal:** Find and remove the cause of the PV forecast being consistently too high, instead of relying on `pv_confidence_percent` to hide it.
+
+**Notes:** Found 2026-10-11 on the maintainer's prod (last-written aurora forecast vs recorded PV): bias +15 % Apr, +22 % May, +20 % Jun, +18 % Jul, +33 % Aug, +12 % Sep; also on clear days (median +14 %). Load is fine (−1 to −7 %). Raw Open-Meteo is +38–70 %, so Aurora already halves it; the prod setting `pv_confidence_percent: 83` removes most of the rest. Not clipping (max ~5.7 kW vs 8 kW inverter). Unchecked: whether a PV string/branch is missing from recorded `pv_kwh` (peak is only ~57 % of 10.08 kWp), array parameters, shading. **(needs production data)**
+
+#### [Settings] Unused And Misleading Battery Power Settings
+
+**Goal:** Remove or clearly label battery settings that do nothing, so users don't trust the wrong limit.
+
+**Notes:** Found 2026-10-11 in prod `config.yaml` `battery:`: `max_charge_w`/`max_discharge_w: 5000` are only used when the inverter control unit is W (`executor/controller.py:145`, `:357`); in amp mode the real limit is `max_charge_a`/`max_discharge_a` (185 A × nominal voltage = 8.88 kW in the planner, `planner/solver/adapter.py:468`). A stray `max_charge_power_kw`/`max_discharge_power_kw: 8` under `battery:` is read only by `planner/strategy/manual_plan.py:40`. Check what the settings UI shows for each.
+
 ---
 
 ## ✨ New Features
@@ -74,12 +98,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 **Goal:** Keep every planning run's full inputs and plan (and planner/executor errors) for a set period, so past decisions can be replayed and shared for support; the user can download it from the Debug page and clear it.
 
 **Notes:** Found 2026-10-06 (cmon89 investigation): past decisions could not be reconstructed. `schedule.json` already holds each run's full per-slot inputs (adjusted PV/load, prices) and plan, but is overwritten every run; `slot_plans`/`slot_forecasts` keep only the last value per slot; `debug.enable_planner_debug` stores only a 30-slot sample (`planner/output/debug.py`); the log rotates and is wiped on add-on restart. Verified that re-solving an archived `schedule.json` with the offline Kepler reproduces the real plan exactly (0/122 slots differ). Retention 60–90 days, gzip (~10 kB/run, ~0.5 MB/day). Include initial SoC, safety floor, config version, solver status. Storage location (DB vs files) to decide. Enables the automatic daily replay item. Temporary stand-in on the maintainer's prod since 2026-10-06: a root cron (every minute) gzips each new `schedule.json` into `/opt/darkstar/data/plan_archive/`, and `debug.enable_planner_debug: true` is set. Remove both when this item ships or the investigation (`ops/investigations/cmon-underperformance-2026-10-06.md`) no longer needs them.
-
-#### [Learning] Automatic Daily Replay ("Missing Profit" Self-Check)
-
-**Goal:** Every night, replay yesterday with the real PV, load and prices and compare three results: what Darkstar actually did, what its own planner would have done with perfect information (and with the user's settings), and plain self-use. Report the gaps in plain words, e.g. "you missed ~X kr; likely cause: execution / forecasts / setting Y".
-
-**Notes:** Proven offline in the 2026-10-06 cmon89 investigation (`ops/investigations/cmon-2026-10/`, `kepler_replay2.py`): real Kepler re-planned every 30 min on actual data, executed through a per-install calibrated loss model; replay reproduced the maintainer's real result within ~5 kr. Solves take ~0.1 s, so a day is ~10 s of CPU. Gap real-vs-replay points to execution problems; replay-vs-perfect points to forecasts or settings; replay with alternative settings quantifies "what if". Depends on persisting planner runs/inputs (separate item) and on the fair baseline item for the self-use side.
 
 #### [Planner] Power Tariff (Effekttariff) Awareness
 

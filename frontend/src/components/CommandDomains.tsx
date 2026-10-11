@@ -17,6 +17,7 @@ import {
     type ConfigResponse,
     type LoadBalancerStatusResponse,
     type CostSeriesResponse,
+    type BatteryBenchmarkResponse,
 } from '../lib/api'
 import { useSocket } from '../lib/hooks'
 import EVChargerCard from './EVChargingCard'
@@ -120,6 +121,35 @@ export function getDefaultDatesForPeriod(
     }
 }
 
+const BENCHMARK_REASONS: Record<string, string> = {
+    not_finished: 'day not finished',
+    incomplete_day: 'missing recorded slots',
+    not_clean_recording: 'not recorded from power history',
+    missing_values: 'missing recorded values',
+    capacity_mismatch: 'battery capacity does not match recorded flows',
+    stock_out_of_range: 'stored energy outside battery capacity',
+    solver_not_optimal: 'hindsight solve did not finish',
+    error: 'benchmark error',
+}
+
+function useDismissOnOutside(open: boolean, close: () => void, ref: React.RefObject<HTMLDivElement | null>) {
+    useEffect(() => {
+        if (!open) return
+        const onPointer = (e: PointerEvent) => {
+            if (!ref.current?.contains(e.target as Node)) close()
+        }
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') close()
+        }
+        document.addEventListener('pointerdown', onPointer)
+        document.addEventListener('keydown', onKey)
+        return () => {
+            document.removeEventListener('pointerdown', onPointer)
+            document.removeEventListener('keydown', onKey)
+        }
+    }, [open, close, ref])
+}
+
 /** Pure predicate for a custom date range: both dates present and end >= start. */
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
 export function isValidDateRange(start: string, end: string): boolean {
@@ -156,21 +186,13 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
     const [costSeriesError, setCostSeriesError] = useState(false)
     const [comparisonInfoOpen, setComparisonInfoOpen] = useState(false)
     const comparisonInfoRef = React.useRef<HTMLDivElement>(null)
-    useEffect(() => {
-        if (!comparisonInfoOpen) return
-        const onPointer = (e: PointerEvent) => {
-            if (!comparisonInfoRef.current?.contains(e.target as Node)) setComparisonInfoOpen(false)
-        }
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setComparisonInfoOpen(false)
-        }
-        document.addEventListener('pointerdown', onPointer)
-        document.addEventListener('keydown', onKey)
-        return () => {
-            document.removeEventListener('pointerdown', onPointer)
-            document.removeEventListener('keydown', onKey)
-        }
-    }, [comparisonInfoOpen])
+    const closeComparisonInfo = useCallback(() => setComparisonInfoOpen(false), [])
+    useDismissOnOutside(comparisonInfoOpen, closeComparisonInfo, comparisonInfoRef)
+    const [benchmark, setBenchmark] = useState<BatteryBenchmarkResponse | null>(null)
+    const [benchmarkInfoOpen, setBenchmarkInfoOpen] = useState(false)
+    const benchmarkInfoRef = React.useRef<HTMLDivElement>(null)
+    const closeBenchmarkInfo = useCallback(() => setBenchmarkInfoOpen(false), [])
+    useDismissOnOutside(benchmarkInfoOpen, closeBenchmarkInfo, benchmarkInfoRef)
 
     // Validation helper for custom date range: pure predicate lives in isValidDateRange,
     // this wrapper only adds the setDateError side effect.
@@ -199,6 +221,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
 
             setCostSeries(null)
             setCostSeriesError(false)
+            setBenchmark(null)
             try {
                 setFetchError(null)
                 const [seriesResult, rangeResult] = await Promise.allSettled([
@@ -208,6 +231,17 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                 if (cancelled) return
                 setCostSeries(seriesResult.status === 'fulfilled' ? seriesResult.value : null)
                 setCostSeriesError(seriesResult.status === 'rejected')
+                const seriesValue = seriesResult.status === 'fulfilled' ? seriesResult.value : null
+                // Hindsight scores finished days only; Today has none.
+                if (period !== 'today' && seriesValue?.start_date && seriesValue.end_date) {
+                    Api.batteryBenchmark(seriesValue.start_date, seriesValue.end_date)
+                        .then((value) => {
+                            if (!cancelled) setBenchmark(value)
+                        })
+                        .catch(() => {
+                            if (!cancelled) setBenchmark(null)
+                        })
+                }
                 if (rangeResult.status === 'rejected') throw rangeResult.reason
                 const data = rangeResult.value
                 if (!cancelled) {
@@ -279,6 +313,13 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
               hourCycle: 'h23',
           }).format(new Date(comparison.through))
         : null
+
+    const hindsight = period !== 'today' && benchmark && benchmark.totals.days_total > 0 ? benchmark.totals : null
+    const excludedDays = benchmark?.days.filter((day) => day.status !== 'scored') ?? []
+    const hindsightEmptyReason =
+        hindsight && hindsight.days_scored === 0
+            ? (BENCHMARK_REASONS[excludedDays[0]?.reason ?? ''] ?? 'no scored days yet')
+            : null
 
     const periods = [
         { key: 'today', label: 'Today' },
@@ -362,7 +403,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
             {fetchError && <div className="text-[9px] text-bad mb-2 relative z-10">Error: {fetchError}</div>}
 
             {/* Big Metric: Net Cost */}
-            <div className={`mb-3 relative ${comparisonInfoOpen ? 'z-30' : 'z-10'}`}>
+            <div className={`mb-3 relative ${comparisonInfoOpen || benchmarkInfoOpen ? 'z-30' : 'z-10'}`}>
                 <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">
                     {period === 'custom'
                         ? 'Actual electricity cost · Custom Period'
@@ -475,6 +516,78 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                         )}
                     </div>
                 )}
+                {hindsight && (
+                    <div ref={benchmarkInfoRef} className="mt-1 relative z-30 text-[10px]">
+                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            <span className="text-muted">DS vs hindsight</span>
+                            {hindsightEmptyReason ? (
+                                <span className="text-muted" role="status">
+                                    Not scored: {hindsightEmptyReason}
+                                </span>
+                            ) : (
+                                <>
+                                    <span
+                                        className={`text-sm font-semibold tabular-nums ${hindsight.missed_sek > 0.005 ? 'text-bad' : 'text-muted'}`}
+                                    >
+                                        {hindsight.missed_sek > 0.005 ? '−' : ''}
+                                        {Math.abs(hindsight.missed_sek).toFixed(2)} kr
+                                    </span>
+                                    {hindsight.score != null && (
+                                        <span className="text-muted tabular-nums">
+                                            · {Math.round(hindsight.score * 100)}%
+                                        </span>
+                                    )}
+                                </>
+                            )}
+                            <span className="text-muted tabular-nums">
+                                · {hindsight.days_scored}/{hindsight.days_total} days
+                            </span>
+                            <button
+                                type="button"
+                                aria-expanded={benchmarkInfoOpen}
+                                aria-controls="hindsight-details"
+                                aria-label="Hindsight benchmark details"
+                                onClick={() => setBenchmarkInfoOpen((open) => !open)}
+                                className="px-1.5 py-0.5 rounded-ds-sm border border-line/30 text-muted hover:bg-surface2"
+                            >
+                                ⓘ
+                            </button>
+                        </div>
+                        {benchmarkInfoOpen && (
+                            <div
+                                id="hindsight-details"
+                                role="dialog"
+                                aria-label="DS versus hindsight details"
+                                className="absolute left-0 top-full z-30 mt-1 w-full max-w-full rounded-ds-sm border border-line bg-surface p-2 shadow-float text-muted"
+                            >
+                                <div>
+                                    Each finished day is compared with the best battery plan possible in hindsight: the
+                                    same recorded consumption, solar and prices, ending with the same stored energy. The
+                                    amount is what that plan would have saved over Darkstar&apos;s actual battery use,
+                                    including battery wear. The percentage is the share of the best possible battery
+                                    value that Darkstar achieved. Perfect knowledge of the day means 100% is not
+                                    reachable.
+                                </div>
+                                {excludedDays.length > 0 && (
+                                    <div className="mt-1">
+                                        <div>Days not scored</div>
+                                        {excludedDays.map((day) => (
+                                            <div key={day.date} className="tabular-nums">
+                                                {day.date}{' '}
+                                                <span className="text-text">
+                                                    {BENCHMARK_REASONS[day.reason ?? ''] ?? day.reason}
+                                                </span>
+                                                {day.reason === 'capacity_mismatch' &&
+                                                    day.implied_capacity_kwh != null &&
+                                                    ` (recorded ${day.implied_capacity_kwh.toFixed(1)} kWh, configured ${day.capacity_kwh.toFixed(1)} kWh)`}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
                 {gridOnly && (gridOnly.status === 'no_data' || gridOnly.status === 'unavailable') && (
                     <div className="mt-2 text-[10px] text-muted" role="status">
                         {gridOnly.reason === 'no_completed_observations'
@@ -561,7 +674,12 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
 
             {/* Cost chart: fills the remaining card height */}
             <div className="flex-1 flex flex-col relative z-10 mb-2">
-                <CostSeriesChart series={costSeries} loading={loading} seriesError={costSeriesError} />
+                <CostSeriesChart
+                    series={costSeries}
+                    benchmark={period === 'today' ? null : benchmark}
+                    loading={loading}
+                    seriesError={costSeriesError}
+                />
             </div>
 
             {/* Grid Flow Stats */}

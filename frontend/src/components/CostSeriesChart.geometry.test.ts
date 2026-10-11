@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { computeCostChartGeometry } from './CostSeriesChart'
-import type { CostSeriesResponse, GridOnlyComparison } from '../lib/api'
+import type { BatteryBenchmarkDay, BatteryBenchmarkResponse, CostSeriesResponse, GridOnlyComparison } from '../lib/api'
 
 const normalAxis = {
     timezone: 'Europe/Stockholm',
@@ -268,5 +268,85 @@ describe('computeCostChartGeometry', () => {
         expect(geometry.bars[0].width).toBe(50)
         expect(Date.parse(geometry.bars[0].end)).toBe(Date.parse('2026-10-06T00:00:00+05:30'))
         expect(geometry.actualSegments[0][1].x).toBe(50)
+    })
+
+    describe('hindsight line', () => {
+        const days = ['2026-10-05', '2026-10-06', '2026-10-07']
+        const dayAxis = {
+            timezone: 'Europe/Stockholm',
+            start: '2026-10-05T00:00:00+02:00',
+            end: '2026-10-08T00:00:00+02:00',
+        }
+        const dayBucket = (date: string, dsCost: number, cumulative: number) => {
+            const start = `${date}T00:00:00+02:00`
+            const next = new Date(Date.parse(start) + 86_400_000).toISOString()
+            return {
+                start,
+                end: next,
+                import_cost_sek: dsCost,
+                export_revenue_sek: 0,
+                ds_electricity_cost_sek: dsCost,
+                ds_wear_cost_sek: 0,
+                grid_only_wear_cost_sek: 0,
+                ds_cost_sek: dsCost,
+                grid_only_cost_sek: dsCost + 5,
+                cumulative_ds_cost_sek: cumulative,
+                cumulative_grid_only_cost_sek: cumulative + 5,
+            }
+        }
+        const daily = comparison({
+            time_axis: dayAxis,
+            points: [dayBucket(days[0], 10, 10), dayBucket(days[1], 10, 20), dayBucket(days[2], 10, 30)],
+            segments: [
+                {
+                    start: dayAxis.start,
+                    end: dayAxis.end,
+                    points: [
+                        { at: dayAxis.start, cumulative_ds_cost_sek: 0, cumulative_grid_only_cost_sek: 0 },
+                        { at: dayAxis.end, cumulative_ds_cost_sek: 30, cumulative_grid_only_cost_sek: 45 },
+                    ],
+                },
+            ],
+        })
+        const day = (date: string, status: BatteryBenchmarkDay['status'], missed: number | null) =>
+            ({
+                date,
+                status,
+                missed_sek: missed,
+                reason: status === 'scored' ? null : 'not_clean_recording',
+            }) as BatteryBenchmarkDay
+        const bench = (records: BatteryBenchmarkDay[]): BatteryBenchmarkResponse =>
+            ({ start_date: days[0], end_date: days[2], days: records, totals: {} }) as BatteryBenchmarkResponse
+
+        it('sits below DS by the cumulative missed value at each day end', () => {
+            const geometry = computeCostChartGeometry(
+                series(daily, [], 'day'),
+                bench([day(days[0], 'scored', 2), day(days[1], 'scored', 3), day(days[2], 'scored', 1)]),
+            )
+            expect(geometry.hindsightSegments).toHaveLength(1)
+            expect(geometry.hindsightSegments[0].map((point) => point.value)).toEqual([0, 8, 15, 24])
+            expect(geometry.hindsightArea.length).toBeGreaterThan(0)
+            expect(geometry.hindsightExcluded).toEqual([])
+            expect(geometry.gridSegments[0].map((point) => point.value)).toEqual([0, 45])
+        })
+
+        it('leaves a marked gap on excluded days and adds nothing for them', () => {
+            const geometry = computeCostChartGeometry(
+                series(daily, [], 'day'),
+                bench([day(days[0], 'scored', 2), day(days[1], 'excluded', null), day(days[2], 'scored', 1)]),
+            )
+            expect(geometry.hindsightSegments.map((segment) => segment.map((point) => point.value))).toEqual([
+                [0, 8],
+                [18, 27],
+            ])
+            expect(geometry.hindsightExcluded).toHaveLength(1)
+            expect(geometry.hindsightExcluded[0].left).toBeCloseTo(100 / 3)
+        })
+
+        it('is not drawn in hourly views', () => {
+            const geometry = computeCostChartGeometry(series(comparison()), bench([day('2026-10-05', 'scored', 2)]))
+            expect(geometry.hindsightSegments).toEqual([])
+            expect(geometry.hindsightArea).toEqual([])
+        })
     })
 })

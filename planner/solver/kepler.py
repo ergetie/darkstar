@@ -7,6 +7,7 @@ Migrated from backend/kepler/solver.py during Rev K13 modularization.
 
 import logging
 from collections import defaultdict
+from dataclasses import replace
 from typing import Any, cast
 
 import pulp  # type: ignore[import,no-redef]
@@ -54,6 +55,21 @@ class KeplerSolver:
         """
         slots = input_data.slots
         T = len(slots)
+        benchmark = input_data.benchmark
+        if benchmark is not None:
+            # Battery only, priced on recorded flows: no devices, no policy terms.
+            config = replace(
+                config,
+                water_heaters=[],
+                ev_chargers=[],
+                excess_pv_slots=[],
+                excess_pv_priority=[],
+                target_soc_kwh=None,
+                target_soc_penalty_sek=0.0,
+                curtailment_penalty_sek=0.0,
+                ramping_cost_sek_per_kw=0.0,
+                export_threshold_sek_per_kwh=0.0,
+            )
         if T == 0:
             return KeplerResult(
                 slots=[],
@@ -186,6 +202,11 @@ class KeplerSolver:
         # SoC state variables (T+1 states for T slots)
         min_soc_kwh: float = config.capacity_kwh * config.min_soc_percent / 100.0
         max_soc_kwh: float = config.capacity_kwh * config.max_soc_percent / 100.0
+        if benchmark is not None:
+            # A recorded day may start or end outside the configured window.
+            ends = (input_data.initial_soc_kwh, benchmark.terminal_soc_kwh)
+            min_soc_kwh = min(min_soc_kwh, *ends)
+            max_soc_kwh = max(max_soc_kwh, *ends)
 
         soc: dict[int, Any] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
             "soc_kwh", range(T + 1), lowBound=0.0, upBound=config.capacity_kwh
@@ -885,6 +906,29 @@ class KeplerSolver:
                 else 0.0
             )
         )
+
+        if benchmark is not None:
+            # Hard physics only: no slacks, no curtailment, end at the actual stock.
+            prob += soc[T] == benchmark.terminal_soc_kwh
+            battery_charging: dict[int, Any] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
+                "battery_charging", range(T), cat="Binary"
+            )
+            for t in range(T):
+                prob += curtailment[t] == 0
+                prob += load_shedding[t] == 0
+                prob += (
+                    charge[t] <= config.max_charge_power_kw * slot_hours[t] * battery_charging[t]
+                )
+                prob += discharge[t] <= config.max_discharge_power_kw * slot_hours[t] * (
+                    1 - battery_charging[t]
+                )
+                if benchmark.no_discharge_slots[t]:
+                    prob += discharge[t] == 0
+                if export_floor_active:
+                    prob += export_floor_violation[t] == 0
+            for t in range(T + 1):
+                prob += soc_violation[t] == 0
+                prob += soc_overshoot[t] == 0
 
         # Solve using GLPK (available in Alpine) or CBC as fallback
         import time

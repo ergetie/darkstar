@@ -175,6 +175,11 @@ async def lifespan(app: FastAPI):
         # For now, let's allow it but semantic routes will 500.
         app.state.learning_store = None
 
+    from backend.services.benchmark_service import benchmark_service
+
+    if app.state.learning_store is not None:
+        await benchmark_service.start(app.state.learning_store)
+
     from backend.services.installation_stats_service import installation_stats_service
 
     try:
@@ -208,6 +213,8 @@ async def lifespan(app: FastAPI):
         await close_ha_action_clients()
     except Exception as e:
         logger.error("Failed to close HA action clients: %s", e)
+
+    await benchmark_service.stop()
 
     # Close LearningStore
     if hasattr(app.state, "learning_store") and app.state.learning_store:

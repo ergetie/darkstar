@@ -668,6 +668,27 @@ class LearningStore:
                 return state.value
             return None
 
+    async def get_system_states(self, keys: list[str]) -> dict[str, str]:
+        """Get several system state values by key; missing keys are absent."""
+        async with self.AsyncSession() as session:
+            result = await session.execute(
+                select(SystemState.key, SystemState.value).where(SystemState.key.in_(keys))
+            )
+            return {row.key: row.value for row in result.all() if row.value is not None}
+
+    async def get_slot_observation_rows(
+        self, start: datetime, end: datetime
+    ) -> list[dict[str, Any]]:
+        """Raw slot_observations rows with slot_start in [start, end)."""
+        async with self.AsyncSession() as session:
+            result = await session.execute(
+                select(SlotObservation.__table__).where(
+                    SlotObservation.slot_start >= start.isoformat(),
+                    SlotObservation.slot_start < end.isoformat(),
+                )
+            )
+            return [dict(row) for row in result.mappings()]
+
     async def count_paired_openmeteo_pv_days(self, days_back: int = 90) -> int:
         """Count days with both actual PV and a stored Open-Meteo baseline."""
         cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()

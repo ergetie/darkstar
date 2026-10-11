@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import type { CostSeriesPoint, CostSeriesResponse, GridOnlyBucketPoint } from '../lib/api'
+import type { BatteryBenchmarkResponse, CostSeriesPoint, CostSeriesResponse, GridOnlyBucketPoint } from '../lib/api'
 
 interface Props {
     series: CostSeriesResponse | null
+    benchmark?: BatteryBenchmarkResponse | null
     loading: boolean
     seriesError?: boolean
 }
@@ -32,6 +33,9 @@ export interface CostChartGeometry {
     dsSegments: { tone: 'good' | 'bad'; points: PlotPoint[] }[]
     gridSegments: PlotPoint[][]
     saving: SavingShape[]
+    hindsightSegments: PlotPoint[][]
+    hindsightArea: SavingShape[]
+    hindsightExcluded: { left: number; width: number }[]
     ticks: AxisTick[]
     zeroY: number
     hasComparison: boolean
@@ -232,7 +236,10 @@ function makeSavingShapes(ds: PlotPoint[][], grid: PlotPoint[][]): SavingShape[]
 
 /** Pure geometry uses the full installation-local period and elapsed UTC time. */
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
-export function computeCostChartGeometry(series: CostSeriesResponse): CostChartGeometry {
+export function computeCostChartGeometry(
+    series: CostSeriesResponse,
+    benchmark: BatteryBenchmarkResponse | null = null,
+): CostChartGeometry {
     const comparison = series.grid_only_comparison
     const axis = comparison?.time_axis
     const timezone = axis?.timezone ?? 'UTC'
@@ -309,6 +316,39 @@ export function computeCostChartGeometry(series: CostSeriesResponse): CostChartG
         actualSegments = [points]
     }
 
+    // Hindsight: day-end DS cumulative minus cumulative missed value of scored days.
+    const hindsightRaw: PlotPoint[][] = []
+    const hindsightDs: PlotPoint[][] = []
+    const hindsightExcluded: { left: number; width: number }[] = []
+    if (benchmark && series.bucket === 'day' && hasComparison) {
+        const byDate = new Map(benchmark.days.map((day) => [day.date, day]))
+        let missed = 0
+        let open = false
+        for (const point of comparisonPoints) {
+            const start = Date.parse(point.start)
+            const end = Date.parse(point.end)
+            const local = localParts(start, timezone)
+            const date = `${local.year}-${String(local.month).padStart(2, '0')}-${String(local.day).padStart(2, '0')}`
+            const day = byDate.get(date)
+            if (day?.status !== 'scored' || day.missed_sek == null) {
+                if (day) hindsightExcluded.push({ left: xOf(start), width: xOf(end) - xOf(start) })
+                open = false
+                continue
+            }
+            const dsEnd = point.cumulative_ds_cost_sek
+            if (!open) {
+                const dsStart = dsEnd - point.ds_cost_sek
+                hindsightDs.push([{ x: xOf(start), y: 0, value: dsStart, time: start }])
+                hindsightRaw.push([{ x: xOf(start), y: 0, value: dsStart - missed, time: start }])
+                open = true
+            }
+            missed += day.missed_sek
+            hindsightDs[hindsightDs.length - 1].push({ x: xOf(end), y: 0, value: dsEnd, time: end })
+            hindsightRaw[hindsightRaw.length - 1].push({ x: xOf(end), y: 0, value: dsEnd - missed, time: end })
+            values.push(dsEnd - missed)
+        }
+    }
+
     const high = Math.max(0, ...values)
     const low = Math.min(0, ...values)
     const span = high - low || 1
@@ -320,6 +360,8 @@ export function computeCostChartGeometry(series: CostSeriesResponse): CostChartG
     const gridSegments = withY(gridRawSegments)
     const saving = makeSavingShapes(withY(dsRawSegments), gridSegments)
     const zeroY = yOf(0)
+    const hindsightSegments = withY(hindsightRaw)
+    const hindsightArea = makeSavingShapes(withY(hindsightDs), hindsightSegments)
 
     if (!hasComparison && actualWithY.length > 0) {
         const final = actualWithY[0][actualWithY[0].length - 1]?.value ?? 0
@@ -344,6 +386,9 @@ export function computeCostChartGeometry(series: CostSeriesResponse): CostChartG
         dsSegments,
         gridSegments,
         saving,
+        hindsightSegments,
+        hindsightArea,
+        hindsightExcluded,
         ticks: buildTicks(axisStart, axisEnd, series.bucket === 'hour', timezone),
         zeroY,
         hasComparison,
@@ -358,7 +403,7 @@ function pathOf(points: Pick<PlotPoint, 'x' | 'y'>[]): string {
     return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`).join(' ')
 }
 
-export default function CostSeriesChart({ series, loading, seriesError = false }: Props) {
+export default function CostSeriesChart({ series, benchmark = null, loading, seriesError = false }: Props) {
     const [hover, setHover] = useState<number | null>(null)
     const hasComparisonPoints =
         !!series?.grid_only_comparison &&
@@ -366,8 +411,8 @@ export default function CostSeriesChart({ series, loading, seriesError = false }
         series.grid_only_comparison.points.length > 0
     const hasRenderablePoints = !!series && (series.points.length > 0 || hasComparisonPoints)
     const geometry = useMemo(
-        () => (hasRenderablePoints && series ? computeCostChartGeometry(series) : null),
-        [hasRenderablePoints, series],
+        () => (hasRenderablePoints && series ? computeCostChartGeometry(series, benchmark) : null),
+        [hasRenderablePoints, series, benchmark],
     )
 
     if (loading && !series) {
@@ -466,6 +511,11 @@ export default function CostSeriesChart({ series, loading, seriesError = false }
                                 <span className="flex items-center gap-1 whitespace-nowrap">
                                     <span className="w-3 border-t-2 border-dotted border-muted" /> Grid-only
                                 </span>
+                                {(geometry.hindsightSegments.length > 0 || geometry.hindsightExcluded.length > 0) && (
+                                    <span className="flex items-center gap-1 whitespace-nowrap">
+                                        <span className="w-3 border-t-2 border-dashed border-accent" /> Hindsight
+                                    </span>
+                                )}
                             </>
                         ) : (
                             <span className="flex items-center gap-1 whitespace-nowrap">
@@ -522,8 +572,42 @@ export default function CostSeriesChart({ series, loading, seriesError = false }
                             fillOpacity={geometry.hasComparison ? 0.18 : 0.1}
                         />
                     ))}
+                    {geometry.hindsightExcluded.map((band, index) => (
+                        <rect
+                            key={`hindsight-excluded-${index}`}
+                            data-testid="hindsight-excluded"
+                            x={band.left}
+                            width={band.width}
+                            y={0}
+                            height={100}
+                            className="fill-muted"
+                            fillOpacity={0.08}
+                        />
+                    ))}
+                    {geometry.hindsightArea.map((shape, index) => (
+                        <path
+                            key={`hindsight-area-${index}`}
+                            data-testid="hindsight-area"
+                            d={`${pathOf(shape.points)} Z`}
+                            className="fill-accent"
+                            fillOpacity={0.18}
+                        />
+                    ))}
                     {geometry.hasComparison ? (
                         <>
+                            {geometry.hindsightSegments.map((segment, index) => (
+                                <path
+                                    key={`hindsight-${index}`}
+                                    data-testid="hindsight-line"
+                                    d={pathOf(segment)}
+                                    fill="none"
+                                    className="stroke-accent"
+                                    strokeWidth="1.5"
+                                    strokeDasharray="4 3"
+                                    strokeLinecap="round"
+                                    vectorEffect="non-scaling-stroke"
+                                />
+                            ))}
                             {geometry.gridSegments.map((segment, index) => (
                                 <path
                                     key={`grid-${index}`}

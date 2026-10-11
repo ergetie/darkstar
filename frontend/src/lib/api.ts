@@ -654,6 +654,41 @@ export type CostSeriesResponse = {
     error?: string
 }
 
+export type BatteryBenchmarkDay = {
+    version: number
+    date: string
+    status: 'scored' | 'excluded' | 'failed'
+    reason: string | null
+    capacity_kwh: number
+    implied_capacity_kwh: number | null
+    snapshot_slots: number
+    actual_cost_sek: number | null
+    ideal_cost_sek: number | null
+    no_battery_cost_sek: number | null
+    missed_sek: number | null
+    value_actual_sek: number | null
+    value_ideal_sek: number | null
+    score: number | null
+    solver_status: string | null
+    solve_seconds: number | null
+}
+
+export type BatteryBenchmarkResponse = {
+    start_date: string
+    end_date: string
+    days: BatteryBenchmarkDay[]
+    totals: {
+        missed_sek: number
+        value_actual_sek: number
+        value_ideal_sek: number
+        score: number | null
+        days_scored: number
+        days_total: number
+        by_status: Record<string, number>
+        by_reason: Record<string, number>
+    }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -1550,6 +1585,10 @@ export const Api = {
         }
         return getJSON<unknown>(url).then(parseCostSeriesResponse)
     },
+    batteryBenchmark: (start_date: string, end_date: string) =>
+        getJSON<BatteryBenchmarkResponse>(
+            `/api/energy/battery-benchmark?start_date=${start_date}&end_date=${end_date}`,
+        ),
     // Log management
     logInfo: () => getJSON<LogInfoResponse>('/api/system/log-info'),
     systemHealth: () => getJSON<SystemHealthResponse>('/api/system/health'),
