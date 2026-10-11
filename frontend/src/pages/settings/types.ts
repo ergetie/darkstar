@@ -60,6 +60,8 @@ export interface BaseField {
     min?: number
     max?: number
     step?: number
+    /** Numeric display multiplier; saved values retain their original units. */
+    displayScale?: number
     /** Number fields only: render as quick choices plus a "Custom…" number input */
     presets?: {
         options: { value: number; label: string }[]
@@ -1026,6 +1028,37 @@ export const batterySections: SettingsSection[] = [
                 helper: 'Estimated degradation cost for every kWh cycled. Affects arbitrage profitability.',
                 path: ['battery_economics', 'battery_cycle_cost_kwh'],
                 type: 'number',
+            },
+        ],
+    },
+    {
+        title: 'Efficiency',
+        description:
+            'Manual planner estimates for charging and discharging losses. Darkstar does not auto-tune these values.',
+        fields: [
+            {
+                key: 'battery.charge_efficiency',
+                label: 'Charge efficiency (%)',
+                helper: 'Percentage of charging energy stored in the battery. Default 92%.',
+                path: ['battery', 'charge_efficiency'],
+                type: 'number',
+                displayScale: 100,
+                min: 0,
+                max: 100,
+                step: 0.1,
+                isAdvanced: true,
+            },
+            {
+                key: 'battery.discharge_efficiency',
+                label: 'Discharge efficiency (%)',
+                helper: 'Percentage of energy removed from the battery delivered for use. Default 95%.',
+                path: ['battery', 'discharge_efficiency'],
+                type: 'number',
+                displayScale: 100,
+                min: 0,
+                max: 100,
+                step: 0.1,
+                isAdvanced: true,
             },
         ],
     },

@@ -101,7 +101,13 @@ export type ConfigResponse = {
         has_ev_charger?: boolean
     }
     // Battery is also at root level in actual API response
-    battery?: { capacity_kwh?: number; min_soc_percent?: number; max_soc_percent?: number }
+    battery?: {
+        capacity_kwh?: number
+        min_soc_percent?: number
+        max_soc_percent?: number
+        charge_efficiency?: number
+        discharge_efficiency?: number
+    }
     automation?: {
         enable_scheduler?: boolean
         external_executor_mode?: boolean

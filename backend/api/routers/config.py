@@ -793,6 +793,24 @@ def _validate_config_for_save(
     battery_cfg = config.get("battery", {})
     config_version = config.get("config_version", 1)
 
+    for key in ("charge_efficiency", "discharge_efficiency"):
+        if key not in battery_cfg:
+            continue
+        efficiency = battery_cfg[key]
+        if (
+            isinstance(efficiency, bool)
+            or not isinstance(efficiency, int | float)
+            or not 0 < efficiency <= 1
+        ):
+            issues.append(
+                {
+                    "severity": "error",
+                    "field": f"battery.{key}",
+                    "message": f"battery.{key} must be greater than 0 and at most 1",
+                    "guidance": "Enter a percentage greater than 0 and at most 100 in Settings (a fraction in YAML).",
+                }
+            )
+
     try:
         validate_water_heating_config(config)
     except ValueError as exc:

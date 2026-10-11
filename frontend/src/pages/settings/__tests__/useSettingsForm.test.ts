@@ -2,7 +2,7 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useSettingsForm } from '../hooks/useSettingsForm'
 import { Api } from '../../../lib/api'
-import { BaseField } from '../types'
+import { BaseField, batteryFieldList } from '../types'
 
 // Mock API
 vi.mock('../../../lib/api', () => ({
@@ -34,6 +34,7 @@ vi.mock('../types', async (importOriginal) => {
 })
 
 describe('useSettingsForm Hook', () => {
+    const efficiencyFields = batteryFieldList.filter((field) => field.key.endsWith('_efficiency'))
     const statisticsFields: BaseField[] = [
         {
             key: 'installation_stats.enabled',
@@ -72,6 +73,73 @@ describe('useSettingsForm Hook', () => {
 
         expect(result.current.form['test.field']).toBe('10')
         expect(result.current.isDirty).toBe(false)
+    })
+
+    it('saves battery efficiency percentages as fractions and reloads without becoming dirty', async () => {
+        vi.mocked(Api.config).mockResolvedValue({ battery: { charge_efficiency: 0.92, discharge_efficiency: 0.95 } })
+        vi.mocked(Api.configSave).mockResolvedValue({ status: 'success' })
+        const { result } = renderHook(() => useSettingsForm(efficiencyFields))
+        await waitFor(() => expect(result.current.loading).toBe(false))
+        expect(result.current.form['battery.charge_efficiency']).toBe('92')
+        expect(result.current.isDirty).toBe(false)
+        act(() => result.current.handleChange('battery.charge_efficiency', '94.5'))
+        vi.mocked(Api.config).mockResolvedValue({ battery: { charge_efficiency: 0.945, discharge_efficiency: 0.95 } })
+        await act(async () => expect(await result.current.save()).toBe(true))
+        expect(Api.configSave).toHaveBeenCalledWith({ battery: { charge_efficiency: 0.945 } })
+        expect(result.current.form['battery.charge_efficiency']).toBe('94.5')
+        expect(result.current.isDirty).toBe(false)
+    })
+
+    it('keeps missing efficiency keys omitted when saving unrelated settings', async () => {
+        vi.mocked(Api.configSave).mockResolvedValue({ status: 'success' })
+        const fields = [...mockFields, ...efficiencyFields]
+        const { result } = renderHook(() => useSettingsForm(fields))
+        await waitFor(() => expect(result.current.loading).toBe(false))
+        expect(result.current.form['battery.charge_efficiency']).toBe('')
+        expect(result.current.form['battery.discharge_efficiency']).toBe('')
+        expect(result.current.isDirty).toBe(false)
+        act(() => result.current.handleChange('test.field', '20'))
+        await act(async () => expect(await result.current.save()).toBe(true))
+        expect(Api.configSave).toHaveBeenCalledWith({ test: { field: 20 } })
+    })
+
+    describe.each(['battery.charge_efficiency', 'battery.discharge_efficiency'])('%s', (key) => {
+        it.each(['', '0', '-1', '105', 'NaN', 'Infinity', '-Infinity', 'true'])(
+            'blocks invalid percentage %s on edit and save',
+            async (value) => {
+                vi.mocked(Api.config).mockResolvedValue({
+                    battery: { charge_efficiency: 0.92, discharge_efficiency: 0.95 },
+                })
+                const { result } = renderHook(() => useSettingsForm(efficiencyFields))
+                await waitFor(() => expect(result.current.loading).toBe(false))
+                act(() => result.current.handleChange(key, value))
+                expect(result.current.fieldErrors[key]).toMatch(/greater than 0 and at most 100/)
+                await act(async () => expect(await result.current.save()).toBe(false))
+                expect(Api.configSave).not.toHaveBeenCalled()
+            },
+        )
+
+        it.each(['0.01', '100'])('accepts percentage %s', async (value) => {
+            vi.mocked(Api.config).mockResolvedValue({
+                battery: { charge_efficiency: 0.92, discharge_efficiency: 0.95 },
+            })
+            const { result } = renderHook(() => useSettingsForm(efficiencyFields))
+            await waitFor(() => expect(result.current.loading).toBe(false))
+            act(() => result.current.handleChange(key, value))
+            expect(result.current.fieldErrors[key]).toBeUndefined()
+        })
+
+        it('blocks saving an invalid loaded value without editing it', async () => {
+            vi.mocked(Api.config).mockResolvedValue({
+                battery: { charge_efficiency: 0.92, discharge_efficiency: 0.95, [key.split('.')[1]]: 1.05 },
+            })
+            const { result } = renderHook(() => useSettingsForm(efficiencyFields))
+            await waitFor(() => expect(result.current.loading).toBe(false))
+            expect(result.current.fieldErrors).toEqual({})
+            await act(async () => expect(await result.current.save()).toBe(false))
+            expect(result.current.fieldErrors[key]).toMatch(/greater than 0 and at most 100/)
+            expect(Api.configSave).not.toHaveBeenCalled()
+        })
     })
 
     it('tracks dirty state on change', async () => {

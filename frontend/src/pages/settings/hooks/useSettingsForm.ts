@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Api, ConfigResponse } from '../../../lib/api'
 import { useToast } from '../../../lib/useToast'
 import { BaseField, HaEntity, InverterProfile, standardInverterKeys } from '../types'
-import { buildFormState, buildPatch, evChargerArrayError } from '../utils'
+import { buildFormState, buildPatch, evChargerArrayError, getDeepValue } from '../utils'
 import { rulesError } from '../transferFees'
 
 export interface UseSettingsFormReturn {
@@ -154,6 +154,15 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
 
             if (!field) return errors
 
+            if (key === 'battery.charge_efficiency' || key === 'battery.discharge_efficiency') {
+                if (trimmed === '' && getDeepValue(config, field.path) === undefined) return errors
+                const efficiency = Number(trimmed)
+                if (!Number.isFinite(efficiency) || efficiency <= 0 || efficiency > 100) {
+                    errors[key] = 'Must be greater than 0 and at most 100%'
+                }
+                return errors
+            }
+
             if (key === 'installation_stats.endpoint' && !isValidInstallationStatsEndpoint(trimmed)) {
                 errors[key] = 'Enter an absolute HTTPS URL without credentials, query, or fragment.'
                 return errors
@@ -241,7 +250,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
 
             return errors
         },
-        [fields],
+        [fields, config],
     )
 
     const handleChange = useCallback(
@@ -278,6 +287,16 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
     const save = useCallback(
         async (extraPatch?: Record<string, unknown>) => {
             if (!config) return false
+
+            const efficiencyErrors = {
+                ...validateField('battery.charge_efficiency', form['battery.charge_efficiency'] ?? '', form),
+                ...validateField('battery.discharge_efficiency', form['battery.discharge_efficiency'] ?? '', form),
+            }
+            if (Object.keys(efficiencyErrors).length > 0) {
+                setFieldErrors((prev) => ({ ...prev, ...efficiencyErrors }))
+                setStatusMessage('Please fix validation errors before saving.')
+                return false
+            }
 
             const endpointKey = 'installation_stats.endpoint'
             const endpointErrors = validateField(endpointKey, form[endpointKey] ?? '', form)

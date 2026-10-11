@@ -7,9 +7,49 @@ import {
     buildPatch,
     listChangedFields,
 } from '../utils'
-import { BaseField } from '../types'
+import { BaseField, batteryFieldList } from '../types'
 
 describe('Settings Utilities', () => {
+    describe('battery efficiency percentages', () => {
+        const fields = batteryFieldList.filter((field) => field.key.endsWith('_efficiency'))
+
+        it('loads percentages and saves fractional values', () => {
+            const original = { battery: { charge_efficiency: 0.92, discharge_efficiency: 0.95 } }
+            const form = buildFormState(original, fields)
+            expect(form).toEqual({ 'battery.charge_efficiency': '92', 'battery.discharge_efficiency': '95' })
+            expect(buildPatch(original, form, fields)).toEqual({})
+            form['battery.charge_efficiency'] = '94.5'
+            form['battery.discharge_efficiency'] = '100'
+            expect(buildPatch(original, form, fields)).toEqual({
+                battery: { charge_efficiency: 0.945, discharge_efficiency: 1 },
+            })
+            expect(listChangedFields(original, form, fields)).toEqual([
+                { key: 'battery.charge_efficiency', label: 'Charge efficiency (%)', oldValue: '92', newValue: '94.5' },
+                {
+                    key: 'battery.discharge_efficiency',
+                    label: 'Discharge efficiency (%)',
+                    oldValue: '95',
+                    newValue: '100',
+                },
+            ])
+        })
+
+        it.each([0.923456789, 0.9200000000000002, 0.9585790023174469])(
+            'preserves untouched fractional precision for %s',
+            (efficiency) => {
+                const original = { battery: { charge_efficiency: efficiency, discharge_efficiency: efficiency } }
+                const form = buildFormState(original, fields)
+                expect(buildPatch(original, form, fields)).toEqual({})
+                expect(listChangedFields(original, form, fields)).toEqual([])
+            },
+        )
+
+        it('does not expose floating point tails in the percentage input', () => {
+            const form = buildFormState({ battery: { charge_efficiency: 0.9200000000000002 } }, fields)
+            expect(form['battery.charge_efficiency']).toBe('92')
+        })
+    })
+
     describe('getDeepValue', () => {
         it('accesses shallow properties', () => {
             const source = { a: 1 }

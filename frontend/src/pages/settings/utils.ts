@@ -1,5 +1,9 @@
 import { BaseField } from './types'
 
+function displayScaledNumber(value: number, scale: number): number {
+    return Number((value * scale).toPrecision(15))
+}
+
 /**
  * Get a value from a deeply nested object using an array of keys.
  */
@@ -56,7 +60,7 @@ export function parseFieldInput(field: BaseField, raw: string): unknown {
     if (field.type === 'number' || field.type === 'azimuth' || field.type === 'tilt') {
         if (trimmed === '') return null
         const parsed = Number(trimmed)
-        return Number.isNaN(parsed) ? undefined : parsed
+        return Number.isNaN(parsed) ? undefined : parsed / (field.displayScale ?? 1)
     }
     if (field.type === 'boolean') {
         return trimmed === 'true'
@@ -104,7 +108,9 @@ export function buildFormState(config: Record<string, unknown> | null, fields: B
         }
 
         const value = getDeepValue<unknown>(config, field.path)
-        if (field.type === 'boolean') {
+        if (field.type === 'number' && field.displayScale && typeof value === 'number') {
+            state[field.key] = String(displayScaledNumber(value, field.displayScale))
+        } else if (field.type === 'boolean') {
             state[field.key] = value === true ? 'true' : 'false'
         } else if (field.type === 'array' && Array.isArray(value)) {
             state[field.key] = value.join(', ')
@@ -253,6 +259,15 @@ export function listChangedFields(
         const raw = form[field.key]
         if (raw === undefined) return
 
+        const currentValue = getDeepValue<unknown>(original, field.path)
+        // Compare display units first to preserve untouched fractional precision.
+        if (
+            field.displayScale &&
+            typeof currentValue === 'number' &&
+            Number(raw) === displayScaledNumber(currentValue, field.displayScale)
+        )
+            return
+
         const parsed = parseFieldInput(field, raw)
         if (parsed === undefined) return
 
@@ -262,15 +277,18 @@ export function listChangedFields(
             if (current === null || current === undefined) return
         }
 
-        const currentValue = getDeepValue<unknown>(original, field.path)
-
         if (areEqual(parsed, currentValue, field.type)) return
 
         changes.push({
             key: field.key,
             label: field.label,
-            oldValue: displayValue(currentValue, field.type),
-            newValue: displayValue(parsed, field.type),
+            oldValue: displayValue(
+                field.displayScale && typeof currentValue === 'number'
+                    ? displayScaledNumber(currentValue, field.displayScale)
+                    : currentValue,
+                field.type,
+            ),
+            newValue: field.displayScale ? raw : displayValue(parsed, field.type),
         })
     })
 
@@ -314,6 +332,14 @@ export function buildPatch(
         const raw = form[field.key]
         if (raw === undefined) return
 
+        const currentValue = getDeepValue<unknown>(original, field.path)
+        if (
+            field.displayScale &&
+            typeof currentValue === 'number' &&
+            Number(raw) === displayScaledNumber(currentValue, field.displayScale)
+        )
+            return
+
         const parsed = parseFieldInput(field, raw)
         if (parsed === undefined) return
 
@@ -322,8 +348,6 @@ export function buildPatch(
             const current = getDeepValue<unknown>(original, field.path)
             if (current === null || current === undefined) return
         }
-
-        const currentValue = getDeepValue<unknown>(original, field.path)
 
         if (areEqual(parsed, currentValue, field.type)) return
 

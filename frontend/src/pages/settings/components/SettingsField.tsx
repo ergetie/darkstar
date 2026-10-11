@@ -312,6 +312,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                     const numField = field as any
                     return (
                         <NumberInput
+                            aria-label={field.label}
                             value={value}
                             onChange={(val) => onChange(field.key, val)}
                             disabled={isDisabled}
