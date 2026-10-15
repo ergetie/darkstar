@@ -168,10 +168,10 @@ threshold = 0.50 - (0.50 - baseline) * spread_norm  # Scales from 0.50 (low spre
 - **THEN** the threshold is approximately 0.38 SEK (no longer falls back to default 0.0)
 
 ### Requirement: Solver blocks battery discharge during EV charging
-The solver SHALL force battery discharge to zero in any slot where ANY EV charger is charging. This SHALL be enforced by introducing an auxiliary binary `any_ev_charging[t]` that is 1 when any charger's `ev_charge[d][t]` is 1, then applying the Big-M constraint: `discharge[t] <= (1 - any_ev_charging[t]) * M`, where `M = max_discharge_kw * slot_hours[t]`. The linking constraints SHALL be: `any_ev_charging[t] >= ev_charge[d][t]` for each device d, and `any_ev_charging[t] <= sum(ev_charge[d][t] for d)`. This constraint SHALL only be added when at least one EV charger is present in the solver input.
+The solver SHALL force battery discharge to zero in any slot where ANY plugged-in EV charger is charging. This SHALL be enforced by introducing an auxiliary binary `any_ev_charging[t]` that is 1 when any plugged-in charger's `ev_charge[d][t]` is 1, then applying the Big-M constraint: `discharge[t] <= (1 - any_ev_charging[t]) * M`, where `M = max_discharge_kw * slot_hours[t]`. The linking constraints SHALL be: `any_ev_charging[t] >= ev_charge[d][t]` for each plugged-in device d, and `any_ev_charging[t] <= sum(ev_charge[d][t] for plugged-in d)`. Assumed-plugged chargers SHALL be excluded from these linking constraints. This constraint SHALL only be added when at least one plugged-in EV charger is present in the solver input.
 
 #### Scenario: One of two chargers active forces zero discharge
-- **WHEN** the solver schedules charger A to charge in slot t (`ev_charge[A][t] = 1`) and charger B is idle (`ev_charge[B][t] = 0`)
+- **WHEN** the solver schedules plugged-in charger A to charge in slot t (`ev_charge[A][t] = 1`) and charger B is idle (`ev_charge[B][t] = 0`)
 - **THEN** `any_ev_charging[t]` is forced to 1
 - **AND** `discharge[t]` is forced to 0.0 by the Big-M constraint
 
@@ -184,6 +184,10 @@ The solver SHALL force battery discharge to zero in any slot where ANY EV charge
 - **WHEN** no EV chargers are present in the solver input
 - **THEN** no EV-related discharge constraint is added to the MILP model
 - **AND** solver behavior is identical to before this change
+
+#### Scenario: Only assumed-plugged chargers present
+- **WHEN** the only EV charger in the solver input is assumed plugged
+- **THEN** no EV-related discharge constraint SHALL be added to the MILP model
 
 ### Requirement: Adapter passes per-device EV configs to solver
 The planner adapter SHALL build a list of `EVChargerInput` objects from the `ev_chargers[]` config array, fetching per-device SoC and plug state from Home Assistant. Only enabled chargers SHALL be included. The adapter SHALL NOT aggregate EV chargers into a single blob.

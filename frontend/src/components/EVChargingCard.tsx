@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useId } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, Clock, PlugZap, RotateCw, Sun, Trash2, Loader2, Save, Zap } from 'lucide-react'
 import {
@@ -172,6 +172,7 @@ export default function EVChargingCard({
     const hasGoal = charger.target_soc_percent !== null
     const [manualEdit, setManualEdit] = useState(false)
     const isEditing = !hasGoal || manualEdit
+    const formId = useId()
 
     const [submitting, setSubmitting] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
@@ -350,169 +351,319 @@ export default function EVChargingCard({
                 )}
             </div>
 
-            {charger.manual_charge && (
-                <div
-                    className="flex items-center justify-between text-[10px] text-ai bg-ai/10 border border-ai/20 rounded-lg px-2 py-1 mb-3"
-                    data-testid="ev-manual-charge"
-                >
-                    <span className="flex items-center gap-1 font-medium">
-                        <Zap className="h-3 w-3" />
-                        Manual charge → {charger.manual_charge.target_soc}%
-                        {charger.manual_charge.current_a != null && ` · ${charger.manual_charge.current_a} A`}
-                    </span>
-                    <button
-                        type="button"
-                        onClick={handleStopManualCharge}
-                        disabled={stoppingManual}
-                        className="font-semibold hover:text-text disabled:opacity-50"
+            {/* Scrollable body: header above and action footer below stay visible */}
+            <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar" data-testid="ev-card-body">
+                {charger.manual_charge && (
+                    <div
+                        className="flex items-center justify-between text-[10px] text-ai bg-ai/10 border border-ai/20 rounded-lg px-2 py-1 mb-3"
+                        data-testid="ev-manual-charge"
                     >
-                        Stop
-                    </button>
-                </div>
-            )}
-
-            {charger.disabled_reason && (
-                <p
-                    className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
-                    data-testid="ev-disabled-reason"
-                    role="status"
-                >
-                    Planning disabled: {charger.disabled_reason}
-                </p>
-            )}
-
-            {!isEditing && replanFailed && (
-                <p
-                    className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3 flex items-center gap-1"
-                    data-testid="ev-replan-failed"
-                    role="status"
-                >
-                    <AlertTriangle className="h-3 w-3" />
-                    Re-plan failed — showing last plan
-                </p>
-            )}
-
-            {!isEditing && awaitingPlugIn && (
-                <p
-                    className="text-[10px] text-accent bg-accent/10 border border-accent/20 rounded-lg px-2 py-1 mb-3 flex items-center gap-1"
-                    data-testid="ev-awaiting-plug-in"
-                >
-                    <PlugZap className="h-3 w-3" />
-                    {plannedStart
-                        ? `Planned from ${plannedStart} — plug in the car`
-                        : 'Charging planned — plug in the car'}
-                </p>
-            )}
-
-            {!isEditing && !planPending && socUnavailableText && (
-                <p
-                    className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
-                    data-testid="ev-soc-unavailable"
-                    role="status"
-                >
-                    {socUnavailableText}
-                </p>
-            )}
-
-            {!isEditing && !planPending && shortfallText && (
-                <p
-                    className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
-                    data-testid="ev-shortfall"
-                >
-                    {shortfallText}
-                </p>
-            )}
-
-            {isEditing ? (
-                /* Configure Schedule Form */
-                <form onSubmit={handleSave} className="space-y-3 pt-1">
-                    {formError && (
-                        <div className="text-[10px] text-bad bg-bad/10 p-2 rounded-lg border border-bad/20">
-                            {formError}
-                        </div>
-                    )}
-
-                    {/* Target SoC Slider */}
-                    <div>
-                        <div className="flex justify-between text-[10px] font-medium mb-1">
-                            <span className="text-text">Target SoC</span>
-                            <span className="text-accent">{targetSoc}%</span>
-                        </div>
-                        <input
-                            type="range"
-                            min="10"
-                            max="100"
-                            step="5"
-                            value={targetSoc}
-                            onChange={(e) => setTargetSoc(parseInt(e.target.value))}
-                            className="w-full accent-accent h-1 bg-surface-elevated rounded-lg cursor-pointer"
-                        />
-                    </div>
-
-                    {/* Time & Repeat inputs in grid */}
-                    <div className="grid grid-cols-2 gap-2">
-                        <div>
-                            <label className="block text-[9px] text-muted mb-1 font-medium">Ready By</label>
-                            <input
-                                type="time"
-                                value={readyBy}
-                                onChange={(e) => setReadyBy(e.target.value)}
-                                className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-[9px] text-muted mb-1 font-medium">Repeat</label>
-                            <select
-                                value={repeat}
-                                onChange={(e) => setRepeat(e.target.value)}
-                                className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
-                            >
-                                <option value="none">Once</option>
-                                <option value="daily">Daily</option>
-                                <option value="weekdays">Weekdays</option>
-                                <option value="weekends">Weekends</option>
-                                <option value="every_n_days">Every N Days</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    {/* Conditional Repeat Settings */}
-                    {repeat === 'none' && (
-                        <div>
-                            <label className="block text-[9px] text-muted mb-1 font-medium">Date</label>
-                            <input
-                                type="date"
-                                value={readyByDate}
-                                onChange={(e) => setReadyByDate(e.target.value)}
-                                className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
-                            />
-                        </div>
-                    )}
-
-                    {repeat === 'every_n_days' && (
-                        <div>
-                            <label className="block text-[9px] text-muted mb-1 font-medium">Interval (Days)</label>
-                            <input
-                                type="number"
-                                min="2"
-                                max="7"
-                                value={nDays}
-                                onChange={(e) => setNDays(parseInt(e.target.value) || 2)}
-                                className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
-                            />
-                        </div>
-                    )}
-
-                    {/* Keep charger on after target — works at any target SoC */}
-                    <div className="flex items-center gap-2 pt-1" data-testid="ev-keep-on-toggle">
-                        <Switch checked={keepOn} onCheckedChange={(checked) => setKeepOn(checked)} />
-                        <span className="text-[10px] text-text font-normal">
-                            Keep charger enabled after target SoC is met
+                        <span className="flex items-center gap-1 font-medium">
+                            <Zap className="h-3 w-3" />
+                            Manual charge → {charger.manual_charge.target_soc}%
+                            {charger.manual_charge.current_a != null && ` · ${charger.manual_charge.current_a} A`}
                         </span>
+                        <button
+                            type="button"
+                            onClick={handleStopManualCharge}
+                            disabled={stoppingManual}
+                            className="font-semibold hover:text-text disabled:opacity-50"
+                        >
+                            Stop
+                        </button>
                     </div>
+                )}
 
-                    {/* Form Actions */}
-                    <div className="flex gap-2 pt-1">
+                {charger.disabled_reason && (
+                    <p
+                        className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
+                        data-testid="ev-disabled-reason"
+                        role="status"
+                    >
+                        Planning disabled: {charger.disabled_reason}
+                    </p>
+                )}
+
+                {!isEditing && replanFailed && (
+                    <p
+                        className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3 flex items-center gap-1"
+                        data-testid="ev-replan-failed"
+                        role="status"
+                    >
+                        <AlertTriangle className="h-3 w-3" />
+                        Re-plan failed — showing last plan
+                    </p>
+                )}
+
+                {!isEditing && awaitingPlugIn && (
+                    <p
+                        className="text-[10px] text-accent bg-accent/10 border border-accent/20 rounded-lg px-2 py-1 mb-3 flex items-center gap-1"
+                        data-testid="ev-awaiting-plug-in"
+                    >
+                        <PlugZap className="h-3 w-3" />
+                        {plannedStart
+                            ? `Planned from ${plannedStart} — plug in the car. No effect on the house battery while away.`
+                            : 'Charging planned — plug in the car. No effect on the house battery while away.'}
+                    </p>
+                )}
+
+                {!isEditing && !planPending && socUnavailableText && (
+                    <p
+                        className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
+                        data-testid="ev-soc-unavailable"
+                        role="status"
+                    >
+                        {socUnavailableText}
+                    </p>
+                )}
+
+                {!isEditing && !planPending && shortfallText && (
+                    <p
+                        className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
+                        data-testid="ev-shortfall"
+                    >
+                        {shortfallText}
+                    </p>
+                )}
+
+                {isEditing ? (
+                    /* Configure Schedule Form */
+                    <form id={formId} onSubmit={handleSave} className="space-y-3 pt-1">
+                        {formError && (
+                            <div className="text-[10px] text-bad bg-bad/10 p-2 rounded-lg border border-bad/20">
+                                {formError}
+                            </div>
+                        )}
+
+                        {/* Target SoC Slider */}
+                        <div>
+                            <div className="flex justify-between text-[10px] font-medium mb-1">
+                                <span className="text-text">Target SoC</span>
+                                <span className="text-accent">{targetSoc}%</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="10"
+                                max="100"
+                                step="5"
+                                value={targetSoc}
+                                onChange={(e) => setTargetSoc(parseInt(e.target.value))}
+                                className="w-full accent-accent h-1 bg-surface-elevated rounded-lg cursor-pointer"
+                            />
+                        </div>
+
+                        {/* Time & Repeat inputs in grid */}
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="block text-[9px] text-muted mb-1 font-medium">Ready By</label>
+                                <input
+                                    type="time"
+                                    value={readyBy}
+                                    onChange={(e) => setReadyBy(e.target.value)}
+                                    className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[9px] text-muted mb-1 font-medium">Repeat</label>
+                                <select
+                                    value={repeat}
+                                    onChange={(e) => setRepeat(e.target.value)}
+                                    className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
+                                >
+                                    <option value="none">Once</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekdays">Weekdays</option>
+                                    <option value="weekends">Weekends</option>
+                                    <option value="every_n_days">Every N Days</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Conditional Repeat Settings */}
+                        {repeat === 'none' && (
+                            <div>
+                                <label className="block text-[9px] text-muted mb-1 font-medium">Date</label>
+                                <input
+                                    type="date"
+                                    value={readyByDate}
+                                    onChange={(e) => setReadyByDate(e.target.value)}
+                                    className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
+                                />
+                            </div>
+                        )}
+
+                        {repeat === 'every_n_days' && (
+                            <div>
+                                <label className="block text-[9px] text-muted mb-1 font-medium">Interval (Days)</label>
+                                <input
+                                    type="number"
+                                    min="2"
+                                    max="7"
+                                    value={nDays}
+                                    onChange={(e) => setNDays(parseInt(e.target.value) || 2)}
+                                    className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
+                                />
+                            </div>
+                        )}
+
+                        {/* Keep charger on after target — works at any target SoC */}
+                        <div className="flex items-center gap-2 pt-1" data-testid="ev-keep-on-toggle">
+                            <Switch checked={keepOn} onCheckedChange={(checked) => setKeepOn(checked)} />
+                            <span className="text-[10px] text-text font-normal">
+                                Keep charger enabled after target SoC is met
+                            </span>
+                        </div>
+                    </form>
+                ) : (
+                    /* Viewing Active Goal */
+                    <div className="flex flex-col gap-3">
+                        {planPending ? (
+                            <p className="text-[10px] text-muted italic" data-testid="ev-replanning-note">
+                                Updating the plan for this goal…
+                            </p>
+                        ) : (
+                            <div
+                                className={`space-y-3 ${replanFailed ? 'opacity-60' : ''}`}
+                                data-testid="ev-plan-values"
+                            >
+                                {/* Visual Progress Bar (delivered_kwh / required_kwh) */}
+                                <div className="space-y-1">
+                                    <div className="flex justify-between text-[9px] text-muted font-medium">
+                                        <span>Delivered: {delivered.toFixed(1)} kWh</span>
+                                        <span>
+                                            Target: {required.toFixed(1)} kWh ({progressPercent}% of goal)
+                                        </span>
+                                    </div>
+                                    <div className="h-1.5 w-full bg-line/20 rounded-full relative overflow-hidden">
+                                        <div
+                                            className="h-full bg-ev rounded-full animate-pulse"
+                                            style={{ width: `${progressPercent}%` }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Quota schedule summary */}
+                                {charger.delivered_kwh !== null && charger.required_kwh !== null && (
+                                    <div className="flex justify-between text-[10px] bg-surface-elevated p-2 rounded-lg border border-line/10">
+                                        <div>
+                                            <span className="text-muted text-[9px] block">Delivered Today</span>
+                                            <span className="font-semibold text-text">
+                                                {(charger.delivered_kwh ?? 0).toFixed(1)} kWh
+                                            </span>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="text-muted text-[9px] block">Remaining Need</span>
+                                            <span className="font-semibold text-accent">
+                                                {charger.remaining_kwh !== null
+                                                    ? `${(charger.remaining_kwh ?? 0).toFixed(1)} kWh`
+                                                    : '—'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Schedule and Repeat Info */}
+                        <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] text-muted font-medium pt-1">
+                            <div className="flex items-center gap-1">
+                                <Clock className="h-3 w-3 text-accent" />
+                                <span>{readyBy}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <RotateCw className="h-3 w-3 text-accent" />
+                                <span className="capitalize">
+                                    {repeat === 'every_n_days'
+                                        ? `Every ${nDays} Days`
+                                        : repeat === 'none'
+                                          ? `Once (${readyByDate})`
+                                          : repeat}
+                                </span>
+                            </div>
+                            {keepOn && (
+                                <div className="flex items-center gap-1 text-good">
+                                    <span className="h-1 w-1 rounded-full bg-good" />
+                                    <span>Keep enabled</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Planned per-day estimate (known vs forecast-based) */}
+                        {!planPending && charger.planned_by_day && charger.planned_by_day.length > 0 && (
+                            <div className={`pt-1 border-t border-line/10 ${replanFailed ? 'opacity-60' : ''}`}>
+                                <div className="text-[9px] text-muted font-medium mb-1">
+                                    Planned per day{replanFailed && ' (last plan)'}
+                                </div>
+                                <div className="flex gap-2 overflow-x-auto pb-0.5 custom-scrollbar">
+                                    {charger.planned_by_day.map((day) => {
+                                        const d = parseLocalISODate(day.date)
+                                        const dayName = d.toLocaleDateString([], { weekday: 'short' })
+                                        const isToday = day.date === toLocalISODate(new Date())
+                                        const estimated = day.basis === 'estimated'
+                                        return (
+                                            <div
+                                                key={day.date}
+                                                data-testid={`planned-day-${day.date}`}
+                                                data-basis={day.basis}
+                                                title={
+                                                    estimated
+                                                        ? 'Estimate based on forecast prices — updates as prices are published'
+                                                        : 'Planned on published prices'
+                                                }
+                                                className={`p-1.5 rounded-lg border text-center min-w-[45px] ${
+                                                    isToday
+                                                        ? 'bg-accent/10 border-accent/30 text-accent'
+                                                        : 'bg-surface-elevated border-line/20 text-muted'
+                                                } ${estimated ? 'opacity-60 border-dashed' : ''}`}
+                                            >
+                                                <span className="text-[8px] uppercase block font-semibold">
+                                                    {dayName}
+                                                </span>
+                                                <span className="text-[10px] font-mono font-bold block">
+                                                    {day.kwh.toFixed(1)}
+                                                </span>
+                                                {estimated && <span className="text-[8px] block italic">est.</span>}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Surplus PV Hint (Decision 7) */}
+                        {charger.type === 'current' ? (
+                            isSurplusPriority ? (
+                                <div className="text-[9px] text-good bg-good/10 p-2 rounded-lg border border-good/30 flex items-center gap-1">
+                                    <Sun className="h-3 w-3 animate-spin-slow" />
+                                    <span>Charges from surplus PV when available</span>
+                                </div>
+                            ) : (
+                                <div className="text-[9px] text-warn bg-warn/10 p-2 rounded-lg border border-warn/30 flex items-start gap-1">
+                                    <span>⚠️</span>
+                                    <div>
+                                        Surplus absorption off —{' '}
+                                        <Link
+                                            to="/settings?tab=advanced&field=executor.excess_pv.priority"
+                                            className="text-accent hover:underline font-semibold"
+                                        >
+                                            add this charger to Excess PV priority
+                                        </Link>
+                                    </div>
+                                </div>
+                            )
+                        ) : (
+                            <div className="text-[9px] text-muted bg-surface-elevated p-2 rounded-lg border border-line/10">
+                                ℹ️ Binary chargers can't absorb surplus — set up a current-type charger to use free PV.
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {/* Action footer: never shrinks, always visible */}
+            <div className="shrink-0 pt-2" data-testid="ev-card-footer">
+                {isEditing ? (
+                    <div className="flex gap-2">
                         {hasGoal && (
                             <button
                                 type="button"
@@ -524,6 +675,7 @@ export default function EVChargingCard({
                         )}
                         <button
                             type="submit"
+                            form={formId}
                             disabled={submitting}
                             className="flex-1 bg-accent hover:bg-accent2 text-on-accent py-1 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
                         >
@@ -537,147 +689,8 @@ export default function EVChargingCard({
                             )}
                         </button>
                     </div>
-                </form>
-            ) : (
-                /* Viewing Active Goal */
-                <div className="flex-1 flex flex-col gap-3">
-                    {planPending ? (
-                        <p className="text-[10px] text-muted italic" data-testid="ev-replanning-note">
-                            Updating the plan for this goal…
-                        </p>
-                    ) : (
-                        <div className={`space-y-3 ${replanFailed ? 'opacity-60' : ''}`} data-testid="ev-plan-values">
-                            {/* Visual Progress Bar (delivered_kwh / required_kwh) */}
-                            <div className="space-y-1">
-                                <div className="flex justify-between text-[9px] text-muted font-medium">
-                                    <span>Delivered: {delivered.toFixed(1)} kWh</span>
-                                    <span>
-                                        Target: {required.toFixed(1)} kWh ({progressPercent}% of goal)
-                                    </span>
-                                </div>
-                                <div className="h-1.5 w-full bg-line/20 rounded-full relative overflow-hidden">
-                                    <div
-                                        className="h-full bg-ev rounded-full animate-pulse"
-                                        style={{ width: `${progressPercent}%` }}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Quota schedule summary */}
-                            {charger.delivered_kwh !== null && charger.required_kwh !== null && (
-                                <div className="flex justify-between text-[10px] bg-surface-elevated p-2 rounded-lg border border-line/10">
-                                    <div>
-                                        <span className="text-muted text-[9px] block">Delivered Today</span>
-                                        <span className="font-semibold text-text">
-                                            {(charger.delivered_kwh ?? 0).toFixed(1)} kWh
-                                        </span>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="text-muted text-[9px] block">Remaining Need</span>
-                                        <span className="font-semibold text-accent">
-                                            {charger.remaining_kwh !== null
-                                                ? `${(charger.remaining_kwh ?? 0).toFixed(1)} kWh`
-                                                : '—'}
-                                        </span>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Schedule and Repeat Info */}
-                    <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] text-muted font-medium pt-1">
-                        <div className="flex items-center gap-1">
-                            <Clock className="h-3 w-3 text-accent" />
-                            <span>{readyBy}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                            <RotateCw className="h-3 w-3 text-accent" />
-                            <span className="capitalize">
-                                {repeat === 'every_n_days'
-                                    ? `Every ${nDays} Days`
-                                    : repeat === 'none'
-                                      ? `Once (${readyByDate})`
-                                      : repeat}
-                            </span>
-                        </div>
-                        {keepOn && (
-                            <div className="flex items-center gap-1 text-good">
-                                <span className="h-1 w-1 rounded-full bg-good" />
-                                <span>Keep enabled</span>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Planned per-day estimate (known vs forecast-based) */}
-                    {!planPending && charger.planned_by_day && charger.planned_by_day.length > 0 && (
-                        <div className={`pt-1 border-t border-line/10 ${replanFailed ? 'opacity-60' : ''}`}>
-                            <div className="text-[9px] text-muted font-medium mb-1">
-                                Planned per day{replanFailed && ' (last plan)'}
-                            </div>
-                            <div className="flex gap-2 overflow-x-auto pb-0.5 custom-scrollbar">
-                                {charger.planned_by_day.map((day) => {
-                                    const d = parseLocalISODate(day.date)
-                                    const dayName = d.toLocaleDateString([], { weekday: 'short' })
-                                    const isToday = day.date === toLocalISODate(new Date())
-                                    const estimated = day.basis === 'estimated'
-                                    return (
-                                        <div
-                                            key={day.date}
-                                            data-testid={`planned-day-${day.date}`}
-                                            data-basis={day.basis}
-                                            title={
-                                                estimated
-                                                    ? 'Estimate based on forecast prices — updates as prices are published'
-                                                    : 'Planned on published prices'
-                                            }
-                                            className={`p-1.5 rounded-lg border text-center min-w-[45px] ${
-                                                isToday
-                                                    ? 'bg-accent/10 border-accent/30 text-accent'
-                                                    : 'bg-surface-elevated border-line/20 text-muted'
-                                            } ${estimated ? 'opacity-60 border-dashed' : ''}`}
-                                        >
-                                            <span className="text-[8px] uppercase block font-semibold">{dayName}</span>
-                                            <span className="text-[10px] font-mono font-bold block">
-                                                {day.kwh.toFixed(1)}
-                                            </span>
-                                            {estimated && <span className="text-[8px] block italic">est.</span>}
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Surplus PV Hint (Decision 7) */}
-                    {charger.type === 'current' ? (
-                        isSurplusPriority ? (
-                            <div className="text-[9px] text-good bg-good/10 p-2 rounded-lg border border-good/30 flex items-center gap-1">
-                                <Sun className="h-3 w-3 animate-spin-slow" />
-                                <span>Charges from surplus PV when available</span>
-                            </div>
-                        ) : (
-                            <div className="text-[9px] text-warn bg-warn/10 p-2 rounded-lg border border-warn/30 flex items-start gap-1">
-                                <span>⚠️</span>
-                                <div>
-                                    Surplus absorption off —{' '}
-                                    <Link
-                                        to="/settings?tab=advanced&field=executor.excess_pv.priority"
-                                        className="text-accent hover:underline font-semibold"
-                                    >
-                                        add this charger to Excess PV priority
-                                    </Link>
-                                </div>
-                            </div>
-                        )
-                    ) : (
-                        <div className="text-[9px] text-muted bg-surface-elevated p-2 rounded-lg border border-line/10">
-                            ℹ️ Binary chargers can't absorb surplus — set up a current-type charger to use free PV.
-                        </div>
-                    )}
-
-                    {/* Action buttons */}
-                    <div className="flex gap-2 pt-1 mt-auto">
+                ) : (
+                    <div className="flex gap-2">
                         <button
                             onClick={handleClear}
                             disabled={submitting}
@@ -693,8 +706,8 @@ export default function EVChargingCard({
                             Configure Goal
                         </button>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     )
 }

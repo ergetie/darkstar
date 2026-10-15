@@ -158,6 +158,10 @@ class KeplerSolver:
             c for c in config.ev_chargers if c.plugged_in or c.assumed_plugged
         ]
         ev_any_enabled: bool = len(plugged_chargers) > 0
+        # Only live-plugged chargers block battery discharge. An away car's plan
+        # is a preview and must not idle the house battery.
+        live_plugged_ids: list[str] = [c.id for c in plugged_chargers if c.plugged_in]
+        ev_block_discharge: bool = len(live_plugged_ids) > 0
 
         # Per-device indexed variables: ev_charge[device_id][t], ev_energy[device_id][t]
         # dict[charger_id -> dict[t -> lp_var]]
@@ -188,9 +192,9 @@ class KeplerSolver:
             if charger.required_kwh is not None and effective_deadline is not None:
                 ev_shortfall[d] = pulp.LpVariable(f"ev_shortfall_{safe_d}_kwh", lowBound=0.0)
 
-        # any_ev_charging[t]: auxiliary binary - 1 if ANY charger is active in slot t
+        # any_ev_charging[t]: auxiliary binary - 1 if ANY live-plugged charger is active in slot t
         any_ev_charging: dict[int, Any]
-        if ev_any_enabled:
+        if ev_block_discharge:
             any_ev_charging = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
                 "any_ev_charging", range(T), cat="Binary"
             )
@@ -489,12 +493,11 @@ class KeplerSolver:
                 prob += ev_energy[d][t] <= grid_import[t] + s.pv_kwh + 1e-6
 
             # any_ev_charging[t] linking constraints
-            if ev_any_enabled:
-                for charger in plugged_chargers:
-                    d = charger.id
+            if ev_block_discharge:
+                for d in live_plugged_ids:
                     prob += any_ev_charging[t] >= ev_charge[d][t]
-                prob += any_ev_charging[t] <= pulp.lpSum(ev_charge[d][t] for d in ev_charge)
-                # Discharge blocking: block when any charger active
+                prob += any_ev_charging[t] <= pulp.lpSum(ev_charge[d][t] for d in live_plugged_ids)
+                # Discharge blocking: block when any live-plugged charger active
                 M_discharge = config.max_discharge_power_kw * h
                 prob += discharge[t] <= (1 - any_ev_charging[t]) * M_discharge
 

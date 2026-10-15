@@ -123,7 +123,9 @@ describe('EVChargingCard awaiting plug-in', () => {
     it('shows the planned start and a plug-in hint when assumed plugged', () => {
         const start = new Date(2026, 8, 25, 22, 0).toISOString()
         renderCard(charger({ plugged_in: false, status: 'idle', assumed_plugged: true, planned_start: start }))
-        expect(screen.getByTestId('ev-awaiting-plug-in')).toHaveTextContent('Planned from 22:00 — plug in the car')
+        expect(screen.getByTestId('ev-awaiting-plug-in')).toHaveTextContent(
+            'Planned from 22:00 — plug in the car. No effect on the house battery while away.',
+        )
     })
 
     it('shows no hint when not assumed plugged', () => {

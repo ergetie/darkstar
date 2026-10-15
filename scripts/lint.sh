@@ -5,6 +5,9 @@ set -euo pipefail
 # pyproject.toml [tool.uv] package = false).
 export UV_NO_SYNC=1
 
+# Date-sensitive tests assume the installation's local time.
+export TZ=Europe/Stockholm
+
 echo "🔍 Running Ruff linter (auto-fix)..."
 uv run ruff check --fix .
 

@@ -337,3 +337,28 @@ describe('EVChargingCard keep-on after target (ev-target-charging)', () => {
         )
     })
 })
+
+describe('EVChargingCard action footer (ev-car-away)', () => {
+    it('renders Clear and Configure Goal in a footer outside the scrollable body', () => {
+        renderCard(baseCharger())
+        const body = screen.getByTestId('ev-card-body')
+        const footer = screen.getByTestId('ev-card-footer')
+        expect(body.className).toMatch(/overflow-y-auto/)
+        expect(body.className).toMatch(/min-h-0/)
+        expect(footer.className).toMatch(/shrink-0/)
+        expect(footer).toContainElement(screen.getByText('Clear Goal'))
+        expect(footer).toContainElement(screen.getByText('Configure Goal'))
+        expect(body).not.toContainElement(screen.getByText('Configure Goal'))
+    })
+
+    it('renders Save and Cancel in the footer while the form fields stay in the body', () => {
+        renderCard(baseCharger())
+        fireEvent.click(screen.getByText('Configure Goal'))
+        const body = screen.getByTestId('ev-card-body')
+        const footer = screen.getByTestId('ev-card-footer')
+        expect(footer).toContainElement(screen.getByText('Save Goal'))
+        expect(footer).toContainElement(screen.getByText('Cancel'))
+        expect(body).not.toContainElement(screen.getByText('Save Goal'))
+        expect(body).toContainElement(screen.getByText('Target SoC'))
+    })
+})

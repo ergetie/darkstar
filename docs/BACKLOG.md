@@ -77,11 +77,13 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Found 2026-10-06 (cmon89): `forecasting.pv_confidence_percent` was 60 while Reflex only moves it within 70–120 (`backend/learning/reflex.py:22`) and his forecasts were 96 % accurate over 30 days (PV 938 actual vs 905 forecast). Nothing warned him. A replay estimated 60 % vs 83 % at ~53 kr over 25 days. His `learning.max_daily_param_change.pv_confidence_percent` was also 60 (default 1.0). Must cover every Reflex-tuned parameter (bounds table in `reflex.py`) and similar settings, e.g. max-daily-change values far from defaults. Harmless leftovers (e.g. an enabled `water_heaters` entry with `has_water_heater: false`, which the planner ignores) get at most a one-time info note, not a warning.
 
-#### [Forecasting] Systematic PV Over-Forecast In Summer
+#### [Forecasting] Systematic PV Over-Forecast
 
 **Goal:** Find and remove the cause of the PV forecast being consistently too high, instead of relying on `pv_confidence_percent` to hide it.
 
 **Notes:** Found 2026-10-11 on the maintainer's prod (last-written aurora forecast vs recorded PV): bias +15 % Apr, +22 % May, +20 % Jun, +18 % Jul, +33 % Aug, +12 % Sep; also on clear days (median +14 %). Load is fine (−1 to −7 %). Raw Open-Meteo is +38–70 %, so Aurora already halves it; the prod setting `pv_confidence_percent: 83` removes most of the rest. Not clipping (max ~5.7 kW vs 8 kW inverter). Unchecked: whether a PV string/branch is missing from recorded `pv_kwh` (peak is only ~57 % of 10.08 kWp), array parameters, shading. **(needs production data)**
+
+Update 2026-10-15 (Discord triage, Kristofer and youask report too-high forecasts causing grid buying): over 30 days (Sep 15 – Oct 14) the median day ratio actual/forecast is ~0.88 and 9 of 30 days missed by more than 30 % (mostly too high). An intraday correction from today's measured PV was tested and rejected for now: only 10–25 % less rest-of-day error, worse in ~25 % of cases and before 09:00. Fix the bias at the source instead. Unchecked: zero-export curtailment when the battery is full lowers recorded PV and may bias any actual-vs-forecast comparison. Only the latest forecast per slot is stored (`slot_forecasts` upsert); as-issued forecasts exist only in `planner_debug` (from 2026-10-06).
 
 #### [Settings] Unused And Misleading Battery Power Settings
 
