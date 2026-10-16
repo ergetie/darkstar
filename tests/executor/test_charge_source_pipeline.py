@@ -68,7 +68,7 @@ async def test_solver_charging_source_reaches_profile_actions(
     assert slot.charge_kw == pytest.approx(3.0)
     assert slot.grid_charge_kw == pytest.approx(grid_import_kwh * 4)
     decision = Controller(config.controller, config.inverter, profile=profile).decide(
-        slot, SystemState(current_soc_percent=50.0)
+        slot, SystemState(current_soc_percent=40.0)
     )
     assert decision.mode_intent == expected_mode
 

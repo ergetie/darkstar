@@ -338,6 +338,9 @@ class ExecutorConfig:
     timezone: str = "Europe/Stockholm"
     pause_reminder_minutes: int = 30  # Send notification after N minutes paused
     max_schedule_age_hours: int = 6  # Reject stale schedules older than this
+    # Replan when live SoC deviates from the plan by more than this many points
+    # for 5 minutes. 0 disables.
+    soc_deviation_replan_percent: float = 10.0
 
     # System profile toggles (Rev O1)
     has_solar: bool = True
@@ -407,6 +410,9 @@ def _ranged_number(raw: Any, key: str, valid: tuple[float, float], default: floa
         return float(default)
     return value
 
+
+SOC_DEVIATION_REPLAN_RANGE: tuple[float, float] = (0.0, 50.0)
+SOC_DEVIATION_REPLAN_DEFAULT = 10.0
 
 EV_PLUG_IN_REMINDER_MINUTES_RANGE: tuple[int, int] = (1, 1440)
 
@@ -1087,6 +1093,12 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         timezone=timezone,
         pause_reminder_minutes=int(executor_data.get("pause_reminder_minutes", 30)),
         max_schedule_age_hours=int(executor_data.get("max_schedule_age_hours", 6)),
+        soc_deviation_replan_percent=_ranged_number(
+            executor_data.get("soc_deviation_replan_percent", SOC_DEVIATION_REPLAN_DEFAULT),
+            "soc_deviation_replan_percent",
+            SOC_DEVIATION_REPLAN_RANGE,
+            SOC_DEVIATION_REPLAN_DEFAULT,
+        ),
         has_solar=has_solar,
         has_battery=has_battery,
         has_water_heater=has_water_heater,

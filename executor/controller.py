@@ -28,6 +28,34 @@ from .profiles import InverterProfile
 
 logger = logging.getLogger(__name__)
 
+# Fixed margin (percentage points) shared by the charge-target latch and the
+# hold margin (battery-plan-tracking D1/D2).
+SOC_TRACKING_MARGIN = 2
+
+CHARGE_TARGET_REASON = "charge target reached, holding"
+HOLD_MARGIN_REASON = "hold margin used, blocking discharge"
+
+
+@dataclass
+class BatteryPlanState:
+    """Per-block runtime state for charge-target latch and hold margin.
+
+    Owned by the executor and passed to the controller on each tick. A block is
+    identified by its kind and soc_target; any tick that is neither a grid-charge
+    nor a hold slot (or has a different target) starts a fresh block.
+    """
+
+    kind: str | None = None  # "charge" | "hold"
+    target: int | None = None
+    latched: bool = False  # charge: stopped at target / hold: discharge blocked
+
+    def enter(self, kind: str | None, target: int | None) -> None:
+        """Reset the latch when the block changes."""
+        if self.kind != kind or self.target != target:
+            self.kind = kind
+            self.target = target
+            self.latched = False
+
 
 @dataclass
 class ControllerDecision:
@@ -86,7 +114,9 @@ class Controller:
         water_heater_config: WaterHeaterGlobalConfig | None = None,
         water_heater_devices: list[WaterHeaterDeviceConfig] | None = None,
         profile: InverterProfile | None = None,
+        plan_state: BatteryPlanState | None = None,
     ):
+        self.plan_state = plan_state if plan_state is not None else BatteryPlanState()
         self.config = config
         self.inverter_config = inverter_config
         self.water_heater_config = water_heater_config or WaterHeaterGlobalConfig()
@@ -124,6 +154,7 @@ class Controller:
         override: OverrideResult,
     ) -> ControllerDecision:
         """Apply override actions instead of plan using 4 mode intents."""
+        self.plan_state.enter(None, None)
         actions = override.actions or {}
 
         # Determine mode intent from override type
@@ -207,33 +238,51 @@ class Controller:
         # PV surplus vs battery export distinction:
         # - Battery export: discharge_kw > 0 (battery actively discharging to grid)
         # - PV surplus: discharge_kw == 0, charge_kw > 0 (excess PV exports while charging)
+        note: str | None = None
+        live_soc = round(state.current_soc_percent)
+        ev_isolating = slot.discharge_kw == 0 and (
+            slot.ev_charging_kw > 0.1 or any(slot.ev_keep_on.values())
+        )
         if slot.export_kw > 0 and slot.discharge_kw > 0:
             # Battery discharge to grid - use export mode
+            self.plan_state.enter(None, None)
             mode_intent = "export"
         elif slot.charge_kw > 0 and grid_charge_planned:
-            # Enable grid charging only when the plan calls for it.
-            mode_intent = "charge"
+            # Enable grid charging only while below the planned target
+            # (battery-plan-tracking D1); latch per charge block.
+            self.plan_state.enter("charge", slot.soc_target)
+            mode_intent = self._grid_charge_or_hold(live_soc, slot.soc_target)
+            if mode_intent == "idle":
+                note = CHARGE_TARGET_REASON
         elif slot.charge_kw > 0:
             # Solar charging can consume all surplus, with zero grid export.
+            self.plan_state.enter(None, None)
             mode_intent = "self_consumption"
-        elif round(state.current_soc_percent) <= slot.soc_target:
-            # At or below SoC target - use idle to hold battery
-            # Round current SoC to integer for consistent comparison with plan target
+        elif ev_isolating:
+            # REV F76 Phase 3: EV charging active - idle prevents any battery
+            # discharge to EV. keep_on-only slots (no planned kW) get the same
+            # treatment (design D4). Takes precedence over the hold margin.
+            self.plan_state.enter(None, None)
             mode_intent = "idle"
-        elif slot.discharge_kw == 0 and (
-            slot.ev_charging_kw > 0.1 or any(slot.ev_keep_on.values())
-        ):
-            # REV F76 Phase 3: EV charging active - use idle instead of self_consumption
-            # to prevent any battery discharge to EV. keep_on-only slots (no
-            # planned kW) get the same treatment — the car may start drawing
-            # at any moment (design D4).
+        elif slot.discharge_kw == 0 and not slot.discharge_blocked_by_ev:
+            # Hold slot: 2-point margin below the target (battery-plan-tracking D2).
+            self.plan_state.enter("hold", slot.soc_target)
+            mode_intent = self._hold_mode(live_soc, slot.soc_target)
+            if mode_intent == "idle":
+                note = HOLD_MARGIN_REASON
+        elif live_soc <= slot.soc_target:
+            # Discharge slot at its floor (or EV-isolated) - idle to hold battery
+            self.plan_state.enter(None, None)
             mode_intent = "idle"
         else:
-            # Above SoC target - use self_consumption
+            self.plan_state.enter(None, None)
             mode_intent = "self_consumption"
 
         # Calculate charge/discharge values
-        charge_value, write_charge = self._calculate_charge_limit(slot, state)
+        if note == CHARGE_TARGET_REASON:
+            charge_value, write_charge = 0.0, False
+        else:
+            charge_value, write_charge = self._calculate_charge_limit(slot, state)
         discharge_value, write_discharge = self._calculate_discharge_limit(slot, state)
 
         # Planned grid export power (kW to W)
@@ -272,6 +321,8 @@ class Controller:
             write_charge = True
 
         reason = self._generate_reason(slot, mode_intent)
+        if note:
+            reason = f"{reason} | {note}"
 
         return ControllerDecision(
             mode_intent=mode_intent,
@@ -290,6 +341,32 @@ class Controller:
             source="plan",
             reason=reason,
         )
+
+    def _grid_charge_or_hold(self, live_soc: int, target: int) -> str:
+        """Charge below target; hold from target until SoC is 2 points below it."""
+        st = self.plan_state
+        if st.latched:
+            if live_soc <= target - SOC_TRACKING_MARGIN:
+                st.latched = False
+                return "charge"
+            return "idle"
+        if live_soc >= target:
+            st.latched = True
+            return "idle"
+        return "charge"
+
+    def _hold_mode(self, live_soc: int, target: int) -> str:
+        """Self-consumption until SoC is 2 points below target; block until back at target."""
+        st = self.plan_state
+        if st.latched:
+            if live_soc >= target:
+                st.latched = False
+                return "self_consumption"
+            return "idle"
+        if live_soc <= target - SOC_TRACKING_MARGIN:
+            st.latched = True
+            return "idle"
+        return "self_consumption"
 
     def _calculate_charge_limit(self, slot: SlotPlan, state: SystemState) -> tuple[float, bool]:
         """
@@ -412,6 +489,7 @@ def make_decision(
     water_heater_config: WaterHeaterGlobalConfig | None = None,
     water_heater_devices: list[WaterHeaterDeviceConfig] | None = None,
     profile: InverterProfile | None = None,
+    plan_state: BatteryPlanState | None = None,
 ) -> ControllerDecision:
     """
     Convenience function to make a controller decision.
@@ -425,5 +503,6 @@ def make_decision(
         water_heater_config,
         water_heater_devices,
         profile,
+        plan_state,
     )
     return controller.decide(slot, state, override)

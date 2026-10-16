@@ -46,6 +46,7 @@ class ReplanReason(StrEnum):
     GOAL_CHANGE = "goal_change"
     LOAD_BALANCER = "load_balancer"
     SOC_RECOVERED = "ev_soc_recovered"
+    SOC_DEVIATION = "soc_deviation"
 
 
 @dataclass

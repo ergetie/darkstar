@@ -87,7 +87,7 @@ class TestWattControl:
     def test_decision_includes_unit(self, controller_w):
         """Verify decision includes correct control unit."""
         slot = SlotPlan(charge_kw=2.0)
-        state = SystemState()
+        state = SystemState(current_soc_percent=30.0)
         decision = controller_w.decide(slot, state)
 
         assert decision.control_unit == "W"

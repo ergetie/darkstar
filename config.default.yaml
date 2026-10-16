@@ -397,6 +397,7 @@ executor:
   pause_reminder_minutes: 30                     # Notify if paused longer than this
   history_retention_days: 30                     # Keep execution history for N days
   max_schedule_age_hours: 2                      # Reject stale schedules older than this (hold + alert)
+  soc_deviation_replan_percent: 10               # Replan when battery SoC differs from the plan by more than this many points for 5 minutes (0 disables, 0-50)
   # HTTP Timeout: All Home Assistant API calls use a 5-second timeout with automatic
   # retry (3 attempts) for transient network failures. This prevents the executor from
   # freezing when HA becomes unresponsive (e.g., Fronius inverter via Modbus issues).

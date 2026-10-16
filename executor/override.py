@@ -54,6 +54,8 @@ class SystemState:
 
     # SoC
     current_soc_percent: float = 50.0
+    # False when the SoC sensor could not be read (current_soc_percent is then a placeholder).
+    soc_available: bool = True
     min_soc_percent: float = 10.0
 
     # Power flows
@@ -112,6 +114,14 @@ class SlotPlan:
     # Separate from total battery charging; None preserves legacy schedules that
     # do not identify the charging source. Explicit zero means solar-only.
     grid_charge_kw: float | None = None
+    # Set by EV source isolation when it zeroed discharge_kw; such a slot is not a
+    # planned hold, so the hold margin does not apply.
+    discharge_blocked_by_ev: bool = False
+    # Plan SoC at the start of the slot (previous slot's projection) and the slot
+    # bounds, for the SoC-deviation check. None when unknown.
+    soc_entry: int | None = None
+    slot_start: datetime | None = None
+    slot_end: datetime | None = None
 
 
 class OverrideEvaluator:

@@ -102,7 +102,7 @@ class TestControllerFollowPlan:
     def test_charge_mode_when_charging_only(self, controller):
         """When charging only, use charge mode intent."""
         slot = SlotPlan(export_kw=0.0, charge_kw=3.0)
-        state = SystemState()
+        state = SystemState(current_soc_percent=30)
 
         decision = controller.decide(slot, state)
 
@@ -123,7 +123,7 @@ class TestControllerFollowPlan:
         """Mixed solar/grid and grid-only charging retain the charge command."""
         slot = SlotPlan(charge_kw=3.0, grid_charge_kw=grid_charge_kw)
 
-        assert controller.decide(slot, SystemState()).mode_intent == "charge"
+        assert controller.decide(slot, SystemState(current_soc_percent=30)).mode_intent == "charge"
 
     @pytest.mark.parametrize("grid_charge_kw", [0.0, 1.0])
     def test_battery_export_precedes_explicit_charge_source(self, controller, grid_charge_kw):
@@ -134,11 +134,19 @@ class TestControllerFollowPlan:
         assert controller.decide(slot, SystemState()).mode_intent == "export"
 
     def test_idle_mode_when_at_soc_target(self, controller):
-        """When at or below SoC target, use idle mode intent."""
+        """Hold slot at target: within the 2-point margin, so self-consumption."""
         slot = SlotPlan(export_kw=0.0, charge_kw=0.0, soc_target=50)
         state = SystemState(current_soc_percent=50)
 
         decision = controller.decide(slot, state)
+
+        assert decision.mode_intent == "self_consumption"
+
+    def test_idle_mode_when_margin_used(self, controller):
+        """Hold slot at target minus 2 blocks discharge."""
+        slot = SlotPlan(export_kw=0.0, charge_kw=0.0, soc_target=50)
+
+        decision = controller.decide(slot, SystemState(current_soc_percent=48))
 
         assert decision.mode_intent == "idle"
 
@@ -153,8 +161,8 @@ class TestControllerFollowPlan:
         comparison. This test validates the comparison fix.
         """
         slot = SlotPlan(export_kw=0.0, charge_kw=0.0, soc_target=78)
-        # Battery at 78.3% should trigger idle since rounded(78.3) = 78 <= 78
-        state = SystemState(current_soc_percent=78.3)
+        # Battery at 75.6% rounds to 76 = target - 2, which blocks discharge
+        state = SystemState(current_soc_percent=75.6)
 
         decision = controller.decide(slot, state)
 
@@ -208,16 +216,16 @@ class TestControllerFollowPlan:
     def test_grid_charge_uses_charge_mode(self, controller):
         """Grid charging (no export) uses charge mode."""
         slot = SlotPlan(charge_kw=5.0, export_kw=0.0, discharge_kw=0.0)
-        state = SystemState()
+        state = SystemState(current_soc_percent=30)
 
         decision = controller.decide(slot, state)
 
         assert decision.mode_intent == "charge"
 
     def test_idle_when_at_soc_target_no_activity(self, controller):
-        """When at SoC target with no charging/discharging, use idle."""
+        """At target minus 2 with no charging/discharging, use idle."""
         slot = SlotPlan(charge_kw=0.0, export_kw=0.0, discharge_kw=0.0, soc_target=50)
-        state = SystemState(current_soc_percent=50)
+        state = SystemState(current_soc_percent=48)
 
         decision = controller.decide(slot, state)
 

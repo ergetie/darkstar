@@ -1473,6 +1473,16 @@ export const advancedSections: SettingsSection[] = [
                 ],
             },
             {
+                key: 'executor.soc_deviation_replan_percent',
+                label: 'Replan on battery deviation (%)',
+                helper: 'Request a new plan when the battery level differs from the plan by more than this many percentage points for 5 minutes (at most one replan per 15 minutes). Set 0 to disable.',
+                path: ['executor', 'soc_deviation_replan_percent'],
+                type: 'number',
+                min: 0,
+                max: 50,
+                isAdvanced: true,
+            },
+            {
                 key: 'automation.enable_scheduler',
                 label: 'Enable Background Scheduler',
                 helper: 'Master toggle for automatic schedule regeneration.',

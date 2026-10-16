@@ -53,7 +53,7 @@ from .config import (
     load_executor_config,
     load_yaml,
 )
-from .controller import ControllerDecision, make_decision
+from .controller import BatteryPlanState, ControllerDecision, make_decision
 from .ev_surplus import (
     EVSurplusController,
     PhaseModeController,
@@ -162,6 +162,10 @@ class ManualCharge:
 EV_MANUAL_CHARGE_TIMEOUT = timedelta(hours=24)
 # Key of the manual charge inside a charger's ev_multi_day_state.json entry.
 EV_MANUAL_CHARGE_STATE_KEY = "manual_charge"
+# battery-plan-tracking D4: fixed persistence and limiter for soc_deviation replans.
+SOC_DEVIATION_PERSIST_S = 300
+SOC_DEVIATION_MIN_INTERVAL_S = 900
+
 # Safety timeout for the battery Top Up (force_charge) quick action.
 FORCE_CHARGE_TIMEOUT = timedelta(hours=24)
 # Allowed water boost durations (minutes): MIN..MAX in STEP increments.
@@ -395,6 +399,12 @@ class ExecutorEngine:
         # and the last balancer-triggered replan (global rate limit).
         self._balancer_throttled_since: dict[str, datetime] = {}
         self._last_balancer_replan_at: datetime | None = None
+        # battery-plan-tracking: per-block charge latch / hold margin state, and
+        # SoC-deviation replan tracking (own limiter, separate from the balancer's).
+        self._battery_plan_state = BatteryPlanState()
+        self._soc_deviation_since: datetime | None = None
+        self._soc_deviation_last_tick: datetime | None = None
+        self._last_soc_deviation_replan_at: datetime | None = None
 
         # Intervention notifications (load-balancing-completion 5.x): previous
         # per-device balancer states, to notify once per qualifying transition.
@@ -572,6 +582,7 @@ class ExecutorEngine:
                             water_heater_config=self.config.water_heater,
                             water_heater_devices=self.config.water_heater_devices,
                             profile=self.inverter_profile,
+                            plan_state=replace(self._battery_plan_state),
                         )
                         mode_intent = decision.mode_intent
                 except Exception as e:
@@ -1902,6 +1913,7 @@ class ExecutorEngine:
                     soc_target=slot.soc_target,
                     soc_projected=slot.soc_projected,
                     ev_keep_on=slot.ev_keep_on,  # Preserve for _follow_plan's keep-on idle check
+                    discharge_blocked_by_ev=True,  # Not a planned hold: no hold margin
                 )
 
                 # Set isolation/keep-on reason for execution record
@@ -1935,6 +1947,7 @@ class ExecutorEngine:
                 self.config.water_heater,
                 self.config.water_heater_devices,
                 self.inverter_profile,
+                self._battery_plan_state,
             )
 
             self.status.last_action = decision.reason
@@ -1974,6 +1987,8 @@ class ExecutorEngine:
             # (load-balancing-completion 4.x/5.x)
             self._track_balancer_throttling(balancer_status, now)
             await self._notify_balancer_interventions(balancer_status, original_slot, now)
+
+            self._track_soc_deviation(state, original_slot, now, override.override_needed)
 
             # Emit live metrics for UI sparklines (Rev E1) + balancer status (6.1)
             try:
@@ -2407,6 +2422,9 @@ class ExecutorEngine:
                 # Check if current time is within this slot
                 if start <= now < end:
                     slot = self._parse_slot_plan(slot_data)
+                    slot.slot_start = start
+                    slot.slot_end = end
+                    slot.soc_entry = self._previous_slot_soc(schedule, index, start, tz)
                     self._next_slot = self._find_next_slot(schedule, index, end, tz)
                     return slot, start.isoformat()
 
@@ -2416,6 +2434,27 @@ class ExecutorEngine:
 
         # No matching slot found
         return None, None
+
+    def _previous_slot_soc(
+        self, schedule: list[dict[str, Any]], index: int, start: datetime, tz: Any
+    ) -> int | None:
+        """Plan SoC at the start of slot `index`: the previous slot's projected
+        SoC, when that slot ends exactly where this one starts."""
+        if index <= 0:
+            return None
+        prev = schedule[index - 1]
+        end_str = prev.get("end_time_kepler") or prev.get("end_time")
+        value = prev.get("projected_soc_percent", prev.get("soc_projected"))
+        if not end_str or value is None:
+            return None
+        try:
+            end = datetime.fromisoformat(str(end_str).replace("Z", "+00:00"))
+            end = tz.localize(end) if end.tzinfo is None else end.astimezone(tz)
+            if end != start:
+                return None
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
 
     def _find_next_slot(
         self,
@@ -2538,6 +2577,7 @@ class ExecutorEngine:
     async def _gather_system_state(self) -> SystemState:
         """Gather current system state from Home Assistant."""
         state = SystemState()
+        state.soc_available = False
 
         if not self.ha_client:
             return state
@@ -2636,6 +2676,7 @@ class ExecutorEngine:
             soc_str = results.get("soc")
             if soc_str and soc_str not in ("unknown", "unavailable"):
                 state.current_soc_percent = float(soc_str)
+                state.soc_available = True
 
             pv_str = results.get("pv_power")
             if pv_str and pv_str not in ("unknown", "unavailable"):
@@ -3384,6 +3425,93 @@ class ExecutorEngine:
                 )
                 status.state = "paused"
         return results
+
+    def _track_soc_deviation(
+        self,
+        state: SystemState,
+        slot: SlotPlan | None,
+        now: datetime,
+        override_active: bool,
+    ) -> None:
+        """Replan when live SoC stays away from the plan (battery-plan-tracking D3-D5).
+
+        Expected SoC is interpolated within the slot between its entry SoC and
+        projected end SoC. A deviation above the threshold for 5 minutes requests
+        one `soc_deviation` replan, at most one per 15 minutes (own limiter).
+        """
+        threshold = self.config.soc_deviation_replan_percent
+        # The deviation must be observed continuously: after a gap in ticks
+        # (paused, no slot, errors) the earlier start no longer counts.
+        last_tick = self._soc_deviation_last_tick
+        self._soc_deviation_last_tick = now
+        max_gap = max(120, 2 * self.config.interval_seconds)
+        if last_tick is not None and (now - last_tick).total_seconds() > max_gap:
+            self._soc_deviation_since = None
+        expected = self._expected_soc(slot, now)
+        if (
+            threshold <= 0
+            or expected is None
+            or not state.soc_available
+            or override_active
+            or state.manual_override_active
+        ):
+            self._soc_deviation_since = None
+            return
+
+        deviation = abs(state.current_soc_percent - expected)
+        if deviation <= threshold:
+            self._soc_deviation_since = None
+            return
+
+        since = self._soc_deviation_since
+        if since is None:
+            self._soc_deviation_since = now
+            return
+        if (now - since).total_seconds() < SOC_DEVIATION_PERSIST_S:
+            return
+
+        last = self._last_soc_deviation_replan_at
+        if last is not None and (now - last).total_seconds() < SOC_DEVIATION_MIN_INTERVAL_S:
+            return
+
+        if self.config.shadow_mode:
+            logger.info(
+                "Shadow mode: would request soc_deviation replan (live SoC %.1f%%, expected %.1f%%, threshold %g)",
+                state.current_soc_percent,
+                expected,
+                threshold,
+            )
+        else:
+            logger.info(
+                "Battery SoC deviates from plan: live %.1f%%, expected %.1f%%, threshold %g - requesting replan",
+                state.current_soc_percent,
+                expected,
+                threshold,
+            )
+            try:
+                from backend.services.scheduler_service import ReplanReason, request_replan
+
+                request_replan(ReplanReason.SOC_DEVIATION)
+            except Exception as e:
+                logger.error("Failed to request soc_deviation replan: %s", e)
+        self._last_soc_deviation_replan_at = now
+        self._soc_deviation_since = None
+
+    @staticmethod
+    def _expected_soc(slot: SlotPlan | None, now: datetime) -> float | None:
+        """Plan SoC now: linear between the slot's entry and projected end SoC."""
+        if (
+            slot is None
+            or slot.soc_entry is None
+            or slot.slot_start is None
+            or slot.slot_end is None
+        ):
+            return None
+        total = (slot.slot_end - slot.slot_start).total_seconds()
+        if total <= 0:
+            return None
+        fraction = min(max((now - slot.slot_start).total_seconds() / total, 0.0), 1.0)
+        return slot.soc_entry + (slot.soc_projected - slot.soc_entry) * fraction
 
     def _track_balancer_throttling(self, status: LoadBalancerStatus, now: datetime) -> None:
         """Sustained-throttle early replan (load-balancing-completion 4.1/4.2).

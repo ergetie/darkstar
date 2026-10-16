@@ -262,7 +262,9 @@ class TestParseSlotPlan:
 
         assert slot.charge_kw == 3.0
         assert slot.grid_charge_kw == expected
-        decision = Controller(ControllerConfig(), InverterConfig()).decide(slot, SystemState())
+        decision = Controller(ControllerConfig(), InverterConfig()).decide(
+            slot, SystemState(current_soc_percent=30.0)
+        )
         assert decision.mode_intent == ("self_consumption" if expected == 0 else "charge")
 
     def test_source_less_solar_export_keeps_legacy_mode(self, engine):

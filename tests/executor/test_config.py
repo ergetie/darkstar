@@ -669,3 +669,22 @@ class TestLoadBalancingConfig:
         config = load_executor_config(str(config_file))
 
         assert config.load_balancing.loads == []
+
+
+def test_soc_deviation_replan_percent_default_and_override(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump({"executor": {}}))
+    assert load_executor_config(str(config_file)).soc_deviation_replan_percent == 10.0
+
+    config_file.write_text(yaml.dump({"executor": {"soc_deviation_replan_percent": 15}}))
+    assert load_executor_config(str(config_file)).soc_deviation_replan_percent == 15.0
+
+    config_file.write_text(yaml.dump({"executor": {"soc_deviation_replan_percent": 0}}))
+    assert load_executor_config(str(config_file)).soc_deviation_replan_percent == 0.0
+
+
+def test_soc_deviation_replan_percent_out_of_range_uses_default(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    for bad in (-1, 51, "abc"):
+        config_file.write_text(yaml.dump({"executor": {"soc_deviation_replan_percent": bad}}))
+        assert load_executor_config(str(config_file)).soc_deviation_replan_percent == 10.0

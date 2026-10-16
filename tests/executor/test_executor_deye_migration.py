@@ -52,11 +52,14 @@ class TestDeyeMigration:
         # v2: Check mode_intent instead of work_mode
         assert decision.mode_intent == "export"
 
-        # Test 2: Idle case (no export, no charge, at SoC target)
-        # v2: When there's no planned activity and SoC is at/above target, return idle
+        # Test 2: Idle case (no export, no charge, margin below SoC target used up)
         slot_zero = SlotPlan(export_kw=0, charge_kw=0, soc_target=50)
         decision = make_decision(
-            slot_zero, state, config=ctrl_cfg, inverter_config=inv_cfg, profile=deye_profile
+            slot_zero,
+            SystemState(current_soc_percent=48.0),
+            config=ctrl_cfg,
+            inverter_config=inv_cfg,
+            profile=deye_profile,
         )
 
         assert decision.mode_intent == "idle"
@@ -110,7 +113,7 @@ class TestDeyeMigration:
     def test_idle_mode_at_target(self, deye_profile, configs):
         """Verify idle mode is selected when at SoC target with no activity."""
         ctrl_cfg, inv_cfg, _wh_cfg = configs
-        state = SystemState(current_soc_percent=95.0)
+        state = SystemState(current_soc_percent=93.0)
 
         # Slot at target with no charge/export
         slot = SlotPlan(export_kw=0, charge_kw=0, soc_target=95)

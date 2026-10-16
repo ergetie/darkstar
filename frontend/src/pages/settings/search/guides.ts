@@ -221,6 +221,7 @@ There's also a manual override: if the configured override toggle is on in Home 
             'automation.enable_scheduler',
             'automation.schedule.every_minutes',
             'executor.interval_seconds',
+            'executor.soc_deviation_replan_percent',
             'executor.manual_override_entity',
             'executor.automation_toggle_entity',
         ],
