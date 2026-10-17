@@ -630,7 +630,7 @@ async def backfill_missing_prices():
             return
 
         indexed_prices = {p["start_time"]: p for p in price_data}
-        updated_count = 0
+        rows_to_update: list[dict[str, Any]] = []
 
         for obs in observations:
             if obs.get("import_price_sek_kwh") is None:
@@ -649,23 +649,26 @@ async def backfill_missing_prices():
                 # We need exact match or closest previous
                 price_slot = indexed_prices.get(slot_start)
                 if price_slot:
-                    obs["import_price_sek_kwh"] = price_slot["import_price_sek_kwh"]
-                    obs["export_price_sek_kwh"] = price_slot["export_price_sek_kwh"]
-                    updated_count += 1
+                    # Never overwrite an export price the slot already has
+                    # (store_slot_prices lets non-null new values win).
+                    export_price = (
+                        None
+                        if obs.get("export_price_sek_kwh") is not None
+                        else price_slot["export_price_sek_kwh"]
+                    )
+                    rows_to_update.append(
+                        {
+                            "slot_start": obs["slot_start"],
+                            # slot_end is NOT NULL: SQLite checks it on the insert
+                            # half of the upsert even when the row already exists.
+                            "slot_end": obs.get("slot_end"),
+                            "import_price_sek_kwh": price_slot["import_price_sek_kwh"],
+                            "export_price_sek_kwh": export_price,
+                        }
+                    )
 
-        if updated_count > 0:
-            # We need a way to update specific observations.
-            # store.store_slot_prices handles upsert by slot_start.
-            # Convert back to list of dicts with required fields
-            rows_to_update = [
-                {
-                    "slot_start": obs["slot_start"],
-                    "import_price_sek_kwh": obs["import_price_sek_kwh"],
-                    "export_price_sek_kwh": obs["export_price_sek_kwh"],
-                }
-                for obs in observations
-                if obs.get("import_price_sek_kwh") is not None
-            ]
+        if rows_to_update:
+            updated_count = len(rows_to_update)
             await store.store_slot_prices(rows_to_update)
             logger.info(f"[recorder] Backfilled {updated_count} observation prices.")
 

@@ -1153,6 +1153,7 @@ class LearningStore:
                     SlotObservation.import_kwh,
                     SlotObservation.export_kwh,
                     SlotObservation.import_price_sek_kwh,
+                    SlotObservation.export_price_sek_kwh,
                 )
                 .where(
                     SlotObservation.slot_start >= start_iso, SlotObservation.slot_start < end_iso
