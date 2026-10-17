@@ -293,7 +293,7 @@ forecasting:
   aurora_pv_enabled: true                   # Enable Aurora PV personal tuning; false uses Open-Meteo baseline only
   pv_confidence_percent: 83.0          # PV forecast scaling (100 = trust forecast fully)
   load_safety_margin_percent: 117.0    # Load forecast scaling (>100 = expect more load)
-  pv_residual_bound_fraction: 0.25     # Max ML PV nudge as fraction of Open-Meteo baseline
+  pv_residual_bound_fraction: 1.0      # Max ML PV nudge as fraction of Open-Meteo baseline (0 = baseline only)
   pv_ceiling_efficiency: 0.95          # Physical max slot yield: kWp * slot_hours * efficiency
   pv_personalization_ramp_days: 14     # Days of paired data before full bounded PV nudge
 

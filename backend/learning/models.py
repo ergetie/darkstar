@@ -55,6 +55,7 @@ class SlotForecast(Base):
     pv_forecast_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
     openmeteo_pv_forecast_kwh: Mapped[float | None] = mapped_column(Float)
     load_forecast_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    pv_ml_residual_raw_kwh: Mapped[float | None] = mapped_column(Float)
     pv_p10: Mapped[float | None] = mapped_column(Float)
     pv_p90: Mapped[float | None] = mapped_column(Float)
     load_p10: Mapped[float | None] = mapped_column(Float)

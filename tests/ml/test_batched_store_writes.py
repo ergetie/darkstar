@@ -227,3 +227,13 @@ async def test_store_plan_update_refreshes_created_at(store, db_path):
     assert len(rows) == 1
     assert rows[0]["planned_charge_kwh"] == 2.0
     assert rows[0]["created_at"] != "2000-01-01 00:00:00"
+
+
+@pytest.mark.asyncio
+async def test_raw_pv_residual_persisted_and_null_when_absent(store, db_path):
+    await store.store_forecasts(
+        [_forecast(0, pv_ml_residual_raw_kwh=0.4), _forecast(1)], forecast_version="aurora"
+    )
+    rows = _forecast_rows(db_path)
+    assert rows[0]["pv_ml_residual_raw_kwh"] == pytest.approx(0.4)
+    assert rows[1]["pv_ml_residual_raw_kwh"] is None

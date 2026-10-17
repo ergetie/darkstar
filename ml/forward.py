@@ -7,6 +7,7 @@ Supports hybrid PV forecasting: physics base + ML residual.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -69,12 +70,33 @@ def _total_solar_kwp(config: dict[str, Any]) -> float:
     )
 
 
+DEFAULT_PV_RESIDUAL_BOUND_FRACTION = 1.0
+
+
+def _parse_pv_residual_bound(value: Any) -> float:
+    """Parse ``pv_residual_bound_fraction``: 0 is honoured, invalid values use the default."""
+    if value is None:
+        return DEFAULT_PV_RESIDUAL_BOUND_FRACTION
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = float("nan")
+    if isinstance(value, bool) or not math.isfinite(parsed) or parsed < 0.0:
+        logger.warning(
+            "Invalid forecasting.pv_residual_bound_fraction %r; using default %.1f",
+            value,
+            DEFAULT_PV_RESIDUAL_BOUND_FRACTION,
+        )
+        return DEFAULT_PV_RESIDUAL_BOUND_FRACTION
+    return parsed
+
+
 def _pv_tuning_config(config: dict[str, Any]) -> tuple[float, float, float]:
     forecasting_cfg: dict[str, Any] = config.get("forecasting", {}) or {}
-    bound_fraction = float(forecasting_cfg.get("pv_residual_bound_fraction", 0.25) or 0.25)
+    bound_fraction = _parse_pv_residual_bound(forecasting_cfg.get("pv_residual_bound_fraction"))
     ceiling_efficiency = float(forecasting_cfg.get("pv_ceiling_efficiency", 0.95) or 0.95)
     ramp_days = float(forecasting_cfg.get("pv_personalization_ramp_days", 14) or 14)
-    return max(0.0, bound_fraction), max(0.0, ceiling_efficiency), max(1.0, ramp_days)
+    return bound_fraction, max(0.0, ceiling_efficiency), max(1.0, ramp_days)
 
 
 def _pv_physical_ceiling_kwh(config: dict[str, Any], slot_hours: float = 0.25) -> float:
@@ -166,6 +188,14 @@ def _hybrid_pv_values(
     if physical_ceiling_kwh > 0.0:
         values = _scalar_min(values, physical_ceiling_kwh)
     return values
+
+
+def _raw_residual_at(series: pd.Series | None, idx: Any) -> float | None:
+    """Raw p50 PV residual for a slot, or None (baseline-only mode / non-finite)."""
+    if series is None:
+        return None
+    value = float(series[idx])
+    return value if math.isfinite(value) else None
 
 
 async def _fetch_openmeteo_baseline_series(
@@ -486,6 +516,7 @@ async def generate_forward_slots(
     # Store baseline for output
     predictions["openmeteo_baseline_kwh"] = baseline_series
 
+    pv_raw_residual_p50: pd.Series | None = None
     if has_pv_models:
         # HYBRID MODE: ML predicts residual, final = Open-Meteo baseline + bounded residual.
         df["physics_forecast_kwh"] = baseline_series
@@ -529,6 +560,11 @@ async def generate_forward_slots(
                 predictions[model_key] = (
                     series.rolling(window=3, center=True, min_periods=1).mean().fillna(0.0)
                 )
+
+                if q == "p50":
+                    # Raw model residual (unbounded, unweighted) so a different bound
+                    # can be evaluated exactly later.
+                    pv_raw_residual_p50 = pd.Series(raw_pred, index=df.index, dtype="float64")
 
                 # Store bounded ML residual for transparency
                 residual_series = pd.Series(raw_pred, index=df.index, dtype="float64")
@@ -623,6 +659,7 @@ async def generate_forward_slots(
             "openmeteo_pv_forecast_kwh": float(predictions["openmeteo_baseline_kwh"][idx]),  # type: ignore[reportUnknownArgumentType]
             "load_forecast_kwh": load_p50_v,
             "base_load_forecast_kwh": load_p50_v,
+            "pv_ml_residual_raw_kwh": _raw_residual_at(pv_raw_residual_p50, idx),
             # Probabilistic Bands (monotonic after repair)
             "pv_p10": pv_p10_v,
             "pv_p90": pv_p90_v,

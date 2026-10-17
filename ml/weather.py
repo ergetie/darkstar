@@ -212,10 +212,12 @@ def calculate_physics_pv(
             continue
 
         # Get panel orientation (default: 30° tilt, South-facing)
-        panel_tilt = float(arr.get("tilt", 30.0) or 30.0)
+        tilt_raw = arr.get("tilt")
+        panel_tilt = 30.0 if tilt_raw is None else float(tilt_raw)
         # Convert azimuth from Home Assistant convention (0=North, 180=South)
         # to solar convention (0=South, positive=West)
-        panel_azimuth_ha = float(arr.get("azimuth", 180.0) or 180.0)
+        azimuth_raw = arr.get("azimuth")
+        panel_azimuth_ha = 180.0 if azimuth_raw is None else float(azimuth_raw)
         panel_azimuth = (panel_azimuth_ha % 360) - 180
 
         # Calculate POA irradiance

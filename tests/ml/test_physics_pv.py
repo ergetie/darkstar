@@ -4,6 +4,7 @@ Unit tests for physics-based PV calculation functions.
 
 from datetime import datetime
 
+import pytest
 import pytz
 
 from ml.weather import (
@@ -398,3 +399,36 @@ class TestCalculatePhysicsForSlots:
         assert len(results) == 1
         assert results[0]["physics_kwh"] is not None
         assert results[0]["physics_kwh"] > 0
+
+
+class TestPanelOrientationZero:
+    """Tilt 0 and azimuth 0 are honoured; defaults only when missing/None."""
+
+    @staticmethod
+    def _kwh(array: dict) -> float:
+        tz = pytz.timezone("Europe/Stockholm")
+        dt = tz.localize(datetime(2024, 6, 21, 9, 0, 0))
+        total, _ = calculate_physics_pv(
+            radiation_w_m2=800.0,
+            solar_arrays=[{"name": "A", "kwp": 5.0, **array}],
+            slot_start=dt,
+            latitude=59.3,
+            longitude=18.1,
+        )
+        assert total is not None
+        return total
+
+    def test_tilt_zero_differs_from_default(self):
+        assert self._kwh({"tilt": 0, "azimuth": 180}) != pytest.approx(
+            self._kwh({"tilt": 30, "azimuth": 180})
+        )
+
+    def test_azimuth_zero_differs_from_default(self):
+        assert self._kwh({"tilt": 30, "azimuth": 0}) != pytest.approx(
+            self._kwh({"tilt": 30, "azimuth": 180})
+        )
+
+    def test_missing_and_none_use_defaults(self):
+        explicit = self._kwh({"tilt": 30, "azimuth": 180})
+        assert self._kwh({}) == pytest.approx(explicit)
+        assert self._kwh({"tilt": None, "azimuth": None}) == pytest.approx(explicit)

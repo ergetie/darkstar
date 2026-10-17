@@ -655,6 +655,25 @@ def _migrate_nominal_voltage(config: dict[str, Any]) -> tuple[dict[str, Any], bo
     return config, True
 
 
+def _migrate_pv_residual_bound(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Move ``forecasting.pv_residual_bound_fraction`` from the old default 0.25 to 1.0.
+
+    Exactly 0.25 was the former shipped default (written into every config by the
+    template merge), so it carries no user intent. Any other value, including 0,
+    non-numeric and bool values, is kept. A missing key is left to the template merge.
+    """
+    forecasting_raw: Any = config.get("forecasting")
+    if not isinstance(forecasting_raw, dict):
+        return config, False
+    forecasting = cast("dict[str, Any]", forecasting_raw)
+    value: Any = forecasting.get("pv_residual_bound_fraction")
+    if isinstance(value, bool) or not isinstance(value, int | float) or float(value) != 0.25:
+        return config, False
+    forecasting["pv_residual_bound_fraction"] = 1.0
+    logger.info("🔄 Migrated forecasting.pv_residual_bound_fraction: 0.25 (old default) -> 1.0")
+    return config, True
+
+
 def _migrate_target_margin(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     """Replace ``load_balancing.resume_margin_percent`` with ``target_margin_percent``.
 
@@ -1344,6 +1363,11 @@ def _migrate_config(config_path: str, default_path: str, strict_validation: bool
     # 2.1a1b Replace load_balancing.resume_margin_percent with target_margin_percent
     user_config, margin_changes = _migrate_target_margin(user_config)
     if margin_changes:
+        pre_merge_changes = True
+
+    # 2.1a1b2 Raise the old PV residual bound default (0.25) to 1.0
+    user_config, pv_bound_changes = _migrate_pv_residual_bound(user_config)
+    if pv_bound_changes:
         pre_merge_changes = True
 
     # 2.1a1c Move per-charger plug_in_reminder_minutes to the global notification setting
