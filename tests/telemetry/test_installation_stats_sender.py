@@ -368,7 +368,9 @@ async def test_legacy_state_keeps_id_and_retries_after_five_minutes(
         encoding="utf-8",
     )
     clock = FakeClock()
-    client = FakeClient(clock)
+    # Hold the first request in flight: a completed 204 would persist last_success
+    # from a worker thread racing stop(), making the assertions below non-deterministic.
+    client = FakeClient(clock, blocked_calls={1: asyncio.Event()})
     service = AutoAdvanceService(
         data_dir=tmp_path,
         config_loader=lambda: {
