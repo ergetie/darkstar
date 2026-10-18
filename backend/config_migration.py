@@ -684,7 +684,7 @@ def _migrate_target_margin(config: dict[str, Any]) -> tuple[dict[str, Any], bool
       template merge supplies the new, more protective default (85). The
       template merge wrote 90 into every config, so it carries no user intent.
     """
-    from executor.config import LEGACY_RESUME_MARGIN_DEFAULT
+    from backend.core.load_balancing_margin import LEGACY_RESUME_MARGIN_DEFAULT
 
     lb_raw: Any = config.get("load_balancing")
     if not isinstance(lb_raw, dict) or "resume_margin_percent" not in lb_raw:

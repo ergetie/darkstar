@@ -49,24 +49,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Reported on Discord 2026-09-22 by two users, one with an EV: "tick success 57.51% over 24 h (82/193 failed)" while everything worked. `backend/monitors.py` computes the rate over throttled `execution_log` rows; failed ticks are always logged while healthy ones are throttled, so failures are over-weighted (the code comment admits the bias). Possible trigger, not confirmed: the EV charge-failure check marking ticks unsuccessful for a plugged-in or sleeping car. **(needs production data)**
 
-#### [Settings] Water Heater Validation Error Traps The User
-
-**Goal:** Let the user save and reach the Water tab to fix a mismatched control type, instead of being blocked by a save error.
-
-**Notes:** Reported on Discord 2026-09-24: after turning "Smart water heater" off and on, saving is blocked by a "VVB switch is wrong" error, and the Water tab cannot be reached to fix it. Likely trigger, not confirmed: the save-blocking validation in `backend/api/routers/config.py` for a `switch.*` target with control type `temperature`. Needs a reproduction; the exact error was in a screenshot.
-
-#### [Planner] Grid Charging Ignored By The Inverter AC Limit
-
-**Goal:** Stop the planner from scheduling grid charging the inverter cannot deliver.
-
-**Notes:** Found 2026-10-11 (battery benchmark investigation). For `dc_coupled`, `planner/solver/kepler.py:574-586` counts only PV-to-AC plus battery discharge against `max_inverter_ac_kw` (8 kW on the maintainer's prod); grid charging also passes through the inverter but is not counted. A hindsight re-solve on 2026-09-21/09-26 planned grid charging above 8 kW in a few slots. Adding the limit in the benchmark changed its result by <1 SEK over 22 days, so the live cost is likely small; not measured on live plans.
-
-#### [Learning] Forecast created_at Never Updated On Overwrite
-
-**Goal:** Know when each stored forecast was made, so forecast accuracy can be checked afterwards.
-
-**Notes:** Found 2026-10-11. `slot_forecasts` rows are overwritten every run but `created_at` keeps the first insert time (`store.py:458-476`, unlike `store_plan` at line 567), so rows look ~7 days old. Earlier forecast versions (day-ahead, morning) are not kept anywhere, so day-ahead accuracy cannot be measured. Related: the Planner Run Archive item.
-
 ---
 
 ## 🔧 Improvements
@@ -101,6 +83,12 @@ Update 2026-10-15 (Discord triage, Kristofer and youask report too-high forecast
 
 **Notes:** Found 2026-10-06 (cmon89 investigation): past decisions could not be reconstructed. `schedule.json` already holds each run's full per-slot inputs (adjusted PV/load, prices) and plan, but is overwritten every run; `slot_plans`/`slot_forecasts` keep only the last value per slot; `debug.enable_planner_debug` stores only a 30-slot sample (`planner/output/debug.py`); the log rotates and is wiped on add-on restart. Verified that re-solving an archived `schedule.json` with the offline Kepler reproduces the real plan exactly (0/122 slots differ). Retention 60–90 days, gzip (~10 kB/run, ~0.5 MB/day). Include initial SoC, safety floor, config version, solver status. Storage location (DB vs files) to decide. Enables the automatic daily replay item. Temporary stand-in on the maintainer's prod since 2026-10-06: a root cron (every minute) gzips each new `schedule.json` into `/opt/darkstar/data/plan_archive/`, and `debug.enable_planner_debug: true` is set. Remove both when this item ships or the investigation (`ops/investigations/cmon-underperformance-2026-10-06.md`) no longer needs them.
 
+#### [Planner] Planned 1-Phase Mode For Phase-Switching Chargers
+
+**Goal:** Let the planner choose 1-phase charging for phase-switching EV chargers when that suits the plan, instead of always planning the 3-phase floor.
+
+**Notes:** Low priority: at runtime 1-phase only happens during PV surplus charging or load-balancer relief. Today Kepler has no 1-phase mode (planned power never goes below the 3-phase floor, `backend/core/ev_power.py`), so `ev-single-phase-grid-limit` treats these chargers as 3-phase. Option A: a binary `ev_1p` plus split energy `ev_energy_1p`/`ev_energy_3p` to keep the model linear, and apply the per-line phase row to `ev_energy_1p` on `phase_1_line`. Changes plans and the EV loss model. Size M.
+
 #### [Planner] Power Tariff (Effekttariff) Awareness
 
 **Goal:** Let the planner include a peak-power fee in its costs, so plans that avoid high grid peaks win on the real cost.
@@ -117,7 +105,7 @@ Update 2026-10-15 (Discord triage, Kristofer and youask report too-high forecast
 
 **Goal:** Let the planner take expected per-phase house load and the main fuse into account, so it does not schedule EV charging (and other controlled loads) that the load balancer will have to throttle.
 
-**Notes:** Today the planner only balances total energy (house load forecast plus an optional total `max_import_kw`); nothing in `planner/` knows about phases or `main_fuse_a`. On 2026-09-27 it planned 6.9 kW EV (10 A × 3) while the water heater and microwave sat on L3 (~10 A), forcing throttle to 6 A and then 1-phase relief on L1. Needs a per-phase load forecast (or per-device phase mapping) and a fuse constraint in Kepler. Controlling the water heater will reduce, but not remove, the clash.
+**Notes:** `ev-single-phase-grid-limit` added a per-phase limit (main fuse × load-balancing margin) for fixed 1-/2-phase EV chargers, assuming non-EV load spreads evenly over 3 phases. On 2026-09-27 the planner had planned 6.9 kW EV (10 A × 3) while the water heater and microwave sat on L3 (~10 A), forcing throttle to 6 A and then 1-phase relief on L1. Still missing: a per-phase house-load forecast, and single-phase non-EV loads (e.g. a 1-phase water heater, perhaps via a per-device phase setting). Controlling the water heater will reduce, but not remove, the clash.
 
 #### [Load Balancer] Proportional Overload Timing
 

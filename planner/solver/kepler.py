@@ -158,6 +158,14 @@ class KeplerSolver:
             c for c in config.ev_chargers if c.plugged_in or c.assumed_plugged
         ]
         ev_any_enabled: bool = len(plugged_chargers) > 0
+        # Per-phase fuse constraint scope: current chargers on fewer than 3 lines.
+        phase_limit_kw: float | None = None if benchmark is not None else config.max_phase_import_kw
+        phase_limited_chargers: list[EVChargerInput] = [
+            c for c in plugged_chargers if c.control_type == "current" and len(c.phases) < 3
+        ]
+        phase_limit_lines: list[int] = sorted({p for c in phase_limited_chargers for p in c.phases})
+        if not phase_limited_chargers:
+            phase_limit_kw = None
         # Only live-plugged chargers block battery discharge. An away car's plan
         # is a preview and must not idle the house battery.
         live_plugged_ids: list[str] = [c.id for c in plugged_chargers if c.plugged_in]
@@ -594,6 +602,41 @@ class KeplerSolver:
 
             if config.max_import_power_kw is not None:
                 prob += grid_import[t] <= config.max_import_power_kw * h
+
+            # Per-phase fuse limit on EV charger lines (ev-single-phase-grid-limit).
+            # Non-EV load is spread evenly over 3 phases; each charger's power is
+            # spread evenly over its own phases. Hard, but the EV can drop to 0
+            # and load_shedding absorbs any remainder, so it stays feasible.
+            if phase_limit_kw is not None:
+                # Only chargers that can draw in this slot (not past deadline,
+                # time left in the slot). With none, the EV-free remainder
+                # (net import / 3) is not a phase risk, so no row is added.
+                active_chargers: list[EVChargerInput] = [
+                    c
+                    for c in phase_limited_chargers
+                    if ev_slot_hours[t] > 0
+                    and not (c.deadline is not None and s.end_time > c.deadline)
+                ]
+                seen_rows: set[tuple[float, ...]] = set()
+                for line in phase_limit_lines:
+                    shares: tuple[float, ...] = tuple(
+                        1.0 / len(c.phases) if line in c.phases else 0.0 for c in active_chargers
+                    )
+                    # No charger on this line, or identical coefficients: no new row
+                    if not any(shares) or shares in seen_rows:
+                        continue
+                    seen_rows.add(shares)
+                    ev_kwh_terms: list[Any] = []
+                    for charger, share in zip(active_chargers, shares, strict=True):
+                        d = charger.id
+                        # Average kW over the EV window, scaled to the slot's h
+                        kw_expr: Any = ev_energy[d][t] * (1.0 / ev_slot_hours[t])
+                        if d in ev_surplus_kw:
+                            kw_expr = kw_expr + ev_surplus_kw[d][t]
+                        ev_kwh_terms.append((share - 1.0 / 3.0) * h * kw_expr)
+                    prob += (grid_import[t] - grid_export[t]) / 3.0 + pulp.lpSum(
+                        ev_kwh_terms
+                    ) <= phase_limit_kw * h
 
             # Inverter AC output limit with PV routing (dc_coupled / ac_coupled)
             if pv_routing_active:

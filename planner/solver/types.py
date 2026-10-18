@@ -58,6 +58,9 @@ class EVChargerInput:
     # Charging-loss model (ev-charging-losses D1): car energy per slot =
     # efficiency x wall energy - overhead x hours on - start loss x starts.
     charge_overhead_kw: float = 0.0
+    # Grid lines (1-3) the charger draws from. Only "current" chargers carry a
+    # real value (adapter); used for the per-phase fuse constraint.
+    phases: tuple[int, ...] = (1, 2, 3)
     start_loss_kwh: float = 0.0
     charge_efficiency: float = 1.0
     # Charger measured as charging at plan time: the first slot continuing it
@@ -94,6 +97,9 @@ class KeplerConfig:
     # Optional export limits (if any)
     max_export_power_kw: float | None = None
     max_import_power_kw: float | None = None
+    # Per-phase import limit on an EV charger's line(s): main_fuse_a x
+    # target_margin_percent/100 x nominal voltage / 1000. None = off.
+    max_phase_import_kw: float | None = None
     max_inverter_ac_kw: float | None = None  # Inverter AC output limit
     inverter_topology: str = "dc_coupled"  # "dc_coupled" | "ac_coupled"
     target_soc_kwh: float | None = None  # Minimum SoC at end of horizon

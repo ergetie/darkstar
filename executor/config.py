@@ -14,6 +14,10 @@ from typing import Any, cast
 from ruamel.yaml import YAML
 
 from backend.core.ev_power import DEFAULT_NOMINAL_VOLTAGE_V, nominal_voltage_v
+from backend.core.load_balancing_margin import (
+    TARGET_MARGIN_RANGE,
+    resolve_target_margin_percent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -364,31 +368,13 @@ def load_yaml(path: str) -> dict[str, Any]:
 
 
 # Valid ranges (inclusive) for the graceful-degradation settings; shared with
-# backend/api/routers/config.py validation.
-TARGET_MARGIN_RANGE: tuple[float, float] = (50.0, 100.0)
+# backend/api/routers/config.py validation. The target-margin range, legacy
+# default and resolver live in backend.core.load_balancing_margin (shared with
+# the planner).
 PAUSE_DEBOUNCE_RANGE: tuple[float, float] = (0.0, 60.0)
 RESUME_CONFIRM_RANGE: tuple[float, float] = (5.0, 300.0)
 SEVERE_OVERLOAD_RANGE: tuple[float, float] = (101.0, 200.0)
 RAMP_UP_WINDOW_RANGE: tuple[float, float] = (10.0, 600.0)
-# The shipped default of the superseded load_balancing.resume_margin_percent.
-# A config still carrying exactly this value was never tuned by the user (the
-# template merge wrote it into every config), so it migrates to the new, more
-# protective target default instead of pinning 90 %.
-LEGACY_RESUME_MARGIN_DEFAULT = 90.0
-
-
-def resolve_target_margin_percent(lb_data: dict[str, Any]) -> Any:
-    """target_margin_percent, else a user-tuned legacy resume_margin_percent, else 85."""
-    if lb_data.get("target_margin_percent") is not None:
-        return lb_data["target_margin_percent"]
-    legacy = lb_data.get("resume_margin_percent")
-    if legacy is not None:
-        try:
-            if float(legacy) != LEGACY_RESUME_MARGIN_DEFAULT:
-                return legacy
-        except (TypeError, ValueError):
-            pass
-    return LoadBalancingConfig.target_margin_percent
 
 
 def _ranged_number(raw: Any, key: str, valid: tuple[float, float], default: float) -> float:

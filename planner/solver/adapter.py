@@ -16,6 +16,7 @@ from backend.core.ev_power import (
     charger_power_limits,
     nominal_voltage_v,
 )
+from backend.core.load_balancing_margin import effective_target_margin_percent
 
 from .types import (
     EVChargerInput,
@@ -113,6 +114,34 @@ def build_water_heater_inputs(
     return result
 
 
+def _charger_phases(ev: dict[str, Any], charger_id: str) -> tuple[int, ...]:
+    """Valid, de-duplicated grid lines of a current charger; (1, 2, 3) when invalid."""
+    raw: Any = ev.get("phases")
+    lines: set[int] = set()
+    if isinstance(raw, (list, tuple)):
+        for p in cast("list[Any]", raw):
+            if isinstance(p, int) and not isinstance(p, bool) and p in (1, 2, 3):
+                lines.add(p)
+    if not lines:
+        logger.warning("EV charger %s has no valid phases - assuming 3-phase", charger_id)
+        return (1, 2, 3)
+    return tuple(sorted(lines))
+
+
+def resolve_max_phase_import_kw(planner_config: dict[str, Any]) -> float | None:
+    """Per-phase import limit in kW from the main fuse, or None when unset/invalid."""
+    system: Any = planner_config.get("system") or {}
+    grid: Any = system.get("grid") or {}
+    try:
+        fuse = float(grid.get("main_fuse_a"))
+    except (TypeError, ValueError):
+        return None
+    if not fuse > 0 or fuse == float("inf"):
+        return None
+    margin = effective_target_margin_percent(planner_config.get("load_balancing"))
+    return fuse * (margin / 100.0) * nominal_voltage_v(planner_config) / 1000.0
+
+
 def build_ev_charger_inputs(
     ev_chargers_config: list[dict[str, Any]],
     ev_charger_states: list[dict[str, Any]] | None = None,
@@ -187,6 +216,7 @@ def build_ev_charger_inputs(
                 keep_on_after_target=keep_on_after_target,
                 control_type=control_type,
                 min_power_kw=min_kw,
+                phases=_charger_phases(ev, charger_id) if control_type == "current" else (1, 2, 3),
                 charge_overhead_kw=float(ev.get("charge_overhead_kw", 0.25)),
                 start_loss_kwh=float(ev.get("start_loss_kwh", 0.15)),
                 charge_efficiency=float(ev.get("charge_efficiency", 0.95)),
@@ -558,6 +588,7 @@ def config_to_kepler_config(
             if system.get("grid", {}).get("max_power_kw")
             else None
         ),
+        max_phase_import_kw=resolve_max_phase_import_kw(planner_config),
         max_inverter_ac_kw=(
             float(system.get("inverter", {}).get("max_ac_power_kw"))
             if system.get("inverter", {}).get("max_ac_power_kw")
