@@ -29,6 +29,9 @@ _forecast_errors: deque[dict[str, Any]] = deque(maxlen=10)
 _forecast_status: str = "ok"  # "ok", "degraded", "error"
 _forecast_lock: threading.Lock = threading.Lock()
 
+# Share of estimated horizon slots above which the PV forecast banner turns critical
+PV_ESTIMATED_CRITICAL_FRACTION = 0.5
+
 # REV F65 Phase 5b: Load forecast status tracking
 _load_forecast_status: str = "ok"  # "ok", "degraded"
 _load_forecast_reason: str = ""  # "ml", "baseline", "demo", ""
@@ -967,14 +970,34 @@ class HealthChecker:
                     )
                 )
         elif status == "degraded":
-            issues.append(
-                HealthIssue(
-                    category="forecast",
-                    severity="warning",
-                    message="PV forecast experiencing issues",
-                    guidance="Some forecast requests have failed but the system is still operational.",
+            recent_errors = forecast_info.get("last_errors", [])
+            context: dict[str, Any] = recent_errors[-1].get("context", {}) if recent_errors else {}
+            estimated = context.get("estimated_slots")
+            total = context.get("total_slots")
+            if isinstance(estimated, int) and isinstance(total, int) and total > 0:
+                base_msg = str(recent_errors[-1].get("message", "Using last known forecast"))
+                critical = estimated / total > PV_ESTIMATED_CRITICAL_FRACTION
+                issues.append(
+                    HealthIssue(
+                        category="forecast",
+                        severity="critical" if critical else "warning",
+                        message=f"{base_msg} ({estimated} slots estimated)",
+                        guidance=(
+                            "Live PV forecast data is unavailable; missing slots are estimated "
+                            "from the last known Open-Meteo forecast and may differ from the "
+                            "real weather. Check Open-Meteo service availability."
+                        ),
+                    )
                 )
-            )
+            else:
+                issues.append(
+                    HealthIssue(
+                        category="forecast",
+                        severity="warning",
+                        message="PV forecast experiencing issues",
+                        guidance="Some forecast requests have failed but the system is still operational.",
+                    )
+                )
 
         return issues
 

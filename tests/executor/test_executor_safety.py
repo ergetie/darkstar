@@ -66,7 +66,7 @@ def temp_db(tmp_path):
     return db_path
 
 
-def _make_engine(temp_schedule, temp_db, *, manual_override_entity=None, ev_chargers=None, max_schedule_age_hours=6):
+def _make_engine(temp_schedule, temp_db, *, manual_override_entity=None, ev_chargers=None, max_schedule_age_hours=2):
     config = ExecutorConfig(
         enabled=True,
         schedule_path=temp_schedule,
@@ -293,7 +293,7 @@ class TestStaleScheduleFreshnessCheck:
 
         The planned charge from the stale slot must NOT be applied — only idle/hold settings.
         """
-        eng = _make_engine(temp_schedule, temp_db, max_schedule_age_hours=6)
+        eng = _make_engine(temp_schedule, temp_db, max_schedule_age_hours=2)
 
         tz = pytz.timezone("Europe/Stockholm")
         now = datetime.now(tz)
@@ -330,7 +330,7 @@ class TestStaleScheduleFreshnessCheck:
 
     async def test_fresh_schedule_executes_normally(self, temp_schedule, temp_db):
         """Schedule within max_schedule_age_hours executes as planned."""
-        eng = _make_engine(temp_schedule, temp_db, max_schedule_age_hours=6)
+        eng = _make_engine(temp_schedule, temp_db, max_schedule_age_hours=2)
 
         tz = pytz.timezone("Europe/Stockholm")
         now = datetime.now(tz)
@@ -352,7 +352,7 @@ class TestStaleScheduleFreshnessCheck:
 
     async def test_stale_alert_fires_only_once_per_stale_period(self, temp_schedule, temp_db):
         """Stale-schedule alert is deduplicated: fires once on transition, not every tick."""
-        eng = _make_engine(temp_schedule, temp_db, max_schedule_age_hours=6)
+        eng = _make_engine(temp_schedule, temp_db, max_schedule_age_hours=2)
 
         tz = pytz.timezone("Europe/Stockholm")
         now = datetime.now(tz)
@@ -386,16 +386,16 @@ class TestStaleScheduleFreshnessCheck:
             await eng.run_once()
         assert len(notify_calls) == 2, f"Expected 2 alerts total after re-arm, got {len(notify_calls)}"
 
-    async def test_default_max_age_is_6_hours(self, temp_schedule, temp_db):
-        """When max_schedule_age_hours is not configured, default of 6h is used."""
-        # Default ExecutorConfig has max_schedule_age_hours=6
+    async def test_default_max_age_is_2_hours(self, temp_schedule, temp_db):
+        """When max_schedule_age_hours is not configured, default of 2h is used."""
+        # Default ExecutorConfig has max_schedule_age_hours=2
         eng = _make_engine(temp_schedule, temp_db)
-        assert eng.config.max_schedule_age_hours == 6
+        assert eng.config.max_schedule_age_hours == 2
 
         tz = pytz.timezone("Europe/Stockholm")
         now = datetime.now(tz)
-        # 5h 59min old — should NOT be stale under 6h default
-        generated_at = now - timedelta(hours=5, minutes=59)
+        # 1h 59min old — should NOT be stale under 2h default
+        generated_at = now - timedelta(hours=1, minutes=59)
         slot_start = now - timedelta(minutes=5)
 
         schedule = _make_schedule([_make_slot(slot_start, charge_kw=5.0)], generated_at=generated_at)

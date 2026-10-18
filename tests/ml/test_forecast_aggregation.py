@@ -6,7 +6,113 @@ import pytest
 
 from backend.exceptions import PVForecastError
 # We import from forecasts module. We will patch OpenMeteoSolarForecast where it is USED.
-from backend.core.forecasts import _get_forecast_data_async, get_forecast_data
+from backend.core.forecasts import (
+    _get_forecast_data_async,
+    _get_stored_openmeteo_pv_for_slots,
+    get_forecast_data,
+)
+
+
+def _outage_config():
+    return {
+        "timezone": "UTC",
+        "system": {
+            "location": {"latitude": 59.3, "longitude": 18.1},
+            "solar_arrays": [{"name": "Array 1", "azimuth": 180, "tilt": 35, "kwp": 10.0}],
+        },
+    }
+
+
+def _slots(count: int, start: datetime | None = None):
+    start = start or datetime(2024, 6, 21, 12, 0, tzinfo=UTC)
+    return [{"start_time": start + timedelta(minutes=15 * i)} for i in range(count)]
+
+
+class _FakeStore:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def get_openmeteo_pv_baselines_range(self, start, end, forecast_version):
+        return self._rows
+
+    async def close(self):
+        return None
+
+
+def _stored_rows(entries):
+    return [
+        {"slot_start": ts.isoformat(), "openmeteo_pv_forecast_kwh": value} for ts, value in entries
+    ]
+
+
+class TestStoredFallbackHelper(unittest.IsolatedAsyncioTestCase):
+    async def _run(self, rows, price_slots, known=None):
+        with patch("backend.learning.store.LearningStore", return_value=_FakeStore(rows)):
+            return await _get_stored_openmeteo_pv_for_slots(
+                price_slots, {"timezone": "UTC"}, known
+            )
+
+    async def test_full_coverage_has_no_estimated_slots(self):
+        slots = _slots(2)
+        rows = _stored_rows([(slots[0]["start_time"], 0.5), (slots[1]["start_time"], 0.6)])
+        values, daily, estimated = await self._run(rows, slots)
+        assert values == [0.5, 0.6]
+        assert estimated == []
+        assert daily["2024-06-21"] == pytest.approx(1.1)
+
+    async def test_partial_coverage_uses_same_time_of_day(self):
+        slots = _slots(3)
+        yesterday = datetime(2024, 6, 20, 12, 0, tzinfo=UTC)
+        rows = _stored_rows(
+            [
+                (slots[0]["start_time"], 0.5),
+                (slots[1]["start_time"], 0.6),
+                (yesterday + timedelta(minutes=30), 0.9),
+                (yesterday - timedelta(days=1) + timedelta(minutes=30), 0.1),
+            ]
+        )
+        values, daily, estimated = await self._run(rows, slots)
+        assert values == [0.5, 0.6, 0.9]
+        assert estimated == [2]
+        assert daily["2024-06-21"] == pytest.approx(2.0)
+
+    async def test_gap_prefers_earlier_day_over_later_day(self):
+        slots = _slots(1)
+        rows = _stored_rows(
+            [
+                (datetime(2024, 6, 19, 12, 0, tzinfo=UTC), 0.3),
+                (datetime(2024, 6, 22, 12, 0, tzinfo=UTC), 0.8),
+            ]
+        )
+        values, _, estimated = await self._run(rows, slots)
+        assert values == [0.3]
+        assert estimated == [0]
+
+    async def test_later_day_used_when_no_earlier_day(self):
+        slots = _slots(1)
+        rows = _stored_rows([(datetime(2024, 6, 22, 12, 0, tzinfo=UTC), 0.8)])
+        values, _, estimated = await self._run(rows, slots)
+        assert values == [0.8]
+        assert estimated == [0]
+
+    async def test_unfillable_slot_is_never_zero(self):
+        slots = _slots(2)
+        rows = _stored_rows([(slots[0]["start_time"], 0.5)])
+        assert await self._run(rows, slots) is None
+
+    async def test_no_stored_data_returns_none(self):
+        assert await self._run([], _slots(2)) is None
+
+    async def test_known_values_keep_value_and_missing_are_estimated(self):
+        slots = _slots(2)
+        rows = _stored_rows(
+            [
+                (slots[1]["start_time"], 0.7),  # exact stored value, still estimated
+            ]
+        )
+        values, _, estimated = await self._run(rows, slots, known={0: 0.25})
+        assert values == [0.25, 0.7]
+        assert estimated == [1]
 
 
 class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
@@ -113,7 +219,7 @@ class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
             patch("backend.core.forecasts.OpenMeteoSolarForecast") as MockForecastClass,
             patch(
                 "backend.core.forecasts._get_stored_openmeteo_pv_for_slots",
-                new=AsyncMock(return_value=([0.5, 0.6], {"2024-06-21": 1.1})),
+                new=AsyncMock(return_value=([0.5, 0.6], {"2024-06-21": 1.1}, [])),
             ),
             patch("backend.core.ha_client.get_load_profile_from_ha", return_value=[0.5] * 96),
             patch("backend.health.record_forecast_error") as mock_record_error,
@@ -126,6 +232,8 @@ class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
         assert result["daily_pv_forecast"]["2024-06-21"] == 1.1
         mock_record_error.assert_called_once()
         assert "using last known forecast" in str(mock_record_error.call_args.args[0])
+        assert mock_record_error.call_args.kwargs["context"]["estimated_slots"] == 0
+        assert [slot["openmeteo_pv_forecast_kwh"] for slot in result["slots"]] == [0.5, 0.6]
 
     async def test_outage_without_stored_coverage_is_critical(self):
         config = {
@@ -152,6 +260,85 @@ class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
 
         mock_record_error.assert_called_once()
         assert isinstance(mock_record_error.call_args.args[0], PVForecastError)
+
+    async def test_outage_partial_coverage_marks_estimated_slots(self):
+        config = _outage_config()
+        price_slots = _slots(3)
+
+        with (
+            patch("backend.core.forecasts.OpenMeteoSolarForecast") as MockForecastClass,
+            patch(
+                "backend.core.forecasts._get_stored_openmeteo_pv_for_slots",
+                new=AsyncMock(return_value=([0.5, 0.6, 0.6], {"2024-06-21": 1.7}, [2])),
+            ),
+            patch("backend.core.ha_client.get_load_profile_from_ha", return_value=[0.5] * 96),
+            patch("backend.health.record_forecast_error") as mock_record_error,
+        ):
+            MockForecastClass.side_effect = RuntimeError("api down")
+            result = await _get_forecast_data_async(price_slots, config)
+
+        slots = result["slots"]
+        assert [s["pv_forecast_kwh"] for s in slots] == [0.5, 0.6, 0.6]
+        # Estimated slot keeps its value for planning but is never a stored baseline.
+        assert slots[2]["openmeteo_pv_forecast_kwh"] is None
+        assert slots[2]["pv_estimated"] is True
+        assert slots[0]["pv_estimated"] is False
+        context = mock_record_error.call_args.kwargs["context"]
+        assert context["estimated_slots"] == 1
+        assert context["total_slots"] == 3
+
+    async def test_empty_estimate_uses_stored_fallback(self):
+        config = _outage_config()
+        price_slots = _slots(2)
+        empty_estimate = MagicMock()
+        empty_estimate.watts = {}
+
+        with (
+            patch("backend.core.forecasts.OpenMeteoSolarForecast") as MockForecastClass,
+            patch(
+                "backend.core.forecasts._get_stored_openmeteo_pv_for_slots",
+                new=AsyncMock(return_value=([0.5, 0.6], {"2024-06-21": 1.1}, [])),
+            ) as mock_stored,
+            patch("backend.core.ha_client.get_load_profile_from_ha", return_value=[0.5] * 96),
+            patch("backend.health.record_forecast_error"),
+        ):
+            instance = AsyncMock()
+            instance.estimate.return_value = empty_estimate
+            instance.__aenter__.return_value = instance
+            instance.__aexit__.return_value = None
+            MockForecastClass.return_value = instance
+            result = await _get_forecast_data_async(price_slots, config)
+
+        mock_stored.assert_awaited_once()
+        assert [s["pv_forecast_kwh"] for s in result["slots"]] == [0.5, 0.6]
+
+    async def test_missing_slot_in_successful_response_is_not_zero(self):
+        config = _outage_config()
+        price_slots = _slots(2)
+        estimate = MagicMock()
+        estimate.watts = {datetime(2024, 6, 21, 12, 0, tzinfo=UTC): 1000.0}
+
+        with (
+            patch("backend.core.forecasts.OpenMeteoSolarForecast") as MockForecastClass,
+            patch(
+                "backend.core.forecasts._get_stored_openmeteo_pv_for_slots",
+                new=AsyncMock(return_value=([0.25, 0.4], {"2024-06-21": 0.65}, [1])),
+            ) as mock_stored,
+            patch("backend.core.ha_client.get_load_profile_from_ha", return_value=[0.5] * 96),
+            patch("backend.health.record_forecast_error") as mock_record_error,
+        ):
+            instance = AsyncMock()
+            instance.estimate.return_value = estimate
+            instance.__aenter__.return_value = instance
+            instance.__aexit__.return_value = None
+            MockForecastClass.return_value = instance
+            result = await _get_forecast_data_async(price_slots, config)
+
+        assert mock_stored.call_args.args[2] == {0: 0.25}
+        assert result["slots"][1]["pv_forecast_kwh"] == 0.4
+        assert result["slots"][1]["openmeteo_pv_forecast_kwh"] is None
+        assert result["slots"][0]["openmeteo_pv_forecast_kwh"] == 0.25
+        assert mock_record_error.call_args.kwargs["context"]["estimated_slots"] == 1
 
     async def test_independent_aurora_load_pv_toggle_combinations(self):
         price_slots = [

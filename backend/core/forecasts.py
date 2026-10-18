@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -25,13 +25,46 @@ def get_forecast_db_path() -> str:
     return str(Path("data/planner_learning.db").resolve())
 
 
+# Stored baselines older than this (before the first price slot) are not used when
+# estimating missing slots. Matches forecasting.pv_personalization_ramp_days default.
+_PV_FALLBACK_LOOKBACK_DAYS = 14
+
+
+def _estimate_from_same_time_of_day(
+    ts: datetime,
+    by_tod: dict[time, list[tuple[date, float]]],
+) -> float | None:
+    """Stored value at the same local time of day: latest earlier day, else earliest later day."""
+    candidates = by_tod.get(ts.time())
+    if not candidates:
+        return None
+    day = ts.date()
+    earlier = [item for item in candidates if item[0] < day]
+    if earlier:
+        return max(earlier, key=lambda item: item[0])[1]
+    later = [item for item in candidates if item[0] > day]
+    if later:
+        return min(later, key=lambda item: item[0])[1]
+    return None
+
+
 async def _get_stored_openmeteo_pv_for_slots(
     price_slots: list[dict[str, Any]],
     config: dict[str, Any],
-) -> tuple[list[float], dict[str, float]] | None:
-    """Return stored Open-Meteo PV baselines aligned to price slots, if fully covered."""
+    known: dict[int, float] | None = None,
+) -> tuple[list[float], dict[str, float], list[int]] | None:
+    """Return PV values aligned to price slots built from stored Open-Meteo baselines.
+
+    Slots with a stored baseline use it. Remaining slots are estimated from the stored
+    value at the same local time of day (latest earlier day wins, else earliest later
+    day) and their indices are returned as the third element. Missing slots are never
+    defaulted to zero; ``None`` is returned when any slot cannot be filled.
+
+    ``known`` maps slot index -> value already obtained from a live response. Slots
+    outside ``known`` are then always treated as estimated.
+    """
     if not price_slots:
-        return [], {}
+        return [], {}, []
 
     from backend.learning.store import LearningStore
 
@@ -39,8 +72,9 @@ async def _get_stored_openmeteo_pv_for_slots(
     local_tz = pytz.timezone(timezone)
     forecasting_cfg: dict[str, Any] = config.get("forecasting", {}) or {}
     forecast_version = str(forecasting_cfg.get("active_forecast_version", "aurora"))
-    start = price_slots[0]["start_time"].astimezone(local_tz)
-    end = price_slots[-1]["start_time"].astimezone(local_tz) + timedelta(minutes=15)
+    slot_times = [slot["start_time"].astimezone(local_tz) for slot in price_slots]
+    start = min(slot_times) - timedelta(days=_PV_FALLBACK_LOOKBACK_DAYS)
+    end = max(slot_times) + timedelta(minutes=15)
     store = LearningStore(get_forecast_db_path(), local_tz)
     try:
         rows = await store.get_openmeteo_pv_baselines_range(start, end, forecast_version)
@@ -48,25 +82,41 @@ async def _get_stored_openmeteo_pv_for_slots(
         await store.close()
 
     by_slot: dict[datetime, float] = {}
+    by_tod: dict[time, list[tuple[date, float]]] = {}
     for row in rows:
+        raw_value = row["openmeteo_pv_forecast_kwh"]
+        if raw_value is None:
+            continue
         ts = row["slot_start"]
         if isinstance(ts, str):
             ts = datetime.fromisoformat(ts)
         if ts.tzinfo is None:
             ts = pytz.UTC.localize(ts)
-        by_slot[ts.astimezone(local_tz)] = float(row["openmeteo_pv_forecast_kwh"] or 0.0)
+        local_ts = ts.astimezone(local_tz)
+        value = float(raw_value)
+        by_slot[local_ts] = value
+        by_tod.setdefault(local_ts.time(), []).append((local_ts.date(), value))
 
     values: list[float] = []
     daily: dict[str, float] = {}
-    for slot in price_slots:
-        ts = slot["start_time"].astimezone(local_tz)
-        if ts not in by_slot:
-            return None
-        value = by_slot[ts]
+    estimated: list[int] = []
+    for idx, ts in enumerate(slot_times):
+        if known is not None and idx in known:
+            value = known[idx]
+        else:
+            exact = by_slot.get(ts)
+            if known is None and exact is not None:
+                value = exact
+            else:
+                filled = exact if exact is not None else _estimate_from_same_time_of_day(ts, by_tod)
+                if filled is None:
+                    return None
+                value = filled
+                estimated.append(idx)
         values.append(value)
         day = ts.date().isoformat()
         daily[day] = daily.get(day, 0.0) + value
-    return values, daily
+    return values, daily, estimated
 
 
 async def get_forecast_data(
@@ -84,6 +134,30 @@ async def get_forecast_data(
         return await _get_forecast_data_aurora(price_slots, config)
     else:
         return await _get_forecast_data_async(price_slots, config)
+
+
+def _interpolate_small_pv_gaps(slots: list[dict[str, Any]], max_gap_slots: int = 2) -> None:
+    """Linearly interpolate PV across genuine small gaps (1-2 slots) between stored slots.
+
+    Operates in place on slots flagged ``pv_estimated``; longer gaps and gaps at either
+    end keep their same-time-of-day estimate.
+    """
+    i = 0
+    while i < len(slots):
+        if not slots[i].get("pv_estimated"):
+            i += 1
+            continue
+        end = i
+        while end < len(slots) and slots[end].get("pv_estimated"):
+            end += 1
+        size = end - i
+        if size <= max_gap_slots and i > 0 and end < len(slots):
+            prev_pv = float(slots[i - 1]["pv_forecast_kwh"])
+            next_pv = float(slots[end]["pv_forecast_kwh"])
+            for j in range(i, end):
+                fraction = (j - i + 1) / (size + 1)
+                slots[j]["pv_forecast_kwh"] = prev_pv + fraction * (next_pv - prev_pv)
+        i = end
 
 
 def _interpolate_small_gaps(
@@ -158,6 +232,44 @@ def _interpolate_small_gaps(
     return result
 
 
+def _report_stored_pv_coverage(db_slots: list[dict[str, Any]], total_slots: int) -> None:
+    """Surface stored-PV coverage problems through the forecast health status.
+
+    Only slots missing from otherwise present stored data (a stale/failed refresh) are
+    reported. Absence of any stored data is a learning-period state, never an error.
+    """
+    from backend.health import record_forecast_error
+
+    if not db_slots:
+        # Nothing stored at all (fresh install / learning period before the first forward
+        # run). That is not an outage: no health error, only an informational log. Real
+        # API failures are reported by the forward job and the Open-Meteo fetch itself.
+        logger.info(
+            "No stored Aurora PV forecast rows yet for the %d-slot horizon "
+            "(learning period); no health error recorded",
+            total_slots,
+        )
+        return
+
+    estimated = sum(1 for slot in db_slots if slot.get("pv_estimated"))
+    if estimated:
+        record_forecast_error(
+            RuntimeError(
+                "Stored PV forecast does not cover the horizon — using last known forecast"
+            ),
+            context={
+                "fallback": "stored_same_time_of_day",
+                "estimated_slots": estimated,
+                "total_slots": total_slots,
+            },
+        )
+        logger.warning(
+            "Stored PV forecast missing slots; %d of %d estimated from same time of day",
+            estimated,
+            total_slots,
+        )
+
+
 async def _get_forecast_data_aurora(
     price_slots: list[dict[str, Any]], config: dict[str, Any]
 ) -> dict[str, Any]:
@@ -181,6 +293,9 @@ async def _get_forecast_data_aurora(
     # generation slightly misaligns with price slot boundaries. Larger gaps
     # (>2 slots) fall through to HA baseline fallback below.
     db_slots = _interpolate_small_gaps(db_slots)
+
+    if aurora_pv_enabled:
+        _report_stored_pv_coverage(db_slots, len(price_slots))
 
     # 2. Fetch HA Load Baseline for fallback
     try:
@@ -231,6 +346,7 @@ async def _get_forecast_data_aurora(
                 {
                     "start_time": slot["start_time"],
                     "pv_forecast_kwh": val_pv,
+                    "pv_estimated": bool(db_slot.get("pv_estimated")) and aurora_pv_enabled,
                     "openmeteo_pv_forecast_kwh": openmeteo_pv,
                     "load_forecast_kwh": val_load,
                     "pv_p10": db_slot.get("pv_p10"),
@@ -432,6 +548,8 @@ async def _get_forecast_data_async(
 
     pv_kwh_forecast: list[float] = []
     daily_pv_forecast: dict[str, float] = {}
+    estimated_slots: list[int] = []
+    incomplete_response = False
     resolution_hours = 0.25
 
     try:
@@ -485,47 +603,89 @@ async def _get_forecast_data_async(
             return summed_watts
 
         solar_data_dict = await _fetch_forecast()
-        if solar_data_dict:
-            sorted_times = sorted(solar_data_dict.keys())
-            if len(sorted_times) > 1:
-                delta_seconds = abs((sorted_times[1] - sorted_times[0]).total_seconds())
-                resolution_hours = max(delta_seconds / 3600.0, 0.0001)
-            for dt in sorted_times:
-                value = solar_data_dict[dt]
-                dt_obj = dt
-                if dt_obj.tzinfo is None:
-                    dt_obj = pytz.UTC.localize(dt_obj)
-                local_date = dt_obj.astimezone(local_tz).date().isoformat()
-                energy_kwh = value * resolution_hours / 1000.0
-                daily_pv_forecast[local_date] = daily_pv_forecast.get(local_date, 0.0) + energy_kwh
+        if not solar_data_dict:
+            # An empty estimate must never turn into an all-zero forecast.
+            raise RuntimeError("Open-Meteo returned an empty PV estimate")
 
-            # Map PV forecast to price slots (15 min resolution assumed)
-            for slot in price_slots:
-                slot_time = slot["start_time"]
-                rounded_time = slot_time.replace(
-                    minute=(slot_time.minute // 15) * 15, second=0, microsecond=0
-                )
-                # Aware datetimes hash/compare by UTC instant, so a direct lookup
-                # matches keys across fixed-offset and pytz zones.
-                power_watts = solar_data_dict.get(rounded_time, 0.0)
-                pv_kwh_forecast.append(power_watts * 0.25 / 1000.0)
+        sorted_times = sorted(solar_data_dict.keys())
+        if len(sorted_times) > 1:
+            delta_seconds = abs((sorted_times[1] - sorted_times[0]).total_seconds())
+            resolution_hours = max(delta_seconds / 3600.0, 0.0001)
+        for dt in sorted_times:
+            value = solar_data_dict[dt]
+            dt_obj = dt
+            if dt_obj.tzinfo is None:
+                dt_obj = pytz.UTC.localize(dt_obj)
+            local_date = dt_obj.astimezone(local_tz).date().isoformat()
+            energy_kwh = value * resolution_hours / 1000.0
+            daily_pv_forecast[local_date] = daily_pv_forecast.get(local_date, 0.0) + energy_kwh
 
-        # REV F60 Phase 7: Clear forecast errors after successful forecast
-        from backend.health import clear_forecast_errors
+        # Map PV forecast to price slots (15 min resolution assumed)
+        known_kwh: dict[int, float] = {}
+        for slot_idx, slot in enumerate(price_slots):
+            slot_time = slot["start_time"]
+            rounded_time = slot_time.replace(
+                minute=(slot_time.minute // 15) * 15, second=0, microsecond=0
+            )
+            # Aware datetimes hash/compare by UTC instant, so a direct lookup
+            # matches keys across fixed-offset and pytz zones.
+            if rounded_time in solar_data_dict:
+                known_kwh[slot_idx] = solar_data_dict[rounded_time] * 0.25 / 1000.0
 
-        clear_forecast_errors()
+        if len(known_kwh) < len(price_slots):
+            # Slots beyond the API horizon are estimated, never defaulted to zero.
+            filled = await _get_stored_openmeteo_pv_for_slots(price_slots, config, known_kwh)
+            if filled is None:
+                raise RuntimeError("Open-Meteo response misses slots and no estimate exists")
+            pv_kwh_forecast, daily_pv_forecast, estimated_slots = filled
+            incomplete_response = True
+        else:
+            pv_kwh_forecast = [known_kwh[i] for i in range(len(price_slots))]
+
+        if incomplete_response:
+            from backend.health import record_forecast_error
+
+            record_forecast_error(
+                RuntimeError("Open-Meteo forecast incomplete — using last known forecast"),
+                context={
+                    "arrays": len(kwp_list),
+                    "fallback": "last_known_openmeteo",
+                    "estimated_slots": len(estimated_slots),
+                    "total_slots": len(price_slots),
+                },
+            )
+            logger.warning(
+                "Open-Meteo response missing slots; %d of %d slots estimated",
+                len(estimated_slots),
+                len(price_slots),
+            )
+        else:
+            # REV F60 Phase 7: Clear forecast errors after successful forecast
+            from backend.health import clear_forecast_errors
+
+            clear_forecast_errors()
 
     except Exception as exc:
         from backend.health import record_forecast_error
 
         stored = await _get_stored_openmeteo_pv_for_slots(price_slots, config)
         if stored is not None:
-            pv_kwh_forecast, daily_pv_forecast = stored
+            pv_kwh_forecast, daily_pv_forecast, estimated_slots = stored
             record_forecast_error(
                 RuntimeError("API unreachable — using last known forecast"),
-                context={"arrays": len(kwp_list), "fallback": "last_known_openmeteo"},
+                context={
+                    "arrays": len(kwp_list),
+                    "fallback": "last_known_openmeteo",
+                    "estimated_slots": len(estimated_slots),
+                    "total_slots": len(price_slots),
+                },
             )
-            logger.warning("Open-Meteo PV fetch failed; using stored last-known forecast")
+            logger.warning(
+                "Open-Meteo PV fetch failed; using stored last-known forecast "
+                "(%d of %d slots estimated)",
+                len(estimated_slots),
+                len(price_slots),
+            )
         else:
             # REV F60: Removed dangerous dummy fallback. PV forecast failure is critical.
             # Using fake solar data would cause the planner to make incorrect decisions.
@@ -578,15 +738,20 @@ async def _get_forecast_data_async(
 
     forecast_data: list[dict[str, Any]] = []
     total_slots = len(price_slots)
+    estimated_set = set(estimated_slots)
     for idx in range(total_slots):
-        pv_kwh = pv_kwh_forecast[idx] if idx < len(pv_kwh_forecast) else 0.0
+        pv_kwh = pv_kwh_forecast[idx]
         load_kwh = load_kwh_forecast[idx] if idx < len(load_kwh_forecast) else 0.0
         slot = price_slots[idx]
+        is_estimated = idx in estimated_set
         forecast_data.append(
             {
                 "start_time": slot["start_time"],
                 "pv_forecast_kwh": pv_kwh,
-                "openmeteo_pv_forecast_kwh": pv_kwh,
+                # Estimated slots carry no baseline so store_forecasts (COALESCE)
+                # never persists them as real Open-Meteo values.
+                "openmeteo_pv_forecast_kwh": None if is_estimated else pv_kwh,
+                "pv_estimated": is_estimated,
                 "load_forecast_kwh": load_kwh,
             }
         )
@@ -721,30 +886,40 @@ async def build_db_forecast_for_slots(
     timezone = str(config.get("timezone", "Europe/Stockholm"))
     local_tz = pytz.timezone(timezone)
 
-    # Determine horizon from price slots
+    # Determine horizon from price slots. Stored days before the first slot are fetched
+    # too so slots without a stored row can be estimated from the same time of day.
     start_time = price_slots[0]["start_time"].astimezone(local_tz)
     end_time = price_slots[-1]["start_time"].astimezone(local_tz) + timedelta(
         minutes=15,
     )
 
-    records = await get_forecast_slots(start_time, end_time, version)
+    records = await get_forecast_slots(
+        start_time - timedelta(days=_PV_FALLBACK_LOOKBACK_DAYS), end_time, version
+    )
     if not records:
         return []
 
     # Index forecasts by localised slot_start for quick lookup
     indexed: dict[datetime, dict[str, Any]] = {}
+    pv_by_tod: dict[time, list[tuple[date, float]]] = {}
     for rec in records:
         ts = rec["slot_start"]
         if isinstance(ts, str):
             ts = datetime.fromisoformat(ts)
         if ts.tzinfo is None:
             ts = pytz.UTC.localize(ts)
-        indexed[ts.astimezone(local_tz)] = rec
+        local_ts = ts.astimezone(local_tz)
+        indexed[local_ts] = rec
+        pv_by_tod.setdefault(local_ts.time(), []).append(
+            (local_ts.date(), float(rec["final"]["pv_kwh"]))
+        )
+    sorted_stored = sorted(indexed.keys())
 
     result: list[dict[str, Any]] = []
     for slot in price_slots:
         ts = slot["start_time"].astimezone(local_tz)
         rec = indexed.get(ts)
+        estimated = rec is None
 
         # Default values in case no forecast is found
         pv = 0.0
@@ -755,21 +930,29 @@ async def build_db_forecast_for_slots(
         load_p90 = None
 
         if rec is None:
-            # Defensive fallback: find closest forecast at or before requested slot
+            # Non-PV fields keep the closest stored forecast at or before the slot.
             fallback_ts = None
-            for forecast_ts in sorted(indexed.keys()):
+            for forecast_ts in sorted_stored:
                 if forecast_ts <= ts:
                     fallback_ts = forecast_ts
                 else:
                     break
 
             if fallback_ts is not None:
-                rec = indexed[fallback_ts]
+                fallback_rec = indexed[fallback_ts]
                 logger.warning(
                     "No exact forecast match for %s, using fallback from %s", ts, fallback_ts
                 )
-
-        if rec is not None:
+                load = float(fallback_rec["final"]["load_kwh"])
+                prob_data = fallback_rec.get("probabilistic", {})
+                load_p10 = prob_data.get("load_p10")
+                load_p90 = prob_data.get("load_p90")
+            # PV must never repeat the last stored slot (a night-time zero would be
+            # carried into daytime); use the same local time of day from a stored day.
+            tod_pv = _estimate_from_same_time_of_day(ts, pv_by_tod)
+            if tod_pv is not None:
+                pv = tod_pv
+        else:
             # Use new nested structure from ml/api.py get_forecast_slots()
             pv = float(rec["final"]["pv_kwh"])
             load = float(rec["final"]["load_kwh"])
@@ -789,7 +972,9 @@ async def build_db_forecast_for_slots(
                 "pv_p90": pv_p90,
                 "load_p10": load_p10,
                 "load_p90": load_p90,
+                "pv_estimated": estimated,
             }
         )
 
+    _interpolate_small_pv_gaps(result)
     return result

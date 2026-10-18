@@ -337,7 +337,7 @@ class ExecutorConfig:
     schedule_path: str = "data/schedule.json"
     timezone: str = "Europe/Stockholm"
     pause_reminder_minutes: int = 30  # Send notification after N minutes paused
-    max_schedule_age_hours: int = 6  # Reject stale schedules older than this
+    max_schedule_age_hours: int = 2  # Reject stale schedules older than this
     # Replan when live SoC deviates from the plan by more than this many points
     # for 5 minutes. 0 disables.
     soc_deviation_replan_percent: float = 10.0
@@ -1092,7 +1092,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         schedule_path=str(executor_data.get("schedule_path", "data/schedule.json")),
         timezone=timezone,
         pause_reminder_minutes=int(executor_data.get("pause_reminder_minutes", 30)),
-        max_schedule_age_hours=int(executor_data.get("max_schedule_age_hours", 6)),
+        max_schedule_age_hours=int(executor_data.get("max_schedule_age_hours", 2)),
         soc_deviation_replan_percent=_ranged_number(
             executor_data.get("soc_deviation_replan_percent", SOC_DEVIATION_REPLAN_DEFAULT),
             "soc_deviation_replan_percent",

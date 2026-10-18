@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pandas as pd
 import pytz
 
+from backend.exceptions import PVForecastError
 from backend.learning import LearningEngine
 from ml.forward import generate_forward_slots
 
@@ -102,6 +103,88 @@ class TestAuroraForward(unittest.IsolatedAsyncioTestCase):
         print("✅ Aurora forward pass used Open-Meteo baseline with 15.0 kWp total")
         print(f"✅ Calculated PV forecast: {first_pv:.4f} kWh")
         print("✅ Aurora forward pass multi-array integration verified!")
+
+
+class TestAuroraForwardPvBaselineGuards(unittest.IsolatedAsyncioTestCase):
+    def _setup(self, mocks):
+        mock_sun, mock_alarm, mock_vacation, mock_weather, mock_models, mock_get_engine, mock_grad = mocks
+        fixed_now = datetime(2024, 6, 15, 12, 0, tzinfo=pytz.UTC)
+        mock_grad.return_value = (2, "graduate", 30.0)
+        engine = MagicMock(spec=LearningEngine)
+        engine.store_forecasts = AsyncMock()
+        engine.timezone = pytz.UTC
+        engine.db_path = "fake_db.db"
+        engine.store = MagicMock()
+        engine.store.count_paired_openmeteo_pv_days = AsyncMock(return_value=0)
+        sun = MagicMock()
+        sun.is_sun_up.return_value = True
+        mock_sun.return_value = sun
+        engine.config = {
+            "timezone": "UTC",
+            "system": {
+                "location": {"latitude": 59.3, "longitude": 18.1},
+                "solar_arrays": [{"kwp": 10.0}],
+            },
+        }
+        mock_get_engine.return_value = engine
+        mock_models.return_value = {}
+        index = pd.date_range(fixed_now, periods=8, freq="15min", tz="UTC")
+        mock_weather.return_value = pd.DataFrame(
+            {
+                "temp_c": [20.0] * 8,
+                "cloud_cover_pct": [10.0] * 8,
+                "shortwave_radiation_w_m2": [800.0] * 8,
+            },
+            index=index,
+        )
+        mock_vacation.return_value = pd.Series(0.0, index=index)
+        mock_alarm.return_value = pd.Series(0.0, index=index)
+        return engine, index
+
+    @patch("ml.forward.get_learning_engine")
+    @patch("ml.forward._load_models")
+    @patch("ml.forward.async_get_weather_series")
+    @patch("ml.forward.get_vacation_mode_series")
+    @patch("ml.forward.get_alarm_armed_series")
+    @patch("backend.astro.SunCalculator")
+    @patch("ml.forward.determine_graduation_level")
+    async def test_baseline_failure_aborts_without_storing(
+        self, mock_grad, mock_sun, mock_alarm, mock_vacation, mock_weather, mock_models, mock_get_engine
+    ):
+        engine, _ = self._setup(
+            (mock_sun, mock_alarm, mock_vacation, mock_weather, mock_models, mock_get_engine, mock_grad)
+        )
+        failing = AsyncMock(side_effect=PVForecastError("no baseline"))
+        with patch("ml.forward._fetch_openmeteo_baseline_series", new=failing):
+            with self.assertRaises(PVForecastError):
+                await generate_forward_slots(horizon_hours=2, forecast_version="test")
+        engine.store_forecasts.assert_not_called()
+
+    @patch("ml.forward.get_learning_engine")
+    @patch("ml.forward._load_models")
+    @patch("ml.forward.async_get_weather_series")
+    @patch("ml.forward.get_vacation_mode_series")
+    @patch("ml.forward.get_alarm_armed_series")
+    @patch("backend.astro.SunCalculator")
+    @patch("ml.forward.determine_graduation_level")
+    async def test_estimated_slots_are_not_stored_as_baselines(
+        self, mock_grad, mock_sun, mock_alarm, mock_vacation, mock_weather, mock_models, mock_get_engine
+    ):
+        engine, index = self._setup(
+            (mock_sun, mock_alarm, mock_vacation, mock_weather, mock_models, mock_get_engine, mock_grad)
+        )
+        baseline = pd.Series([2.5] * 8, index=index)
+        baseline.attrs["estimated"] = [False, False, True, True, False, False, False, False]
+        with patch("ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)):
+            await generate_forward_slots(horizon_hours=2, forecast_version="test")
+
+        forecasts = engine.store_forecasts.call_args.args[0]
+        stored = [f["openmeteo_pv_forecast_kwh"] for f in forecasts]
+        assert stored[2] is None and stored[3] is None
+        assert stored[0] is not None and stored[4] is not None
+        # Estimated slots still carry a PV value for planning.
+        assert forecasts[2]["pv_forecast_kwh"] > 0.0
+        assert forecasts[2]["pv_estimated"] is True
 
 
 if __name__ == "__main__":

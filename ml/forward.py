@@ -15,6 +15,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+from backend.exceptions import PVForecastError
 from backend.health import clear_load_forecast_status, set_load_forecast_status
 from backend.learning import LearningEngine, get_learning_engine
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
@@ -202,24 +203,29 @@ async def _fetch_openmeteo_baseline_series(
     slots: pd.Series,
     config: dict[str, Any],
 ) -> pd.Series:
+    """Open-Meteo PV baseline per slot.
+
+    Raises ``PVForecastError`` when no usable baseline exists, so inference aborts
+    instead of planning on a zero baseline. Slots estimated from stored data are
+    flagged in ``series.attrs["estimated"]`` (boolean list aligned to ``slots``).
+    """
+    from backend.core.forecasts import (
+        _get_forecast_data_async,  # type: ignore[reportPrivateUsage]
+    )
+
     price_slots = [{"start_time": slot} for slot in slots]
-    try:
-        from backend.core.forecasts import (
-            _get_forecast_data_async,  # type: ignore[reportPrivateUsage]
+    result = await _get_forecast_data_async(price_slots, config)
+
+    result_slots: list[dict[str, Any]] = result.get("slots", [])
+    if len(result_slots) != len(slots):
+        raise PVForecastError(
+            "Open-Meteo PV baseline does not cover the inference horizon "
+            f"({len(result_slots)} of {len(slots)} slots)"
         )
-
-        result = await _get_forecast_data_async(price_slots, config)
-    except Exception as exc:
-        logger.warning("Open-Meteo PV baseline unavailable for Aurora inference: %s", exc)
-        return pd.Series(0.0, index=slots.index)
-
-    values = [
-        float(slot.get("openmeteo_pv_forecast_kwh") or slot.get("pv_forecast_kwh") or 0.0)
-        for slot in result.get("slots", [])
-    ]
-    if len(values) < len(slots):
-        values.extend([0.0] * (len(slots) - len(values)))
-    return pd.Series(values[: len(slots)], index=slots.index)
+    values = [float(slot["pv_forecast_kwh"]) for slot in result_slots]
+    series = pd.Series(values, index=slots.index)
+    series.attrs["estimated"] = [bool(slot.get("pv_estimated")) for slot in result_slots]
+    return series
 
 
 _EXPECTED_LOAD_FEATURES = [
@@ -500,6 +506,11 @@ async def generate_forward_slots(
         logger.warning(f"Astro init failed: {e}")
 
     openmeteo_series = await _fetch_openmeteo_baseline_series(df["slot_start"], engine.config)
+    # Slots estimated from stored data must not be stored back as Open-Meteo baselines.
+    estimated_flags: list[bool] = list(openmeteo_series.attrs.get("estimated", []))
+    if len(estimated_flags) != len(df):
+        estimated_flags = [False] * len(df)
+    estimated_by_idx = dict(zip(df.index, estimated_flags, strict=True))
     openmeteo_series = pd.Series(list(openmeteo_series), index=df.index, dtype="float64")
     # Fill interior NaN slots by linear interpolation from neighbouring valid slots.
     # Leading/trailing NaN runs (no valid neighbour) fall back to 0, never the home-grown physics.
@@ -656,7 +667,10 @@ async def generate_forward_slots(
             "temp_c": row.get("temp_c"),
             # Primary (Legacy/p50)
             "pv_forecast_kwh": pv_p50_v,
-            "openmeteo_pv_forecast_kwh": float(predictions["openmeteo_baseline_kwh"][idx]),  # type: ignore[reportUnknownArgumentType]
+            "openmeteo_pv_forecast_kwh": None
+            if estimated_by_idx[idx]
+            else float(predictions["openmeteo_baseline_kwh"][idx]),  # type: ignore[reportUnknownArgumentType]
+            "pv_estimated": estimated_by_idx[idx],
             "load_forecast_kwh": load_p50_v,
             "base_load_forecast_kwh": load_p50_v,
             "pv_ml_residual_raw_kwh": _raw_residual_at(pv_raw_residual_p50, idx),
