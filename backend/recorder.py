@@ -76,16 +76,39 @@ def _numeric_states(states: list[dict[str, Any]]) -> list[tuple[datetime, float 
     return out
 
 
-def car_energy_from_added_sensor(states: list[dict[str, Any]]) -> float | None:
-    """Energy-added sensor change over the slot. A drop is a session reset: the
-    post-reset value counts from zero. None when the slot has no numeric reading."""
+DEFAULT_ENERGY_ADDED_RESET_THRESHOLD_KWH = 0.5
+_WALLBOX_NEAR_ZERO_KWH = 0.01
+_CAR_ENERGY_MIN_TOLERANCE_KWH = 0.05
+_CAR_ENERGY_TOLERANCE_FRACTION = 0.05
+
+
+def car_energy_from_added_sensor(
+    states: list[dict[str, Any]],
+    reset_threshold_kwh: float = DEFAULT_ENERGY_ADDED_RESET_THRESHOLD_KWH,
+) -> float | None:
+    """Energy-added sensor change over the slot. A drop is a session reset (the
+    post-reset value counts from zero) only when the new value is at or below
+    ``reset_threshold_kwh``; any other drop is sensor drift and contributes 0.
+    None when the slot has no numeric reading."""
     values = [v for _, v in _numeric_states(states) if v is not None]
     if not values:
         return None
     total = 0.0
     for prev, cur in pairwise(values):
-        total += cur - prev if cur >= prev else cur
+        if cur >= prev:
+            total += cur - prev
+        elif cur <= reset_threshold_kwh:
+            total += cur
     return total
+
+
+def cap_car_energy(car_kwh: float, wallbox_kwh: float) -> float:
+    """Car-side energy cannot exceed grid-side energy: cap at wallbox energy plus a
+    tolerance (sensor granularity, slot skew); 0 when the wallbox was idle."""
+    if wallbox_kwh <= _WALLBOX_NEAR_ZERO_KWH:
+        return 0.0
+    tolerance = max(_CAR_ENERGY_MIN_TOLERANCE_KWH, _CAR_ENERGY_TOLERANCE_FRACTION * wallbox_kwh)
+    return min(car_kwh, wallbox_kwh + tolerance)
 
 
 def car_energy_from_soc(
@@ -108,6 +131,18 @@ def car_energy_from_soc(
     if first_ts > slot_start + window or last_ts < slot_end - window:
         return None
     return max(0.0, (last - first) / 100.0 * capacity_kwh)
+
+
+def zero_rejected_ev_energy(record: dict[str, Any]) -> dict[str, Any]:
+    """Keep per-charger wallbox and car energy consistent with a rejected (zeroed)
+    aggregate ``ev_charging_kwh``."""
+    if record.get("ev_charger_energy") and not record.get("ev_charging_kwh"):
+        record["ev_charger_energy"] = dict.fromkeys(record["ev_charger_energy"], 0.0)
+        if record.get("ev_charger_car_energy"):
+            record["ev_charger_car_energy"] = {
+                cid: {**entry, "kwh": 0.0} for cid, entry in record["ev_charger_car_energy"].items()
+            }
+    return record
 
 
 def _car_energy_entities(config: dict[str, Any]) -> list[str]:
@@ -152,7 +187,18 @@ def _ev_car_energy(
         kwh: float | None = None
         source = "sensor" if sensor else "soc"
         if sensor:
-            kwh = car_energy_from_added_sensor(history.get(sensor, []))
+            kwh = car_energy_from_added_sensor(
+                history.get(sensor, []),
+                float(
+                    ev.get(
+                        "energy_added_reset_threshold_kwh",
+                        DEFAULT_ENERGY_ADDED_RESET_THRESHOLD_KWH,
+                    )
+                    or 0.0
+                ),
+            )
+            if kwh is not None:
+                kwh = cap_car_energy(kwh, float(ev_charger_energy.get(charger_id) or 0.0))
         elif soc:
             kwh = car_energy_from_soc(
                 history.get(soc, []),
@@ -580,8 +626,7 @@ async def record_observation_from_current_state(
             if record.get(field) != original_record.get(field):
                 recording["components"][component]["method"] = "unknown"
         # Keep per-charger energy consistent with a rejected (zeroed) aggregate.
-        if record.get("ev_charger_energy") and not record.get("ev_charging_kwh"):
-            record["ev_charger_energy"] = dict.fromkeys(record["ev_charger_energy"], 0.0)
+        record = zero_rejected_ev_energy(record)
     except ValueError as e:
         logger.warning(f"Could not validate energy values: {e}. Proceeding with raw values.")
 

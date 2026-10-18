@@ -54,13 +54,40 @@ const EV_BALANCER_STATE_COLORS: Record<string, string> = {
     stale_fallback: 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
 }
 
-/** Percentage of the charge goal delivered so far, capped at 100. Returns 0
- * (rather than dividing by zero) when the goal has no required_kwh set. */
+/** Progress towards the charge goal, 0-100, or null when it cannot be known.
+ * Chargers with a SoC reading use soc / target SoC (100 once at or above the
+ * target). Chargers without a SoC sensor use delivered / (delivered + remaining
+ * need), since their required_kwh already excludes what was delivered. A
+ * charger whose SoC sensor is unavailable gets no bar rather than a made-up one. */
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
-export function computeProgressPercent(charger: EVChargerState): number {
-    const delivered = charger.delivered_kwh ?? 0
-    const required = charger.required_kwh ?? 0
-    return required > 0 ? Math.min(100, Math.round((delivered / required) * 100)) : 0
+export function computeProgressPercent(charger: EVChargerState): number | null {
+    const soc = charger.soc_percent
+    const target = charger.target_soc_percent
+    if (soc != null && target != null && target > 0) {
+        return soc >= target ? 100 : Math.max(0, Math.min(100, Math.round((soc / target) * 100)))
+    }
+    if (charger.status === 'complete') return 100
+    if (charger.status === 'soc_unavailable') return null
+    if (soc != null || charger.delivered_kwh == null || charger.required_kwh == null) return null
+    const total = charger.delivered_kwh + charger.required_kwh
+    if (total <= 0) return null
+    return Math.max(0, Math.min(100, Math.round((charger.delivered_kwh / total) * 100)))
+}
+
+/** Label under the progress bar: SoC text when a SoC is known, else remaining kWh. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function describeProgress(charger: EVChargerState): string | null {
+    const soc = charger.soc_percent
+    const target = charger.target_soc_percent
+    if (soc != null && target != null) {
+        return soc >= target
+            ? `${Math.round(soc)}% (target ${Math.round(target)}%)`
+            : `${Math.round(soc)}% to ${Math.round(target)}%`
+    }
+    if (charger.required_kwh != null && charger.required_kwh > 0) {
+        return `${charger.required_kwh.toFixed(1)} kWh remaining`
+    }
+    return null
 }
 
 /** Plain-language explanation of an at-risk goal, e.g.
@@ -298,9 +325,8 @@ export default function EVChargingCard({
     }
 
     // Progress math
-    const delivered = charger.delivered_kwh ?? 0
-    const required = charger.required_kwh ?? 0
     const progressPercent = computeProgressPercent(charger)
+    const progressText = describeProgress(charger)
     const { statusText, statusColor } = deriveChargerStatus(charger, balancerEv)
     const shortfallText = describeShortfall(charger)
     const socUnavailableText = describeSocUnavailable(charger)
@@ -526,21 +552,21 @@ export default function EVChargingCard({
                                 className={`space-y-3 ${replanFailed ? 'opacity-60' : ''}`}
                                 data-testid="ev-plan-values"
                             >
-                                {/* Visual Progress Bar (delivered_kwh / required_kwh) */}
-                                <div className="space-y-1">
-                                    <div className="flex justify-between text-[9px] text-muted font-medium">
-                                        <span>Delivered: {delivered.toFixed(1)} kWh</span>
-                                        <span>
-                                            Target: {required.toFixed(1)} kWh ({progressPercent}% of goal)
-                                        </span>
+                                {/* Visual Progress Bar (SoC / target SoC, or delivered / required kWh without SoC) */}
+                                {progressPercent !== null && (
+                                    <div className="space-y-1" data-testid="ev-progress">
+                                        <div className="flex justify-between text-[9px] text-muted font-medium">
+                                            <span>{progressText ?? 'Progress'}</span>
+                                            <span>{progressPercent}%</span>
+                                        </div>
+                                        <div className="h-1.5 w-full bg-line/20 rounded-full relative overflow-hidden">
+                                            <div
+                                                className={`h-full bg-ev rounded-full ${progressPercent < 100 ? 'animate-pulse' : ''}`}
+                                                style={{ width: `${progressPercent}%` }}
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="h-1.5 w-full bg-line/20 rounded-full relative overflow-hidden">
-                                        <div
-                                            className="h-full bg-ev rounded-full animate-pulse"
-                                            style={{ width: `${progressPercent}%` }}
-                                        />
-                                    </div>
-                                </div>
+                                )}
 
                                 {/* Quota schedule summary */}
                                 {charger.delivered_kwh !== null && charger.required_kwh !== null && (

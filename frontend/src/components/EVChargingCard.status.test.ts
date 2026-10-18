@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeProgressPercent, deriveChargerStatus } from './EVChargingCard'
+import { computeProgressPercent, deriveChargerStatus, describeProgress } from './EVChargingCard'
 import type { EVChargerState, LoadBalancerEvStatus } from '../lib/api'
 
 function baseCharger(overrides: Partial<EVChargerState> = {}): EVChargerState {
@@ -45,24 +45,37 @@ function baseEvStatus(overrides: Partial<LoadBalancerEvStatus> = {}): LoadBalanc
 }
 
 describe('computeProgressPercent', () => {
-    it('returns 0 without dividing by zero when required_kwh is 0', () => {
-        const charger = baseCharger({ required_kwh: 0, delivered_kwh: 5 })
-        expect(computeProgressPercent(charger)).toBe(0)
+    it('uses soc / target for chargers with SoC, ignoring delivered kWh', () => {
+        const charger = baseCharger({ soc_percent: 50, target_soc_percent: 80, delivered_kwh: 22 })
+        expect(computeProgressPercent(charger)).toBe(63)
     })
 
-    it('returns 0 when required_kwh is null', () => {
-        const charger = baseCharger({ required_kwh: null, delivered_kwh: 5 })
-        expect(computeProgressPercent(charger)).toBe(0)
-    })
-
-    it('caps progress at 100 when delivered exceeds required', () => {
-        const charger = baseCharger({ required_kwh: 10, delivered_kwh: 15 })
+    it('is 100 once SoC reaches the target', () => {
+        const charger = baseCharger({ soc_percent: 82, target_soc_percent: 80 })
         expect(computeProgressPercent(charger)).toBe(100)
     })
 
-    it('computes a normal in-progress percentage', () => {
-        const charger = baseCharger({ required_kwh: 10, delivered_kwh: 2.5 })
+    it('is 100 for a complete charger without a SoC reading', () => {
+        const charger = baseCharger({ soc_percent: null, status: 'complete' })
+        expect(computeProgressPercent(charger)).toBe(100)
+    })
+
+    it('uses delivered / (delivered + remaining) without a SoC sensor', () => {
+        const charger = baseCharger({ soc_percent: null, required_kwh: 7.5, delivered_kwh: 2.5 })
         expect(computeProgressPercent(charger)).toBe(25)
+    })
+
+    it('is hidden when neither SoC nor kWh data is available', () => {
+        expect(computeProgressPercent(baseCharger({ soc_percent: null, delivered_kwh: null }))).toBeNull()
+        expect(computeProgressPercent(baseCharger({ soc_percent: null, required_kwh: null }))).toBeNull()
+        expect(computeProgressPercent(baseCharger({ soc_percent: null, status: 'soc_unavailable' }))).toBeNull()
+    })
+})
+
+describe('describeProgress', () => {
+    it('shows SoC text with a SoC and remaining kWh without', () => {
+        expect(describeProgress(baseCharger({ soc_percent: 62, target_soc_percent: 80 }))).toBe('62% to 80%')
+        expect(describeProgress(baseCharger({ soc_percent: null, required_kwh: 7.5 }))).toBe('7.5 kWh remaining')
     })
 })
 

@@ -97,7 +97,9 @@ def _ev_delivered_today_kwh(
         return None
     try:
         row = conn.execute(
-            "SELECT SUM(COALESCE(car_energy_kwh, energy_kwh * ?)), COUNT(*) "
+            "SELECT SUM(COALESCE("
+            "MIN(car_energy_kwh, energy_kwh + MAX(0.05, 0.05 * energy_kwh)), "
+            "energy_kwh * ?)), COUNT(*) "
             "FROM ev_charger_observations "
             "WHERE charger_id = ? AND slot_start >= ? AND slot_start < ?",
             (efficiency, charger_id, start_local.isoformat(), local_now.isoformat()),

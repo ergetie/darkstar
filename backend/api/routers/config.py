@@ -727,6 +727,7 @@ _EV_LOSS_RANGES: dict[str, tuple[float, float, str]] = {
     "charge_overhead_kw": (0.0, 2.0, "kW"),
     "start_loss_kwh": (0.0, 1.0, "kWh"),
     "charge_efficiency": (0.5, 1.0, ""),
+    "energy_added_reset_threshold_kwh": (0.0, 5.0, "kWh"),
 }
 
 

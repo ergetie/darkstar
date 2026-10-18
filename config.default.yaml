@@ -160,6 +160,7 @@ ev_chargers:
     start_loss_kwh: 0.15             # Energy lost on every charging start (kWh), 0-1
     charge_efficiency: 0.95          # Fraction of wallbox energy that reaches the battery, 0.5-1.0
     energy_added_sensor: ""          # Optional: car's "energy added" sensor (kWh) for measuring car-side energy
+    energy_added_reset_threshold_kwh: 0.5  # A drop of the energy-added sensor counts as a session reset only when the new value is at or below this (kWh), 0-5; other drops are sensor drift
 
   # Example: Second EV (disabled by default)
   # - id: ev_charger_2
