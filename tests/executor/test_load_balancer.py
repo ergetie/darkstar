@@ -279,6 +279,34 @@ class TestStaleSensorFailSafe:
         assert status.ev_outputs[0].target_a == 6
         assert status.ev_outputs[0].state == "stale_fallback"
 
+    def test_stale_message_names_phase_and_real_age(self):
+        lb = make_lb()
+        ev = EVBalancerInput("goe", [2], 16, 16, min_current_a=6, max_current_a=16)
+        stale_ts = {2: BASE - timedelta(seconds=90)}
+        status = lb.tick(BASE, {2: 10.0}, stale_ts, [ev])
+        msg = status.ev_outputs[0].reason
+        assert "L2 age 90s" in msg
+        assert "no reading" not in msg
+
+    def test_missing_reading_message_has_no_age(self):
+        lb = make_lb()
+        ev = EVBalancerInput("goe", [3], 16, 16, min_current_a=6, max_current_a=16)
+        status = lb.tick(BASE, {}, {}, [ev])
+        msg = status.ev_outputs[0].reason
+        assert "L3 no reading" in msg
+        assert "age" not in msg
+
+    def test_pause_duration_reported_separately_from_sensor_age(self):
+        lb = make_lb()
+        ev = EVBalancerInput("goe", [1], 16, 16, min_current_a=6, max_current_a=16)
+        lb.tick(BASE, {1: 10.0}, {1: BASE - timedelta(seconds=40)}, [ev])
+        t1 = BASE + timedelta(seconds=125)
+        stale_ts = {1: t1 - timedelta(seconds=45)}
+        status = lb.tick(t1, {1: 10.0}, stale_ts, [ev])
+        msg = status.ev_outputs[0].reason
+        assert "L1 age 45s" in msg
+        assert "paused for 125s" in msg
+
     def test_escalated_stale_pause_needs_confirm_window_after_recovery(self):
         """9.3 / D17: once stale_fallback escalates to a full pause, a flapping
         sensor that comes back fresh must not resume charging immediately —

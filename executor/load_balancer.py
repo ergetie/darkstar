@@ -358,6 +358,23 @@ class LoadBalancer:
             return True
         return (now - updated_at).total_seconds() > self.config.sensor_stale_after_s
 
+    def _describe_stale_phases(
+        self,
+        stale_phases: list[int],
+        phase_current_a: dict[int, float],
+        grid_current_updated_at: dict[int, datetime],
+        now: datetime,
+    ) -> str:
+        """Name each stale phase as L1..L3 with "no reading" or the real reading age."""
+        parts: list[str] = []
+        for phase in stale_phases:
+            updated_at = grid_current_updated_at.get(phase)
+            if phase not in phase_current_a or updated_at is None:
+                parts.append(f"L{phase} no reading")
+            else:
+                parts.append(f"L{phase} age {int((now - updated_at).total_seconds())}s")
+        return ", ".join(parts)
+
     def _resolve_ev(
         self,
         ev: EVBalancerInput,
@@ -435,6 +452,7 @@ class LoadBalancer:
             self._clear_fit_timers(ev.charger_id)
             stale_since = self._ev_stale_since.setdefault(ev.charger_id, now)
             stale_elapsed = (now - stale_since).total_seconds()
+            stale_desc = self._describe_stale_phases(stale_phases, phase_current, updated_at, now)
             if stale_elapsed >= self.config.resume_delay_s:
                 # Escalating stale_fallback -> a full pause: record the pause
                 # start (if not already paused) so that once the sensor comes
@@ -449,8 +467,8 @@ class LoadBalancer:
                         ev.charger_id,
                         None,
                         "paused",
-                        f"Phase sensor(s) {stale_phases} stale for "
-                        f"{int(stale_elapsed)}s — charging paused",
+                        f"Phase sensor(s) stale ({stale_desc}) — "
+                        f"charging paused (paused for {int(stale_elapsed)}s)",
                     ),
                     True,
                     True,
@@ -461,7 +479,7 @@ class LoadBalancer:
                     ev.charger_id,
                     ev.min_current_a,
                     "stale_fallback",
-                    f"Phase sensor(s) {stale_phases} stale — forcing {ev.min_current_a}A",
+                    f"Phase sensor(s) stale ({stale_desc}) — forcing {ev.min_current_a}A",
                 ),
                 True,
                 False,

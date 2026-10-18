@@ -204,6 +204,9 @@ _EV_PHASE_ACTIVE_THRESHOLD_W = 100.0
 # Planned surplus kW above this counts as surplus charging for a charger
 _EV_SURPLUS_ACTIVE_KW = 0.01
 
+# Minimum seconds between repeated warnings for the same faulty sensor entity.
+_SENSOR_WARN_INTERVAL_S = 300.0
+
 # Seconds a new setpoint must stand before the car's measured draw is trusted
 # as the baseline for further amps adjustments (the car needs time to follow).
 EV_DRAW_SETTLE_S = 30
@@ -361,6 +364,7 @@ class ExecutorEngine:
 
         # Per-device EV charging state tracking
         self._ev_charger_states: dict[str, EVChargerState] = {}
+        self._sensor_warn_at: dict[str, float] = {}
         # Per-charger write failure backoff and per-(charger, action) failure dedup
         self._ev_write_backoff: dict[str, _EVWriteBackoff] = {}
         self._ev_failure_dedup: dict[tuple[str, str], _EVFailureDedup] = {}
@@ -2574,6 +2578,29 @@ class ExecutorEngine:
             ev_keep_on=ev_keep_on,
         )
 
+    def _warn_sensor(self, entity: str, reason: str) -> None:
+        """Log a per-entity sensor warning, at most once per rate-limit interval."""
+        warned = self.__dict__.setdefault("_sensor_warn_at", {})
+        now = time.monotonic()
+        last = warned.get(entity)
+        if last is not None and now - last < _SENSOR_WARN_INTERVAL_S:
+            return
+        warned[entity] = now
+        logger.warning("Sensor %s could not be read: %s", entity, reason)
+
+    def _safe_float(self, entity: str | None, raw: Any) -> float | None:
+        """Parse a sensor state as float; return None (with a rate-limited warning) on failure."""
+        if raw is None or raw == "":
+            return None
+        if raw in ("unknown", "unavailable"):
+            self._warn_sensor(entity or "?", f"state is {raw!r}")
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            self._warn_sensor(entity or "?", f"non-numeric state {raw!r}")
+            return None
+
     async def _gather_system_state(self) -> SystemState:
         """Gather current system state from Home Assistant."""
         state = SystemState()
@@ -2638,9 +2665,12 @@ class ExecutorEngine:
         if self.config.has_water_heater:
             # Use first configured per-device target entity (or legacy global entity if present)
             if self.config.water_heater_devices:
-                water_entity = self.config.water_heater_devices[0].target_entity
+                first_heater = self.config.water_heater_devices[0]
+                # A switch-controlled heater's target entity is on/off, not a temperature.
+                if first_heater.control_type != "switch":
+                    water_entity = first_heater.target_entity
             elif hasattr(self.config.water_heater, "target_entity"):
-                water_entity = self.config.water_heater.target_entity  # type: ignore[union-attr]
+                water_entity = cast("str | None", self.config.water_heater.target_entity)  # type: ignore[union-attr]
             if water_entity:
                 reads.append(("water_temp", lambda e=water_entity: ha.get_state_value(e)))  # type: ignore[misc]
 
@@ -2670,33 +2700,34 @@ class ExecutorEngine:
                 voltage_entities[phase] = entity
                 reads.append((f"grid_voltage_l{phase}", lambda e=entity: ha.get_state(e)))
 
+        results: dict[str, Any] = {}
         try:
             results = await gather_sensor_reads(reads, context="executor_state")
 
-            soc_str = results.get("soc")
-            if soc_str and soc_str not in ("unknown", "unavailable"):
-                state.current_soc_percent = float(soc_str)
+            soc = self._safe_float(soc_entity, results.get("soc"))
+            if soc is not None:
+                state.current_soc_percent = soc
                 state.soc_available = True
 
-            pv_str = results.get("pv_power")
-            if pv_str and pv_str not in ("unknown", "unavailable"):
-                state.current_pv_kw = float(pv_str) / 1000  # W to kW
+            pv_w = self._safe_float(pv_power_entity, results.get("pv_power"))
+            if pv_w is not None:
+                state.current_pv_kw = pv_w / 1000  # W to kW
 
-            load_str = results.get("load_power")
-            if load_str and load_str not in ("unknown", "unavailable"):
-                state.current_load_kw = float(load_str) / 1000
+            load_w = self._safe_float(load_power_entity, results.get("load_power"))
+            if load_w is not None:
+                state.current_load_kw = load_w / 1000
 
-            imp_str = results.get("grid_import")
-            if imp_str and imp_str not in ("unknown", "unavailable"):
-                state.current_import_kw = float(imp_str) / 1000
+            imp_w = self._safe_float(import_entity, results.get("grid_import"))
+            if imp_w is not None:
+                state.current_import_kw = imp_w / 1000
 
-            exp_str = results.get("grid_export")
-            if exp_str and exp_str not in ("unknown", "unavailable"):
-                state.current_export_kw = float(exp_str) / 1000
+            exp_w = self._safe_float(export_entity, results.get("grid_export"))
+            if exp_w is not None:
+                state.current_export_kw = exp_w / 1000
 
-            net_str = results.get("grid_power")
-            if net_str and net_str not in ("unknown", "unavailable"):
-                grid_net_kw = float(net_str) / 1000
+            net_w = self._safe_float(net_grid_entity, results.get("grid_power"))
+            if net_w is not None:
+                grid_net_kw = net_w / 1000
                 if input_sensors.get("grid_power_inverted", False):
                     grid_net_kw = -grid_net_kw
                 state.current_import_kw = max(0.0, grid_net_kw)
@@ -2710,9 +2741,9 @@ class ExecutorEngine:
             if grid_charge is not None:
                 state.grid_charging_enabled = grid_charge == "on"
 
-            water_str = results.get("water_temp")
-            if water_str:
-                state.current_water_temp = float(water_str)
+            water_temp = self._safe_float(water_entity, results.get("water_temp"))
+            if water_temp is not None:
+                state.current_water_temp = water_temp
 
             # Pass water heater configuration to state
             state.has_water_heater = self._has_water_heater
@@ -2721,6 +2752,11 @@ class ExecutorEngine:
             if manual is not None:
                 state.manual_override_active = manual == "on"
 
+        except Exception as e:
+            logger.warning("Failed to gather some system state: %s", e)
+
+        # Phase currents are parsed independently so no other sensor can block them.
+        try:
             if phase_entities:
                 nominal_voltage_v = self.config.load_balancing.nominal_voltage_v
                 grid_current_a: dict[int, float] = {}
@@ -2730,13 +2766,10 @@ class ExecutorEngine:
                     if not isinstance(phase_state, dict):
                         continue
                     phase_state = cast("dict[str, Any]", phase_state)
-                    value_str = phase_state.get("state")
-                    if value_str is None or value_str in ("unknown", "unavailable"):
+                    raw_value = self._safe_float(phase_entities[phase], phase_state.get("state"))
+                    if raw_value is None:
                         continue
-                    try:
-                        raw_value = abs(float(value_str))
-                    except (TypeError, ValueError):
-                        continue
+                    raw_value = abs(raw_value)
 
                     attributes = cast("dict[str, Any]", phase_state.get("attributes") or {})
                     unit_of_measurement = cast("str | None", attributes.get("unit_of_measurement"))
@@ -2771,13 +2804,12 @@ class ExecutorEngine:
                             # nominal voltage for a configured-but-unreadable sensor.
                             continue
                         voltage_state = cast("dict[str, Any]", voltage_state)
-                        v_value_str = voltage_state.get("state")
-                        if v_value_str is None or v_value_str in ("unknown", "unavailable"):
+                        parsed_voltage = self._safe_float(
+                            voltage_entity, voltage_state.get("state")
+                        )
+                        if parsed_voltage is None:
                             continue
-                        try:
-                            voltage_v = float(v_value_str)
-                        except (TypeError, ValueError):
-                            continue
+                        voltage_v = parsed_voltage
                         voltage_updated_at = reading_timestamp(voltage_state)
                         if power_updated_at is None or voltage_updated_at is None:
                             reading_updated_at = None
@@ -2798,7 +2830,7 @@ class ExecutorEngine:
                 state.grid_current_updated_at = grid_current_updated_at or None
 
         except Exception as e:
-            logger.warning("Failed to gather some system state: %s", e)
+            logger.warning("Failed to parse phase current sensors: %s", e)
 
         return state
 
