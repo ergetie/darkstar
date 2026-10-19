@@ -263,6 +263,13 @@ export type OnboardingProgress = {
     completed_steps: string[]
     version?: number
     updated_at?: string | null
+    dismissed_notices?: string[]
+}
+
+export type ProgramTimesStatus = {
+    status: 'ok' | 'mismatch' | 'unverifiable'
+    entities: string[]
+    mismatches: { entity_id: string; value: string }[]
 }
 
 export class ApiError extends Error {
@@ -1616,6 +1623,12 @@ export const Api = {
                 current_step: progress.current_step,
                 completed_steps: progress.completed_steps,
             }),
+        dismissNotice: (id: string) =>
+            getJSON<OnboardingProgress>('/api/setup/onboarding/dismissed-notices', 'POST', { id }),
+        programTimes: (socTarget?: string) =>
+            getJSON<ProgramTimesStatus>(
+                '/api/setup/program-times' + (socTarget ? `?soc_target=${encodeURIComponent(socTarget)}` : ''),
+            ),
     },
     // Price Forecast (Tasks 3.2)
     priceForecast: {

@@ -18,6 +18,38 @@ The first and most important setting is your **Inverter Profile**. Darkstar uses
 - **Generic Profile**: Use this if your brand is not listed. You will need to manually map all entities.
 - **Custom Profiles**: If you want to create your own profile, see the **[Profile Creation Guide](CREATING_INVERTER_PROFILES.md)**.
 
+#### Deye / SunSynk: Time of Use program 6
+Darkstar writes the battery SoC target directly to **Time of Use program 6 SoC** (default `number.inverter_program_6_soc`). On the inverter:
+1. Enable **Time of Use**.
+2. Set **all six program times to 00:00**. With every program starting at 00:00, program 6 is the active program all day.
+
+The old setup with an `input_number.master_soc_target` helper and an automation copying it into all six program SoCs is no longer needed. Existing installs keep their configured `soc_target`; only the default and the suggestions changed.
+
+Darkstar checks the six program times (derived from `soc_target`, e.g. `time.inverter_program_1_time` ... `time.inverter_program_6_time`). If any time is not 00:00 you get a health warning. If the times cannot be read (other entity naming, helper entity, or entities missing), onboarding and **Settings -> System** show a "Couldn't verify program times" note you can dismiss.
+
+##### Fallback: master SoC helper
+If writing program 6 SoC does not take effect on your model, use the helper setup instead: create an `input_number.master_soc_target` helper (0-100, unit %), set it as `soc_target` in **Settings -> System**, and copy it to all six program SoCs with an automation:
+
+```yaml
+alias: Darkstar master SoC to all Deye programs
+mode: queued
+triggers:
+  - trigger: state
+    entity_id: input_number.master_soc_target
+actions:
+  - action: number.set_value
+    target:
+      entity_id:
+        - number.inverter_program_1_soc
+        - number.inverter_program_2_soc
+        - number.inverter_program_3_soc
+        - number.inverter_program_4_soc
+        - number.inverter_program_5_soc
+        - number.inverter_program_6_soc
+    data:
+      value: "{{ states('input_number.master_soc_target') | float(0) }}"
+```
+
 > [!WARNING]
 > **Check Your Units! (Watts vs kW)"
 > This is the #1 setup error. Ensure Darkstar knows the correct unit:
@@ -93,6 +125,8 @@ Darkstar writes to these entities to execute the plan:
 > | **GoodWe** | `General Mode` | `Eco Mode` |
 > | **Fronius** | `Discharge to grid` | `Auto` |
 > *Check your inverter integration documentation for exact case-sensitive strings.*
+>
+> **Deye / SunSynk**: the SoC target goes to Time of Use program 6 SoC, so enable Time of Use and set all six program times to 00:00 (see [1.1 Inverter Profile](#deye--sunsynk-time-of-use-program-6)).
 - **Grid Charging Switch**: Toggles charging from the grid.
 - **Current Limits**: Entities to set max Amps for charging/discharging.
 

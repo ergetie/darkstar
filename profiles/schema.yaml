@@ -21,6 +21,13 @@ metadata:
   supported_brands:            # List of brand names for UI display
     - "Brand A"
     - "Brand B"
+  # Optional setup notice shown in onboarding and Settings > System when this
+  # profile is selected. Plain text only (no markdown).
+  # setup_notice:
+  #   title: "Inverter setup required"   # non-empty string
+  #   severity: info                      # info | warning
+  #   items:                              # non-empty list of strings, one line each
+  #     - "Enable Time of Use on the inverter."
 
 # ==============================================================================
 # ENTITIES - Home Assistant entity registry

@@ -657,3 +657,39 @@ async def test_readiness_fully_configured_battery_profile(config):
     result = await readiness_with(config, states)
     assert not result["ready"]
     assert next(c for c in result["checks"] if c["id"] == "battery_soc")["status"] == "fail"
+
+
+def _deye_soc_target_rules():
+    definition = load_profile("deye").entities["soc_target"]
+    return {"domain": [definition.domain], **definition.match}, definition.default_entity
+
+
+def test_deye_soc_target_prefers_program_6_over_helper():
+    rules, default_entity = _deye_soc_target_rules()
+    programs = [
+        entity(
+            f"number.inverter_program_{n}_soc",
+            friendly_name=f"Inverter Program {n} SoC",
+            device_class=None,
+        )
+        for n in range(1, 7)
+    ]
+    helper = entity(
+        "input_number.master_soc_target",
+        friendly_name="Master SoC target",
+        platform="input_number",
+        device_class=None,
+    )
+    ranked = rank_candidates([*programs, helper], rules, default_entity=default_entity)
+    ids = [c["entity_id"] for c in ranked]
+    assert ids[0] == "number.inverter_program_6_soc"
+    assert "input_number.master_soc_target" in ids
+    assert not any(f"program_{n}_soc" in eid for n in range(1, 6) for eid in ids)
+
+
+def test_deye_soc_target_matches_helper_without_default():
+    rules, _ = _deye_soc_target_rules()
+    helper = entity(
+        "input_number.master_soc_target", friendly_name="Master SoC target", device_class=None
+    )
+    assert rank_candidates([helper], rules)[0]["entity_id"] == "input_number.master_soc_target"

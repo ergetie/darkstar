@@ -297,6 +297,19 @@ export function OnboardingWizard({ onClose }: Props) {
             })
     }
 
+    const dismissNotice = (id: string) => {
+        setProgress((current) => ({
+            ...current,
+            dismissed_notices: [...new Set([...(current.dismissed_notices ?? []), id])],
+        }))
+        Api.setup
+            .dismissNotice(id)
+            .then((saved) =>
+                setProgress((current) => ({ ...current, dismissed_notices: saved.dismissed_notices ?? [] })),
+            )
+            .catch((error: unknown) => setErrorMessage(`Could not save dismissal: ${describeError(error)}`))
+    }
+
     const persistProgress = async (next: OnboardingProgress) => {
         const saved = await Api.setup.saveOnboarding(next)
         setProgress(saved)
@@ -504,6 +517,8 @@ export function OnboardingWizard({ onClose }: Props) {
         haCoreConfig,
         refreshReadiness,
         onFix: handleFix,
+        dismissedNotices: progress.dismissed_notices ?? [],
+        dismissNotice,
     }
 
     return (

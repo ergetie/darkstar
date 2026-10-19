@@ -70,12 +70,19 @@ export interface BaseField {
     }
 }
 
+export interface ProfileSetupNotice {
+    title: string
+    severity: 'info' | 'warning'
+    items: string[]
+}
+
 export interface InverterProfile {
     name: string
     description: string
     supported_brands: string[]
     version: string
     schema_version: number
+    setup_notice?: ProfileSetupNotice | null
     entities: Record<
         string,
         {

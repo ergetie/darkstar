@@ -6,9 +6,9 @@ import logging
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 logger = logging.getLogger(__name__)
 STATE_FILE_PATH = Path("data/onboarding_state.json")
@@ -21,9 +21,15 @@ class OnboardingUpdate(BaseModel):
     completed_steps: list[str] = Field(default_factory=list, max_length=100)
 
 
+NoticeId = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_.:-]{1,100}$")]
+
+
 class OnboardingState(OnboardingUpdate):
     version: Literal[1] = 1
     updated_at: datetime | None = None
+    # Setup notices the user dismissed (e.g. "deye.program_times_unverified").
+    # Not part of OnboardingUpdate so progress saves never clobber it.
+    dismissed_notices: list[NoticeId] = Field(default_factory=list, max_length=100)
 
 
 def read_state() -> OnboardingState:
@@ -37,7 +43,27 @@ def read_state() -> OnboardingState:
 
 
 def write_state(update: OnboardingUpdate) -> OnboardingState:
-    state = OnboardingState(**update.model_dump(), updated_at=datetime.now(UTC))
+    state = OnboardingState(
+        **update.model_dump(),
+        dismissed_notices=read_state().dismissed_notices,
+        updated_at=datetime.now(UTC),
+    )
+    return _persist(state)
+
+
+def dismiss_notice(notice_id: str) -> OnboardingState:
+    """Persist a dismissed setup notice id, keeping onboarding progress intact."""
+    current = read_state()
+    dismissed = current.dismissed_notices
+    if notice_id not in dismissed:
+        dismissed = [*dismissed, notice_id]
+    state = OnboardingState.model_validate(
+        {**current.model_dump(), "dismissed_notices": dismissed, "updated_at": datetime.now(UTC)}
+    )
+    return _persist(state)
+
+
+def _persist(state: OnboardingState) -> OnboardingState:
     STATE_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = None
     try:

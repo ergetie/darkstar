@@ -37,9 +37,14 @@ A unit test SHALL exist verifying that a `TimeoutError` raised by the HTTP sessi
 
 ### Requirement: Status API current_slot_plan includes mode_intent
 
-The `get_status()` method SHALL include a `mode_intent` field in the `current_slot_plan` object. This field SHALL be computed by running the Controller's `decide()` method with the current slot plan and current system state. The `current_slot_plan` object SHALL also include `ev_charging_kw` (aggregate across all chargers), `ev_charger_plans` (per-device dict), `ev_keep_on` (per-device keep-on flag dict, empty when no charger is in keep-on state), `discharge_kw`, and `water_heater_plans` from the slot plan.
+The `get_status()` method SHALL include a `mode_intent` field in the `current_slot_plan` object, computed by running the Controller's `decide()` method with the current slot plan and system state. The object SHALL also carry the slot plan's EV, discharge and water heater fields.
 
 If the controller cannot produce a decision (e.g., system state unavailable, profile not loaded), `mode_intent` SHALL be `null`.
+
+#### Scenario: Status API current_slot_plan carries the slot plan fields
+- **WHEN** the executor status is requested and a current slot exists
+- **THEN** `current_slot_plan` SHALL include `ev_charging_kw` (aggregate across all chargers), `ev_charger_plans` (per-device dict), `ev_keep_on` (per-device keep-on flag dict), `discharge_kw` and `water_heater_plans`
+- **AND** `ev_keep_on` SHALL be an empty dict when no charger is in keep-on state
 
 #### Scenario: Status API returns per-device EV plan
 - **WHEN** the executor status is requested and the current slot has per-device EV plans
@@ -66,11 +71,23 @@ If the controller cannot produce a decision (e.g., system state unavailable, pro
 
 ### Requirement: Keep-on flag drives charger-on decisions
 
-The executor SHALL treat a slot's per-charger keep-on flag (`ev_keep_on[charger_id] == true`) as an instruction to keep that charger's switch/relay ON even when the slot's planned power for the charger is 0. A single shared predicate (planned kW > 0.1 OR keep-on flag set) SHALL be used at every decision site that derives "this charger should be on" from the slot plan — the switch-close decision, the load balancer's planner-target derivation, and the phase-mode target selection — so the decision rule cannot diverge between sites.
+The executor SHALL treat a slot's per-charger keep-on flag (`ev_keep_on[charger_id] == true`) as an instruction to keep that charger's switch/relay ON even when the slot's planned power for the charger is 0, using a single shared predicate (planned kW > 0.1 OR keep-on flag set) at every decision site.
 
-For current-type chargers in keep-on state with 0 planned kW, the load balancer's planner target SHALL be the charger's configured minimum current (the per-charger `min_current_a` config value, not a hardcoded constant), not a power-derived target, so the relay is held closed without misrepresenting demand; the load balancer MAY throttle or shed this target under fuse stress like any other EV demand.
+`SlotPlan` SHALL carry the per-charger keep-on flags parsed from `ev_keep_on`.
 
-`SlotPlan` SHALL carry the per-charger keep-on flags parsed from the schedule's `ev_keep_on` field; schedules without the field SHALL parse as no-keep-on (empty flags) and behave exactly as before this change.
+#### Scenario: One shared predicate is used at every decision site
+- **WHEN** the executor derives "this charger should be on" from the slot plan
+- **THEN** the switch-close decision, the load balancer's planner-target derivation and the phase-mode target selection SHALL all use the same predicate (planned kW > 0.1 OR keep-on flag set)
+- **AND** the decision rule SHALL NOT diverge between those sites
+
+#### Scenario: Keep-on planner target uses configured minimum current
+- **WHEN** a current-type charger is in keep-on state with 0 planned kW
+- **THEN** the load balancer's planner target SHALL be the per-charger `min_current_a` config value, not a hardcoded constant and not a power-derived target
+- **AND** the relay SHALL be held closed without misrepresenting demand
+
+#### Scenario: SlotPlan parses keep-on flags from the schedule
+- **WHEN** the executor parses a schedule slot containing an `ev_keep_on` field
+- **THEN** the resulting `SlotPlan` SHALL carry the per-charger keep-on flags from that field
 
 #### Scenario: Binary charger switch closes on keep-on with zero planned power
 - **WHEN** the current slot has `ev_keep_on = {"ev1": true}` and `ev_charger_plans["ev1"] == 0`
@@ -226,7 +243,24 @@ The executor SHALL set temperature for each heater independently based on its pe
 - **THEN** the scalar `water_temp` field SHALL reflect the maximum temperature across all heaters (for logging/status compat)
 
 ### Requirement: Water heater sensor reads are gated by has_water_heater flag
-The executor, recorder, load disaggregator and live-power socket mapping SHALL NOT fetch, register or map water heater power sensors when `system.has_water_heater` is `false`. A missing `has_water_heater` key SHALL be treated as `true` by every reader, including the socket client. The `water_heaters[]` sensor loop SHALL be skipped entirely when the system flag is disabled. In addition, the executor SHALL read a water heater's current temperature from its target entity only when `system.has_water_heater` is `true` and that heater's `control_type` is `temperature`; it SHALL NOT attempt a temperature read or parse for any heater with `control_type: switch`. The executor's single `current_water_temp` value is taken from the first configured heater (`water_heater_devices[0]`); when that heater is switch-controlled, no read occurs and `current_water_temp` keeps its default.
+The executor, recorder, load disaggregator and live-power socket mapping SHALL NOT fetch, register or map water heater power sensors when `system.has_water_heater` is `false`, and the executor SHALL read a water heater's current temperature only when the flag is `true` and that heater's `control_type` is `temperature`.
+
+#### Scenario: Missing flag is treated as enabled
+- **WHEN** the `system.has_water_heater` key is absent
+- **THEN** every reader, including the socket client, SHALL treat it as `true`
+
+#### Scenario: Disabled flag skips the sensor loop entirely
+- **WHEN** `system.has_water_heater` is `false`
+- **THEN** the `water_heaters[]` sensor loop SHALL be skipped entirely
+
+#### Scenario: Switch-controlled heater is never read for temperature
+- **WHEN** a heater has `control_type: switch`
+- **THEN** the executor SHALL NOT attempt a temperature read or parse for it
+
+#### Scenario: current_water_temp comes from the first configured heater
+- **WHEN** the executor determines its single `current_water_temp` value
+- **THEN** the value SHALL be taken from the first configured heater (`water_heater_devices[0]`)
+- **AND** when that heater is switch-controlled, no read occurs and `current_water_temp` keeps its default
 
 #### Scenario: Water heating disabled skips sensor reads
 - **WHEN** the recorder or executor gathers power sensor readings
@@ -320,9 +354,9 @@ The `finally` block SHALL cancel all tasks in `_background_tasks` and await thei
 
 ### Requirement: Default self_consumption fallback allows PV charging
 
-When the controller selects `self_consumption` mode as the default fallback (no charge, export, or discharge planned), the `charge_value` in the resulting `ControllerDecision` SHALL use the user's configured maximum charge current (`max_charge_a` or `max_charge_w` depending on `control_unit`), not 0.
+When the controller selects `self_consumption` mode as the default fallback (no charge, export, or discharge planned), the `charge_value` in the resulting `ControllerDecision` SHALL use the user's configured maximum charge current (`max_charge_a` or `max_charge_w` depending on `control_unit`), not 0, so PV power can still charge the battery.
 
-This ensures that even when the planner schedules no explicit charging action, PV power can still charge the battery. The intentional PV surplus export path (where `charge_kw > 0` results in `charge_value = planned`) SHALL NOT be affected.
+The intentional PV surplus export path SHALL NOT be affected.
 
 #### Scenario: Default self_consumption with no planned charge
 
@@ -471,7 +505,20 @@ When `system.inverter_profile` is null, empty, or missing (the shipped default i
 - **THEN** a WARNING is logged and the `generic` profile is used (unchanged behavior)
 
 ### Requirement: Every EV action is recorded in the execution log
-The executor SHALL write an execution record for every EV dispatch result (switch enable/disable, current setpoint, stop, phase-mode change), whether it succeeded or failed. Each record SHALL use `source="ev_charger"` and a `commanded_work_mode` of `ev_charge_start`, `ev_charge_stop`, `ev_charge_current` or `ev_phase_mode`, and SHALL set `success` from the result. On failure, `error_message` SHALL carry the error details. `action_results` SHALL include `charger_id`, `entity_id`, `previous_value` and the `new_value` actually sent (amps or option). Results skipped because the entity was already at the target SHALL NOT be recorded.
+The executor SHALL write an execution record for every EV dispatch result (switch enable/disable, current setpoint, stop, phase-mode change), whether it succeeded or failed, using `source="ev_charger"` and setting `success` from the result.
+
+#### Scenario: Record carries the EV command mode
+- **WHEN** an EV dispatch result is recorded
+- **THEN** `commanded_work_mode` SHALL be one of `ev_charge_start`, `ev_charge_stop`, `ev_charge_current` or `ev_phase_mode`
+- **AND** `error_message` SHALL carry the error details when the result failed
+
+#### Scenario: Record action_results identify the write
+- **WHEN** an EV dispatch result is recorded
+- **THEN** `action_results` SHALL include `charger_id`, `entity_id`, `previous_value` and the `new_value` actually sent (amps or option)
+
+#### Scenario: Already-at-target results are not recorded
+- **WHEN** an EV dispatch result was skipped because the entity was already at the target
+- **THEN** no execution record SHALL be written for it
 
 #### Scenario: Failed current write is recorded
 - **WHEN** writing 6 A to a charger's current entity fails with HA HTTP 500
@@ -519,7 +566,21 @@ Logger output for a failed EV write SHALL include the charger id, the entity and
 - **THEN** only records with `source="ev_charger"` SHALL be listed, each with an EV badge
 
 ### Requirement: Battery Top Up ends at its target SoC
-The `force_charge` quick action SHALL end when the house battery SoC reaches or exceeds its `target_soc`, not after a fixed duration. It SHALL also end when the user clears it, and after a safety timeout of 24 hours. A `force_charge` request SHALL be rejected when `target_soc` is below the configured `min_soc_percent`, above 100, or when the current battery SoC is already at or above the target. The `force_charge` action SHALL NOT require or be limited by the 15/30/60-minute duration list; `force_stop` and `force_heat` keep their existing duration behaviour.
+The `force_charge` quick action SHALL end when the house battery SoC reaches or exceeds its `target_soc`, not after a fixed duration, and SHALL be rejected when its target is invalid or already reached.
+
+#### Scenario: User clears the Top Up
+- **GIVEN** a Top Up is active
+- **WHEN** the user clears it
+- **THEN** the quick action SHALL end
+
+#### Scenario: Duration list does not apply to force_charge
+- **WHEN** a `force_charge` request is made
+- **THEN** it SHALL NOT require or be limited by the 15/30/60-minute duration list
+- **AND** `force_stop` and `force_heat` SHALL keep their existing duration behaviour
+
+#### Scenario: Target above 100 rejected
+- **WHEN** a Top Up to a `target_soc` above 100 is requested
+- **THEN** the request SHALL be rejected
 
 #### Scenario: Target reached
 - **GIVEN** a Top Up to 80% is active
@@ -565,7 +626,17 @@ On config reload, the executor SHALL load the newly configured inverter profile 
 
 ### Requirement: Planned battery charging retains separate grid-charging intent
 
-The executor SHALL represent total battery charging separately from planned grid-charging intent. It SHALL preserve explicit zero rather than treating it as missing. Schedule parsing SHALL prefer non-null schedule `charge_kw`; otherwise it SHALL derive intent from non-null `grid_import_kw`, capped by total battery charging, or from non-null `import_kwh` using the existing 15-minute slot convention and the same cap. When all supported source fields are absent or null, intent SHALL remain unknown.
+The executor SHALL represent total battery charging separately from planned grid-charging intent, and SHALL preserve explicit zero rather than treating it as missing.
+
+Schedule parsing SHALL prefer non-null `charge_kw`, otherwise derive intent from non-null `grid_import_kw` or `import_kwh`, capped by total battery charging.
+
+#### Scenario: Import energy uses the 15-minute slot convention
+- **WHEN** intent is derived from `import_kwh`
+- **THEN** the existing 15-minute slot convention SHALL be used and the same cap by total battery charging SHALL apply
+
+#### Scenario: All source fields absent leave intent unknown
+- **WHEN** `charge_kw`, `grid_import_kw` and `import_kwh` are all absent or null
+- **THEN** grid-charging intent SHALL remain unknown
 
 #### Scenario: Explicit zero takes precedence over import fallback
 - **WHEN** a slot has `battery_charge_kw = 3`, `charge_kw = 0`, and `grid_import_kw = 2`
@@ -662,3 +733,22 @@ A failure to read or parse one sensor SHALL NOT prevent any other sensor from be
 #### Scenario: Persistent fault
 - **WHEN** the same entity fails on consecutive ticks
 - **THEN** a warning with its entity id and reason is logged at most once per rate-limit interval
+
+### Requirement: Config reload reaches the action dispatcher
+When `reload_config()` loads a changed config, the new `ExecutorConfig` SHALL be applied to the `ActionDispatcher` at the start of the next tick, without restart. Each tick SHALL snapshot the config once and the dispatcher SHALL use only that snapshot for the whole tick, even if a reload from another thread completes mid-tick.
+
+#### Scenario: soc_target entity changed in Settings
+- **GIVEN** the executor runs with `executor.inverter.soc_target: input_number.master_soc_target`
+- **WHEN** the config is saved with `soc_target: number.inverter_program_6_soc` and `reload_config()` runs
+- **THEN** the next SoC target write goes to `number.inverter_program_6_soc`
+- **AND** no write goes to `input_number.master_soc_target`
+
+#### Scenario: Unchanged config
+- **WHEN** `reload_config()` runs and config and profile mtimes are unchanged
+- **THEN** the dispatcher config object is not replaced
+
+#### Scenario: Reload during a tick
+- **GIVEN** a tick is executing with `soc_target: input_number.master_soc_target`
+- **WHEN** an API thread calls `reload_config()` with `soc_target: number.inverter_program_6_soc` before the tick's SoC write
+- **THEN** that tick writes only `input_number.master_soc_target`
+- **AND** the next tick writes `number.inverter_program_6_soc`

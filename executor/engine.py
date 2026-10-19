@@ -520,8 +520,9 @@ class ExecutorEngine:
             self.status.enabled = self.config.enabled
             self.status.shadow_mode = self.config.shadow_mode
             self._load_balancer.config = self.config.load_balancing
-            if self.dispatcher:
-                self.dispatcher.shadow_mode = self.config.shadow_mode
+            # The dispatcher is NOT updated here: reloads can come from API
+            # threads mid-tick. The next tick applies the new config snapshot
+            # (see _tick_unlocked) so a running tick never sees a swap.
 
             system_cfg = self._full_config.get("system", {})
             self._has_water_heater = system_cfg.get("has_water_heater", True)
@@ -556,8 +557,6 @@ class ExecutorEngine:
                         if missing
                         else None
                     )
-                    if self.dispatcher:
-                        self.dispatcher.profile = new_profile
                     logger.info("Inverter profile reloaded: %s", new_profile.metadata.name)
             except Exception as e:
                 logger.error("Failed to reload inverter profile during config reload: %s", e)
@@ -1574,7 +1573,15 @@ class ExecutorEngine:
         7. Log execution
         """
         start_time = time.time()
-        tz = pytz.timezone(self.config.timezone)
+        # Snapshot config/profile once per tick and apply it to the dispatcher.
+        # reload_config() may run on another thread mid-tick; using the snapshot
+        # keeps the whole tick consistent and picks up changes on the next tick.
+        with self._lock:
+            config = self.config
+            profile = self.inverter_profile
+        if self.dispatcher:
+            self.dispatcher.update_config(config, profile)
+        tz = pytz.timezone(config.timezone)
         now = datetime.now(tz)
         # execution_log.executed_at is local ISO with offset (this tz), unlike
         # slot_plans.created_at (naive UTC) — compare only after converting to a common tz.
@@ -1608,14 +1615,12 @@ class ExecutorEngine:
                 return result
 
             # 1. Check automation toggle (Rev O1)
-            if self.config.automation_toggle_entity and self.ha_client:
-                toggle_state = await self.ha_client.get_state_value(
-                    self.config.automation_toggle_entity
-                )
+            if config.automation_toggle_entity and self.ha_client:
+                toggle_state = await self.ha_client.get_state_value(config.automation_toggle_entity)
                 if toggle_state and toggle_state.lower() != "on":
                     logger.warning(
                         "Executor skip: Automation toggle (%s) is %s",
-                        self.config.automation_toggle_entity,
+                        config.automation_toggle_entity,
                         toggle_state,
                     )
                     self.status.last_run_status = "skipped"
@@ -1628,8 +1633,7 @@ class ExecutorEngine:
                                 "type": "skip",
                                 "reason": "automation_disabled",
                                 "message": (
-                                    f"Toggle {self.config.automation_toggle_entity} "
-                                    f"is {toggle_state}"
+                                    f"Toggle {config.automation_toggle_entity} is {toggle_state}"
                                 ),
                             }
                         ],
@@ -1677,11 +1681,11 @@ class ExecutorEngine:
             # assumed-plugged slots for a car that is away). Gate the slot once
             # so switch control, source isolation, surplus and the balancer all
             # see the same actionable plan; remind the user to plug in.
-            if slot is not None and self._has_ev_charger and self.config.ev_chargers:
+            if slot is not None and self._has_ev_charger and config.ev_chargers:
                 plug_states = await self._read_ev_plug_states()
                 await self._check_plug_in_reminders(now, plug_states)
                 slot = self._gate_ev_plan_on_plug_state(slot, plug_states)
-            if self._has_ev_charger and self.config.ev_chargers:
+            if self._has_ev_charger and config.ev_chargers:
                 await self._check_ev_soc_stale()
 
             # 4. Check for active Quick Action OR Water Boost
@@ -1714,11 +1718,11 @@ class ExecutorEngine:
                 elif action_type == "force_stop":
                     actions = {
                         "soc_target": 10,
-                        "water_temp": self.config.water_heater.temp_off,
+                        "water_temp": config.water_heater.temp_off,
                     }
                 elif action_type == "force_heat":
                     actions = {
-                        "water_temp": self.config.water_heater.temp_boost,
+                        "water_temp": config.water_heater.temp_boost,
                     }
 
                 override = OverrideResult(
@@ -1763,9 +1767,9 @@ class ExecutorEngine:
                         reason=f"Water Boost active until {water_boost['expires_at']}",
                         actions={
                             "soc_target": protected_soc,  # Protect from excessive drain
-                            "water_temp": self.config.water_heater.temp_boost,
+                            "water_temp": config.water_heater.temp_boost,
                             "water_temps": {
-                                heater_id: self.config.water_heater.temp_boost
+                                heater_id: config.water_heater.temp_boost
                                 for heater_id in water_boost["heaters"]
                                 if heater_id != "__legacy__"
                             },
@@ -1780,9 +1784,9 @@ class ExecutorEngine:
                     state,
                     slot,
                     config={
-                        "water_temp_boost": self.config.water_heater.temp_boost,
-                        "water_temp_max": self.config.water_heater.temp_max,
-                        "water_temp_off": self.config.water_heater.temp_off,
+                        "water_temp_boost": config.water_heater.temp_boost,
+                        "water_temp_max": config.water_heater.temp_max,
+                        "water_temp_off": config.water_heater.temp_off,
                     },
                 )
 
@@ -1946,11 +1950,11 @@ class ExecutorEngine:
                 slot,
                 state,
                 override if override.override_needed else None,
-                self.config.controller,
-                self.config.inverter,
-                self.config.water_heater,
-                self.config.water_heater_devices,
-                self.inverter_profile,
+                config.controller,
+                config.inverter,
+                config.water_heater,
+                config.water_heater_devices,
+                profile,
                 self._battery_plan_state,
             )
 
@@ -2038,7 +2042,7 @@ class ExecutorEngine:
                 balancer_ev_targets = dict(self._ev_surplus_targets)
 
             # Control EV Charger Switch (per-device)
-            if self._has_ev_charger and self.config.ev_chargers and not skip_writes:
+            if self._has_ev_charger and config.ev_chargers and not skip_writes:
                 force_stop_ev = bool(quick_action and quick_action.get("type") == "force_stop")
                 await self._control_ev_charger(
                     original_slot,
@@ -2052,7 +2056,7 @@ class ExecutorEngine:
                 # level (post-balancer), not the raw scheduled kW.
                 commanded_active = any(
                     self._ev_charger_states[c.id].charging_active
-                    for c in self.config.ev_chargers
+                    for c in config.ev_chargers
                     if c.id in self._ev_charger_states
                 )
                 if await self._check_ev_charge_failure(
@@ -2073,22 +2077,22 @@ class ExecutorEngine:
                     if self._has_water_heater:
                         if (
                             decision.water_temps or shed_water_heater_ids
-                        ) and self.config.water_heater_devices:
+                        ) and config.water_heater_devices:
                             # New multi-device format: control each heater independently
-                            for device in self.config.water_heater_devices:
+                            for device in config.water_heater_devices:
                                 try:
                                     if not device.target_entity:
                                         continue
                                     temp = decision.water_temps.get(
-                                        device.id, self.config.water_heater.temp_off
+                                        device.id, config.water_heater.temp_off
                                     )
                                     if device.id in shed_water_heater_ids:
                                         # Load-balancer shed takes precedence over the schedule
-                                        temp = self.config.water_heater.temp_off
+                                        temp = config.water_heater.temp_off
                                     if device.control_type == "switch":
                                         water_result = await self.dispatcher.set_water_switch(
                                             device.target_entity,
-                                            temp > self.config.water_heater.temp_off,
+                                            temp > config.water_heater.temp_off,
                                         )
                                     else:
                                         water_result = await self.dispatcher.set_water_temp(
@@ -2101,7 +2105,7 @@ class ExecutorEngine:
                                         device.id,
                                         exc,
                                     )
-                        elif getattr(self.config.water_heater, "target_entity", None):
+                        elif getattr(config.water_heater, "target_entity", None):
                             # Legacy fallback: old-format schedule or single heater
                             water_result = await self.dispatcher.set_water_temp(decision.water_temp)
                             action_results.append(water_result)
@@ -2114,7 +2118,7 @@ class ExecutorEngine:
                             load_cfg = next(
                                 (
                                     ld
-                                    for ld in self.config.load_balancing.loads
+                                    for ld in config.load_balancing.loads
                                     if ld.device_id == shed_out.load_id
                                 ),
                                 None,
@@ -2135,7 +2139,7 @@ class ExecutorEngine:
                         override.override_needed
                         and override.override_type.value == "slot_failure_fallback"
                     )
-                    for rank, entry in enumerate(self.config.excess_pv.priority):
+                    for rank, entry in enumerate(config.excess_pv.priority):
                         if entry.type != "custom_entity" or not entry.entity:
                             continue
                         rank_key = str(rank)

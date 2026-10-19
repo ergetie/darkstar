@@ -13,6 +13,8 @@ import { UnsavedChangesBanner } from './components/UnsavedChangesBanner'
 import { NavigationBlockerDialog } from './components/NavigationBlockerDialog'
 import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard'
 import { ProfileSetupHelper } from './components/ProfileSetupHelper'
+import { ProfileSetupNotice } from '../../components/ProfileSetupNotice'
+import { useDismissedNotices } from '../../lib/useDismissedNotices'
 
 export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) => {
     const navigate = useNavigate()
@@ -42,6 +44,8 @@ export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }
     } = useSettingsForm(systemFieldList, profiles)
 
     const loading = settingsLoading || profiles.length === 0
+    const selectedProfile = profiles.find((p) => p.name === form['system.inverter_profile'])
+    const [dismissedNotices, dismissNotice] = useDismissedNotices(Boolean(selectedProfile?.setup_notice))
 
     // Update systemSections dynamic options and conditional visibility
     const dynamicSections = useMemo(() => {
@@ -408,6 +412,16 @@ export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }
                                             </div>
                                         )}
                                     </Card>
+                                    {section.title === 'System Profile' && selectedProfile?.setup_notice && (
+                                        <div className="mt-4">
+                                            <ProfileSetupNotice
+                                                profile={selectedProfile}
+                                                socTarget={form['executor.inverter.soc_target']}
+                                                dismissedNotices={dismissedNotices}
+                                                onDismissNotice={dismissNotice}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                             </motion.div>
                         )}

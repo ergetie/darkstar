@@ -18,6 +18,14 @@ metadata:
     integrations: ['solarman', 'sunsynk', 'deye']
     manufacturers: ['Deye', 'SunSynk']
 
+  setup_notice:
+    title: "Deye inverter setup"
+    severity: info
+    items:
+      - "On the inverter, enable Time of Use and set all six program times to 00:00."
+      - "With all program times at 00:00, program 6 is active. Darkstar controls program 6 SoC (soc_target, e.g. number.inverter_program_6_soc)."
+      - "The old master SoC helper and the automation copying it to all six programs are no longer needed."
+
 entities:
   work_mode:
     match:
@@ -45,13 +53,15 @@ entities:
 
   soc_target:
     match:
-      domain: [input_number]
-      integration: ['solarman', 'sunsynk', 'deye']
-      entity_id_regex: "soc[ _]target"
-      name_regex: "soc[ _]target"
+      domain: [number, input_number]
+      # Time of Use program 6 SoC (active when all six program times are 00:00),
+      # or the legacy master SoC helper. No integration rule on purpose: it would
+      # score programs 1-5 as candidates too; the default entity ranks program 6 first.
+      entity_id_regex: "(prog(ram)?[ _]?6[ _].*soc|soc[ _]target)"
+      name_regex: "(prog(ram)?[ _]?6[ _].*soc|soc[ _]target)"
       unit: ["%"]
-    default_entity: "input_number.master_soc_target"
-    domain: "input_number"
+    default_entity: "number.inverter_program_6_soc"
+    domain: "number"
     category: "battery"
     description: "Battery SoC target percentage"
     required: true

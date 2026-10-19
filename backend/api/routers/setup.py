@@ -3,8 +3,16 @@
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, ConfigDict
 
-from backend.core.onboarding_state import OnboardingState, OnboardingUpdate, read_state, write_state
+from backend.core.onboarding_state import (
+    NoticeId,
+    OnboardingState,
+    OnboardingUpdate,
+    dismiss_notice,
+    read_state,
+    write_state,
+)
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -17,6 +25,27 @@ async def get_onboarding() -> OnboardingState:
 @router.put("/onboarding")
 async def put_onboarding(body: OnboardingUpdate) -> OnboardingState:
     return write_state(body)
+
+
+class DismissNoticeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: NoticeId
+
+
+@router.post("/onboarding/dismissed-notices")
+async def post_dismissed_notice(body: DismissNoticeBody) -> OnboardingState:
+    return dismiss_notice(body.id)
+
+
+@router.get("/program-times")
+async def get_program_times(soc_target: str | None = None) -> dict[str, Any]:
+    """Verify Deye program times for ``soc_target`` (defaults to the saved config)."""
+    from backend.core.ha_client import get_ha_entity_state
+    from backend.core.program_times import configured_soc_target, verify_program_times
+    from backend.core.secrets import load_yaml
+
+    entity = soc_target or configured_soc_target(load_yaml("config.yaml"))
+    return await verify_program_times(entity, get_ha_entity_state)
 
 
 @router.get("/suggestions")

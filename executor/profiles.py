@@ -32,6 +32,8 @@ VALID_TEMPLATES = frozenset(
     ]
 )
 REQUIRED_MODES = frozenset(["charge", "export", "self_consumption", "idle"])
+SETUP_NOTICE_SEVERITIES = frozenset(["info", "warning"])
+SETUP_NOTICE_KEYS = frozenset(["title", "severity", "items"])
 
 
 class ProfileError(Exception):
@@ -99,6 +101,9 @@ class ProfileMetadata:
     supported_brands: list[str] = field(default_factory=list[str])
     detect: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
     role_overrides: dict[str, dict[str, Any]] = field(default_factory=dict[str, dict[str, Any]])
+    # Optional {title, severity: info|warning, items: [str]} shown in setup UIs.
+    # Kept raw here; validate() reports malformed notices.
+    setup_notice: Any = None
 
 
 @dataclass
@@ -196,6 +201,7 @@ class InverterProfile:
                     isinstance(x, str) for x in cast("list[Any]", value)
                 ):
                     errors.append("metadata.detect values must be lists of strings")
+        errors.extend(validate_setup_notice(self.metadata.setup_notice))
         from backend.core.entity_roles import ROLE_RULES
 
         overrides: Any = self.metadata.role_overrides
@@ -237,6 +243,45 @@ class InverterProfile:
                         )
 
         return len(errors) == 0, errors
+
+
+def validate_setup_notice(notice: Any) -> list[str]:
+    """Validate the optional metadata.setup_notice block."""
+    if notice is None:
+        return []
+    if not isinstance(notice, dict):
+        return ["metadata.setup_notice must be a mapping"]
+    notice = cast("dict[str, Any]", notice)
+    errors = [
+        f"metadata.setup_notice: unknown key '{key}'"
+        for key in sorted(notice.keys() - SETUP_NOTICE_KEYS)
+    ]
+    title = notice.get("title")
+    if not isinstance(title, str) or not title.strip():
+        errors.append("metadata.setup_notice.title must be a non-empty string")
+    if notice.get("severity") not in SETUP_NOTICE_SEVERITIES:
+        errors.append("metadata.setup_notice.severity must be 'info' or 'warning'")
+    items = notice.get("items")
+    if (
+        not isinstance(items, list)
+        or not items
+        or not all(isinstance(x, str) and x.strip() for x in cast("list[Any]", items))
+    ):
+        errors.append("metadata.setup_notice.items must be a non-empty list of strings")
+    return errors
+
+
+def setup_notice_payload(profile: "InverterProfile") -> dict[str, Any] | None:
+    """Return the validated setup notice as an API payload, or None."""
+    notice = profile.metadata.setup_notice
+    if notice is None or validate_setup_notice(notice):
+        return None
+    notice = cast("dict[str, Any]", notice)
+    return {
+        "title": notice["title"],
+        "severity": notice["severity"],
+        "items": list(cast("list[str]", notice["items"])),
+    }
 
 
 def validate_match_rules(rules: Any, context: str) -> list[str]:
@@ -374,6 +419,7 @@ def parse_profile(data: dict[str, Any]) -> InverterProfile:
         supported_brands=metadata_data.get("supported_brands", []),
         detect=metadata_data.get("detect", {}),
         role_overrides=metadata_data.get("role_overrides", {}),
+        setup_notice=metadata_data.get("setup_notice"),
     )
 
     entities: dict[str, EntityDefinition] = {}
@@ -522,6 +568,7 @@ def list_profiles(profiles_dir: str | Path = "profiles") -> list[dict[str, Any]]
                     "supported_brands": profile.metadata.supported_brands,
                     "version": profile.metadata.version,
                     "schema_version": profile.metadata.schema_version,
+                    "setup_notice": setup_notice_payload(profile),
                     "entities": {
                         k: {
                             "default_entity": v.default_entity,

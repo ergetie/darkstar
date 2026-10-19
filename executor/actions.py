@@ -513,6 +513,21 @@ class ActionDispatcher:
         self.shadow_mode = shadow_mode
         self.profile = profile
 
+    def update_config(
+        self,
+        config: ExecutorConfig,
+        profile: InverterProfile | None = None,
+    ) -> None:
+        """Apply a config snapshot (and optionally a new profile) between ticks.
+
+        Must only be called at a tick boundary so a running tick never sees a
+        mid-tick config swap. ``shadow_mode`` follows the new config.
+        """
+        self.config = config
+        self.shadow_mode = config.shadow_mode
+        if profile is not None:
+            self.profile = profile
+
     def _resolve_entity_id(self, key: str) -> str | None:
         """
         Resolve entity key to actual HA entity ID.

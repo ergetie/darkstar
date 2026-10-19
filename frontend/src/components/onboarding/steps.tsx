@@ -10,6 +10,7 @@ import type {
     SetupSuggestionsResponse,
 } from '../../lib/api'
 import type { InverterProfile } from '../../pages/settings/types'
+import { ProfileSetupNotice } from '../ProfileSetupNotice'
 import Select from '../ui/Select'
 import Switch from '../ui/Switch'
 import { EntityField } from './EntityField'
@@ -44,6 +45,8 @@ export type StepProps = {
     haCoreConfig?: HaCoreConfigResponse | null
     refreshReadiness: () => void
     onFix: (step: StepId) => void
+    dismissedNotices: string[]
+    dismissNotice: (id: string) => void
 }
 
 export type StepDefinition = {
@@ -574,6 +577,12 @@ function InverterStep(props: StepProps) {
             {profile && (
                 <p className="text-xs text-muted">{profile.supported_brands.join(', ') || profile.description}</p>
             )}
+            <ProfileSetupNotice
+                profile={profile}
+                socTarget={String(getPath(props.config, 'executor.inverter.soc_target') ?? '')}
+                dismissedNotices={props.dismissedNotices}
+                onDismissNotice={props.dismissNotice}
+            />
             {entities.length > 0 && (
                 <div className="space-y-4 rounded-ds-md border border-line bg-surface p-4">
                     <h3 className="text-sm font-bold text-text">Required inverter entities</h3>

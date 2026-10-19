@@ -348,7 +348,7 @@ flowchart LR
 1. **Inverter Work Mode** - `select.inverter_work_mode`
 2. **Grid Charging** - `switch.inverter_battery_grid_charging`
 3. **Charge/Discharge Currents** - Battery power limits
-4. **SoC Target** - `input_number.master_soc_target`
+4. **SoC Target** - Deye default `number.inverter_program_6_soc` (Time of Use program 6 SoC; requires all six program times at 00:00). Fallback: `input_number.master_soc_target` helper plus an automation copying it to all six program SoCs
 5. **Water Heater Target** - `input_number.vvbtemp`
 6. **Notifications** - Configurable per action type
 

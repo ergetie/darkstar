@@ -24,9 +24,69 @@
     "role_key": "grid_charging_enable"
   },
   {
-    "entity_id": "input_number.master_soc_target",
-    "domain": "input_number",
-    "friendly_name": "master soc target",
+    "entity_id": "number.inverter_program_1_soc",
+    "domain": "number",
+    "friendly_name": "inverter program 1 soc",
+    "platform": "solarman",
+    "manufacturer": "Deye",
+    "model": "DEYE",
+    "state": "50",
+    "unit_of_measurement": "%",
+    "device_class": null,
+    "role_key": null
+  },
+  {
+    "entity_id": "number.inverter_program_2_soc",
+    "domain": "number",
+    "friendly_name": "inverter program 2 soc",
+    "platform": "solarman",
+    "manufacturer": "Deye",
+    "model": "DEYE",
+    "state": "50",
+    "unit_of_measurement": "%",
+    "device_class": null,
+    "role_key": null
+  },
+  {
+    "entity_id": "number.inverter_program_3_soc",
+    "domain": "number",
+    "friendly_name": "inverter program 3 soc",
+    "platform": "solarman",
+    "manufacturer": "Deye",
+    "model": "DEYE",
+    "state": "50",
+    "unit_of_measurement": "%",
+    "device_class": null,
+    "role_key": null
+  },
+  {
+    "entity_id": "number.inverter_program_4_soc",
+    "domain": "number",
+    "friendly_name": "inverter program 4 soc",
+    "platform": "solarman",
+    "manufacturer": "Deye",
+    "model": "DEYE",
+    "state": "50",
+    "unit_of_measurement": "%",
+    "device_class": null,
+    "role_key": null
+  },
+  {
+    "entity_id": "number.inverter_program_5_soc",
+    "domain": "number",
+    "friendly_name": "inverter program 5 soc",
+    "platform": "solarman",
+    "manufacturer": "Deye",
+    "model": "DEYE",
+    "state": "50",
+    "unit_of_measurement": "%",
+    "device_class": null,
+    "role_key": null
+  },
+  {
+    "entity_id": "number.inverter_program_6_soc",
+    "domain": "number",
+    "friendly_name": "inverter program 6 soc",
     "platform": "solarman",
     "manufacturer": "Deye",
     "model": "DEYE",
@@ -34,6 +94,18 @@
     "unit_of_measurement": "%",
     "device_class": null,
     "role_key": "soc_target"
+  },
+  {
+    "entity_id": "input_number.master_soc_target",
+    "domain": "input_number",
+    "friendly_name": "master soc target",
+    "platform": "input_number",
+    "manufacturer": null,
+    "model": null,
+    "state": "50",
+    "unit_of_measurement": "%",
+    "device_class": null,
+    "role_key": null
   },
   {
     "entity_id": "number.inverter_battery_max_charging_current",

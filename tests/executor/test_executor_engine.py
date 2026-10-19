@@ -1885,7 +1885,7 @@ def test_profile_switch_ignores_equal_mtimes_and_resolves_empty(tmp_path, monkey
     engine.reload_config()
     expected = next_name or "generic"
     assert engine.inverter_profile is real_profiles[expected]
-    assert engine.dispatcher.profile is real_profiles[expected]
+    engine.dispatcher.update_config.assert_not_called()
     assert engine._profile_name == expected
     assert engine._profile_mtime == 1000
     assert not (profiles / "None.yaml").exists()
@@ -1918,6 +1918,6 @@ def test_same_profile_mtime_change_applies_without_config_change(tmp_path, monke
     os.utime(profile_path, (2000, 2000))
     engine.reload_config()
     assert engine.inverter_profile is replacement
-    assert engine.dispatcher.profile is replacement
+    engine.dispatcher.update_config.assert_not_called()
     assert engine._profile_mtime == 2000
     assert loader.call_count == 2

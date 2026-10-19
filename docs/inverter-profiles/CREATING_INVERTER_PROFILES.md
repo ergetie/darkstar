@@ -30,6 +30,11 @@ metadata:
   supported_brands:
     - "Brand A"
     - "Brand B"
+  setup_notice:            # Optional, see "Setup Notice" below
+    title: "Inverter setup"
+    severity: info
+    items:
+      - "Enable Time of Use on the inverter."
 
 entities:
   # Entity registry (see below)
@@ -40,6 +45,18 @@ modes:
 behavior:
   # Executor behavior parameters
 ```
+
+### Setup Notice (optional)
+
+`metadata.setup_notice` shows inverter-side setup steps in onboarding (profile step) and in **Settings -> System** whenever the profile is selected.
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `title` | string | Required, non-empty |
+| `severity` | string | `info` or `warning` |
+| `items` | list of strings | Required, non-empty; one plain-text line each (no markdown) |
+
+Unknown keys, other severities or wrong types fail profile validation. Profiles without a notice show nothing. `GET /api/profiles` returns the notice as `setup_notice` (or `null`).
 
 ---
 
@@ -362,8 +379,9 @@ entities:
     required: true
 
   soc_target:
-    default_entity: "input_number.master_soc_target"
-    domain: "input_number"
+    # Time of Use program 6 SoC: active all day when all six program times are 00:00
+    default_entity: "number.inverter_program_6_soc"
+    domain: "number"
     category: "battery"
     description: "Battery SoC target percentage"
     required: true

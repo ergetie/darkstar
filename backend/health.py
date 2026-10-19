@@ -12,7 +12,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytz
@@ -315,6 +315,7 @@ class HealthChecker:
             # Only check entities if HA is connected
             if not any(i.category == "ha_connection" for i in issues):
                 issues.extend(await self.check_entities())
+                issues.extend(await self.check_program_times())
 
         # Check executor health
         issues.extend(self.check_executor())
@@ -852,6 +853,63 @@ class HealthChecker:
                 logger.debug(f"Unexpected error checking entity: {result}")
 
         return issues
+
+    async def check_program_times(self) -> list[HealthIssue]:
+        """Deye only: warn when Time of Use program times are not all 00:00.
+
+        Darkstar writes program 6 SoC, which is only active all day when every
+        program time is 00:00. Unverifiable setups (helper entity, missing or
+        unavailable time entities) produce no issue; the setup notice in the UI
+        covers that case.
+        """
+        from backend.core.program_times import (
+            PROGRAM_TIMES_PROFILE,
+            configured_soc_target,
+            verify_program_times,
+        )
+
+        system_cfg = cast("dict[str, Any]", self._config.get("system") or {})
+        if system_cfg.get("inverter_profile") != PROGRAM_TIMES_PROFILE:
+            return []
+        if not system_cfg.get("has_battery", True):
+            return []
+        ha_config = cast("dict[str, Any]", self._secrets.get("home_assistant") or {})
+        url = str(ha_config.get("url") or "").rstrip("/")
+        token = str(ha_config.get("token") or "")
+        if not url or not token:
+            return []
+
+        from backend.core.ha_client import get_ha_http_client, make_ha_headers
+
+        headers = make_ha_headers(token)
+
+        async def fetch_state(entity_id: str) -> dict[str, Any] | None:
+            try:
+                response = await get_ha_http_client().get(
+                    f"{url}/api/states/{entity_id}", headers=headers, timeout=5.0
+                )
+            except httpx.RequestError:
+                return None
+            return response.json() if response.status_code == 200 else None
+
+        result = await verify_program_times(configured_soc_target(self._config), fetch_state)
+        if result["status"] != "mismatch":
+            return []
+        listed = ", ".join(f"{m['entity_id']} = {m['value']}" for m in result["mismatches"])
+        return [
+            HealthIssue(
+                category="config",
+                severity="warning",
+                message=f"Deye program times are not all 00:00: {listed}",
+                guidance=(
+                    "Set all six Time of Use program times to 00:00 so program 6 is "
+                    "active all day. Darkstar controls the program 6 SoC."
+                ),
+                entity_id=result["mismatches"][0]["entity_id"],
+                code="DEYE_PROGRAM_TIMES",
+                details={"mismatches": result["mismatches"]},
+            )
+        ]
 
     def check_executor(self) -> list[HealthIssue]:
         """Check executor health status."""
