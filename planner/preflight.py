@@ -77,7 +77,7 @@ def check_initial_soc(input_data: dict[str, Any], config: dict[str, Any]) -> Non
         )
 
 
-def check_soc_staleness(input_data: dict[str, Any]) -> None:
+def check_soc_staleness(input_data: dict[str, Any], now: datetime | None = None) -> None:
     initial_state = input_data.get("initial_state", {})
     soc_timestamp_raw = initial_state.get("soc_timestamp")
     if soc_timestamp_raw is None:
@@ -92,7 +92,10 @@ def check_soc_staleness(input_data: dict[str, Any]) -> None:
         if soc_ts.tzinfo is None:
             soc_ts = soc_ts.replace(tzinfo=UTC)
 
-        age_minutes = (datetime.now(UTC) - soc_ts).total_seconds() / 60.0
+        reference = now if now is not None else datetime.now(UTC)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=UTC)
+        age_minutes = (reference - soc_ts).total_seconds() / 60.0
 
         if age_minutes > SOC_STALENESS_WARNING_MINUTES:
             logger.warning(
@@ -306,20 +309,28 @@ def check_numeric_sanity(input_data: dict[str, Any]) -> None:
                 )
 
 
-def run_preflight(input_data: dict[str, Any], config: dict[str, Any]) -> None:
+def run_preflight(
+    input_data: dict[str, Any], config: dict[str, Any], now: datetime | None = None
+) -> None:
     """Run all pre-flight checks before the Kepler solve step.
 
     Blocking checks raise PlannerError on first failure.
     Warning-only checks log and continue.
+
+    ``now`` is the planner's effective time (``now_override`` during
+    simulation/replay). Defaults to the wall clock only when not supplied.
     """
-    now = datetime.now(UTC)
+    if now is None:
+        now = datetime.now(UTC)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
 
     # Blocking checks (raise on first failure)
     check_battery_config(config)
     check_initial_soc(input_data, config)
 
     # Warning-only (log and continue)
-    check_soc_staleness(input_data)
+    check_soc_staleness(input_data, now)
 
     # Blocking checks continued
     check_ev_chargers(config)

@@ -38,7 +38,7 @@ jobs:
         run: uv run ruff check backend/ planner/ ml/ executor/ --output-format=github
 
   lint-frontend:
-    name: Lint Frontend (ESLint)
+    name: Lint & Test Frontend
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -63,6 +63,10 @@ jobs:
 
       - name: Run ESLint
         run: pnpm lint
+
+      # TZ is pinned in vitest.config.ts, so no env is needed here.
+      - name: Run frontend tests
+        run: pnpm test
 
   test-python:
     name: Python Tests

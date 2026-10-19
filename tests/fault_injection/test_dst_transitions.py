@@ -14,9 +14,9 @@ import pytz
 from planner.pipeline import PlannerPipeline
 from tests.fault_injection.conftest import make_slot, write_schedule
 
-# The planner preflight (planner/preflight.py check_price_data) validates prices
-# against the REAL wall clock, not now_override — so these tests must target the
-# NEXT real DST transitions, computed dynamically from the tz database.
+# These tests target the NEXT real DST transitions, computed dynamically from
+# the tz database. (Preflight now honours now_override, so fixed dates would
+# also work; the dynamic targets are kept as extra coverage.)
 
 
 def next_transitions() -> tuple[datetime, datetime]:

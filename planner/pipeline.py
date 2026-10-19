@@ -1896,7 +1896,7 @@ class PlannerPipeline:
             risk_appetite = int(s_index_cfg.get("risk_appetite", 3))
             kepler_config.target_soc_penalty_sek = RISK_PENALTY_MAP.get(risk_appetite, 8.0)
 
-        run_preflight(input_data, active_config)
+        run_preflight(input_data, active_config, now=real_now.to_pydatetime())
 
         solver = KeplerSolver()
         result = await asyncio.to_thread(solver.solve, kepler_input, kepler_config)

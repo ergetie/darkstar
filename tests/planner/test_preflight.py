@@ -1,9 +1,10 @@
 """Unit tests for planner/preflight.py — one failing and one passing case per check."""
+
 from __future__ import annotations
 
-import math
 import logging
-from datetime import datetime, timedelta, timezone
+import math
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -23,7 +24,7 @@ from planner.preflight import (
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _price_slot(start: datetime, hours: float = 1.0) -> dict:
@@ -47,13 +48,13 @@ def _forecast_slot(start: datetime, hours: float = 1.0) -> dict:
 
 
 def _valid_config(**battery_overrides) -> dict:
-    battery = dict(
-        capacity_kwh=10.0,
-        min_soc_percent=10.0,
-        max_soc_percent=90.0,
-        max_charge_w=5000,
-        max_discharge_w=5000,
-    )
+    battery = {
+        "capacity_kwh": 10.0,
+        "min_soc_percent": 10.0,
+        "max_soc_percent": 90.0,
+        "max_charge_w": 5000,
+        "max_discharge_w": 5000,
+    }
     battery.update(battery_overrides)
     return {"system": {"has_battery": True}, "battery": battery, "ev_chargers": []}
 
@@ -70,6 +71,7 @@ def _valid_input(initial_soc_kwh: float = 5.0, future_hours: int = 8) -> dict:
 
 
 # --- check_battery_config ---
+
 
 def test_battery_config_invalid_soc_range():
     config = _valid_config(min_soc_percent=50.0, max_soc_percent=50.0)
@@ -105,6 +107,7 @@ def test_battery_config_invalid_discharge_power():
 
 # --- check_initial_soc ---
 
+
 def test_initial_soc_out_of_range_negative():
     input_data = _valid_input()
     input_data["initial_state"]["battery_kwh"] = -1.0
@@ -126,6 +129,7 @@ def test_initial_soc_valid():
 
 
 # --- check_soc_staleness ---
+
 
 def test_soc_staleness_stale_logs_warning(caplog):
     stale_ts = _now() - timedelta(minutes=SOC_STALENESS_WARNING_MINUTES + 5)
@@ -151,6 +155,7 @@ def test_soc_staleness_missing_timestamp_no_error():
 
 
 # --- check_ev_chargers ---
+
 
 def test_ev_chargers_missing_power():
     config = _valid_config()
@@ -191,11 +196,18 @@ def test_ev_chargers_disabled_skipped():
 
 # --- check_ev_deadlines ---
 
+
 def test_ev_deadlines_past_logs_warning(caplog):
     config = _valid_config()
     past_deadline = (_now() - timedelta(hours=1)).isoformat()
     config["ev_chargers"] = [
-        {"id": "ev1", "enabled": True, "rated_power_kw": 11.0, "battery_capacity_kwh": 60.0, "deadline": past_deadline}
+        {
+            "id": "ev1",
+            "enabled": True,
+            "rated_power_kw": 11.0,
+            "battery_capacity_kwh": 60.0,
+            "deadline": past_deadline,
+        }
     ]
     with caplog.at_level(logging.WARNING, logger="darkstar.planner.preflight"):
         check_ev_deadlines(config, _now())
@@ -206,7 +218,13 @@ def test_ev_deadlines_future_no_warning(caplog):
     config = _valid_config()
     future_deadline = (_now() + timedelta(hours=5)).isoformat()
     config["ev_chargers"] = [
-        {"id": "ev1", "enabled": True, "rated_power_kw": 11.0, "battery_capacity_kwh": 60.0, "deadline": future_deadline}
+        {
+            "id": "ev1",
+            "enabled": True,
+            "rated_power_kw": 11.0,
+            "battery_capacity_kwh": 60.0,
+            "deadline": future_deadline,
+        }
     ]
     with caplog.at_level(logging.WARNING, logger="darkstar.planner.preflight"):
         check_ev_deadlines(config, _now())
@@ -214,6 +232,7 @@ def test_ev_deadlines_future_no_warning(caplog):
 
 
 # --- check_price_data ---
+
 
 def test_price_data_empty():
     input_data = _valid_input()
@@ -242,6 +261,7 @@ def test_price_data_sufficient():
 
 # --- check_forecast_data ---
 
+
 def test_forecast_data_empty():
     input_data = _valid_input()
     input_data["forecast_data"] = []
@@ -268,6 +288,7 @@ def test_forecast_data_doesnt_cover_price_horizon():
 
 # --- check_numeric_sanity ---
 
+
 def test_numeric_sanity_nan_in_price():
     input_data = _valid_input()
     input_data["price_data"][0]["import_price_sek_kwh"] = math.nan
@@ -290,6 +311,7 @@ def test_numeric_sanity_valid():
 
 # --- run_preflight integration ---
 
+
 def test_run_preflight_blocking_check_halts():
     """A blocking failure stops execution (no further checks run)."""
     config = _valid_config(min_soc_percent=90.0, max_soc_percent=10.0)  # Invalid range
@@ -307,3 +329,58 @@ def test_run_preflight_warning_only_does_not_raise(caplog):
     with caplog.at_level(logging.WARNING, logger="darkstar.planner.preflight"):
         run_preflight(input_data, config)  # Must not raise
     assert "DATA_STALE" in caplog.text
+
+
+# --- now injection (replay / now_override) ---
+
+
+class _FarFutureDatetime(datetime):
+    """Wall clock frozen years after any pinned planner time."""
+
+    @classmethod
+    def now(cls, tz=None):  # type: ignore[override]
+        return datetime(2099, 1, 1, tzinfo=tz or UTC)
+
+
+def _input_at(now: datetime, hours: int = 8) -> dict:
+    return {
+        "price_data": [_price_slot(now + timedelta(hours=i)) for i in range(hours)],
+        "forecast_data": [_forecast_slot(now + timedelta(hours=i)) for i in range(hours)],
+        "initial_state": {"battery_kwh": 5.0, "soc_timestamp": now.isoformat()},
+    }
+
+
+def test_run_preflight_uses_injected_now_not_wall_clock(monkeypatch, caplog):
+    """Prices valid relative to the injected now must pass even if the wall clock is far later."""
+    monkeypatch.setattr("planner.preflight.datetime", _FarFutureDatetime)
+    pinned = datetime(2026, 10, 19, 13, 0, tzinfo=UTC)
+    with caplog.at_level(logging.WARNING, logger="darkstar.planner.preflight"):
+        run_preflight(_input_at(pinned), _valid_config(), now=pinned)
+    assert "DATA_STALE" not in caplog.text  # staleness measured against injected now
+
+
+def test_run_preflight_without_now_falls_back_to_wall_clock(monkeypatch):
+    monkeypatch.setattr("planner.preflight.datetime", _FarFutureDatetime)
+    pinned = datetime(2026, 10, 19, 13, 0, tzinfo=UTC)
+    with pytest.raises(PlannerError) as exc:
+        run_preflight(_input_at(pinned), _valid_config())
+    assert exc.value.code == PlannerErrorCode.PRICES_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+async def test_pipeline_passes_now_override_to_preflight(tmp_path, monkeypatch):
+    """generate_schedule(now_override=...) must reach preflight regardless of wall clock."""
+    import pytz
+
+    from planner.pipeline import PlannerPipeline
+    from tests.fault_injection.test_dst_transitions import make_inputs, planner_config
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("planner.preflight.datetime", _FarFutureDatetime)
+    now = pytz.timezone("Europe/Stockholm").localize(datetime(2026, 10, 19, 15, 0))
+    config = planner_config()
+    config["learning"] = {"enable": False, "sqlite_path": str(tmp_path / "x.db")}
+    inputs = make_inputs(now.astimezone(pytz.UTC), hours=8)
+    await PlannerPipeline(config).generate_schedule(
+        inputs, mode="baseline", now_override=now, save_to_file=False
+    )
