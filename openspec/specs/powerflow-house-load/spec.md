@@ -5,7 +5,7 @@ Defines the residual House load shown on the Power Flow card when controllable l
 
 ## Requirements
 ### Requirement: Power Flow House node shows residual base load
-The Power Flow card SHALL show House power as gross whole-home power minus the total EV power when the EV node is enabled (`system.has_ev_charger`) and minus the total water-heater power when the water node is enabled (`system.has_water_heater`). The totals are the backend-provided `ev_kw` and `water_kw`, which already exclude individually disabled devices. Missing values SHALL count as 0, and the displayed House value SHALL be clamped to zero or greater. The gross total-load measurement SHALL retain its existing meaning outside this presentation.
+The Power Flow card SHALL show House power as gross whole-home power minus the total EV power when the EV node is enabled (`system.has_ev_charger`) and minus the total water-heater power when the water node is enabled (`system.has_water_heater`). The totals are the backend-provided `ev_kw` and `water_kw`, which already exclude individually disabled devices.
 
 #### Scenario: EV and water heater are separate loads
 - **WHEN** gross whole-home power is 8.0 kW, enabled EV chargers draw 6.9 kW total, and enabled water heaters draw 0.2 kW total
@@ -24,3 +24,12 @@ The Power Flow card SHALL show House power as gross whole-home power minus the t
 - **WHEN** the sum of separately displayed EV and water-heater power exceeds the gross load reading
 - **THEN** the House node SHALL show 0.0 kW
 - **AND** the raw gross load reading SHALL remain unchanged
+
+#### Scenario: Missing values and clamping
+- **WHEN** a backend-provided total is missing or the subtraction yields a negative value
+- **THEN** missing values SHALL count as 0
+- **AND** the displayed House value SHALL be clamped to zero or greater
+
+#### Scenario: Gross load measurement unchanged
+- **WHEN** the gross total-load measurement is used outside the Power Flow House presentation
+- **THEN** it SHALL retain its existing meaning

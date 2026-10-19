@@ -1,10 +1,15 @@
 # ev-schedule-api Specification
 
 ## Purpose
-TBD - created by archiving change price-forecasting-module-5. Update Purpose after archive.
+Define the API for setting and updating per-charger EV charging goals, including persistence of the goal, Home Assistant sync, and replan triggering.
+
 ## Requirements
 ### Requirement: Write endpoint sets a charger's charging goal
-The API SHALL expose `POST /api/ev/chargers/{id}/schedule` accepting a JSON body with `target_soc_percent` (int 0–100, or null to clear), `ready_by` (`HH:MM`), `repeat` (`daily`|`weekdays`|`weekends`|`every_n_days`|`none`), optional `n_days` (int ≥ 1, used with `repeat: every_n_days`), optional `ready_by_date` (ISO date, required when `repeat: none`), and optional `keep_on_after_target` (bool). **No `charge_priority` parameter** — surplus ordering is owned by `excess_pv.priority[]`, not per-charger. The endpoint SHALL validate inputs and persist the goal to `data/ev_multi_day_state.json`. `ready_by_date` SHALL be validated as a real calendar date (`date.fromisoformat`, not regex only) and SHALL NOT be in the past; violations return HTTP 422. `n_days` SHALL round-trip: persisted, preserved by planner writebacks, and returned by GET.
+The API SHALL expose `POST /api/ev/chargers/{id}/schedule` accepting a JSON body with `target_soc_percent` (int 0–100, or null to clear), `ready_by` (`HH:MM`), `repeat` (`daily`|`weekdays`|`weekends`|`every_n_days`|`none`), optional `n_days` (int ≥ 1, used with `repeat: every_n_days`), optional `ready_by_date` (ISO date, required when `repeat: none`), and optional `keep_on_after_target` (bool).
+
+#### Scenario: No charge_priority parameter
+- **WHEN** a client looks for a per-charger priority field on the endpoint
+- **THEN** there SHALL be no `charge_priority` parameter, because surplus ordering is owned by `excess_pv.priority[]`, not per-charger
 
 #### Scenario: Set a daily goal
 - **WHEN** `POST /api/ev/chargers/ev_charger_1/schedule` is called with `{ "target_soc_percent": 80, "ready_by": "07:00", "repeat": "daily" }`
@@ -44,6 +49,15 @@ The API SHALL expose `POST /api/ev/chargers/{id}/schedule` accepting a JSON body
 - **WHEN** `repeat: "none"` and `ready_by_date` is absent
 - **THEN** the endpoint SHALL return HTTP 422 "ready_by_date is required when repeat is none"
 
+#### Scenario: Validation and persistence of the goal
+- **WHEN** the schedule endpoint receives a goal
+- **THEN** the endpoint SHALL validate inputs and persist the goal to `data/ev_multi_day_state.json`
+- **AND** `ready_by_date` SHALL be validated as a real calendar date (`date.fromisoformat`, not regex only) and SHALL NOT be in the past; violations return HTTP 422
+
+#### Scenario: n_days round-trip
+- **WHEN** a goal with `n_days` is persisted
+- **THEN** `n_days` SHALL round-trip: persisted, preserved by planner writebacks, and returned by GET
+
 ### Requirement: Write endpoint triggers HA sync when configured
 When a charger has `ha_ready_by_entity` and/or `ha_target_soc_entity` configured, the write endpoint SHALL push the corresponding values to those HA entities after persisting to the state file. HA sync failures SHALL NOT cause the endpoint to fail.
 
@@ -59,7 +73,11 @@ When a charger has `ha_ready_by_entity` and/or `ha_target_soc_entity` configured
 - **AND** the failure SHALL be logged as a warning
 
 ### Requirement: State file is source of truth for the user-set goal
-`data/ev_multi_day_state.json` SHALL be the **sole** source of truth for charging goals. The pipeline SHALL read goals only from the state file; `config.yaml` goal fields are removed and SHALL NOT be used as a fallback. Planner writebacks SHALL preserve all user-set goal fields verbatim (including `n_days`) and SHALL preserve entries for chargers not processed in the current run (e.g. temporarily disabled chargers).
+`data/ev_multi_day_state.json` SHALL be the **sole** source of truth for charging goals. The pipeline SHALL read goals only from the state file; `config.yaml` goal fields are removed and SHALL NOT be used as a fallback.
+
+#### Scenario: Planner writeback detail rules
+- **WHEN** the planner writes back to the state file
+- **THEN** planner writebacks SHALL preserve all user-set goal fields verbatim (including `n_days`) and SHALL preserve entries for chargers not processed in the current run (e.g. temporarily disabled chargers)
 
 #### Scenario: No goal in state file means no goal
 - **WHEN** the state file has no goal for a charger
@@ -104,7 +122,7 @@ HTTP calls to Home Assistant from the backend (API routers, HA websocket sync) S
 - **THEN** backend-owned HA client sessions SHALL be closed (no leaked sessions per save)
 
 ### Requirement: Write endpoint maintains a stable every-N-days anchor
-When the write endpoint persists a goal with `repeat: "every_n_days"`, it SHALL set `anchor_date` to the current local date if the goal had no `anchor_date`, or the repeat mode changed to `every_n_days`, or `n_days` changed. Otherwise it SHALL preserve the existing `anchor_date` (saving other fields such as target SoC or ready-by time SHALL NOT move the cycle). `anchor_date` SHALL be returned by `GET /api/ev/chargers` and preserved by planner writebacks. When the goal is cleared or its repeat mode changes away from `every_n_days`, `anchor_date` SHALL be removed.
+When the write endpoint persists a goal with `repeat: "every_n_days"`, it SHALL set `anchor_date` to the current local date if the goal had no `anchor_date`, or the repeat mode changed to `every_n_days`, or `n_days` changed.
 
 #### Scenario: New every-3-days goal
 - **WHEN** the user saves `repeat: every_n_days`, `n_days: 3` on 2026-09-25
@@ -117,6 +135,18 @@ When the write endpoint persists a goal with `repeat: "every_n_days"`, it SHALL 
 #### Scenario: n_days changed
 - **WHEN** the user changes `n_days` from 3 to 2 on 2026-09-25
 - **THEN** `anchor_date` SHALL become 2026-09-25
+
+#### Scenario: anchor_date preserved when cycle unchanged
+- **WHEN** the write endpoint saves other fields such as target SoC or ready-by time and the cycle is unchanged
+- **THEN** it SHALL preserve the existing `anchor_date`, and saving such fields SHALL NOT move the cycle
+
+#### Scenario: anchor_date returned and preserved
+- **WHEN** `GET /api/ev/chargers` is called or the planner writes back
+- **THEN** `anchor_date` SHALL be returned by `GET /api/ev/chargers` and preserved by planner writebacks
+
+#### Scenario: anchor_date removed when no longer applicable
+- **WHEN** the goal is cleared or its repeat mode changes away from `every_n_days`
+- **THEN** `anchor_date` SHALL be removed
 
 ### Requirement: Write endpoint triggers an immediate replan
 After persisting a goal set or clear, the write endpoint SHALL request a goal-change replan (fire-and-forget, subject to coalescing and debounce) before returning. The response SHALL NOT wait for the planner and SHALL report `plan_pending: true` for the charger.

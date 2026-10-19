@@ -1,15 +1,26 @@
 ## Purpose
 
-TBD — Export SoC floor constraint for the Kepler MILP solver.
+Prevent the Kepler MILP solver from exporting battery energy to the grid when doing so would leave the end-of-slot state of charge below a configured export floor. The floor is enforced as a heavily penalized soft constraint.
+
 
 ## Requirements
 
 ### Requirement: Export SoC Floor Constraint in Kepler MILP
-The Kepler solver SHALL enforce an export-floor SoC constraint: grid export SHALL only be allowed in slot `t` when the **end-of-slot** SoC `soc[t+1]` (the SoC after that slot's discharge) is at or above `export_floor_kwh` (derived from `export_floor_soc_percent`). This SHALL be implemented as a soft constraint using a per-slot binary variable `is_exporting[t]` and a per-slot slack variable `export_floor_violation[t] >= 0`, penalized in the objective at `EXPORT_FLOOR_PENALTY` (1000 SEK/kWh).
+The Kepler solver SHALL enforce an export-floor SoC constraint: grid export SHALL only be allowed in slot `t` when the **end-of-slot** SoC `soc[t+1]` (the SoC after that slot's discharge) is at or above `export_floor_kwh` (derived from `export_floor_soc_percent`).
 
-Because `soc[t+1]` and `grid_export[t]` are linearly coupled through the slot energy balance, the solver MAY reduce export within the boundary slot so that `soc[t+1]` lands exactly at `export_floor_kwh`, rather than overshooting the floor by a full slot of export.
+#### Scenario: Floor enforced as a soft penalized constraint
+- **WHEN** the export-floor constraint is active
+- **THEN** it SHALL be implemented as a soft constraint using a per-slot binary variable `is_exporting[t]` and a per-slot slack variable `export_floor_violation[t] >= 0`
+- **AND** the slack SHALL be penalized in the objective at `EXPORT_FLOOR_PENALTY` (1000 SEK/kWh)
 
-The constraint SHALL only be active when both `enable_export == True` AND `export_floor_soc_percent is not None`. When inactive, no additional variables or constraints SHALL be added.
+#### Scenario: Export reduced within the boundary slot
+- **WHEN** `soc[t+1]` and `grid_export[t]` are linearly coupled through the slot energy balance and the floor is reached within slot `t`
+- **THEN** the solver MAY reduce export within the boundary slot so that `soc[t+1]` lands exactly at `export_floor_kwh`, rather than overshooting the floor by a full slot of export
+
+#### Scenario: Constraint inactive without export or floor
+- **WHEN** `enable_export` is not `True` or `export_floor_soc_percent is None`
+- **THEN** the constraint SHALL NOT be active
+- **AND** no additional variables or constraints SHALL be added
 
 #### Scenario: Export stops at the floor, not below it
 - **GIVEN** `export_floor_soc_percent = 28`, `capacity_kwh = 66` (floor = 18.48 kWh), `min_soc_percent = 5`

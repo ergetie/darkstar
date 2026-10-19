@@ -86,7 +86,7 @@ Async HTTP clients SHALL NOT be shared across different event loops to prevent e
 
 ### Requirement: Home Assistant HTTP client is shared within an event loop
 
-The application SHALL maintain one `httpx.AsyncClient` per running event loop for Home Assistant requests: created lazily on first use within that loop, reused for all subsequent requests in the same loop so that connections are pooled and the TLS/CA trust context is loaded only once, and closed when the application shuts down. The client SHALL NOT be shared across different event loops — the main server loop and any background executor loop SHALL each own a separate client instance, satisfying the event-loop isolation requirement above.
+The application SHALL maintain one `httpx.AsyncClient` per running event loop for Home Assistant requests, created lazily on first use in that loop, reused for all later requests in it, and closed on application shutdown. The client SHALL NOT be shared across different event loops.
 
 #### Scenario: Repeated reads reuse one client within a loop
 - **WHEN** an endpoint performs multiple Home Assistant entity reads within the same event loop (e.g. the health check reads many entities in one request)
@@ -107,3 +107,11 @@ The application SHALL maintain one `httpx.AsyncClient` per running event loop fo
 - **WHEN** a request is made through the shared per-loop client
 - **THEN** existing timeout and error-handling behavior is unchanged
 - **AND** the same Home Assistant URL and token from configuration are used
+
+#### Scenario: Pooled connections and single TLS context load
+- **WHEN** multiple Home Assistant requests are made within the same event loop
+- **THEN** they reuse the same client so that connections are pooled and the TLS/CA trust context is loaded only once
+
+#### Scenario: Separate loops own separate clients
+- **WHEN** the main server loop and a background executor loop both make Home Assistant requests
+- **THEN** each loop owns a separate client instance, satisfying the event-loop isolation requirement above

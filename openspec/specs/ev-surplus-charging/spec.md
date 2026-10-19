@@ -3,8 +3,7 @@
 The system SHALL be able to direct scarce excess PV surplus into EV charging as one of the ranked sinks in the excess-PV priority list, using closed-loop feedback on measured grid exchange rather than an open-loop planner target, while respecting the load balancer's fuse cap and preserving battery source isolation.
 ## Requirements
 ### Requirement: Solver plans EV surplus charging as a continuous variable
-
-For each plugged-in EV charger of `type: current` that has an `ev` entry in `excess_pv.priority[]`, the Kepler solver SHALL create a continuous variable `ev_surplus_kw[d][t]` in `[0, charger max power]` per slot. The variable SHALL be constrained to 0 unless the pre-calculated excess-PV flag is true AND projected battery SoC >= `soc_threshold_percent` (same gating as existing sinks). Its consumption SHALL be added to the energy-balance demand side, and it SHALL earn the sink's rank-scaled reward in the objective.
+For each plugged-in EV charger of `type: current` that has an `ev` entry in `excess_pv.priority[]`, the Kepler solver SHALL create a continuous variable `ev_surplus_kw[d][t]` in `[0, charger max power]` per slot.
 
 #### Scenario: Surplus charging planned when battery is full and PV exceeds demand
 - **WHEN** slot 40 has the excess-PV flag true and projected SoC is 96% with threshold 95%
@@ -23,6 +22,11 @@ For each plugged-in EV charger of `type: current` that has an `ev` entry in `exc
 - **WHEN** an `ev` priority entry references a charger with `type: binary`
 - **THEN** config validation SHALL reject the entry with an actionable error stating that surplus charging requires a `type: current` charger
 - **AND** the solver SHALL create no surplus variables for a binary-type charger regardless (defense in depth if such a config bypasses validation)
+
+#### Scenario: Surplus variable gating and reward
+- **WHEN** the solver creates `ev_surplus_kw[d][t]` for a charger
+- **THEN** the variable SHALL be constrained to 0 unless the pre-calculated excess-PV flag is true AND projected battery SoC >= `soc_threshold_percent` (same gating as existing sinks)
+- **AND** its consumption SHALL be added to the energy-balance demand side, and it SHALL earn the sink's rank-scaled reward in the objective
 
 ### Requirement: Surplus charging and price-based scheduled charging are mutually exclusive per slot
 
@@ -49,8 +53,7 @@ The schedule output SHALL include a per-slot `ev_surplus_kw` mapping (charger id
 - **THEN** existing schedule consumers that do not know the field SHALL continue to work (field is additive)
 
 ### Requirement: Executor tracks measured surplus in real time during surplus-eligible slots
-
-During a slot marked surplus-eligible for a charger, the executor SHALL each tick derive the live surplus from `SystemState` (export power for dual grid meters; negative grid power for net meters) and adjust the charger's ampere setpoint by feedback: raise the setpoint (subject to the increase-slow ramp from load balancing) while export exceeds a configurable deadband (default 0.2 kW), and lower it immediately while import exceeds the deadband. Both adjustments SHALL be computed from the charger's effective baseline (see `ev-measured-draw`), not from the last commanded setpoint, so that a reduction always lands below what the car is actually drawing. The planner's `ev_surplus_kw` value SHALL be treated as eligibility, not as an open-loop target.
+During a slot marked surplus-eligible for a charger, the executor SHALL each tick derive the live surplus from `SystemState` (export power for dual grid meters; negative grid power for net meters) and adjust the charger's ampere setpoint by feedback: raise the setpoint (subject to the increase-slow ramp from load balancing) while export exceeds a configurable deadband (default 0.2 kW), and lower it immediately while import exceeds the deadband.
 
 #### Scenario: Setpoint rises while exporting
 - **WHEN** the slot is surplus-eligible and measured export is 2.5 kW with a 0.2 kW deadband
@@ -71,6 +74,14 @@ During a slot marked surplus-eligible for a charger, the executor SHALL each tic
 #### Scenario: Non-eligible slots behave as scheduled charging
 - **WHEN** the current slot has no `ev_surplus_kw` entry for the charger
 - **THEN** EV control SHALL follow the normal scheduled-charging behavior with no surplus feedback
+
+#### Scenario: Feedback adjustments use the effective baseline
+- **WHEN** the executor raises or lowers the setpoint by surplus feedback
+- **THEN** both adjustments SHALL be computed from the charger's effective baseline (see `ev-measured-draw`), not from the last commanded setpoint, so that a reduction always lands below what the car is actually drawing
+
+#### Scenario: Planner surplus value is eligibility only
+- **WHEN** the planner provides an `ev_surplus_kw` value for a slot
+- **THEN** the value SHALL be treated as eligibility, not as an open-loop target
 
 ### Requirement: Load-balancer cap is authoritative over surplus tracking
 

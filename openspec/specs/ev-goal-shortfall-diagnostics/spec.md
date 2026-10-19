@@ -2,17 +2,12 @@
 
 ## Purpose
 
-TBD - created by syncing change fix-ev-current-charger-control. Covers per-charger EV goal shortfall diagnostics computed by the planner and surfaced to users.
+Specify the per-charger EV goal shortfall diagnostics computed by the planner (required, scheduled and shortfall energy with a reason) and surfaced to users through the API and EV card.
 
 ## Requirements
 
 ### Requirement: Planner computes per-charger goal diagnostics
-For each plugged-in charger with an active goal (required_kwh > 0 and a deadline), the planner SHALL compute `required_kwh`, `scheduled_kwh`, `shortfall_kwh` (from the solver's per-charger shortfall) and, when shortfall > 0.01 kWh, a `reason`:
-- `deadline_too_close`: no slot starting at or after now ends at or before the deadline
-- `grid_limit`: in every eligible slot, the grid import headroom (max import minus house load, water heating and other EV energy in that slot) is below the charger's minimum energy per slot
-- `cost_tradeoff`: any other case
-
-The diagnostics SHALL be persisted in schedule metadata as `ev_goal_diagnostics[charger_id]` together with the goal's deadline. The existing zero-scheduled WARNING SHALL include the reason.
+For each plugged-in charger with an active goal (required_kwh > 0 and a deadline), the planner SHALL compute `required_kwh`, `scheduled_kwh`, `shortfall_kwh` (from the solver's per-charger shortfall) and, when shortfall > 0.01 kWh, a `reason`.
 
 #### Scenario: Grid limit blocks the only slots
 - **WHEN** the goal needs 0.6 kWh by 18:30, the charger minimum is 4.14 kW, max import is 8 kW, and each eligible slot already has 3 kW water heating plus 1.4 kW house load
@@ -21,6 +16,20 @@ The diagnostics SHALL be persisted in schedule metadata as `ev_goal_diagnostics[
 #### Scenario: Goal fully scheduled
 - **WHEN** the solver schedules the full required energy
 - **THEN** diagnostics SHALL report `shortfall_kwh=0` and no reason
+
+#### Scenario: deadline_too_close reason
+- **WHEN** shortfall exceeds 0.01 kWh and no slot starting at or after now ends at or before the deadline
+- **THEN** the `reason` SHALL be `deadline_too_close`
+
+#### Scenario: grid_limit reason
+- **WHEN** shortfall exceeds 0.01 kWh and in every eligible slot the grid import headroom (max import minus house load, water heating and other EV energy in that slot) is below the charger's minimum energy per slot
+- **THEN** the `reason` SHALL be `grid_limit`
+
+#### Scenario: cost_tradeoff reason and persistence
+- **WHEN** shortfall exceeds 0.01 kWh in any other case
+- **THEN** the `reason` SHALL be `cost_tradeoff`
+- **AND** the diagnostics SHALL be persisted in schedule metadata as `ev_goal_diagnostics[charger_id]` together with the goal's deadline
+- **AND** the existing zero-scheduled WARNING SHALL include the reason
 
 ### Requirement: EV API reports at-risk goals
 The EV goal API SHALL report status `at_risk` when the current schedule's diagnostics for that charger show shortfall > 0.01 kWh and belong to the active goal (same deadline, required energy within 0.05 kWh). The response SHALL include `shortfall_kwh` and `shortfall_reason`. Otherwise the existing status rules SHALL apply.

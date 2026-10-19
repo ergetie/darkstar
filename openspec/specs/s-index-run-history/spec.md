@@ -6,9 +6,12 @@ Persist a per-run history of the S-Index debug record so past S-Index computatio
 ## Requirements
 
 ### Requirement: Per-run S-Index record persistence
-The system SHALL persist one row to an `s_index_history` database table for every successful planner run that produces a schedule. Each row SHALL contain an autoincrement primary key, a `created_at` timestamp stored as an ISO-8601 UTC string, and a `payload` TEXT column holding the JSON-serialized S-Index debug record — the same dictionary exposed as `meta.s_index` in the schedule output.
+The system SHALL persist one row to an `s_index_history` database table for every successful planner run that produces a schedule. Persistence SHALL be active on all installs without any configuration toggle, and SHALL NOT be gated on the learning subsystem's `enable` flag.
 
-Persistence SHALL be active on all installs without any configuration toggle, and SHALL NOT be gated on the learning subsystem's `enable` flag.
+#### Scenario: Row contents
+- **WHEN** a successful planner run produces a schedule
+- **THEN** the persisted row SHALL contain an autoincrement primary key, a `created_at` timestamp stored as an ISO-8601 UTC string, and a `payload` TEXT column
+- **AND** the `payload` SHALL hold the JSON-serialized S-Index debug record, the same dictionary exposed as `meta.s_index` in the schedule output
 
 #### Scenario: Successful run writes one row
 - **WHEN** a planner run completes and produces a schedule with a non-empty S-Index debug record

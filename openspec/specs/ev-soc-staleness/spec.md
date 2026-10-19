@@ -30,14 +30,7 @@ For each charger with a configured SoC sensor, the planner and EV API SHALL use 
 - **AND** `soc_percent` SHALL remain the live reading (null when unreadable)
 
 ### Requirement: Stale SoC suspends goal charging and warns
-When a plugged charger's resolved SoC status is `stale`, the system SHALL apply all of the following:
-- The planner SHALL NOT compute a required energy, and SHALL NOT pass a goal requirement to the solver for that charger.
-- Surplus charging SHALL remain unaffected.
-- The EV API SHALL report status `soc_unavailable`, with the age of the last valid reading.
-- A single notification SHALL be sent per stale episode, only when the dedicated toggle `executor.notifications.on_ev_soc_stale` (default `true`) is enabled. This toggle SHALL be independent of all other notification toggles and SHALL appear with them in the settings notifications section.
-- The planner SHALL NOT fall back to "target capacity minus delivered today" for a charger whose SoC sensor is configured.
-
-An unplugged charger SHALL NOT be suspended, reported as `soc_unavailable` or notified for a stale SoC. Its goal SHALL keep being planned as assumed plugged from the resolved SoC, else the last persisted SoC regardless of age (`ev-target-charging`). A missing SoC SHALL NOT be persisted as 0%; the last persisted SoC SHALL be kept instead.
+When a plugged charger's resolved SoC status is `stale`, the system SHALL apply all of the stale-SoC rules specified in the scenarios below.
 
 #### Scenario: Goal suspended
 - **WHEN** a plugged charger with an active goal has SoC status `stale`
@@ -63,8 +56,26 @@ An unplugged charger SHALL NOT be suspended, reported as `soc_unavailable` or no
 - **WHEN** a valid SoC reading arrives after a stale episode
 - **THEN** the status SHALL become `live` and goal planning SHALL resume on the next planner run
 
+#### Scenario: Stale SoC suppresses goal requirement but not surplus
+- **WHEN** a plugged charger's resolved SoC status is `stale`
+- **THEN** the planner SHALL NOT compute a required energy, and SHALL NOT pass a goal requirement to the solver for that charger
+- **AND** surplus charging SHALL remain unaffected
+- **AND** the planner SHALL NOT fall back to "target capacity minus delivered today" for a charger whose SoC sensor is configured
+
+#### Scenario: Stale SoC API status and notification
+- **WHEN** a plugged charger's resolved SoC status is `stale`
+- **THEN** the EV API SHALL report status `soc_unavailable`, with the age of the last valid reading
+- **AND** a single notification SHALL be sent per stale episode, only when the dedicated toggle `executor.notifications.on_ev_soc_stale` (default `true`) is enabled
+- **AND** this toggle SHALL be independent of all other notification toggles and SHALL appear with them in the settings notifications section
+
+#### Scenario: Unplugged charger with stale SoC
+- **WHEN** an unplugged charger has a stale SoC
+- **THEN** it SHALL NOT be suspended, reported as `soc_unavailable` or notified
+- **AND** its goal SHALL keep being planned as assumed plugged from the resolved SoC, else the last persisted SoC regardless of age (`ev-target-charging`)
+- **AND** a missing SoC SHALL NOT be persisted as 0%; the last persisted SoC SHALL be kept instead
+
 ### Requirement: SoC recovery triggers one immediate replan
-When a plugged charger's stale episode is ended by a valid SoC reading, the system SHALL request exactly one immediate replan for that episode through the shared `scheduler_service.request_replan` helper, with reason `ev_soc_recovered` and the charger's ID. No replan SHALL be requested while the SoC stays stale, while it is fresh without a prior stale episode, or when the episode ends because the charger is unplugged. A recovery first observed by a planner run SHALL NOT trigger an additional replan.
+When a plugged charger's stale episode is ended by a valid SoC reading, the system SHALL request exactly one immediate replan for that episode through the shared `scheduler_service.request_replan` helper, with reason `ev_soc_recovered` and the charger's ID.
 
 #### Scenario: Recovery replans once
 - **GIVEN** a plugged charger in a stale episode
@@ -78,6 +89,14 @@ When a plugged charger's stale episode is ended by a valid SoC reading, the syst
 #### Scenario: No replan without a prior stale episode
 - **WHEN** valid SoC readings arrive with no preceding stale episode
 - **THEN** no recovery replan SHALL be requested
+
+#### Scenario: No replan without a recovered stale episode
+- **WHEN** the SoC stays stale, is fresh without a prior stale episode, or the episode ends because the charger is unplugged
+- **THEN** no replan SHALL be requested
+
+#### Scenario: Recovery observed by a planner run
+- **WHEN** a recovery is first observed by a planner run
+- **THEN** it SHALL NOT trigger an additional replan
 
 ### Requirement: SoC read failures are logged truthfully
 A failed or unavailable SoC read SHALL be logged as unavailable, with the carry or suspend outcome. The log SHALL NOT claim a default of 0%.

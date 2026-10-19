@@ -5,7 +5,11 @@ Defines how Darkstar determines the age of a live Home Assistant sensor reading,
 ## Requirements
 
 ### Requirement: Reading freshness timestamp
-Whenever Darkstar judges the age of a live Home Assistant sensor reading (a single current state, not a history series), it SHALL use the entity's `last_reported` timestamp. If `last_reported` is absent or unparseable it SHALL fall back to `last_updated`, then `last_changed`. If none is parseable the reading SHALL be treated as having no known timestamp. Parsed timestamps SHALL be timezone-aware (naive values interpreted as UTC). This logic SHALL live in one shared helper used by all freshness consumers.
+Whenever Darkstar judges the age of a live Home Assistant sensor reading (a single current state, not a history series), it SHALL use the entity's `last_reported` timestamp. If `last_reported` is absent or unparseable it SHALL fall back to `last_updated`, then `last_changed`. If none is parseable the reading SHALL be treated as having no known timestamp. Parsed timestamps SHALL be timezone-aware (naive values interpreted as UTC).
+
+#### Scenario: Single shared freshness helper
+- **WHEN** any consumer judges the age of a live Home Assistant sensor reading
+- **THEN** the logic SHALL live in one shared helper used by all freshness consumers
 
 #### Scenario: Unchanged value re-reported
 - **WHEN** a sensor's value has been constant for 60 s but HA received a report 5 s ago (`last_reported` 5 s old, `last_updated` 60 s old)

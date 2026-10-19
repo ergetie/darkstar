@@ -6,10 +6,7 @@ Derive the measured per-phase current draw of each current-controlled EV charger
 ## Requirements
 
 ### Requirement: Measured EV draw per phase each tick
-For every enabled `type: current` charger, the executor SHALL derive `measured_draw_a` (amps per phase) once per tick, before surplus feedback and load balancing run. Source order:
-1. When per-phase sensors are configured and at least one is readable: the maximum reading across the charger's phases. A values are used as is; W/kW values are converted with 230 V.
-2. Otherwise, when the charger's power `sensor` reading is healthy this tick: `power_w / (230 × active_phase_count)`.
-3. Otherwise: no measurement (`None`).
+For every enabled `type: current` charger, the executor SHALL derive `measured_draw_a` (amps per phase) once per tick, before surplus feedback and load balancing run. The measurement source SHALL be chosen by a fixed priority: per-phase sensors first, then the charger's power sensor, otherwise no measurement.
 
 #### Scenario: Total power sensor only
 - **WHEN** a 3-phase charger has no per-phase sensors and its power sensor reads 6900 W
@@ -21,6 +18,19 @@ For every enabled `type: current` charger, the executor SHALL derive `measured_d
 
 #### Scenario: Sensor unavailable
 - **WHEN** the power sensor is unavailable and no per-phase sensors are configured
+- **THEN** `measured_draw_a` SHALL be `None`
+
+#### Scenario: Per-phase sensors take priority
+- **WHEN** per-phase sensors are configured and at least one is readable
+- **THEN** `measured_draw_a` SHALL be the maximum reading across the charger's phases
+- **AND** readings in A SHALL be used as is, while W or kW readings SHALL be converted with 230 V
+
+#### Scenario: Power sensor used when per-phase sensors are unusable
+- **WHEN** no per-phase sensor is readable and the charger's power `sensor` reading is healthy this tick
+- **THEN** `measured_draw_a` SHALL be `power_w / (230 × active_phase_count)`
+
+#### Scenario: No measurement available
+- **WHEN** neither per-phase sensors nor a healthy power sensor reading are available
 - **THEN** `measured_draw_a` SHALL be `None`
 
 ### Requirement: Effective baseline for amps adjustments

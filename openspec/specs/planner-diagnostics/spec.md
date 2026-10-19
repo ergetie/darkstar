@@ -2,16 +2,12 @@
 
 ## Purpose
 
-TBD - Structured error handling, diagnostics, and retry policies for the planner.
+Defines structured error handling, diagnostics, and retry policies for the planner.
 
 ## Requirements
 
 ### Requirement: Typed planner error codes
 The planner SHALL expose a typed `PlannerErrorCode` enumeration covering all known failure modes. Every planner failure emitted to any caller (service layer, logs, WebSocket, HealthIssue) SHALL carry one of these codes.
-
-The enumeration SHALL include at minimum: `CONFIG_INVALID`, `INITIAL_SOC_OUT_OF_RANGE`, `DATA_STALE`, `EV_MISSING_POWER`, `EV_INVALID_CAPACITY`, `EV_DEADLINE_PAST`, `PRICES_UNAVAILABLE`, `FORECAST_UNAVAILABLE`, `NUMERIC_INVALID`, `SOLVER_INFEASIBLE`, `SOLVER_TIMEOUT`, `SOLVER_UNDEFINED`, `INVALID_SCHEDULE`, `HA_UNAVAILABLE`, `UNKNOWN`.
-
-Each code SHALL have an associated user-facing message (short, suitable for a banner headline) and fix-hint list (actionable, suitable for a details drawer).
 
 #### Scenario: Every failure carries a code
 - **WHEN** the planner fails for any reason
@@ -28,12 +24,17 @@ Each code SHALL have an associated user-facing message (short, suitable for a ba
 - **THEN** a call to `code.user_message()` returns a non-empty string suitable for display
 - **AND** a call to `code.fix_hints()` returns a non-empty list of strings
 
+#### Scenario: Required error codes
+- **WHEN** the `PlannerErrorCode` enumeration is defined
+- **THEN** it SHALL include at minimum: `CONFIG_INVALID`, `INITIAL_SOC_OUT_OF_RANGE`, `DATA_STALE`, `EV_MISSING_POWER`, `EV_INVALID_CAPACITY`, `EV_DEADLINE_PAST`, `PRICES_UNAVAILABLE`, `FORECAST_UNAVAILABLE`, `NUMERIC_INVALID`, `SOLVER_INFEASIBLE`, `SOLVER_TIMEOUT`, `SOLVER_UNDEFINED`, `INVALID_SCHEDULE`, `HA_UNAVAILABLE`, `UNKNOWN`
+
+#### Scenario: Messages and fix hints per code
+- **WHEN** a `PlannerErrorCode` is defined
+- **THEN** it SHALL have an associated user-facing message (short, suitable for a banner headline)
+- **AND** it SHALL have a fix-hint list (actionable, suitable for a details drawer)
+
 ### Requirement: HealthIssue carries structured diagnostic data
-The `HealthIssue` record SHALL support three optional fields in addition to its existing `category`, `severity`, `message`, `guidance`, and `entity_id` fields: `code` (string, machine-readable error code), `details` (dict, structured diagnostic payload), and `retry_in_s` (integer, seconds until next automatic retry attempt).
-
-When serialized via `to_dict()`, these fields SHALL be included when non-None and omitted when None.
-
-The `/api/health` response body `issues[]` entries SHALL reflect this serialization behavior.
+The `HealthIssue` record SHALL support three optional fields in addition to its existing `category`, `severity`, `message`, `guidance`, and `entity_id` fields: `code` (string, machine-readable error code), `details` (dict, structured diagnostic payload), and `retry_in_s` (integer, seconds until next automatic retry attempt). When serialized via `to_dict()`, these fields SHALL be included when non-None and omitted when None.
 
 #### Scenario: Backwards compatible serialization
 - **WHEN** a `HealthIssue` has no `code`, `details`, or `retry_in_s`
@@ -44,12 +45,12 @@ The `/api/health` response body `issues[]` entries SHALL reflect this serializat
 - **WHEN** a `HealthIssue` has `code="EV_MISSING_POWER"`, `details={"charger_id": "ev1"}`, and `retry_in_s=120`
 - **THEN** the serialized dict includes `"code": "EV_MISSING_POWER"`, `"details": {"charger_id": "ev1"}`, and `"retry_in_s": 120`
 
+#### Scenario: Health response reflects serialization
+- **WHEN** the `/api/health` response body is built
+- **THEN** its `issues[]` entries SHALL reflect the `to_dict()` serialization behavior (non-None fields included, None fields omitted)
+
 ### Requirement: Planner health check surfaces last failure
-The `HealthChecker` SHALL include a `check_planner()` method that reads the current planner state from `PlannerService` and produces a `HealthIssue` when the last planner run failed.
-
-The issue SHALL use `category="planner"` and SHALL populate `code`, `details`, and `retry_in_s` from the planner service state. Severity SHALL be `critical` for config-blocking codes, `warning` otherwise.
-
-`check_planner()` SHALL be invoked by `HealthChecker.check_all()` and the resulting issues SHALL appear in the `/api/health` response.
+The `HealthChecker` SHALL include a `check_planner()` method that reads the current planner state from `PlannerService` and produces a `HealthIssue` when the last planner run failed. The issue SHALL use `category="planner"` and SHALL populate `code`, `details`, and `retry_in_s` from the planner service state. Severity SHALL be `critical` for config-blocking codes, `warning` otherwise.
 
 #### Scenario: Successful run produces no issue
 - **WHEN** the last planner run succeeded
@@ -64,21 +65,13 @@ The issue SHALL use `category="planner"` and SHALL populate `code`, `details`, a
 - **WHEN** the last planner run failed with code `PRICES_UNAVAILABLE`
 - **THEN** `check_planner()` returns a `HealthIssue` with `category="planner"`, `severity="warning"`, `code="PRICES_UNAVAILABLE"`, and a positive `retry_in_s`
 
+#### Scenario: check_planner invoked by check_all
+- **WHEN** `HealthChecker.check_all()` runs
+- **THEN** it SHALL invoke `check_planner()`
+- **AND** the resulting issues SHALL appear in the `/api/health` response
+
 ### Requirement: Retry policy keyed on error code
-`PlannerService` SHALL track retry state including `last_error_code`, `last_error_at`, `next_retry_at`, `consecutive_failures`, and `retry_suspended`. Retry cadence SHALL be determined by the last error code:
-
-- **Config-blocking codes** (`CONFIG_INVALID`, `EV_MISSING_POWER`, `EV_INVALID_CAPACITY`): SHALL suspend automatic retries until the `settings_saved` event is received, subject to the bounded suspension ceiling.
-- **Transient codes** (`PRICES_UNAVAILABLE`, `FORECAST_UNAVAILABLE`, `SOLVER_TIMEOUT`, `HA_UNAVAILABLE`): SHALL apply exponential backoff starting at 60s, doubling on each consecutive failure, capped at 300s. Reset to 60s on success.
-- **Invariant/state codes** (`DATA_STALE`, `SOLVER_INFEASIBLE`, `SOLVER_UNDEFINED`, `NUMERIC_INVALID`, `INVALID_SCHEDULE`, `INITIAL_SOC_OUT_OF_RANGE`, `UNKNOWN`): SHALL retry at the normal cadence (typically 60s).
-- **Warning-only codes** (`EV_DEADLINE_PAST`): SHALL NOT count as failures; planning SHALL proceed normally.
-
-`INITIAL_SOC_OUT_OF_RANGE` SHALL NOT be config-blocking. A state-of-charge reading is sourced from live hardware, not from configuration, so a bad or missing reading SHALL retry on the normal cadence rather than waiting for a user to change settings.
-
-A planning failure caused by Home Assistant being unreachable — connection refused, connection timeout, or a websocket transport failure — SHALL be classified as the transient code `HA_UNAVAILABLE` and SHALL recover without user action once Home Assistant returns.
-
-On backend restart, `PlannerService` SHALL attempt one retry regardless of prior suspension state, then re-evaluate.
-
-When the `settings_saved` event is received, `PlannerService` SHALL clear any active retry suspension and schedule a retry that becomes due on the next scheduler tick.
+`PlannerService` SHALL track retry state including `last_error_code`, `last_error_at`, `next_retry_at`, `consecutive_failures`, and `retry_suspended`. Retry cadence SHALL be determined by the last error code, following the config-blocking, transient, invariant/state and warning-only code classes defined in the scenarios below.
 
 #### Scenario: Config error suspends retries
 - **WHEN** the planner fails with code `EV_MISSING_POWER`
@@ -119,10 +112,38 @@ When the `settings_saved` event is received, `PlannerService` SHALL clear any ac
 - **WHEN** the user saves configuration
 - **THEN** the next automatic planning run MUST occur no later than the normal cadence would have produced it
 
+#### Scenario: Config-blocking codes suspend retries
+- **WHEN** the last error code is config-blocking (`CONFIG_INVALID`, `EV_MISSING_POWER`, `EV_INVALID_CAPACITY`)
+- **THEN** automatic retries SHALL be suspended until the `settings_saved` event is received, subject to the bounded suspension ceiling
+
+#### Scenario: Transient codes use exponential backoff
+- **WHEN** the last error code is transient (`PRICES_UNAVAILABLE`, `FORECAST_UNAVAILABLE`, `SOLVER_TIMEOUT`, `HA_UNAVAILABLE`)
+- **THEN** retries SHALL apply exponential backoff starting at 60s, doubling on each consecutive failure, capped at 300s
+- **AND** the backoff SHALL reset to 60s on success
+
+#### Scenario: Invariant and warning-only codes
+- **WHEN** the last error code is an invariant/state code (`DATA_STALE`, `SOLVER_INFEASIBLE`, `SOLVER_UNDEFINED`, `NUMERIC_INVALID`, `INVALID_SCHEDULE`, `INITIAL_SOC_OUT_OF_RANGE`, `UNKNOWN`)
+- **THEN** retries SHALL occur at the normal cadence (typically 60s)
+- **AND** warning-only codes (`EV_DEADLINE_PAST`) SHALL NOT count as failures and planning SHALL proceed normally
+
+#### Scenario: Bad SoC reading is not config-blocking
+- **WHEN** the error code is `INITIAL_SOC_OUT_OF_RANGE`
+- **THEN** it SHALL NOT be config-blocking
+- **AND** because a state-of-charge reading is sourced from live hardware, not from configuration, a bad or missing reading SHALL retry on the normal cadence rather than waiting for a user to change settings
+
+#### Scenario: Home Assistant unreachable is transient
+- **WHEN** a planning failure is caused by Home Assistant being unreachable (connection refused, connection timeout, or a websocket transport failure)
+- **THEN** it SHALL be classified as the transient code `HA_UNAVAILABLE`
+- **AND** it SHALL recover without user action once Home Assistant returns
+
+#### Scenario: Restart and settings saved handling
+- **WHEN** the backend restarts
+- **THEN** `PlannerService` SHALL attempt one retry regardless of prior suspension state, then re-evaluate
+- **WHEN** the `settings_saved` event is received
+- **THEN** `PlannerService` SHALL clear any active retry suspension and schedule a retry that becomes due on the next scheduler tick
+
 ### Requirement: Retry timestamps are timezone-aware UTC
 All datetimes exchanged between `PlannerService` and `SchedulerService` SHALL be timezone-aware and expressed in UTC. `PlannerService` SHALL NOT produce naive datetimes for `next_retry_at` or `last_error_at`, and `SchedulerService` SHALL NOT attach a timezone to a datetime it receives from `PlannerService` — no `.replace(tzinfo=...)` coercion is permitted on the retry path.
-
-Retry scheduling behavior SHALL be identical regardless of the host's UTC offset. A retry scheduled for "now plus N seconds" SHALL become due N seconds later in real time, whether the host runs at UTC+0, UTC+2, or any other offset.
 
 #### Scenario: Immediate retry on a host at UTC+2
 - **GIVEN** the host timezone is `Europe/Stockholm` during CEST (UTC+2)
@@ -145,6 +166,11 @@ Retry scheduling behavior SHALL be identical regardless of the host's UTC offset
 - **WHEN** `retry_in_s` is read and the scheduler's due time is computed
 - **THEN** the two MUST describe the same instant, within one second
 
+#### Scenario: Retry scheduling independent of host UTC offset
+- **WHEN** a retry is scheduled for "now plus N seconds"
+- **THEN** it SHALL become due N seconds later in real time, whether the host runs at UTC+0, UTC+2, or any other offset
+- **AND** retry scheduling behavior SHALL be identical regardless of the host's UTC offset
+
 ### Requirement: Suspension is bounded and never silent
 Automatic planning SHALL NOT remain suspended indefinitely. When retries are suspended by a config-blocking error, `PlannerService` SHALL still attempt a planning run after a bounded ceiling has elapsed since the suspension began, and SHALL continue attempting at no less than that ceiling thereafter until a run succeeds or the suspension is cleared.
 
@@ -165,8 +191,6 @@ While a suspension is active, the system SHALL surface a health issue so the sta
 ### Requirement: Skipped scheduler cycles are logged with a reason
 When `SchedulerService` evaluates a planning cycle and declines to run the planner, it SHALL emit a log record naming the reason — suspension, a pending retry time, or a pending cadence time — and the time at which the next attempt becomes due. The scheduler SHALL NOT skip a planning cycle without a log record.
 
-To avoid flooding a 30-second loop, repeated skips for the same unchanged reason MAY be logged at a reduced rate, provided that at least one record is emitted each time the reason changes and at least one record is emitted per suppressed interval.
-
 #### Scenario: Skip due to pending retry is logged
 - **GIVEN** `next_retry_at` is in the future
 - **WHEN** the scheduler loop evaluates the planning branch
@@ -182,23 +206,13 @@ To avoid flooding a 30-second loop, repeated skips for the same unchanged reason
 - **WHEN** the reason for skipping changes
 - **THEN** a log record MUST be emitted for the new reason without waiting for the suppression interval
 
+#### Scenario: Reduced-rate logging of repeated skips
+- **WHEN** a 30-second loop repeatedly skips planning for the same unchanged reason
+- **THEN** the skips MAY be logged at a reduced rate
+- **AND** at least one record SHALL be emitted each time the reason changes, and at least one record SHALL be emitted per suppressed interval
+
 ### Requirement: Persistent error banner with details drawer
-The frontend SHALL render planner failures as persistent banners using the existing `SystemAlert` component. The banner SHALL NOT be fully dismissible: users MAY collapse it to a single-line indicator, but a visible marker SHALL remain until the underlying failure clears.
-
-The `SystemAlert` component SHALL render whenever `health.issues` contains one or more entries — regardless of the value of `health.healthy`. The previous guard `if (health.healthy) return null` SHALL be replaced with a check that returns null only when there are no issues to display.
-
-When a `HealthIssue` carries a `details` payload, the banner SHALL render a "View details" control that opens a drawer component (`PlannerErrorDetails`) displaying:
-
-- The error code as a monospace chip
-- The human message and fix hint
-- A diagnostics table of all key/value pairs from `details`
-- A live retry countdown derived from `retry_in_s`, ticking down in real time and refreshing when a new health snapshot arrives
-- A "Copy diagnostic bundle" button that copies a JSON blob of the full issue to the clipboard
-- An "Open Settings" link when the error code is config-blocking
-
-Secrets-bearing values in the diagnostic bundle (HA tokens, API keys) SHALL be redacted as `***` before being displayed or copied.
-
-The transient 3-second toast previously shown in `QuickActions.tsx` for `planner_error` WebSocket events SHALL be removed. The frontend SHALL read planner state exclusively from the health endpoint/stream.
+The frontend SHALL render planner failures as persistent banners using the existing `SystemAlert` component. The banner SHALL NOT be fully dismissible: users MAY collapse it to a single-line indicator, but a visible marker SHALL remain until the underlying failure clears. The `SystemAlert` component SHALL render whenever `health.issues` contains one or more entries — regardless of the value of `health.healthy`.
 
 #### Scenario: Planner failure shows persistent banner
 - **WHEN** the health endpoint returns an issue with `category="planner"` and severity `critical`
@@ -234,12 +248,32 @@ The transient 3-second toast previously shown in `QuickActions.tsx` for `planner
 - **THEN** no transient toast appears
 - **AND** the persistent banner reflects the current planner state on the next health refresh
 
+#### Scenario: Banner renders whenever issues exist
+- **WHEN** `health.issues` contains one or more entries
+- **THEN** the `SystemAlert` component SHALL render, regardless of the value of `health.healthy`
+- **AND** the previous guard `if (health.healthy) return null` SHALL be replaced with a check that returns null only when there are no issues to display
+
+#### Scenario: Details drawer content
+- **WHEN** a `HealthIssue` carries a `details` payload
+- **THEN** the banner SHALL render a "View details" control that opens a drawer component (`PlannerErrorDetails`) displaying:
+  - the error code as a monospace chip
+  - the human message and fix hint
+  - a diagnostics table of all key/value pairs from `details`
+  - a live retry countdown derived from `retry_in_s`, ticking down in real time and refreshing when a new health snapshot arrives
+  - a "Copy diagnostic bundle" button that copies a JSON blob of the full issue to the clipboard
+  - an "Open Settings" link when the error code is config-blocking
+
+#### Scenario: Diagnostic bundle secrets redacted
+- **WHEN** the diagnostic bundle is displayed or copied
+- **THEN** secrets-bearing values (HA tokens, API keys) SHALL be redacted as `***`
+
+#### Scenario: Toast removed in favor of health state
+- **WHEN** a `planner_error` WebSocket event arrives
+- **THEN** the transient 3-second toast previously shown in `QuickActions.tsx` SHALL be removed
+- **AND** the frontend SHALL read planner state exclusively from the health endpoint/stream
+
 ### Requirement: Battery config preflight reads correct field names
-The battery config preflight check (`check_battery_config()`) SHALL read charge and discharge power limits from `battery.max_charge_w` and `battery.max_discharge_w` (stored in watts), converting to kW by dividing by 1000 before comparison.
-
-The check SHALL NOT reference `battery.max_charge_power_kw` or `battery.max_discharge_power_kw` — these keys do not exist in the v2 config schema.
-
-Checks: `capacity_kwh > 0`, `max_charge_w / 1000 > 0`, `max_discharge_w / 1000 > 0`, `min_soc_percent < max_soc_percent`.
+The battery config preflight check (`check_battery_config()`) SHALL read charge and discharge power limits from `battery.max_charge_w` and `battery.max_discharge_w` (stored in watts), converting to kW by dividing by 1000 before comparison. The check SHALL NOT reference `battery.max_charge_power_kw` or `battery.max_discharge_power_kw` — these keys do not exist in the v2 config schema.
 
 #### Scenario: Valid battery config passes preflight
 - **WHEN** `battery.capacity_kwh = 29`, `max_charge_w = 5000`, `max_discharge_w = 5000`, `min_soc_percent = 12`, `max_soc_percent = 100`
@@ -252,6 +286,10 @@ Checks: `capacity_kwh > 0`, `max_charge_w / 1000 > 0`, `max_discharge_w / 1000 >
 #### Scenario: Missing watts field defaults to zero and triggers error
 - **WHEN** `battery.max_charge_w` is absent from config
 - **THEN** the field defaults to `0.0` and `check_battery_config()` raises `CONFIG_INVALID`
+
+#### Scenario: Battery preflight checks
+- **WHEN** `check_battery_config()` runs
+- **THEN** it SHALL check `capacity_kwh > 0`, `max_charge_w / 1000 > 0`, `max_discharge_w / 1000 > 0`, and `min_soc_percent < max_soc_percent`
 
 ### Requirement: Planner service emits terminal phase on failure
 `PlannerService` SHALL emit a `"failed"` progress phase via WebSocket immediately before clearing `_current_phase` in every error path (both typed `PlannerError` and untyped `Exception`). The `"failed"` phase SHALL be emitted before any state cleanup so the frontend receives a definitive terminal signal.
@@ -284,7 +322,7 @@ The `QuickActions` component SHALL handle `phase="failed"` as a terminal state e
 - **AND** the "Run Planner" button returns to its idle state
 
 ### Requirement: Failed plan save is surfaced as a warning
-When storing the plan to `slot_plans` fails during a planner run, the system SHALL log the failure at error level with the exception, SHALL record it as the current plan save failure, and SHALL NOT fail the planner run or prevent `schedule.json` from being written. While a plan save failure is recorded, `HealthChecker.check_planner()` SHALL return a `HealthIssue` with `category="planner"`, `severity="warning"` and `code="PLAN_STORE_FAILED"`, which SHALL appear in the `/api/health` response. A later successful plan save SHALL clear the recorded failure. `PLAN_STORE_FAILED` SHALL be a warning-only code: it SHALL NOT count as a consecutive failure and SHALL NOT change the retry cadence.
+When storing the plan to `slot_plans` fails during a planner run, the system SHALL log the failure at error level with the exception, SHALL record it as the current plan save failure, and SHALL NOT fail the planner run or prevent `schedule.json` from being written.
 
 #### Scenario: Save failure produces a health warning
 - **WHEN** a planner run writes `schedule.json` but `store_plan` raises an exception
@@ -300,3 +338,13 @@ When storing the plan to `slot_plans` fails during a planner run, the system SHA
 #### Scenario: Save failure does not affect retry state
 - **WHEN** a plan save fails during an otherwise successful run
 - **THEN** `consecutive_failures` stays 0 and `retry_suspended` stays `False`
+
+#### Scenario: Plan save failure surfaces as health warning
+- **WHEN** a plan save failure is recorded
+- **THEN** `HealthChecker.check_planner()` SHALL return a `HealthIssue` with `category="planner"`, `severity="warning"` and `code="PLAN_STORE_FAILED"`, which SHALL appear in the `/api/health` response
+- **AND** a later successful plan save SHALL clear the recorded failure
+
+#### Scenario: PLAN_STORE_FAILED is warning-only
+- **WHEN** the code `PLAN_STORE_FAILED` is recorded
+- **THEN** it SHALL NOT count as a consecutive failure
+- **AND** it SHALL NOT change the retry cadence

@@ -44,11 +44,21 @@ All `pd.date_range()` calls in production code that use a non-UTC `tz` parameter
 - **THEN** the planner MUST complete successfully and produce a valid schedule covering both occurrences of the ambiguous hour
 
 ### Requirement: Regression guard against bare DST-unsafe calls
-The system SHALL include a test that scans production Python files for bare `pd.date_range` calls with non-UTC `tz` parameters and bare `.tz_localize()` calls with non-UTC targets. The test MUST fail if any such calls are found outside of `utils/time_utils.py`.
+The system SHALL include a test that scans production Python files for bare `pd.date_range` calls with non-UTC `tz` parameters and bare `.tz_localize()` calls with non-UTC targets, and MUST fail if any are found outside `utils/time_utils.py`. The guard SHALL additionally fail on naive `datetime.now()` and `datetime.utcnow()` calls in the planner and scheduler retry path whose results are stored on, or compared against, cross-module scheduling state.
 
-The guard SHALL additionally scan the planner and scheduler retry path for naive `datetime.now()` and `datetime.utcnow()` calls whose results are stored on, or compared against, cross-module scheduling state. Such calls MUST fail the guard, because a naive local timestamp handed to a UTC-based consumer silently shifts by the host's UTC offset instead of raising.
+#### Scenario: Naive timestamps shift silently
+- **WHEN** a naive local timestamp is handed to a UTC-based consumer
+- **THEN** it silently shifts by the host's UTC offset instead of raising
+- **AND** the guard MUST fail such calls
 
-The guard SHALL cover at minimum `backend/services/planner_service.py` and `backend/services/scheduler_service.py`. Naive `datetime.now()` used purely to measure an elapsed duration within a single function SHALL NOT be flagged, provided the line carries the exact elapsed-duration exemption comment.
+#### Scenario: Guard coverage
+- **WHEN** the guard runs
+- **THEN** it covers at minimum `backend/services/planner_service.py` and `backend/services/scheduler_service.py`
+
+#### Scenario: Elapsed-duration exemption
+- **WHEN** a naive `datetime.now()` is used purely to measure an elapsed duration within a single function
+- **AND** the line carries the exact elapsed-duration exemption comment
+- **THEN** the guard SHALL NOT flag it
 
 #### Scenario: New code introduces bare pd.date_range with local tz
 - **WHEN** a developer adds `pd.date_range(..., tz=some_local_tz)` to a production file

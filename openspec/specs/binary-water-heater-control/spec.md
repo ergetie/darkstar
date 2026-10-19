@@ -8,9 +8,7 @@ Throughout this capability, "binary heater" means a water heater whose **`contro
 
 ### Requirement: Water heater control type is configurable and reaches the executor
 
-Each water heater SHALL declare its control type in `water_heaters[].control_type`, with the value `"switch"` meaning the heater is driven by switching an ON/OFF entity and `"temperature"` meaning it is driven by writing a target temperature. An absent or unrecognised value SHALL be derived from the `target_entity` domain (`switch.`/`input_boolean.` give `"switch"`; `number.`/`input_number.` give `"temperature"`), and SHALL mean `"temperature"` only when the entity domain is not recognised. The executor's per-device water heater configuration SHALL carry the control type, so the value declared in configuration determines which write path is used at execution time.
-
-The existing `water_heaters[].type` field SHALL continue to describe only the load model (`"binary"` / `"modulating"`) and SHALL NOT be read as a control type, since it defaults to `"binary"` on every heater including temperature-controlled ones.
+Each water heater SHALL declare its control type in `water_heaters[].control_type`: `"switch"` for an ON/OFF entity or `"temperature"` for writing a target temperature. The executor's per-device configuration SHALL carry the control type, which determines the write path at execution time. The `water_heaters[].type` field SHALL describe only the load model and SHALL NOT be read as a control type.
 
 #### Scenario: Switch control type reaches the executor
 - **GIVEN** a water heater configured with `control_type: "switch"` and `target_entity: "switch.vvb"`
@@ -34,6 +32,15 @@ The existing `water_heaters[].type` field SHALL continue to describe only the lo
 - **GIVEN** heater A is `control_type: "switch"` and heater B is temperature-controlled
 - **WHEN** the executor configuration is loaded
 - **THEN** each heater SHALL carry its own control type independently
+
+#### Scenario: Absent or unrecognised control type is derived from the entity domain
+- **WHEN** `control_type` is absent or unrecognised
+- **THEN** it is derived from the `target_entity` domain: `switch.`/`input_boolean.` give `"switch"` and `number.`/`input_number.` give `"temperature"`
+- **AND** it means `"temperature"` only when the entity domain is not recognised
+
+#### Scenario: Load model type is not a control type
+- **WHEN** a heater has `type` `"binary"` (the default on every heater, including temperature-controlled ones) or `"modulating"`
+- **THEN** that value describes only the load model and is not read as the control type
 
 ### Requirement: Binary heaters translate planned temperature to ON or OFF
 
@@ -128,7 +135,7 @@ Manual water boost SHALL resolve to ON for a binary heater for the duration of t
 
 ### Requirement: Control entity is validated against the declared control type
 
-Configuration save SHALL reject a water heater whose `target_entity` domain cannot be written by its explicitly declared control type. When `control_type` is absent, it SHALL be derived from the entity domain and written back to the saved data, and only an unsupported domain (e.g. `climate.`, `water_heater.`) SHALL be rejected, with a message listing the supported domains. A heater with `control_type: "temperature"` SHALL require a `number.` or `input_number.` entity; a heater with `control_type: "switch"` SHALL require a `switch.` or `input_boolean.` entity. A mismatch SHALL be reported with `severity: "error"`, and the message SHALL name the control type that would accept the entity the user entered.
+Configuration save SHALL reject a water heater whose `target_entity` domain cannot be written by its explicitly declared control type. A mismatch SHALL be reported with `severity: "error"`, and the message SHALL name the control type that would accept the entity entered.
 
 #### Scenario: Switch entity on a temperature heater is rejected
 - **GIVEN** a water heater with `control_type: "temperature"` and `target_entity: "switch.vvb"`
@@ -161,6 +168,16 @@ Configuration save SHALL reject a water heater whose `target_entity` domain cann
 - **WHEN** the configuration is saved
 - **THEN** validation SHALL NOT report an error for the missing power sensor
 - **AND** the heater SHALL still be controllable
+
+#### Scenario: Required domains per control type
+- **WHEN** a heater has `control_type: "temperature"` or `control_type: "switch"`
+- **THEN** a `temperature` heater requires a `number.` or `input_number.` entity
+- **AND** a `switch` heater requires a `switch.` or `input_boolean.` entity
+
+#### Scenario: Absent control type is derived and written back
+- **WHEN** `control_type` is absent on save
+- **THEN** it is derived from the entity domain and written back to the saved data
+- **AND** only an unsupported domain (e.g. `climate.`, `water_heater.`) is rejected, with a message listing the supported domains
 
 ### Requirement: Mismatched configuration reaching the executor is skipped, not fatal
 

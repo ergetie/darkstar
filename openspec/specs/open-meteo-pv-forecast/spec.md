@@ -93,16 +93,19 @@ The `/aurora/dashboard` API SHALL return historical actuals in `horizon.history_
 - **AND** each entry SHALL have `timestamp`, `value`, and optional `confidence`
 
 ### Requirement: Open-Meteo PV Calculation
-
 The backend SHALL calculate per-array PV production estimates from Open-Meteo radiation data using physics-based POA (Plane of Array) irradiance calculation that accounts for each array's tilt and azimuth.
 
-The calculation SHALL use `calculate_physics_pv()` with:
-- `radiation_w_m2` = shortwave radiation from Open-Meteo (W/m²)
-- `solar_arrays` = array configs including `kwp`, `tilt`, and `azimuth`
-- `slot_start` = timestamp for solar position calculation
-- `latitude` / `longitude` = system location
+#### Scenario: Per-array PV estimate inputs
+- **WHEN** per-array PV production is calculated from Open-Meteo radiation
+- **THEN** the calculation SHALL use `calculate_physics_pv()` with:
+  - `radiation_w_m2` = shortwave radiation from Open-Meteo (W/m²)
+  - `solar_arrays` = array configs including `kwp`, `tilt`, and `azimuth`
+  - `slot_start` = timestamp for solar position calculation
+  - `latitude` / `longitude` = system location
 
-The solar azimuth SHALL be converted from North convention (0°=North, clockwise) to South convention (0°=South, positive=West) before calculating POA irradiance.
+#### Scenario: Azimuth convention conversion
+- **WHEN** POA irradiance is calculated for a solar array
+- **THEN** the solar azimuth SHALL be converted from North convention (0°=North, clockwise) to South convention (0°=South, positive=West) before calculating POA irradiance
 
 #### Scenario: Per-array curves reflect panel orientation
 
@@ -209,7 +212,15 @@ When the Open-Meteo baseline for Aurora inference cannot be obtained (no usable 
 - **THEN** no forecast rows are stored and no zero-PV Aurora forecast reaches the planner
 
 ### Requirement: Planner DB forecast fills uncovered PV slots from time of day
-When building the planner's Aurora/DB forecast for the price horizon, PV for slots without a stored row SHALL be the stored PV at the same local time of day from the nearest stored day (latest earlier day, else earliest later day), never a carried-forward last stored slot and never a default zero. Genuine small gaps (1-2 slots between stored slots) SHALL be linearly interpolated. Filled slots SHALL be flagged `pv_estimated`, counted, and reported through the degraded forecast status. If no stored rows exist at all (fresh install, learning period), no health error SHALL be recorded.
+When building the planner's Aurora/DB forecast for the price horizon, PV for slots without a stored row SHALL be the stored PV at the same local time of day from the nearest stored day (latest earlier day, else earliest later day), never a carried-forward last stored slot and never a default zero. Genuine small gaps (1-2 slots between stored slots) SHALL be linearly interpolated.
+
+#### Scenario: Filled PV slots are flagged and reported
+- **WHEN** PV for a slot without a stored row is filled by same-time-of-day substitution or interpolation
+- **THEN** filled slots SHALL be flagged `pv_estimated`, counted, and reported through the degraded forecast status
+
+#### Scenario: No stored rows on fresh install
+- **WHEN** no stored rows exist at all (fresh install, learning period)
+- **THEN** no health error SHALL be recorded
 
 #### Scenario: Stored coverage ends before the horizon
 - **WHEN** stored rows end at night and the horizon continues into the next days

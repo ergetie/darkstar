@@ -146,7 +146,16 @@ Completing a step SHALL save that step's patch via the config save endpoint and 
 - **THEN** the errors are shown inline and the wizard stays on that step
 
 ### Requirement: Readiness review
-The final step SHALL display the readiness checks with status and fix hints, each linking to the step that owns the setting. While the batch readiness request is running, the UI SHALL show a truthful checking state; after it completes, it SHALL show pass, warning, failure and skipped totals. Remediation text SHALL appear only for warning or failed checks and SHALL use units appropriate to the sensor role. The user SHALL be able to finish while checks fail, with a clear notice that Darkstar will not work until they are resolved.
+The final step SHALL display the readiness checks with status and fix hints, each linking to the step that owns the setting. The user SHALL be able to finish while checks fail, with a clear notice that Darkstar will not work until they are resolved.
+
+#### Scenario: Checking state and totals
+- **WHEN** the batch readiness request is running
+- **THEN** the UI SHALL show a truthful checking state
+- **AND** after it completes, it SHALL show pass, warning, failure and skipped totals
+
+#### Scenario: Remediation text
+- **WHEN** a check is shown
+- **THEN** remediation text SHALL appear only for warning or failed checks and SHALL use units appropriate to the sensor role
 
 #### Scenario: Fix link
 - **WHEN** the battery_soc check fails and the user clicks Fix
@@ -175,7 +184,15 @@ Finishing SHALL leave `executor.shadow_mode` true (unless a re-run finds it alre
 - **THEN** `executor.shadow_mode` is saved as false
 
 ### Requirement: Installation statistics choice in final review
-The final Review & readiness step SHALL include a clearly labeled installation-statistics toggle initialized from effective `installation_stats.enabled`, enabled when absent. Concise helper text SHALL disclose the daily random installation ID, version, release channel, installation type, CPU architecture, and inverter profile reporting, with custom profile names excluded. The final save SHALL persist this choice before marking onboarding complete. This control SHALL NOT add a wizard step, affect readiness results, trigger execution, force existing users through onboarding, or create an upgrade notice. A rerun SHALL preserve and display the saved choice.
+The final Review & readiness step SHALL include a clearly labeled installation-statistics toggle initialized from effective `installation_stats.enabled`, enabled when absent. The final save SHALL persist this choice before marking onboarding complete, and a rerun SHALL preserve and display the saved choice.
+
+#### Scenario: Helper text disclosure
+- **WHEN** the toggle is shown
+- **THEN** concise helper text SHALL disclose the daily random installation ID, version, release channel, installation type, CPU architecture, and inverter profile reporting, with custom profile names excluded
+
+#### Scenario: Control has no side effects
+- **WHEN** the toggle is present
+- **THEN** it SHALL NOT add a wizard step, affect readiness results, trigger execution, force existing users through onboarding, or create an upgrade notice
 
 #### Scenario: Fresh installation finishes with default reporting
 - **WHEN** a new installation reaches Review & readiness and finishes without changing the statistics toggle

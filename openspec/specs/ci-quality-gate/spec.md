@@ -35,7 +35,7 @@ The CI pipeline SHALL run pyright in the strict mode configured in `pyproject.to
 
 ### Requirement: Dependencies resolve identically in CI, local, and Docker
 
-All direct Python dependencies (runtime and dev) SHALL be exactly pinned (`==`) in `requirements.txt`/`requirements-dev.txt`, so CI, local environments, and Docker builds resolve identical versions. Toolchain versions SHALL match across environments: the Python minor version, Node major version, and pnpm major version used in `.github/workflows/ci.yml` SHALL equal those installed by the Dockerfiles. Version holds/ceilings SHALL carry an in-file comment stating the reason and the condition for lifting them.
+All direct Python dependencies (runtime and dev) SHALL be exactly pinned (`==`) in `requirements.txt`/`requirements-dev.txt`, so CI, local environments, and Docker builds resolve identical versions. Toolchain versions SHALL match across environments.
 
 #### Scenario: No loose ranges remain
 - **WHEN** `requirements.txt` and `requirements-dev.txt` are inspected after the upgrade pass
@@ -49,6 +49,14 @@ All direct Python dependencies (runtime and dev) SHALL be exactly pinned (`==`) 
 #### Scenario: Upgrades are gated
 - **WHEN** any dependency version is changed
 - **THEN** the full local CI gate (`scripts/ci_local.sh`: lint, typecheck, full test suite) SHALL pass before the change is committed
+
+#### Scenario: Toolchain versions match between CI and Docker
+- **WHEN** the Python minor version, Node major version and pnpm major version in `.github/workflows/ci.yml` are compared with those installed by the Dockerfiles
+- **THEN** they are equal
+
+#### Scenario: Version holds are documented
+- **WHEN** a version hold or ceiling is present in a requirements file
+- **THEN** it carries an in-file comment stating the reason and the condition for lifting it
 
 ### Requirement: Frontend lint runs the full react-hooks recommended rule set
 

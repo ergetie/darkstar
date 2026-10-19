@@ -80,7 +80,7 @@ The shared loader SHALL serialize cache reads and parse-on-miss with a lock, so 
 
 ### Requirement: Forecast layer uses current config, not a startup snapshot
 
-The forecast layer SHALL run on the current on-disk configuration. The shared `LearningEngine` (obtained via `get_learning_engine()`) caches its parsed config; before each forecast generation it SHALL detect a change in `config.yaml`'s modification time and re-parse from disk when the mtime has changed, so that load, PV, and price forecasts — and all config-derived inputs (solar-array geometry, inverter limits, weather location, PV tuning) — reflect the latest saved values without requiring a process restart. Re-parsing SHALL be mtime-gated so an unchanged config incurs no repeated disk I/O.
+The forecast layer SHALL run on the current on-disk configuration. The shared `LearningEngine` (from `get_learning_engine()`) SHALL detect a change in `config.yaml`'s modification time before each forecast generation and re-parse from disk when it has changed, with no repeated disk I/O when unchanged.
 
 #### Scenario: Config unchanged between forecast runs
 - **WHEN** a forecast run starts
@@ -98,6 +98,14 @@ The forecast layer SHALL run on the current on-disk configuration. The shared `L
 - **AND** both a planner run and a forecast run occur afterwards
 - **THEN** the forecast layer SHALL use the same current config values the planner uses
 - **AND** no split-brain (planner-on-new, forecast-on-old) state occurs
+
+#### Scenario: Saved config values reach forecasts without restart
+- **WHEN** `config.yaml` is saved with new values and a forecast is next generated
+- **THEN** load, PV and price forecasts and all config-derived inputs (solar-array geometry, inverter limits, weather location, PV tuning) reflect the latest saved values without a process restart
+
+#### Scenario: Unchanged config incurs no re-parse
+- **WHEN** the `config.yaml` mtime is unchanged between forecast generations
+- **THEN** the cached parsed config is used and no repeated disk I/O occurs
 
 ### Requirement: Config save refreshes the forecast layer
 

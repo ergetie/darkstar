@@ -17,10 +17,14 @@ The system SHALL NOT define or retain the `schedule_planned` table or its `Sched
 - **AND** `alembic downgrade -1` recreates the (empty) table for rollback parity
 
 ### Requirement: Dead learning tables and models are removed
-
 The system SHALL NOT define or retain the following tables or their ORM models, none of which has a reader anywhere in the codebase: `battery_cost`, `antares_rl_runs`, `antares_training_runs`, `antares_policy_runs`, `training_episodes`, `strategy_log`, `daily_water`, `sensor_totals`, `realized_energy`.
 
-The `battery_cost` table was written every executor tick by a tracker whose read methods had no callers. The three `antares_*` tables belong to an abandoned reinforcement-learning experiment whose code no longer exists. `training_episodes` was written only behind a `debug.enable_training_episodes` flag that exists at no configuration or UI surface, making the write path unreachable. The remainder are defined in the ORM and referenced nowhere else.
+#### Scenario: Rationale for removal
+- **WHEN** the removed tables are reviewed
+- **THEN** `battery_cost` was written every executor tick by a tracker whose read methods had no callers
+- **AND** the three `antares_*` tables belong to an abandoned reinforcement-learning experiment whose code no longer exists
+- **AND** `training_episodes` was written only behind a `debug.enable_training_episodes` flag that exists at no configuration or UI surface, making the write path unreachable
+- **AND** the remainder are defined in the ORM and referenced nowhere else
 
 #### Scenario: Models no longer defined
 - **WHEN** the codebase is searched for `BatteryCost`, `AntaresRLRun`, `AntaresTrainingRun`, `AntaresPolicyRun`, `TrainingEpisode`, `StrategyLog`, `DailyWater`, `SensorTotal`, or `RealizedEnergy`
@@ -97,8 +101,12 @@ On startup the system SHALL log a warning (non-blocking) for each enabled device
 - **THEN** no mock-entity warning is emitted for it
 
 ### Requirement: EV dashboard data flow is explicitly typed
+The EV dashboard data flow SHALL NOT use `any`: `frontend/src/components/CommandDomains.tsx` and `frontend/src/components/EVChargingCard.tsx` SHALL contain no explicit `any` types and no file-wide `@typescript-eslint/no-explicit-any` disable headers.
 
-The EV dashboard data flow SHALL NOT use `any`: `frontend/src/components/CommandDomains.tsx` and `frontend/src/components/EVChargingCard.tsx` SHALL contain no explicit `any` types and no file-wide `@typescript-eslint/no-explicit-any` disable headers. The `config` and `loadBalancing` values SHALL carry their real types (`ConfigResponse`, `LoadBalancerStatusResponse`) from their `useState` declarations through all component props. `ConfigResponse` in `frontend/src/lib/api.ts` SHALL declare the `executor` config section (at minimum the `excess_pv.priority` and `excess_pv.custom_entity` shapes the frontend consumes), since the backend sends it as a required config section.
+#### Scenario: Real types carried through props
+- **WHEN** the EV dashboard components are type-checked
+- **THEN** the `config` and `loadBalancing` values SHALL carry their real types (`ConfigResponse`, `LoadBalancerStatusResponse`) from their `useState` declarations through all component props
+- **AND** `ConfigResponse` in `frontend/src/lib/api.ts` SHALL declare the `executor` config section (at minimum the `excess_pv.priority` and `excess_pv.custom_entity` shapes the frontend consumes), since the backend sends it as a required config section
 
 #### Scenario: No explicit any remains in the EV components
 - **WHEN** eslint runs with `@typescript-eslint/no-explicit-any` active on `CommandDomains.tsx` and `EVChargingCard.tsx`

@@ -5,8 +5,11 @@ The Settings UI SHALL provide configuration for excess PV utilization, including
 ## Requirements
 
 ### Requirement: Excess PV sink configuration in Advanced tab
+The Settings UI SHALL provide a priority-list editor in the Advanced tab under "Excess PV Dispatch". Users SHALL be able to add, remove, and reorder (move up/down) sink entries of type "EV Surplus Charging", "Water Heater Boost", and "Custom Entity". List order is priority order (first = fed first); the UI SHALL state that the house battery is always first. Each entry SHALL show its per-type configuration fields in a collapsible panel.
 
-The Settings UI SHALL provide a priority-list editor in the Advanced tab under "Excess PV Dispatch". Users SHALL be able to add, remove, and reorder (move up/down) sink entries of type "EV Surplus Charging", "Water Heater Boost", and "Custom Entity". List order is priority order (first = fed first); the UI SHALL state that the house battery is always first. Each entry SHALL show its per-type configuration fields in a collapsible panel. Shared fields (`boost_reward_sek_per_kwh`, `soc_threshold_percent`) SHALL appear once below the list.
+#### Scenario: Shared excess PV fields shown once
+- **WHEN** the priority-list editor is displayed
+- **THEN** the shared fields (`boost_reward_sek_per_kwh`, `soc_threshold_percent`) SHALL appear once below the list
 
 #### Scenario: User with water heater sees all three entry types
 - **WHEN** system configuration has `has_water_heater=true` and a current-type EV charger exists
@@ -40,8 +43,13 @@ The Settings UI SHALL provide a priority-list editor in the Advanced tab under "
 - **AND** the system SHALL NOT schedule or execute any excess PV actions
 
 ### Requirement: Excess PV config saved and loaded from config.yaml
+The excess PV configuration SHALL be persisted to `config.yaml` under `executor.excess_pv.priority` (ordered array of typed sink entries) plus shared keys, and loaded at executor and planner startup.
 
-The excess PV configuration SHALL be persisted to `config.yaml` under `executor.excess_pv.priority` (ordered array of typed sink entries) plus shared keys, and loaded at executor and planner startup. A config migration SHALL convert the legacy `executor.excess_pv.sink` key: `water_heater_boost` → `[{type: water_heater_boost}]`, `custom_entity` → a one-element array carrying the legacy custom-entity fields, `disabled` → `[]`; the legacy key SHALL be removed after migration and the migration SHALL be logged and idempotent.
+#### Scenario: Legacy sink key migration
+- **WHEN** a config contains the legacy `executor.excess_pv.sink` key
+- **THEN** a config migration SHALL convert it: `water_heater_boost` → `[{type: water_heater_boost}]`, `custom_entity` → a one-element array carrying the legacy custom-entity fields, `disabled` → `[]`
+- **AND** the legacy key SHALL be removed after migration
+- **AND** the migration SHALL be logged and idempotent
 
 #### Scenario: Config saved on settings change
 - **WHEN** user reorders the priority list and saves

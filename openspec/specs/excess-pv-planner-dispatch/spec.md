@@ -5,8 +5,17 @@ The Kepler planner SHALL schedule EV surplus charging, water heater boost, and c
 ## Requirements
 
 ### Requirement: Priority order allocates scarce surplus across multiple sinks
+Excess-PV sinks SHALL be configured as an ordered list `executor.excess_pv.priority[]` of entries with `type` ∈ {`ev`, `water_heater_boost`, `custom_entity`}. The house battery always has implicit first priority via the SoC-threshold gate.
 
-Excess-PV sinks SHALL be configured as an ordered list `executor.excess_pv.priority[]` of entries with `type` ∈ {`ev`, `water_heater_boost`, `custom_entity`}. The house battery always has implicit first priority via the SoC-threshold gate. The solver SHALL feed higher-priority sinks first when surplus is scarce by assigning each entry an effective reward of `boost_reward_sek_per_kwh × (1 − rank × 0.15)` (rank 0 = first), unless a per-entry `reward_sek_per_kwh` override is set. Multiple sinks MAY be active in the same slot when surplus covers them. An empty priority list SHALL disable excess-PV dispatch entirely.
+#### Scenario: Effective reward by priority rank
+- **WHEN** surplus is scarce and the solver feeds the priority-list sinks
+- **THEN** the solver SHALL feed higher-priority sinks first by assigning each entry an effective reward of `boost_reward_sek_per_kwh × (1 − rank × 0.15)` (rank 0 = first), unless a per-entry `reward_sek_per_kwh` override is set
+
+#### Scenario: Multiple sinks and empty priority list
+- **WHEN** surplus covers more than one sink in the same slot
+- **THEN** multiple sinks MAY be active in that slot
+- **WHEN** the priority list is empty
+- **THEN** excess-PV dispatch SHALL be disabled entirely
 
 #### Scenario: Scarce surplus goes to the highest-priority sink
 - **WHEN** the priority list is [ev, water_heater_boost] and a slot's surplus covers only the EV minimum
@@ -25,16 +34,16 @@ Excess-PV sinks SHALL be configured as an ordered list `executor.excess_pv.prior
 - **THEN** config validation SHALL emit a warning naming both entries
 
 ### Requirement: Sink activation requires configurable SoC threshold (default 95%)
+Excess PV MUST always charge the battery first. Every sink in the priority list (EV surplus, water heater boost, custom entity) SHALL only activate in slots where the solver's projected battery SoC >= a configurable threshold `soc_threshold_percent` (default 95%). This is enforced via a big-M binary constraint in the MILP, as specified in the scenarios below.
 
-Excess PV MUST always charge the battery first. Every sink in the priority list (EV surplus, water heater boost, custom entity) SHALL only activate in slots where the solver's projected battery SoC >= a configurable threshold `soc_threshold_percent` (default 95%). This is enforced via a big-M binary constraint in the MILP:
-
-```
-soc_binary[t] ∈ {0, 1}
-soc[t] >= threshold_kWh - M * (1 - soc_binary[t])   // if binary=1, SoC >= threshold%
-sink_var[t] <= soc_binary[t]                         // sink requires SoC above threshold
-```
-
-Where `M = capacity_kWh` and `threshold_kWh = capacity_kWh * soc_threshold_percent / 100`.
+#### Scenario: SoC threshold big-M constraint
+- **WHEN** a sink is considered for activation in slot `t`
+- **THEN** the MILP SHALL enforce, with `M = capacity_kWh` and `threshold_kWh = capacity_kWh * soc_threshold_percent / 100`:
+  ```
+  soc_binary[t] ∈ {0, 1}
+  soc[t] >= threshold_kWh - M * (1 - soc_binary[t])   // if binary=1, SoC >= threshold%
+  sink_var[t] <= soc_binary[t]                         // sink requires SoC above threshold
+  ```
 
 #### Scenario: Sink does not activate when battery is below threshold
 - **WHEN** slot 14 has forecast excess PV (PV > load + water + EV)
@@ -95,8 +104,12 @@ The Kepler solver SHALL schedule water heater boost (binary on/off per slot) onl
 - **THEN** the heater SHALL run continuously (already on) and the boost flag SHALL be set
 
 ### Requirement: Excess PV reward incentivizes solver over export (same for both sinks)
+A configurable `boost_reward_sek_per_kwh` (default 0.5) SHALL be the base reward for all priority-list sinks, scaled per rank as defined by the priority-order requirement. For water heater boost, the reward is `effective_reward * boost_var * heater_kw * h`. For custom entity, the reward is `effective_reward * custom_entity_active_var * power_kw * h` where `power_kw` is configurable (default 1.0 kW). For EV surplus, the reward is `effective_reward * ev_surplus_kw * h`.
 
-A configurable `boost_reward_sek_per_kwh` (default 0.5) SHALL be the base reward for all priority-list sinks, scaled per rank as defined by the priority-order requirement. For water heater boost, the reward is `effective_reward * boost_var * heater_kw * h`. For custom entity, the reward is `effective_reward * custom_entity_active_var * power_kw * h` where `power_kw` is configurable (default 1.0 kW). For EV surplus, the reward is `effective_reward * ev_surplus_kw * h`. Every sink's consumption SHALL be added to the energy-balance demand side, ensuring the solver makes genuine economic tradeoffs. Rewards are subtracted from the objective function, making the solver prefer sinks over export when the effective reward exceeds the export price.
+#### Scenario: Sink consumption in energy balance and objective
+- **WHEN** a sink is scheduled by the solver
+- **THEN** every sink's consumption SHALL be added to the energy-balance demand side, ensuring the solver makes genuine economic tradeoffs
+- **AND** rewards are subtracted from the objective function, making the solver prefer sinks over export when the effective reward exceeds the export price
 
 #### Scenario: Boost activates when reward exceeds export price
 - **WHEN** slot 14 has excess PV AND SoC >= 95%
@@ -111,8 +124,13 @@ A configurable `boost_reward_sek_per_kwh` (default 0.5) SHALL be the base reward
 - **THEN** the solver SHALL prefer exporting over the sink
 
 ### Requirement: Custom entity is a solver variable with reward and SoC gate
+When the priority list contains a `custom_entity` entry, the solver SHALL create a binary variable `custom_entity_active[t]` per slot for that entry, constrained identically to water heater boost: (1) pre-calculated excess PV flag must be true, AND (2) projected SoC >= `soc_threshold_percent`. The reward is sized by the entry's configurable `power_kw` (default 1.0 kW).
 
-When the priority list contains a `custom_entity` entry, the solver SHALL create a binary variable `custom_entity_active[t]` per slot for that entry, constrained identically to water heater boost: (1) pre-calculated excess PV flag must be true, AND (2) projected SoC >= `soc_threshold_percent`. The reward is sized by the entry's configurable `power_kw` (default 1.0 kW). The custom entity's power consumption SHALL be added to the energy balance demand side: `custom_entity_active[t] * power_kw * h`. Multiple `custom_entity` entries MAY exist in the priority list, each with its own entity and variables. The executor toggles each entity based on the solver's decision, not pre-calculated flags.
+#### Scenario: Custom entity demand and multiple entries
+- **WHEN** the priority list contains `custom_entity` entries
+- **THEN** the custom entity's power consumption SHALL be added to the energy balance demand side: `custom_entity_active[t] * power_kw * h`
+- **AND** multiple `custom_entity` entries MAY exist in the priority list, each with its own entity and variables
+- **AND** the executor toggles each entity based on the solver's decision, not pre-calculated flags
 
 #### Scenario: Custom entity activated by solver decision
 - **WHEN** slot 14 has excess PV AND SoC >= 95%

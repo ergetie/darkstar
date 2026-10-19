@@ -38,9 +38,14 @@ Each badge SHALL have a distinct color. If `commanded_work_mode` is null or unre
 
 When water heating or EV charging is active, a context badge SHALL appear next to the primary mode badge.
 
-- Water heating: shown when `planned_water_kw > 0`, displayed as "💧 Heating"
-- EV charging: shown when `ev_charging_kw > 0`, displayed as "🔌 EV"
-- EV keep-on standby: shown when `ev_charging_kw <= 0.1` but keep-on is active, displayed as "🔌 EV standby". For the next-slot preview, keep-on state SHALL be read from `current_slot_plan.ev_keep_on`; for execution-history rows (which have no structured flag), keep-on state SHALL be inferred from the record's reason text keep-on indication.
+
+#### Scenario: Context badge conditions and labels
+- **WHEN** a context badge is shown
+- **THEN** water heating SHALL show when `planned_water_kw > 0`, displayed as "💧 Heating"
+- **AND** EV charging SHALL show when `ev_charging_kw > 0`, displayed as "🔌 EV"
+- **AND** EV keep-on standby SHALL show when `ev_charging_kw <= 0.1` but keep-on is active, displayed as "🔌 EV standby"
+- **AND** for the next-slot preview, keep-on state SHALL be read from `current_slot_plan.ev_keep_on`
+- **AND** for execution-history rows (which have no structured flag), keep-on state SHALL be inferred from the record's reason text keep-on indication
 
 #### Scenario: Idle with EV charging shows both badges
 - **WHEN** an execution record has `commanded_work_mode` = `"idle"` and `ev_charging_kw > 0`

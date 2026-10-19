@@ -7,7 +7,12 @@ Defines Darkstar's minimal, user-controlled daily reporting of installation meta
 ## Requirements
 
 ### Requirement: Default-enabled user-controlled reporting
-Darkstar SHALL expose `installation_stats.enabled` and `installation_stats.endpoint` in configuration, defaulting to `true` and `https://telemetry.wxl.se/api/ping` for new installations and upgrades. Missing values SHALL receive those defaults without overriding an explicitly saved boolean or endpoint. Endpoint validation SHALL require an absolute HTTPS URL with a hostname and no embedded credentials, query, or fragment. Invalid supplied configuration SHALL prevent reporting without blocking Darkstar startup.
+Darkstar SHALL expose `installation_stats.enabled` and `installation_stats.endpoint` in configuration, defaulting to `true` and `https://telemetry.wxl.se/api/ping` for new installations and upgrades. Missing values SHALL receive those defaults without overriding an explicitly saved boolean or endpoint. Endpoint validation SHALL require an absolute HTTPS URL with a hostname and no embedded credentials, query, or fragment.
+
+#### Scenario: Invalid configuration prevents reporting
+- **WHEN** the supplied telemetry configuration is invalid
+- **THEN** reporting SHALL be prevented
+- **AND** Darkstar startup SHALL NOT be blocked
 
 #### Scenario: Upgrade without the section
 - **WHEN** an existing installation upgrades with no `installation_stats` section
@@ -25,7 +30,17 @@ Darkstar SHALL expose `installation_stats.enabled` and `installation_stats.endpo
 - **AND** if invalid configuration is read at runtime the sender skips reporting while Darkstar continues operating
 
 ### Requirement: Minimal allowlisted payload
-Each heartbeat SHALL contain exactly `installation_id`, `version`, `release_channel`, `installation_type`, `architecture`, `inverter_profile`, and `execution_mode`. The ID SHALL be random UUIDv4. Channel SHALL be `stable`, `dev`, or `unknown`; installation type SHALL be `ha_addon`, `docker`, or `unknown`; architecture SHALL be `amd64`, `aarch64`, or `unknown`. Profiles SHALL be deliberate shipped identifiers, `custom` for configured non-shipped identifiers, or `unknown` when unconfigured. Execution mode SHALL be `shadow`, `live`, or `unknown`, derived only from a literal boolean `executor.shadow_mode` (`true` means shadow and `false` means live). Missing or unrecognized executor settings SHALL produce `unknown`. The sender SHALL NOT send energy measurements, location, entity identifiers, capacities, configuration, secrets, host fingerprints, or client-generated timestamps.
+Each heartbeat SHALL contain exactly `installation_id`, `version`, `release_channel`, `installation_type`, `architecture`, `inverter_profile`, and `execution_mode`. The ID SHALL be random UUIDv4. Channel SHALL be `stable`, `dev`, or `unknown`; installation type SHALL be `ha_addon`, `docker`, or `unknown`; architecture SHALL be `amd64`, `aarch64`, or `unknown`.
+
+#### Scenario: Profile and execution mode values
+- **WHEN** a heartbeat is built
+- **THEN** profiles SHALL be deliberate shipped identifiers, `custom` for configured non-shipped identifiers, or `unknown` when unconfigured
+- **AND** execution mode SHALL be `shadow`, `live`, or `unknown`, derived only from a literal boolean `executor.shadow_mode` (`true` means shadow and `false` means live)
+- **AND** missing or unrecognized executor settings SHALL produce `unknown`
+
+#### Scenario: Data never sent in heartbeats
+- **WHEN** the sender transmits a heartbeat
+- **THEN** it SHALL NOT send energy measurements, location, entity identifiers, capacities, configuration, secrets, host fingerprints, or client-generated timestamps
 
 #### Scenario: Configured add-on in shadow mode
 - **WHEN** a stable aarch64 add-on using a built-in inverter profile sends a heartbeat while in shadow mode
@@ -49,7 +64,15 @@ Each heartbeat SHALL contain exactly `installation_id`, `version`, `release_chan
 - **AND** unknown deployment metadata produces `unknown` rather than host-specific strings
 
 ### Requirement: Persistent installation identity and schedule state
-The sender SHALL persist its random ID, previous attempt timestamp, confirmed-success timestamp, and next due time atomically in channel-scoped JSON files under persistent `data/`. It SHALL continue to read legacy files containing only the ID and previous attempt timestamp, treating any such attempt without a confirmed success as unconfirmed. Restarts and upgrades within a channel SHALL retain the same ID and due schedule. Stable/dev instances SHALL have distinct IDs even when their data directory is shared. State read/write failures or corrupted existing state SHALL skip reporting without creating ephemeral identities or failing Darkstar startup.
+The sender SHALL persist its random ID, previous attempt timestamp, confirmed-success timestamp, and next due time atomically in channel-scoped JSON files under persistent `data/`. It SHALL continue to read legacy files containing only the ID and previous attempt timestamp, treating any such attempt without a confirmed success as unconfirmed. Restarts and upgrades within a channel SHALL retain the same ID and due schedule.
+
+#### Scenario: Distinct IDs per channel
+- **WHEN** stable and dev instances share a data directory
+- **THEN** they SHALL have distinct IDs
+
+#### Scenario: State failures skip reporting
+- **WHEN** state read/write fails or existing state is corrupted
+- **THEN** reporting SHALL be skipped without creating ephemeral identities or failing Darkstar startup
 
 #### Scenario: Restart and upgrade
 - **WHEN** an installation restarts or upgrades within its release channel
@@ -71,7 +94,20 @@ The sender SHALL persist its random ID, previous attempt timestamp, confirmed-su
 - **AND** planning, recording, and execution remain available
 
 ### Requirement: Daily reporting with bounded retries
-The sender SHALL make its first attempt as soon as its asynchronous worker loads valid enabled configuration and persistent state, without delaying application startup. It SHALL record every attempt before sending. Any response other than HTTP 204, timeout, or request error SHALL become eligible for retry five minutes after that attempt. A successful HTTP 204 SHALL persist its confirmation time and a next due time 24 hours later plus 0–15 minutes of jitter; that due time SHALL survive restarts. The sender SHALL use a five-second total HTTP timeout, verify HTTPS certificates, refuse redirects, and avoid outage backlogs. It SHALL re-read current configuration before dispatch and while waiting, with at most 30 seconds between checks.
+The sender SHALL make its first attempt as soon as its asynchronous worker loads valid enabled configuration and persistent state, without delaying application startup. It SHALL record every attempt before sending. Any response other than HTTP 204, timeout, or request error SHALL become eligible for retry five minutes after that attempt.
+
+#### Scenario: Successful report schedules next due time
+- **WHEN** the endpoint responds with HTTP 204
+- **THEN** the sender SHALL persist its confirmation time and a next due time 24 hours later plus 0–15 minutes of jitter
+- **AND** that due time SHALL survive restarts
+
+#### Scenario: HTTP transport constraints
+- **WHEN** the sender makes a request
+- **THEN** it SHALL use a five-second total HTTP timeout, verify HTTPS certificates, refuse redirects, and avoid outage backlogs
+
+#### Scenario: Configuration re-read
+- **WHEN** the sender is about to dispatch or is waiting
+- **THEN** it SHALL re-read current configuration before dispatch and while waiting, with at most 30 seconds between checks
 
 #### Scenario: First start
 - **WHEN** enabled reporting starts without a prior attempt

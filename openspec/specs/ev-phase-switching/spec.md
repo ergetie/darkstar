@@ -3,8 +3,7 @@
 For current-type EV chargers capable of switching between 1-phase and 3-phase charging, the executor SHALL be able to command the phase mode based on available charging power (surplus or scheduled), using hysteresis and a minimum dwell time to avoid contactor thrashing, and SHALL fail safe when phase-mode control is unavailable.
 ## Requirements
 ### Requirement: Phase mode is selected by a threshold state machine with hysteresis
-
-For chargers with `phase_mode_entity` configured and `phase_switching.enabled: true`, the executor SHALL select the charging phase mode from the target charging power: 1-phase when the target power is below the 3-phase minimum (6 A × 3 × 230 V ≈ 4.14 kW) plus `hysteresis_kw`, and 3-phase when the target power is above that threshold. For surplus-driven, manual and keep-on-only targets, the condition SHALL have held for the full dwell window before switching. For planned targets (the scheduled EV kW for the charger, including the idle look-ahead target), the executor SHALL NOT wait for the condition to hold and SHALL switch as soon as the minimum time since the previous switch allows.
+For chargers with `phase_mode_entity` configured and `phase_switching.enabled: true`, the executor SHALL select the charging phase mode from the target charging power: 1-phase when the target power is below the 3-phase minimum (6 A × 3 × 230 V ≈ 4.14 kW) plus `hysteresis_kw`, and 3-phase when the target power is above that threshold.
 
 #### Scenario: Small surplus switches to 1-phase
 - **WHEN** measured surplus supports only 2.5 kW and the charger is in 3-phase mode
@@ -23,6 +22,15 @@ For chargers with `phase_mode_entity` configured and `phase_switching.enabled: t
 - **WHEN** the charger is in 1-phase mode, the last switch was more than `min_dwell_s` ago
 - **AND** a new slot starts with a planned 6.9 kW for the charger
 - **THEN** the executor SHALL command 3-phase mode on the first tick of that slot
+
+#### Scenario: Dwell window applies to non-planned targets only
+- **WHEN** the target is surplus-driven, manual or keep-on-only
+- **THEN** the phase-mode condition SHALL have held for the full dwell window before switching
+
+#### Scenario: Planned targets switch without waiting
+- **WHEN** the target is a planned target (the scheduled EV kW for the charger, including the idle look-ahead target)
+- **THEN** the executor SHALL NOT wait for the condition to hold
+- **AND** it SHALL switch as soon as the minimum time since the previous switch allows
 
 ### Requirement: Minimum dwell time between phase switches
 
@@ -57,9 +65,7 @@ If the phase-mode entity is unreadable, unavailable, or a mode write fails, the 
 - **THEN** the executor SHALL never write the phase-mode entity and SHALL use the configured `phases` for all conversions
 
 ### Requirement: Phase-mode select options are configurable per charger
-Each phase-switching charger SHALL map the controller's internal phase counts to the charger-specific HA select options using `phase_1_value` (default `"1"`) and `phase_3_value` (default `"3"`). The executor SHALL preserve the configured option's spelling and case when calling `select.select_option`, and SHALL use the same mapped value for idempotence checks, shadow-mode reporting, post-action verification, and any commanded-mode caching. The phase controller SHALL continue to reason internally in numeric phase counts and SHALL NOT require an automatic-mode mapping.
-
-When `phase_switching_enabled` is true, `phase_mode_entity` SHALL be a Home Assistant `select` or `input_select` entity, and `phase_1_value` and `phase_3_value` SHALL both be non-empty and SHALL differ from each other.
+Each phase-switching charger SHALL map the controller's internal phase counts to the charger-specific HA select options using `phase_1_value` (default `"1"`) and `phase_3_value` (default `"3"`).
 
 #### Scenario: Go-e charger is forced to one phase
 - **WHEN** the phase controller commands one phase and `phase_1_value` is `Force_1`
@@ -87,14 +93,23 @@ When `phase_switching_enabled` is true, `phase_mode_entity` SHALL be a Home Assi
 - **WHEN** `phase_switching_enabled` is true and `phase_mode_entity` is `switch.ev_phase`
 - **THEN** config validation SHALL report an actionable error naming the required select domain
 
+#### Scenario: Mapped option spelling preserved
+- **WHEN** the executor writes, verifies or caches a phase mode
+- **THEN** it SHALL preserve the configured option's spelling and case when calling `select.select_option`
+- **AND** it SHALL use the same mapped value for idempotence checks, shadow-mode reporting, post-action verification, and any commanded-mode caching
+
+#### Scenario: Controller reasons in numeric phase counts
+- **WHEN** the phase controller decides on a phase mode
+- **THEN** it SHALL continue to reason internally in numeric phase counts
+- **AND** it SHALL NOT require an automatic-mode mapping
+
+#### Scenario: Phase mapping validation
+- **WHEN** `phase_switching_enabled` is true
+- **THEN** `phase_mode_entity` SHALL be a Home Assistant `select` or `input_select` entity
+- **AND** `phase_1_value` and `phase_3_value` SHALL both be non-empty and SHALL differ from each other
+
 ### Requirement: Balancer can demand 1-phase mode for overload relief
-The phase controller SHALL accept a relief demand from the load balancer (see `phase-load-balancing` "1-phase relief step in the degradation ladder"). When a relief demand is present and the charger is in 3-phase mode, the controller SHALL command 1-phase mode without waiting for the target-power threshold or hysteresis window. It SHALL still refuse the switch while `min_dwell_s` has not elapsed since the previous phase change, or while the controller is in its failed state. While the charger is in 1-phase mode because of a relief demand, the controller SHALL NOT return to 3-phase mode until both of these hold:
-- (a) `min_dwell_s` has elapsed;
-- (b) the balancer reports that every phase the charger would use in 3-phase mode has averaged headroom for `min_current_a` within `target_margin_percent`, sustained for the full `ramp_up_window_s`.
-
-Once returned to 3-phase mode, the normal power-threshold state machine SHALL resume.
-
-The same relief demand SHALL be used when the balancer re-fits a paused charger into 1-phase mode (see `phase-load-balancing` "Pause below minimum current with anti-flap resume"), with the same dwell and fail-safe rules. If the controller refuses the switch or the write fails, the charger SHALL stay paused rather than start in 3-phase mode.
+The phase controller SHALL accept a relief demand from the load balancer (see `phase-load-balancing` "1-phase relief step in the degradation ladder").
 
 #### Scenario: Relief overrides the power threshold
 - **WHEN** the planner target is 6.9 kW (well above the 3-phase minimum) and the balancer demands relief
@@ -111,6 +126,22 @@ The same relief demand SHALL be used when the balancer re-fits a paused charger 
 #### Scenario: Return to 3-phase after the load ends
 - **WHEN** floor heating on L3 stops, all three phases have averaged room for 6 A within the target margin for 60 s, and 600 s have passed since the switch
 - **THEN** the controller SHALL command 3-phase mode
+
+#### Scenario: Relief demand switches to 1-phase immediately
+- **WHEN** a relief demand is present and the charger is in 3-phase mode
+- **THEN** the controller SHALL command 1-phase mode without waiting for the target-power threshold or hysteresis window
+- **AND** it SHALL still refuse the switch while `min_dwell_s` has not elapsed since the previous phase change, or while the controller is in its failed state
+
+#### Scenario: Return to 3-phase after relief
+- **WHEN** the charger is in 1-phase mode because of a relief demand
+- **THEN** the controller SHALL NOT return to 3-phase mode until `min_dwell_s` has elapsed
+- **AND** the controller SHALL NOT return to 3-phase mode until the balancer reports that every phase the charger would use in 3-phase mode has averaged headroom for `min_current_a` within `target_margin_percent`, sustained for the full `ramp_up_window_s`
+- **AND** once returned to 3-phase mode, the normal power-threshold state machine SHALL resume
+
+#### Scenario: Relief demand on paused charger re-fit
+- **WHEN** the balancer re-fits a paused charger into 1-phase mode (see `phase-load-balancing` "Pause below minimum current with anti-flap resume")
+- **THEN** the same relief demand SHALL be used, with the same dwell and fail-safe rules
+- **AND** if the controller refuses the switch or the write fails, the charger SHALL stay paused rather than start in 3-phase mode
 
 ### Requirement: Configurable 1-phase grid line
 Each phase-switching charger SHALL declare `phase_1_line` (1, 2 or 3; default 1): the grid phase the charger draws on in 1-phase mode. The balancer SHALL use it to decide which phases a 1-phase switch relieves. While the charger is in 1-phase mode, the balancer SHALL attribute its draw only to that line. Validation SHALL reject a `phase_1_line` that is not among the charger's configured `phases`.

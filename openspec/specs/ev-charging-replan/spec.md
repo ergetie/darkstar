@@ -1,10 +1,15 @@
 # Purpose
 
-TBD - EV charging replanning functionality manages when and how the system triggers schedule recalculations in response to EV plug-in events, ensuring correct async handling, configuration reading, state propagation, and executor switch control.
+Defines when and how the system triggers schedule replans for EV events such as plug-in, unplug, sustained load-balancer throttling and goal changes, including async dispatch and plug-state interpretation.
+
 ## Requirements
 ### Requirement: EV plug-in triggers immediate replan
+When an EV plug-in event is received via WebSocket, the system SHALL derive the connected boolean using that charger's configured `plugged_in_states` and schedule an immediate replan only when the derived state transitions from disconnected to connected, passing the charger ID that triggered the event.
 
-When an EV plug-in event is received via WebSocket, the system SHALL derive the connected boolean using that charger's configured `plugged_in_states` and schedule an immediate replan only when the derived state transitions from disconnected to connected. The replan SHALL use the correct async cross-thread dispatch mechanism (`asyncio.run_coroutine_threadsafe`), ensuring the coroutine executes in the main application event loop rather than the WebSocket thread's event loop. The replan trigger SHALL pass the charger ID that triggered the event.
+#### Scenario: Cross-thread dispatch
+- **WHEN** the replan is scheduled from the WebSocket thread
+- **THEN** it uses `asyncio.run_coroutine_threadsafe`
+- **AND** the coroutine executes in the main application event loop rather than the WebSocket thread's event loop
 
 #### Scenario: Replan fires on configured plug-in state
 - **WHEN** the WebSocket receives a plug sensor change from a disconnected state to any state listed in that charger's `plugged_in_states`
@@ -23,11 +28,16 @@ When an EV plug-in event is received via WebSocket, the system SHALL derive the 
 - **THEN** no `RuntimeError` is raised and the error is not silently swallowed
 
 ### Requirement: Plug state mappings are normalized and shared
-The system SHALL split `plugged_in_states` on commas, trim surrounding whitespace, discard empty entries, and compare raw HA states case-insensitively. If the field is absent, the system SHALL use `on,true,1,connected`. A raw state not in the configured set SHALL be treated as disconnected.
+The system SHALL split `plugged_in_states` on commas, trim surrounding whitespace, discard empty entries, and compare raw HA states case-insensitively, using `on,true,1,connected` if the field is absent. A raw state not in the configured set SHALL be treated as disconnected. Exactly one shared interpretation SHALL be used by every consumer of `plug_sensor`.
 
-Exactly one shared interpretation SHALL be used by every consumer of `plug_sensor`, specifically the planner/initial per-device HA read, the WebSocket live and aggregate state, the EV dashboard API, the system-status aggregate, and plug/unplug replan decisions. No consumer SHALL derive the connected boolean from a generic boolean helper or a hardcoded state set.
+#### Scenario: Consumers of the shared interpretation
+- **WHEN** a consumer derives a connected boolean from `plug_sensor`
+- **THEN** it uses the shared interpretation, specifically the planner/initial per-device HA read, the WebSocket live and aggregate state, the EV dashboard API, the system-status aggregate, and plug/unplug replan decisions
+- **AND** no consumer derives the connected boolean from a generic boolean helper or a hardcoded state set
 
-Where connected states are aggregated across multiple chargers, each charger's raw state SHALL be resolved against that charger's own `plugged_in_states` before aggregation.
+#### Scenario: Multi-charger aggregation
+- **WHEN** connected states are aggregated across multiple chargers
+- **THEN** each charger's raw state is resolved against that charger's own `plugged_in_states` before aggregation
 
 #### Scenario: Multiple named connected states are recognized
 - **WHEN** `plugged_in_states` is `"WaitCar, Charging, Complete"`
@@ -119,7 +129,15 @@ The WebSocket client SHALL trigger a replan on unplug events for chargers that h
 - **THEN** no replan SHALL be triggered
 
 ### Requirement: Sustained balancer throttling triggers an early replan
-The executor SHALL track, per `type: current` EV charger, the continuous duration during which the load balancer holds the charger's setpoint below the planner-derived target (or holds it paused) while the current slot plans charging for it. When this duration exceeds `load_balancing.replan_after_throttled_s` (default 600), the executor SHALL request one planner run through the same replan mechanism used by the plug-in/unplug triggers. Balancer-triggered replans SHALL be rate-limited to at most one per planner interval. The duration tracker SHALL reset whenever the setpoint reaches the planner target, when the slot no longer plans charging for that charger, or when the trigger fires. Reductions that are not caused by the balancer (planner-intended lower targets) SHALL NOT count toward the duration.
+The executor SHALL track, per `type: current` EV charger, the continuous duration during which the load balancer holds the charger's setpoint below the planner-derived target (or paused) while the current slot plans charging for it. When this duration exceeds `load_balancing.replan_after_throttled_s` (default 600), the executor SHALL request one planner run through the same replan mechanism used by the plug-in/unplug triggers, rate-limited to at most one per planner interval.
+
+#### Scenario: Duration tracker reset
+- **WHEN** the setpoint reaches the planner target, the slot no longer plans charging for that charger, or the trigger fires
+- **THEN** the duration tracker resets
+
+#### Scenario: Planner-intended reductions
+- **WHEN** a reduction is not caused by the balancer (a planner-intended lower target)
+- **THEN** it does not count toward the duration
 
 #### Scenario: EV held at floor for ten minutes triggers a replan
 - **WHEN** the balancer holds a charger at 6 A against a 16 A planner target continuously for `replan_after_throttled_s`
@@ -181,7 +199,17 @@ The WebSocket EV monitoring SHALL fully tear down EV charger state when `system.
 - **AND** `latest_values["ev_chargers"]` SHALL be an empty list
 
 ### Requirement: EV goal changes trigger an immediate replan
-When a charger's goal changes — set, updated or cleared via `POST /api/ev/chargers/{id}/schedule`, changed via an HA `state_changed` event on the charger's goal entities, or adopted from HA during startup/reconnect reconciliation — the backend SHALL request an immediate planner run with reason goal-change. The request SHALL be dispatched without delaying the originating HTTP response or websocket handler, SHALL execute on the main application event loop (cross-thread dispatch from the websocket thread), and SHALL be subject to planner-run coalescing. HA echoes ignored by the write-back debounce and reconciliation that changes nothing SHALL NOT trigger a replan.
+When a charger's goal changes, the backend SHALL request an immediate planner run with reason goal-change, dispatched without delaying the originating HTTP response or websocket handler, executed on the main application event loop, and subject to planner-run coalescing. HA echoes ignored by the write-back debounce and reconciliation that changes nothing SHALL NOT trigger a replan.
+
+#### Scenario: Goal change sources
+- **WHEN** a goal is set, updated or cleared via `POST /api/ev/chargers/{id}/schedule`
+- **OR** changed via an HA `state_changed` event on the charger's goal entities
+- **OR** adopted from HA during startup/reconnect reconciliation
+- **THEN** the backend requests an immediate planner run with reason goal-change
+
+#### Scenario: Cross-thread dispatch
+- **WHEN** the change originates on the websocket thread
+- **THEN** the request is dispatched cross-thread onto the main application event loop
 
 #### Scenario: Executor waits for its next tick
 - **WHEN** a goal-triggered planner run completes

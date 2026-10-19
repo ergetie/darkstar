@@ -7,7 +7,8 @@ Defines evidence-based review and maintenance of historical energy measurement p
 ## Requirements
 
 ### Requirement: Historical provenance requires explicit installation evidence
-The system SHALL provide a local history annotation tool using an explicit database path and versioned manifest containing database/affected-measurement identity, timezone-aware half-open intervals, supported source/semantics and boundary declarations, dispositions and reviewable evidence references/digests. Inclusion SHALL require evidence of configured measurement paths, full-slot energy semantics, compatible boundaries and relevant fallback treatment. Unknown intervals SHALL remain unknown. The tool SHALL NOT derive inclusion from a passing fit, decimal precision, an app release date alone or a universal date. Legacy attestation SHALL remain distinct from actually observed modern per-component provenance.
+
+The system SHALL provide a local history annotation tool using an explicit database path and a versioned manifest. Inclusion SHALL require evidence of configured measurement paths, full-slot energy semantics, compatible boundaries and relevant fallback treatment; unknown intervals SHALL remain unknown.
 
 #### Scenario: Deployment transition proves an exclusion
 - **WHEN** installation evidence identifies an older snapshot-era interval
@@ -26,8 +27,21 @@ The system SHALL provide a local history annotation tool using an explicit datab
 - **WHEN** another installation has different deployment dates, sensors or capacity
 - **THEN** its own evidence and configured capacity are used without the first installation's constants
 
+#### Scenario: Manifest contents
+- **WHEN** the tool reads a manifest
+- **THEN** the manifest contains database/affected-measurement identity, timezone-aware half-open intervals, supported source/semantics and boundary declarations, dispositions and reviewable evidence references/digests
+
+#### Scenario: Inclusion is never inferred
+- **WHEN** an interval lacks explicit evidence
+- **THEN** the tool does not derive inclusion from a passing fit, decimal precision, an app release date alone or a universal date
+
+#### Scenario: Legacy attestation stays distinct
+- **WHEN** an interval is covered by legacy attestation
+- **THEN** it remains distinct from actually observed modern per-component provenance
+
 ### Requirement: Annotation is inspectable local metadata maintenance
-Dry run SHALL be the default and SHALL report affected counts, classifications, conflicts and cohort eligibility without writes. Apply SHALL require an explicit reviewed manifest and maintenance use against a local database, create a SQLite backup, verify unchanged preimages, and atomically update only comparison-owned quality metadata. It SHALL preserve all energy/price/SoC values, source ownership, exclusions and unrelated flags. It SHALL reject stale/wrong identities, ambiguous or overlapping intervals, promotion of known snapshots/backfills, and replacement of observed modern provenance. The tool SHALL have no automatic startup or remote write behavior.
+
+Dry run SHALL be the default and SHALL report without writes. Apply SHALL require an explicit reviewed manifest and maintenance use against a local database, create a SQLite backup, verify unchanged preimages, and atomically update only comparison-owned quality metadata. The tool SHALL have no automatic startup or remote write behavior.
 
 #### Scenario: Dry run
 - **WHEN** the operator omits the explicit apply option
@@ -45,6 +59,18 @@ Dry run SHALL be the default and SHALL report affected counts, classifications, 
 #### Scenario: Stale target
 - **WHEN** affected measurements changed after the manifest was prepared
 - **THEN** application aborts without partial metadata writes
+
+#### Scenario: Dry run reports without writing
+- **WHEN** the tool runs in its default dry-run mode
+- **THEN** it reports affected counts, classifications, conflicts and cohort eligibility without writes
+
+#### Scenario: Apply preserves unrelated data
+- **WHEN** apply runs
+- **THEN** it preserves all energy/price/SoC values, source ownership, exclusions and unrelated flags
+
+#### Scenario: Unsafe manifests are rejected
+- **WHEN** a manifest has stale/wrong identities, ambiguous or overlapping intervals, promotes known snapshots/backfills, or replaces observed modern provenance
+- **THEN** the tool rejects it
 
 ### Requirement: Annotation is idempotent and safely reversible
 The tool SHALL produce an audit/undo record containing manifest/evidence identities and comparison-metadata preimages/postimages, without credentials. Identical application SHALL be idempotent. Undo SHALL restore only comparison-owned metadata and SHALL refuse rows whose postimages or measurements changed after application. Restoring annotations SHALL invalidate comparison caches through the normal provenance identity mechanism.

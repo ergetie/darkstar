@@ -18,11 +18,7 @@ EV charging SHALL be governed by a per-charger goal — a `target_soc_percent` t
 - **AND** the dashboard SHALL prompt the user to set a goal
 
 ### Requirement: Required energy is derived from target SoC
-The pipeline SHALL compute `required_kwh = max(0, (target_soc_percent − resolved_soc_percent)/100 · battery_capacity_kwh)`, where the resolved SoC is defined by the `ev-soc-staleness` capability (`live` or `carried`). Energy already delivered SHALL NOT be subtracted when a resolved SoC is available, because the SoC already reflects delivered energy.
-
-When a plugged charger has a SoC sensor configured but its resolved SoC status is `stale`, the pipeline SHALL NOT compute a required energy, and goal charging SHALL be suspended as specified in `ev-soc-staleness`. An unplugged charger with an active goal (assumed-plugged planning) SHALL use the resolved SoC, else its last persisted SoC regardless of age, and SHALL NOT be planned when neither exists.
-
-Only when the charger has no SoC sensor configured at all SHALL the pipeline use the SoC-less estimate minus that charger's own delivered-today energy (per-charger, from the `ev-per-charger-energy` capability). When per-charger delivered energy is unknown, no subtraction SHALL be applied.
+The pipeline SHALL compute `required_kwh = max(0, (target_soc_percent − resolved_soc_percent)/100 · battery_capacity_kwh)`, where the resolved SoC is defined by the `ev-soc-staleness` capability (`live` or `carried`).
 
 #### Scenario: Live SoC reflects progress — no double count
 - **WHEN** the target implies 30 kWh at plug-in, 15 kWh has been delivered, and the live SoC now implies 15 kWh remaining
@@ -44,17 +40,26 @@ Only when the charger has no SoC sensor configured at all SHALL the pipeline use
 - **WHEN** the resolved SoC already meets or exceeds `target_soc_percent`
 - **THEN** `required_kwh` SHALL be 0 and no charging SHALL be scheduled (subject to keep-on behaviour)
 
+#### Scenario: No subtraction of delivered energy when SoC is resolved
+- **WHEN** a resolved SoC is available for the charger
+- **THEN** energy already delivered SHALL NOT be subtracted, because the SoC already reflects delivered energy
+
+#### Scenario: Stale SoC suspends goal charging
+- **WHEN** a plugged charger has a SoC sensor configured but its resolved SoC status is `stale`
+- **THEN** the pipeline SHALL NOT compute a required energy, and goal charging SHALL be suspended as specified in `ev-soc-staleness`
+
+#### Scenario: Unplugged charger with an active goal
+- **WHEN** an unplugged charger has an active goal (assumed-plugged planning)
+- **THEN** it SHALL use the resolved SoC, else its last persisted SoC regardless of age
+- **AND** it SHALL NOT be planned when neither exists
+
+#### Scenario: SoC-less estimate minus delivered-today energy
+- **WHEN** the charger has no SoC sensor configured at all
+- **THEN** the pipeline SHALL use the SoC-less estimate minus that charger's own delivered-today energy (per-charger, from the `ev-per-charger-energy` capability)
+- **AND** when per-charger delivered energy is unknown, no subtraction SHALL be applied
+
 ### Requirement: Kepler enforces the target as a soft requirement
-For each plugged charger with a goal, the Kepler solver SHALL add a soft constraint that the charger's requirement is covered by:
-- EV energy delivered to the car in-horizon by the deadline. Scheduled and planned surplus energy both count, after charging losses as defined by `ev-charging-losses` (efficiency, overhead while on, start loss);
-- plus deferred energy priced by the tiered deferral value (see `ev-deferral-value`);
-- plus shortfall.
-
-The shortfall penalty SHALL be large enough that the target is treated as near-mandatory. The constraint SHALL be soft so that a physically unreachable target never makes the solve infeasible.
-
-The solver SHALL NOT apply per-day EV energy quota caps, and SHALL NOT reduce the requirement to a sum of quotas.
-
-The shortfall penalty SHALL default to 50.0 SEK/kWh. It SHALL be configurable via `kepler.ev_shortfall_penalty_sek_per_kwh`, and that setting SHALL be editable in the EV settings tab as an advanced field.
+For each plugged charger with a goal, the Kepler solver SHALL add a soft constraint that the charger's requirement is covered by in-horizon delivered energy, deferred energy and shortfall, as specified in the scenarios below.
 
 #### Scenario: Target reachable
 - **WHEN** the charger can deliver the required energy before the deadline and the deadline is inside the known horizon
@@ -81,8 +86,25 @@ The shortfall penalty SHALL default to 50.0 SEK/kWh. It SHALL be configurable vi
 - **THEN** the solver SHALL use that value as the shortfall penalty in the objective
 - **AND** when unset, the solver SHALL default to 50.0 SEK/kWh
 
+#### Scenario: Components of the soft requirement
+- **WHEN** the Kepler solver adds the soft goal constraint for a plugged charger
+- **THEN** the requirement SHALL be covered by EV energy delivered to the car in-horizon by the deadline, where scheduled and planned surplus energy both count, after charging losses as defined by `ev-charging-losses` (efficiency, overhead while on, start loss)
+- **AND** plus deferred energy priced by the tiered deferral value (see `ev-deferral-value`)
+- **AND** plus shortfall
+
+#### Scenario: Shortfall penalty and softness
+- **WHEN** the soft constraint is built
+- **THEN** the shortfall penalty SHALL be large enough that the target is treated as near-mandatory
+- **AND** the constraint SHALL be soft so that a physically unreachable target never makes the solve infeasible
+- **AND** the shortfall penalty SHALL default to 50.0 SEK/kWh, SHALL be configurable via `kepler.ev_shortfall_penalty_sek_per_kwh`, and that setting SHALL be editable in the EV settings tab as an advanced field
+
+#### Scenario: No per-day quota caps
+- **WHEN** the solver models the EV goal
+- **THEN** it SHALL NOT apply per-day EV energy quota caps
+- **AND** it SHALL NOT reduce the requirement to a sum of quotas
+
 ### Requirement: Excess-PV surplus routing is owned by excess_pv.priority[] (no charge_priority here)
-Surplus-PV self-consumption ordering SHALL be governed by the already-shipped `excess_pv.priority[]` list (the `excess-pv-priority-dispatch` capability) — the home battery is implicitly first via `soc_threshold_percent`, and `ev` entries in the priority list route surplus to EV chargers ordered by rank-scaled reward. **This change SHALL NOT introduce a per-charger `charge_priority` field, an in-solver self-consumption tie-break term, or any parallel surplus-routing code path.** A user who wants EV-first surplus moves the `ev` entry up the existing priority-list editor (under Settings → Advanced → "Excess PV Dispatch").
+Surplus-PV self-consumption ordering SHALL be governed by the already-shipped `excess_pv.priority[]` list (the `excess-pv-priority-dispatch` capability) — the home battery is implicitly first via `soc_threshold_percent`, and `ev` entries in the priority list route surplus to EV chargers ordered by rank-scaled reward.
 
 #### Scenario: Surplus absorption requires the charger be listed in excess_pv.priority[]
 - **WHEN** a current-type charger has a goal but is NOT listed as an `ev` entry in `excess_pv.priority[]`
@@ -98,10 +120,13 @@ Surplus-PV self-consumption ordering SHALL be governed by the already-shipped `e
 - **WHEN** the system has no house battery (`capacity_kwh == 0`) and a current-type charger is listed in `excess_pv.priority[]`
 - **THEN** the `soc_above_threshold` big-M gate SHALL collapse (threshold 0, M 0) and surplus SHALL route to the configured sinks immediately without waiting for a battery to fill
 
-### Requirement: Keep charger on after target
-A per-charger `keep_on_after_target` (default false) SHALL, when true, keep the charger's intended switch state ON through the ready-by time once the resolved SoC (status `live` or `carried`) is at or above `target_soc_percent`, for any target value. This lets the vehicle pre-condition or run its heater.
+#### Scenario: No parallel surplus-routing mechanism
+- **WHEN** this requirement applies
+- **THEN** This change SHALL NOT introduce a per-charger `charge_priority` field, an in-solver self-consumption tie-break term, or any parallel surplus-routing code path.
+- **AND** A user who wants EV-first surplus moves the `ev` entry up the existing priority-list editor (under Settings → Advanced → "Excess PV Dispatch").
 
-Keep-on intent SHALL be represented in the published schedule as an explicit per-slot, per-charger flag (`ev_keep_on: {charger_id: true}`), NOT as planned charging power. Keep-on slots SHALL carry `0` in `ev_chargers[charger_id]`, and contribute `0` to `ev_charging_kw`, unless the solver genuinely planned charging energy for that slot. Published schedules SHALL therefore be energy-consistent: summing planned EV power across slots SHALL NOT include phantom keep-on energy that has no matching `grid_import_kwh`/`cost_sek`.
+### Requirement: Keep charger on after target
+A per-charger `keep_on_after_target` (default false) SHALL, when true, keep the charger's intended switch state ON through the ready-by time once the resolved SoC (status `live` or `carried`) is at or above `target_soc_percent`, for any target value.
 
 #### Scenario: Keep-on enabled
 - **WHEN** the target is met before the ready-by time and `keep_on_after_target` is true
@@ -136,8 +161,18 @@ Keep-on intent SHALL be represented in the published schedule as an explicit per
 - **THEN** its `ev_keep_on` field SHALL be absent or an empty dict
 - **AND** solver-planned `ev_chargers`/`ev_charging_kw` values SHALL be published exactly as solved
 
+#### Scenario: Keep-on purpose
+- **WHEN** `keep_on_after_target` keeps the charger on after the target is reached
+- **THEN** this lets the vehicle pre-condition or run its heater
+
+#### Scenario: Keep-on represented as an explicit flag
+- **WHEN** keep-on intent is published in the schedule
+- **THEN** it SHALL be represented as an explicit per-slot, per-charger flag (`ev_keep_on: {charger_id: true}`), NOT as planned charging power
+- **AND** keep-on slots SHALL carry `0` in `ev_chargers[charger_id]`, and contribute `0` to `ev_charging_kw`, unless the solver genuinely planned charging energy for that slot
+- **AND** published schedules SHALL therefore be energy-consistent: summing planned EV power across slots SHALL NOT include phantom keep-on energy that has no matching `grid_import_kwh`/`cost_sek`
+
 ### Requirement: Read-only API exposes per-charger goal and progress
-A `GET /api/ev/chargers` endpoint SHALL return, per charger, live HA sensor data merged with the goal and progress from the last pipeline run. The endpoint SHALL report the goal for as long as the planner would act on it (goals are durable user intent, not a cache): there SHALL be no time-based nulling of an active goal. The response SHALL include `last_planned_at` so the UI can indicate when the planner last ran, SHALL include `n_days` for `every_n_days` goals, and SHALL include `plan_pending` (bool): true when a goal-triggered planner run for the charger is queued or running, or when the goal was edited after `last_planned_at` and no goal-triggered run for that edit has since failed; false otherwise. The response SHALL include `assumed_plugged` (bool), true when the last plan scheduled goal charging for a charger that is still unplugged, and `planned_start` (ISO datetime or null), the start of the charger's first not-yet-ended slot with planned charging.
+A `GET /api/ev/chargers` endpoint SHALL return, per charger, live HA sensor data merged with the goal and progress from the last pipeline run.
 
 #### Scenario: Charger with an active goal
 - **WHEN** a plugged charger has a goal and the pipeline has run
@@ -183,6 +218,21 @@ A `GET /api/ev/chargers` endpoint SHALL return, per charger, live HA sensor data
 - **THEN** `plan_pending` SHALL be false once the failure is reported
 - **AND** `last_planned_at` SHALL remain the previous successful run's timestamp
 
+#### Scenario: Goals reported while the planner would act on them
+- **WHEN** `GET /api/ev/chargers` reports a charger's goal
+- **THEN** the endpoint SHALL report the goal for as long as the planner would act on it (goals are durable user intent, not a cache)
+- **AND** there SHALL be no time-based nulling of an active goal
+
+#### Scenario: Planning metadata in the chargers response
+- **WHEN** `GET /api/ev/chargers` builds its response
+- **THEN** the response SHALL include `last_planned_at` so the UI can indicate when the planner last ran, and SHALL include `n_days` for `every_n_days` goals
+- **AND** it SHALL include `plan_pending` (bool): true when a goal-triggered planner run for the charger is queued or running, or when the goal was edited after `last_planned_at` and no goal-triggered run for that edit has since failed; false otherwise
+
+#### Scenario: Assumed-plugged and planned start fields
+- **WHEN** `GET /api/ev/chargers` builds its response
+- **THEN** it SHALL include `assumed_plugged` (bool), true when the last plan scheduled goal charging for a charger that is still unplugged
+- **AND** it SHALL include `planned_start` (ISO datetime or null), the start of the charger's first not-yet-ended slot with planned charging
+
 ### Requirement: Core charging does not depend on price forecasting
 The goal-based charging behaviour SHALL function using only the day-ahead Nordpool prices already available to the planner. It SHALL NOT be gated behind `price_forecast.enabled`. Forecasts SHALL only be used to price deferral into post-horizon slots. When no forecast is available, deferral SHALL be priced by the conservative fallback in `ev-deferral-value`.
 
@@ -197,7 +247,7 @@ The goal-based charging behaviour SHALL function using only the day-ahead Nordpo
 - **AND** `deferral_price_source` SHALL reflect the fallback used
 
 ### Requirement: In-progress slot uses remaining time for EV energy
-When planning starts inside a slot, the solver SHALL bound that slot's EV energy by the remaining duration (`slot_end − now`), not the full slot duration. This applies to both scheduled and surplus EV energy: the surplus reward, the surplus load in the energy balance, the excess-PV sink cap and the surplus energy counted toward the goal requirement SHALL all use the remaining duration. The planned EV kW for that slot SHALL be reported as energy divided by the remaining duration. Other energy flows in the slot SHALL be unchanged.
+When planning starts inside a slot, the solver SHALL bound that slot's EV energy by the remaining duration (`slot_end − now`), not the full slot duration.
 
 #### Scenario: Replan 7 minutes into a slot
 - **WHEN** a replan runs at 10:22 for the 10:15–10:30 slot and the goal needs 1.2 kWh by 10:30
@@ -211,6 +261,15 @@ When planning starts inside a slot, the solver SHALL bound that slot's EV energy
 #### Scenario: Replan at slot start
 - **WHEN** a replan runs exactly at a slot boundary
 - **THEN** the EV bounds SHALL be identical to before this change
+
+#### Scenario: Remaining-duration bound applies to surplus energy
+- **WHEN** planning starts inside a slot
+- **THEN** the remaining-duration bound SHALL apply to both scheduled and surplus EV energy: the surplus reward, the surplus load in the energy balance, the excess-PV sink cap and the surplus energy counted toward the goal requirement SHALL all use the remaining duration
+
+#### Scenario: Planned kW and other flows for the partial slot
+- **WHEN** planning starts inside a slot
+- **THEN** the planned EV kW for that slot SHALL be reported as energy divided by the remaining duration
+- **AND** other energy flows in the slot SHALL be unchanged
 
 ### Requirement: Post-deadline charging allowed during grace window
 The solver's rule forcing zero EV energy after a charger's deadline SHALL use the effective deadline, which during a missed-goal grace window (see `ev-missed-goal-recovery`) is the extended grace deadline.

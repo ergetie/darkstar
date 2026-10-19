@@ -5,13 +5,7 @@
 Defines how the executor controls current-type EV chargers (ampere setpoint via an HA number entity) as an alternative to binary switch control, including kW→A translation, minimum-current pause semantics, active phase detection, and migration of the legacy singular EV charger config stub.
 ## Requirements
 ### Requirement: Current-type charger actuation
-For EV charger devices configured with `type: current`, a `current_entity` and a `switch_entity`, the executor SHALL control charging with two writes:
-- an integer ampere setpoint to the charger's HA number entity;
-- the charger's `switch_entity` set to its configured `charge_enabled_value` (select-like) or `on` (switch-like).
-
-The planner-derived target SHALL be computed as `ceil(planned_kw × 1000 / (V × active_phases))`, with a small epsilon so exact multiples do not round up. `V` is the same nominal voltage used by the shared charger-power helper (`system.grid.nominal_voltage_v`, default 230). The target SHALL be clamped to `[min_current_a, max_current_a]`, so the commanded power is never below the planned power.
-
-On start, the setpoint SHALL be written before the switch is enabled. Each write SHALL be idempotent (skipped when the entity already holds the target value). The switch state SHALL be re-checked every tick while charging is desired, and corrected if it differs.
+For EV charger devices configured with `type: current`, a `current_entity` and a `switch_entity`, the executor SHALL control charging with two writes: an ampere setpoint and a switch state, as specified in the scenarios below.
 
 #### Scenario: Planned maximum on a 3-phase charger
 - **WHEN** the current slot plans 11.0 kW for a 3-phase charger with `max_current_a: 16` at 230 V
@@ -37,6 +31,23 @@ On start, the setpoint SHALL be written before the switch is enabled. Each write
 #### Scenario: Charger externally switched off mid-session
 - **WHEN** charging is desired and the switch entity reads the disabled value
 - **THEN** the executor SHALL set it back to the configured enabled value
+
+#### Scenario: Two writes per current-type charger
+- **WHEN** the executor controls charging for a current-type charger with a `current_entity` and a `switch_entity`
+- **THEN** it SHALL write an integer ampere setpoint to the charger's HA number entity
+- **AND** it SHALL set the charger's `switch_entity` to its configured `charge_enabled_value` (select-like) or `on` (switch-like)
+
+#### Scenario: Planner-derived ampere target
+- **WHEN** the executor derives the target from `planned_kw`
+- **THEN** the target SHALL be computed as `ceil(planned_kw × 1000 / (V × active_phases))`, with a small epsilon so exact multiples do not round up
+- **AND** `V` is the same nominal voltage used by the shared charger-power helper (`system.grid.nominal_voltage_v`, default 230)
+- **AND** the target SHALL be clamped to `[min_current_a, max_current_a]`, so the commanded power is never below the planned power
+
+#### Scenario: Write ordering, idempotence and switch recheck
+- **WHEN** charging starts
+- **THEN** the setpoint SHALL be written before the switch is enabled
+- **AND** each write SHALL be idempotent (skipped when the entity already holds the target value)
+- **AND** the switch state SHALL be re-checked every tick while charging is desired, and corrected if it differs
 
 ### Requirement: Minimum current floor with pause semantics
 The executor SHALL never write a setpoint below `min_current_a` (default 6), and SHALL never write 0 A. Whenever charging must stop (the target, planned or balancer-capped, falls below the floor; the plan ends; a load-balancer pause; manual override or force_stop), the executor SHALL stop charging by setting the `switch_entity` to its configured `charge_disabled_value` (select-like) or `off` (switch-like). It SHALL treat the session as paused rather than failed. No value SHALL be hardcoded.

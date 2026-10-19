@@ -6,7 +6,7 @@ Surface repeated executor action-command failures to the operator's notification
 
 ### Requirement: Repeated action-command failures notify the operator
 
-The executor SHALL send an operator notification via the dispatcher's `notify_error` path when an executor action of a given type fails on consecutive ticks and reaches a failure-streak threshold. The notification SHALL honor the existing `notifications.on_error` config gate. Each streak SHALL notify at most once (deduped per action type): the first tick at which the streak reaches the threshold notifies, and no further notification for that action type is sent until the streak is broken by a success (or the action stops being attempted).
+The executor SHALL send an operator notification via the dispatcher's `notify_error` path when an executor action of a given type fails on consecutive ticks and reaches a failure-streak threshold, honoring the `notifications.on_error` config gate. Each streak SHALL notify at most once per action type.
 
 #### Scenario: A failing action type crosses the streak threshold
 
@@ -27,6 +27,11 @@ The executor SHALL send an operator notification via the dispatcher's `notify_er
 
 - **WHEN** `notifications.on_error` is false and an action-failure streak crosses the threshold
 - **THEN** no push notification is sent (the existing `notify_error` gate is respected)
+
+#### Scenario: Notification deduplicated per streak
+- **WHEN** the failure streak for an action type first reaches the threshold
+- **THEN** a notification is sent on that tick
+- **AND** no further notification for that action type is sent until the streak is broken by a success or the action stops being attempted
 
 ### Requirement: Execution log records a top-level failure reason
 

@@ -153,8 +153,15 @@ Library and service code SHALL emit operational warnings through the structured 
 - **AND** no `print(...)` is used for that warning
 
 ### Requirement: Frontend data-transform logic is unit-tested as pure functions
+Frontend logic that transforms data for display (chart series building, power-flow partitioning and node enablement, schedule/slot day math, price breakdown, cost aggregation, progress/status derivation, and value formatters with branching logic) SHALL be importable as pure functions (module-level, exported) and SHALL have unit tests. New render/component tests and E2E tests are explicitly NOT required by this requirement.
 
-Frontend logic that transforms data for display — chart series building, power-flow partitioning and node enablement, schedule/slot day math, price breakdown, cost aggregation, progress/status derivation, and value formatters with branching logic — SHALL be importable as pure functions (module-level, exported) and SHALL have unit tests. These tests SHALL include configuration-variation cases for hardware setups the maintainer does not run: absent battery, absent EV charger, zero and multiple chargers, absent water heater, and empty/missing optional data fields. Tests for time-dependent logic SHALL use injected/fixed time (fake timers), never the machine wall clock. New render/component tests and E2E tests are explicitly NOT required by this requirement.
+#### Scenario: Configuration-variation cases
+- **WHEN** these unit tests are written
+- **THEN** they SHALL include configuration-variation cases for hardware setups the maintainer does not run: absent battery, absent EV charger, zero and multiple chargers, absent water heater, and empty/missing optional data fields
+
+#### Scenario: Time-dependent logic
+- **WHEN** testing time-dependent logic
+- **THEN** tests SHALL use injected/fixed time (fake timers), never the machine wall clock
 
 #### Scenario: Chart data builder handles a battery-less config
 - **WHEN** the 48h chart data builder receives schedule slots with no battery fields (no `charge_kw`/`discharge_kw`)

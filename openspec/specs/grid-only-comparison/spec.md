@@ -7,7 +7,17 @@ Defines a per-slot comparison of the same recorded consumption bought entirely f
 ## Requirements
 
 ### Requirement: Grid-only baseline prices all recorded consumption per slot
-The system SHALL define the grid-only installation as covering the same recorded consumption at the same times entirely from the grid, with no solar or stationary battery. For every eligible completed slot, baseline demand SHALL equal `load_kwh + water_kwh + ev_charging_kwh`, and baseline electricity cost SHALL equal that demand multiplied by the recorded `import_price_sek_kwh`. Household load is isolated from EV/water consumption; each component SHALL be counted exactly once. Stationary battery charging SHALL NOT be added to demand, and recorded PV SHALL NOT be deducted from baseline demand. The system SHALL NOT substitute an average tariff, monthly tariff, forecast price or current-config recomputation for recorded slot prices.
+The system SHALL define the grid-only installation as covering the same recorded consumption at the same times entirely from the grid, with no solar or stationary battery. For every eligible completed slot, baseline demand SHALL equal `load_kwh + water_kwh + ev_charging_kwh`, and baseline electricity cost SHALL equal that demand multiplied by the recorded `import_price_sek_kwh`.
+
+#### Scenario: Baseline demand components counted once
+- **WHEN** baseline demand is computed for an eligible slot
+- **THEN** household load SHALL be isolated from EV/water consumption and each component SHALL be counted exactly once
+- **AND** stationary battery charging SHALL NOT be added to demand
+- **AND** recorded PV SHALL NOT be deducted from baseline demand
+
+#### Scenario: Recorded slot prices only
+- **WHEN** baseline electricity cost is computed
+- **THEN** the system SHALL NOT substitute an average tariff, monthly tariff, forecast price or current-config recomputation for recorded slot prices
 
 #### Scenario: Household and controlled loads
 - **WHEN** one slot contains household load 1 kWh, water 0.5 kWh, EV 2 kWh and import price 2 kr/kWh
@@ -19,7 +29,28 @@ The system SHALL define the grid-only installation as covering the same recorded
 - **THEN** grid-only cost is 10 kr, not 4 kWh multiplied by the 2 kr/kWh average
 
 ### Requirement: DS comparison uses measured electricity and configured wear
-The DS side SHALL use recorded gross grid flows: `import_kwh * import_price_sek_kwh - export_kwh * export_price_sek_kwh`. For configured batteries, DS cost SHALL include wear calculated by the existing configured formula `(battery_charge_kwh + battery_discharge_kwh) * battery_cycle_cost_kwh * 0.5` on those same eligible slots. Any finite configured cycle-cost value SHALL be applied as configured; malformed or non-finite configured cycle-cost values SHALL make configured-battery slots unavailable rather than silently substituting zero. Grid-only wear SHALL be zero. The comparison SHALL expose DS electricity cost and DS wear separately, while its DS total and solid chart line include wear. It SHALL NOT reconstruct grid cost from PV, battery flows, efficiencies or net energy. `saving_sek` SHALL equal grid-only cost minus DS electricity cost minus DS wear over exactly the same included slots. Positive values mean a lower wear-inclusive whole-installation cost; negative values mean a higher wear-inclusive whole-installation cost. Neither side SHALL include stored-energy valuation, fixed subscription charges or capital costs. Actual electricity cost and the existing separate wear-inclusive figure SHALL remain available.
+The DS side SHALL use recorded gross grid flows: `import_kwh * import_price_sek_kwh - export_kwh * export_price_sek_kwh`. For configured batteries, DS cost SHALL include wear calculated by the existing configured formula `(battery_charge_kwh + battery_discharge_kwh) * battery_cycle_cost_kwh * 0.5` on those same eligible slots.
+
+#### Scenario: Configured cycle-cost handling
+- **WHEN** DS wear is calculated for a configured battery
+- **THEN** any finite configured cycle-cost value SHALL be applied as configured
+- **AND** malformed or non-finite configured cycle-cost values SHALL make configured-battery slots unavailable rather than silently substituting zero
+
+#### Scenario: Wear exposure and grid-only wear
+- **WHEN** the comparison is produced
+- **THEN** grid-only wear SHALL be zero
+- **AND** the comparison SHALL expose DS electricity cost and DS wear separately, while its DS total and solid chart line include wear
+- **AND** it SHALL NOT reconstruct grid cost from PV, battery flows, efficiencies or net energy
+
+#### Scenario: saving_sek definition and sign
+- **WHEN** `saving_sek` is computed
+- **THEN** it SHALL equal grid-only cost minus DS electricity cost minus DS wear over exactly the same included slots
+- **AND** positive values mean a lower wear-inclusive whole-installation cost, and negative values mean a higher wear-inclusive whole-installation cost
+
+#### Scenario: Excluded cost components and retained figures
+- **WHEN** either side of the comparison is computed
+- **THEN** neither side SHALL include stored-energy valuation, fixed subscription charges or capital costs
+- **AND** actual electricity cost and the existing separate wear-inclusive figure SHALL remain available
 
 #### Scenario: Gross metered overlap
 - **WHEN** demand is 3.5 kWh, grid import is 1 kWh, export is 0.5 kWh, import price is 2 kr/kWh and export price is 1 kr/kWh
@@ -43,7 +74,16 @@ Finite zero and negative import/export prices SHALL retain their signs throughou
 - **THEN** both bill totals and saving are zero, not missing
 
 ### Requirement: Comparison does not depend on battery or solar models
-The comparison SHALL be available for any installation with eligible recorded inputs, including solar-only, battery-only and grid-only installations. It SHALL NOT require battery presence, SoC endpoints, battery capacity/limits/efficiencies, PV readings, calibration history, future prices or S-index. When no battery is configured, battery flows are not required and wear SHALL be zero. When a battery is configured, finite nonnegative charge and discharge readings with eligible recorder provenance are required for both sides on each included slot; missing or known snapshot, mixed, invalid, backfilled or unconfigured-zero readings SHALL exclude that slot rather than become zero. The financial endpoint SHALL NOT invoke self-use simulation, battery calibration, calibration caching or planner optimization to produce the comparison.
+The comparison SHALL be available for any installation with eligible recorded inputs, including solar-only, battery-only and grid-only installations. It SHALL NOT require battery presence, SoC endpoints, battery capacity/limits/efficiencies, PV readings, calibration history, future prices or S-index. When no battery is configured, battery flows are not required and wear SHALL be zero.
+
+#### Scenario: Battery flow requirements for configured batteries
+- **WHEN** a battery is configured
+- **THEN** finite nonnegative charge and discharge readings with eligible recorder provenance are required for both sides on each included slot
+- **AND** missing or known snapshot, mixed, invalid, backfilled or unconfigured-zero readings SHALL exclude that slot rather than become zero
+
+#### Scenario: No simulation or calibration in the financial endpoint
+- **WHEN** the financial endpoint produces the comparison
+- **THEN** it SHALL NOT invoke self-use simulation, battery calibration, calibration caching or planner optimization
 
 #### Scenario: Solar-only installation
 - **WHEN** solar is configured, no battery exists and relevant recorded inputs are usable
@@ -62,9 +102,37 @@ The comparison SHALL be available for any installation with eligible recorded in
 - **THEN** comparison saving is zero within rounding
 
 ### Requirement: Both sides share completed-slot coverage
-Only completed timezone-aware 15-minute recorded slots SHALL enter the comparison. Required household/water/EV and import/export energies SHALL be finite and nonnegative; required import/export prices SHALL be finite. Missing required values SHALL NOT be filled with zero. Legitimately disabled demand components SHALL use their recorded zero values. The one exception is a water component whose recorder method is `unknown` because the water heater is unmeasured (enabled heater with no sensor, or configured water sensor unavailable): its null or zero `water_kwh` is not a filled value, because under `derived_history` the recorded `load_kwh` is the total metered load and still contains the unmeasured water energy, so `load_kwh + water_kwh + ev_charging_kwh` equals total metered demand. Such a slot is included only when every other relevant component is eligible, the load method is `derived_history`, and the base-load clamp cannot have triggered (rejected when `ev_charging_kwh > 0` and `load_kwh == 0`). Unknown EV or load, and water unknown with snapshot, mixed or disaggregated load, remain rejected. The system SHALL reject placeholder rows, explicit exclusions, backfills and known snapshot/mixed essential demand/grid readings. For configured batteries, charge and discharge SHALL be finite nonnegative values from recorder-owned `power_history` or `derived_history` components; snapshots, mixed, disabled-zero, unconfigured-zero, invalid, unknown or backfilled provenance SHALL not qualify. Valid legacy `source: recorder` inputs SHALL remain usable without claiming verified provenance; modern metadata checks SHALL concern only components required by this bill calculation and configured-battery flows, not PV or SoC. Numerical records and quality metadata SHALL NOT be changed.
+Only completed timezone-aware 15-minute recorded slots SHALL enter the comparison. Required household/water/EV and import/export energies SHALL be finite and nonnegative; required import/export prices SHALL be finite. Missing required values SHALL NOT be filled with zero. Legitimately disabled demand components SHALL use their recorded zero values.
 
-The same eligible slots SHALL enter both sides. Missing or rejected slots SHALL increase `excluded_slots` and SHALL NOT invalidate other eligible slots or require a SoC restart anchor. Coverage SHALL count expected completed slots in elapsed UTC time and satisfy `covered_slots + excluded_slots = total_slots`. The ongoing and future slots SHALL NOT count toward expected completed coverage. `through` SHALL identify the last included slot's exclusive end. A result with excluded slots and some usable data SHALL be visibly partial; a result without usable data SHALL contain no amounts.
+#### Scenario: Unmeasured water exception
+- **WHEN** a water component's recorder method is `unknown` because the water heater is unmeasured (enabled heater with no sensor, or configured water sensor unavailable)
+- **THEN** its null or zero `water_kwh` is not a filled value, because under `derived_history` the recorded `load_kwh` is the total metered load and still contains the unmeasured water energy, so `load_kwh + water_kwh + ev_charging_kwh` equals total metered demand
+- **AND** such a slot is included only when every other relevant component is eligible, the load method is `derived_history`, and the base-load clamp cannot have triggered (rejected when `ev_charging_kwh > 0` and `load_kwh == 0`)
+- **AND** unknown EV or load, and water unknown with snapshot, mixed or disaggregated load, remain rejected
+
+#### Scenario: Rejected rows and battery flow provenance
+- **WHEN** slots are checked for eligibility
+- **THEN** the system SHALL reject placeholder rows, explicit exclusions, backfills and known snapshot/mixed essential demand/grid readings
+- **AND** for configured batteries, charge and discharge SHALL be finite nonnegative values from recorder-owned `power_history` or `derived_history` components; snapshots, mixed, disabled-zero, unconfigured-zero, invalid, unknown or backfilled provenance SHALL not qualify
+
+#### Scenario: Legacy recorder inputs and unchanged records
+- **WHEN** inputs carry legacy `source: recorder` metadata
+- **THEN** valid legacy inputs SHALL remain usable without claiming verified provenance
+- **AND** modern metadata checks SHALL concern only components required by this bill calculation and configured-battery flows, not PV or SoC
+- **AND** numerical records and quality metadata SHALL NOT be changed
+
+#### Scenario: Same slots on both sides and coverage accounting
+- **WHEN** coverage is computed
+- **THEN** the same eligible slots SHALL enter both sides
+- **AND** missing or rejected slots SHALL increase `excluded_slots` and SHALL NOT invalidate other eligible slots or require a SoC restart anchor
+- **AND** coverage SHALL count expected completed slots in elapsed UTC time and satisfy `covered_slots + excluded_slots = total_slots`
+- **AND** the ongoing and future slots SHALL NOT count toward expected completed coverage
+
+#### Scenario: through and partial results
+- **WHEN** the comparison result is built
+- **THEN** `through` SHALL identify the last included slot's exclusive end
+- **AND** a result with excluded slots and some usable data SHALL be visibly partial
+- **AND** a result without usable data SHALL contain no amounts
 
 #### Scenario: Missing hour
 - **WHEN** a completed 96-slot day contains an unrecorded hour and the remaining inputs are valid
@@ -105,7 +173,17 @@ The same eligible slots SHALL enter both sides. Missing or rejected slots SHALL 
 - **THEN** the slot is excluded, whatever the water method
 
 ### Requirement: Summary and chart totals reconcile
-Comparison amounts SHALL be aggregated by installation-local hour for one-day periods and local day for longer periods, ordered chronologically in UTC. Both cumulative series SHALL sum exactly the same eligible slot set. Repeated DST hours SHALL retain distinct UTC identities and SHALL NOT collapse into one bucket. DST day coverage SHALL reflect elapsed slots, such as 92 or 100 rather than a hard-coded 96. Final cumulative DS and grid-only costs SHALL equal their summary totals within response rounding, and their difference SHALL equal `saving_sek`. Empty/excluded buckets SHALL have no invented contribution; partially covered buckets SHALL contain only eligible slots.
+Comparison amounts SHALL be aggregated by installation-local hour for one-day periods and local day for longer periods, ordered chronologically in UTC. Both cumulative series SHALL sum exactly the same eligible slot set. Repeated DST hours SHALL retain distinct UTC identities and SHALL NOT collapse into one bucket. DST day coverage SHALL reflect elapsed slots, such as 92 or 100 rather than a hard-coded 96.
+
+#### Scenario: Cumulative totals reconcile with summary
+- **WHEN** bucketed cumulative series are produced
+- **THEN** final cumulative DS and grid-only costs SHALL equal their summary totals within response rounding
+- **AND** their difference SHALL equal `saving_sek`
+
+#### Scenario: Empty and partial buckets
+- **WHEN** a bucket is empty, excluded or partially covered
+- **THEN** empty/excluded buckets SHALL have no invented contribution
+- **AND** partially covered buckets SHALL contain only eligible slots
 
 #### Scenario: Final endpoints
 - **WHEN** the covered DS bill is 10 kr and grid-only bill is 30 kr
@@ -117,9 +195,23 @@ Comparison amounts SHALL be aggregated by installation-local hour for one-day pe
 - **AND** coverage includes every elapsed completed slot once
 
 ### Requirement: Covered segments expose gaps independently of buckets
-Amount-bearing comparisons SHALL expose `segments` as maximal runs of eligible slots contiguous in elapsed UTC time. Each segment SHALL contain offset-qualified local ISO `start`, exclusive `end`, and boundary `points` with `at`, `cumulative_ds_cost_sek` and `cumulative_grid_only_cost_sek`. Boundary points SHALL include the segment start and every included slot's exclusive end in UTC chronological order. The first segment SHALL start at zero cumulative costs; each later segment SHALL start at the totals accumulated from all earlier eligible slots. No segment SHALL contain an excluded slot or cross an excluded interval. Hour/day boundaries SHALL NOT split an otherwise contiguous segment.
+Amount-bearing comparisons SHALL expose `segments` as maximal runs of eligible slots contiguous in elapsed UTC time. Each segment SHALL contain offset-qualified local ISO `start`, exclusive `end`, and boundary `points` with `at`, `cumulative_ds_cost_sek` and `cumulative_grid_only_cost_sek`. Boundary points SHALL include the segment start and every included slot's exclusive end in UTC chronological order.
 
-Bucket totals and segment boundary totals SHALL derive from the same unrounded slot costs and reconcile within response rounding. Segments SHALL preserve gaps inside partially covered buckets, while bucket points SHALL retain hourly/daily costs for bars and readouts. The final segment endpoint SHALL equal the comparison summaries within response rounding.
+#### Scenario: Segment cumulative start values
+- **WHEN** segments are built
+- **THEN** the first segment SHALL start at zero cumulative costs
+- **AND** each later segment SHALL start at the totals accumulated from all earlier eligible slots
+
+#### Scenario: Segments exclude gaps and ignore bucket boundaries
+- **WHEN** segments are formed from eligible slots
+- **THEN** no segment SHALL contain an excluded slot or cross an excluded interval
+- **AND** hour/day boundaries SHALL NOT split an otherwise contiguous segment
+
+#### Scenario: Bucket and segment totals reconcile
+- **WHEN** bucket totals and segment boundary totals are produced
+- **THEN** they SHALL derive from the same unrounded slot costs and reconcile within response rounding
+- **AND** segments SHALL preserve gaps inside partially covered buckets, while bucket points SHALL retain hourly/daily costs for bars and readouts
+- **AND** the final segment endpoint SHALL equal the comparison summaries within response rounding
 
 #### Scenario: Gap inside an hourly bucket
 - **WHEN** 10:00, 10:30 and 10:45 are eligible but the 10:15 slot is excluded

@@ -5,7 +5,8 @@ The Kepler solver SHALL never pay the grid to accept surplus PV. When the effect
 ## Requirements
 
 ### Requirement: Prefer curtailment over loss-making export
-The Kepler solver SHALL NOT export surplus PV when doing so costs money. When the effective export price for a slot (`export_price_sek_kwh - export_threshold_sek_per_kwh`) is at or below 0, the solver SHALL prefer curtailing the surplus over exporting it — i.e. the modelled cost of curtailing SHALL NOT exceed the modelled cost of exporting in that slot. When the effective export price is above 0, the existing curtailment penalty (`curtailment_penalty_sek`) SHALL still apply so genuine revenue-positive export is preferred over waste.
+
+The Kepler solver SHALL NOT export surplus PV when doing so costs money: when a slot's effective export price (`export_price_sek_kwh - export_threshold_sek_per_kwh`) is at or below 0, the solver SHALL prefer curtailing the surplus over exporting it.
 
 #### Scenario: Non-positive export price curtails instead of exporting
 - **GIVEN** a slot with surplus PV and an effective export price of 0 (or negative)
@@ -17,3 +18,11 @@ The Kepler solver SHALL NOT export surplus PV when doing so costs money. When th
 - **GIVEN** a slot with surplus PV and a positive effective export price
 - **WHEN** the solver optimizes the slot
 - **THEN** the surplus SHALL be exported (revenue-positive), not curtailed
+
+#### Scenario: Non-positive effective export price
+- **WHEN** the effective export price for a slot is at or below 0
+- **THEN** the modelled cost of curtailing does not exceed the modelled cost of exporting in that slot
+
+#### Scenario: Positive effective export price
+- **WHEN** the effective export price is above 0
+- **THEN** the existing curtailment penalty (`curtailment_penalty_sek`) still applies so genuine revenue-positive export is preferred over waste

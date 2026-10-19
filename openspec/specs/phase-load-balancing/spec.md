@@ -7,11 +7,6 @@ Defines how the executor keeps per-phase grid current within the main fuse ratin
 ### Requirement: Per-phase headroom computation
 When load balancing is enabled, the executor SHALL compute per-phase headroom on every tick as `main_fuse_a − measured_grid_current_a` for each of L1, L2, L3, using current magnitude (direction-independent). The binding headroom for a load SHALL be the minimum headroom across the phases that load draws on.
 
-For each phase, `measured_grid_current_a` SHALL be derived from whichever sensor kind is configured for that phase, auto-detected from the configured entity's `unit_of_measurement`/`device_class` attributes (no manual mode setting):
-- If the entity's unit indicates current (A), its state SHALL be used directly as `measured_grid_current_a`.
-- If the entity's unit indicates power (W or kW), the reading SHALL be normalized to a common power unit and converted via `measured_grid_current_a = power_w / voltage_v`, where `voltage_v` is that phase's configured voltage entity if present and fresh, otherwise `load_balancing.nominal_voltage_v`.
-- If the entity's unit cannot be recognized as current or power, this SHALL be a startup validation error (see `load-balancing-settings`), not a silent fallback.
-
 #### Scenario: Unbalanced house load limits one phase
 - **WHEN** `main_fuse_a` is 20 and measured grid currents are L1=18 A, L2=5 A, L3=5 A
 - **THEN** headroom SHALL be computed as L1=2 A, L2=15 A, L3=15 A
@@ -43,10 +38,22 @@ For each phase, `measured_grid_current_a` SHALL be derived from whichever sensor
 - **WHEN** a phase's configured sensor reports a unit that is neither a recognized current nor power unit
 - **THEN** startup validation SHALL fail naming that phase's sensor and its unexpected unit
 
-### Requirement: EV charger is throttled first using per-phase feedback
-When any phase used by a charging EV has negative headroom, the balancer SHALL reduce that charger's ampere setpoint by at least the magnitude of the worst negative headroom, immediately in the same tick, clamped to the charger's minimum current. The reduction, any hold, and the relief the charger contributes to the shared headroom pool SHALL be computed from the charger's effective baseline (see `ev-measured-draw`) rather than the last commanded setpoint; when no measurement exists the effective baseline equals the commanded setpoint. When headroom is positive, the balancer MAY raise the setpoint toward the planner-derived target, never above `min(charger max_current_a, planner-derived amps)`.
+#### Scenario: Measured grid current from a current sensor
+- **WHEN** a phase's configured entity has a unit of current (A)
+- **THEN** its state SHALL be used directly as `measured_grid_current_a`
+- **AND** the sensor kind SHALL be auto-detected from the configured entity's `unit_of_measurement`/`device_class` attributes (no manual mode setting)
 
-Give-way ordering across ALL balanced loads SHALL be governed by the single ordered list `load_balancing.give_way_order` (see the `load-balancing-settings` capability): the balancer SHALL process entries top-down, and an entry SHALL only be asked to give way once every entry above it that draws on the overloaded phase(s) is exhausted (a charger entry is exhausted when paused; a shed entry when shed). A charger entry gives way by immediate setpoint reduction toward its `min_current_a`. When a shed entry above a charger gives way in the current tick on a phase the charger draws on, its relief is not yet measured, so the charger SHALL hold its setpoint for that tick instead of reducing or pausing — unless a phase the charger draws on reads above `severe_overload_percent` of `main_fuse_a`, in which case the charger SHALL pause immediately; a severe overload always takes precedence over the hold. When multiple entries could give way in the same tick, list position — not device kind — SHALL decide the order. A household whose order matches the migrated default (all current-type chargers before all shed loads) SHALL behave exactly as the previous two-tier system, and a household with a single dynamically-throttled charger and no shed loads SHALL behave exactly as before this requirement was introduced.
+#### Scenario: Measured grid current from a power sensor
+- **WHEN** a phase's configured entity has a unit of power (W or kW)
+- **THEN** the reading SHALL be normalized to a common power unit and converted via `measured_grid_current_a = power_w / voltage_v`
+- **AND** `voltage_v` SHALL be that phase's configured voltage entity if present and fresh, otherwise `load_balancing.nominal_voltage_v`
+
+#### Scenario: Unrecognized sensor unit
+- **WHEN** a phase's configured entity unit cannot be recognized as current or power
+- **THEN** this SHALL be a startup validation error (see `load-balancing-settings`), not a silent fallback
+
+### Requirement: EV charger is throttled first using per-phase feedback
+When any phase used by a charging EV has negative headroom, the balancer SHALL reduce that charger's ampere setpoint by at least the magnitude of the worst negative headroom, immediately in the same tick, clamped to the charger's minimum current.
 
 #### Scenario: Stove turns on while EV charges
 - **WHEN** the EV charges 3-phase at 16 A and a new house load drives L1 headroom to −6 A
@@ -80,8 +87,34 @@ Give-way ordering across ALL balanced loads SHALL be governed by the single orde
 - **WHEN** only one `type: current` EV charger is configured and no shed loads exist
 - **THEN** its position in `give_way_order` SHALL have no observable effect on balancer behavior
 
+#### Scenario: Throttle computed from effective baseline
+- **WHEN** the balancer reduces or holds a charger's setpoint
+- **THEN** the reduction, any hold, and the relief the charger contributes to the shared headroom pool SHALL be computed from the charger's effective baseline (see `ev-measured-draw`) rather than the last commanded setpoint
+- **AND** when no measurement exists the effective baseline equals the commanded setpoint
+
+#### Scenario: Raising the setpoint with positive headroom
+- **WHEN** headroom is positive
+- **THEN** the balancer MAY raise the setpoint toward the planner-derived target, never above `min(charger max_current_a, planner-derived amps)`
+
+#### Scenario: Top-down give-way ordering
+- **WHEN** a phase is overloaded and several balanced loads draw on it
+- **THEN** give-way ordering across ALL balanced loads SHALL be governed by the single ordered list `load_balancing.give_way_order` (see the `load-balancing-settings` capability)
+- **AND** the balancer SHALL process entries top-down, and an entry SHALL only be asked to give way once every entry above it that draws on the overloaded phase(s) is exhausted (a charger entry is exhausted when paused; a shed entry when shed)
+- **AND** when multiple entries could give way in the same tick, list position, not device kind, SHALL decide the order
+- **AND** a charger entry gives way by immediate setpoint reduction toward its `min_current_a`
+
+#### Scenario: Charger holds while a shed entry above gives way
+- **WHEN** a shed entry above a charger gives way in the current tick on a phase the charger draws on, so its relief is not yet measured
+- **THEN** the charger SHALL hold its setpoint for that tick instead of reducing or pausing
+- **AND** unless a phase the charger draws on reads above `severe_overload_percent` of `main_fuse_a`, in which case the charger SHALL pause immediately; a severe overload always takes precedence over the hold
+
+#### Scenario: Backward-compatible behavior of give-way ordering
+- **WHEN** a household's order matches the migrated default (all current-type chargers before all shed loads)
+- **THEN** it SHALL behave exactly as the previous two-tier system
+- **AND** a household with a single dynamically-throttled charger and no shed loads SHALL behave exactly as before this requirement was introduced
+
 ### Requirement: Asymmetric ramping with resume margin
-Setpoint decreases SHALL be applied immediately, without rate limit, and SHALL be computed from the momentary per-phase reading of the current tick. Setpoint increases SHALL be rate-limited to `increase_step_a` per tick (default 1 A). They SHALL be computed from a rolling average of each phase's current over `ramp_up_window_s` (default 60 s). They SHALL only occur when, for every phase the load draws on, the averaged current plus the increase stays at or below `target_margin_percent` of `main_fuse_a` (see "Target safety margin"). An increase SHALL also never exceed the phase's momentary headroom against `main_fuse_a` on the current tick. Restoring a shed load and returning a charger from 1-phase to 3-phase SHALL use the same averaged reading and target; resuming a paused charger follows "Pause below minimum current with anti-flap resume". Until a phase has `ramp_up_window_s` of fresh samples (e.g. after startup or a stale-sensor episode), increases on that phase SHALL NOT occur.
+Setpoint decreases SHALL be applied immediately, without rate limit, and SHALL be computed from the momentary per-phase reading of the current tick. Setpoint increases SHALL be rate-limited to `increase_step_a` per tick (default 1 A). They SHALL be computed from a rolling average of each phase's current over `ramp_up_window_s` (default 60 s).
 
 #### Scenario: Load hovers just under the fuse limit
 - **WHEN** the averaged L1 current sits at 95 % of `main_fuse_a` with `target_margin_percent: 85`
@@ -101,19 +134,22 @@ Setpoint decreases SHALL be applied immediately, without rate limit, and SHALL b
 - **WHEN** L1's momentary reading is 19 A with `main_fuse_a: 16` while its 60 s average is 12 A
 - **THEN** the balancer SHALL reduce the setpoint by at least 3 A in the same tick
 
+#### Scenario: Setpoint increases gated by target margin
+- **WHEN** the balancer considers a setpoint increase
+- **THEN** it SHALL only occur when, for every phase the load draws on, the averaged current plus the increase stays at or below `target_margin_percent` of `main_fuse_a` (see "Target safety margin")
+- **AND** an increase SHALL also never exceed the phase's momentary headroom against `main_fuse_a` on the current tick
+
+#### Scenario: Restores use the averaged reading
+- **WHEN** a shed load is restored or a charger returns from 1-phase to 3-phase
+- **THEN** the same averaged reading and target SHALL be used
+- **AND** resuming a paused charger follows "Pause below minimum current with anti-flap resume"
+
+#### Scenario: No increases without fresh averaging samples
+- **WHEN** a phase does not yet have `ramp_up_window_s` of fresh samples (e.g. after startup or a stale-sensor episode)
+- **THEN** increases on that phase SHALL NOT occur
+
 ### Requirement: Pause below minimum current with anti-flap resume
-When a charger is at its minimum current (`min_current_a`, default 6 A, the IEC 61851 floor) and is the frontmost non-exhausted `give_way_order` entry on a phase that remains overloaded, the balancer SHALL first attempt the 1-phase relief step where eligible (see "1-phase relief step in the degradation ladder"). Otherwise it SHALL pause charging only after the overload has persisted continuously for `pause_debounce_s` (default 5 s), holding `min_current_a` meanwhile. The same applies when the binding headroom cannot sustain even the minimum current and no entry above the charger can still give way.
-
-The pause SHALL be immediate, without debounce, when any phase the charger draws on reads above `severe_overload_percent` of `main_fuse_a` (default 125 %). The overload timer SHALL reset whenever the phase returns to non-negative headroom. The balancer SHALL NEVER set a setpoint below `min_current_a`. A pause stops charging through the charger's switch entity as defined by `ev-current-control` "Minimum current floor with pause semantics" and SHALL NOT be expressed as a 0 A or sub-floor setpoint.
-
-While paused, the balancer SHALL re-check every tick, on the momentary reading of each phase, whether the charger fits: a phase mode fits when every phase it would draw on has room for `min_current_a` without exceeding `target_margin_percent` of `main_fuse_a` (after this tick's decisions for entries above it). Once a mode has fitted continuously for the confirm window (`resume_confirm_s`, default 10 s), with fresh sensor readings throughout, the charger SHALL re-fit:
-- (a) in its current phase mode when that mode fits;
-- (b) otherwise in 1-phase mode on `phase_1_line`, when the charger is in 3-phase mode, 1-phase on that line fits, phase switching is available and `phase_switch_min_dwell_s` has elapsed since the last phase change — through the 1-phase relief demand, and only if the switch is actually applied;
-- (c) otherwise it SHALL stay paused and keep checking.
-
-The charger SHALL resume at the largest whole ampere setpoint that fits on the chosen mode's phases within the target margin, never below `min_current_a` and never above `min(max_current_a, planner-derived amps)`, and SHALL then ramp through the averaged gate of "Asymmetric ramping with resume margin". Resume SHALL still respect `give_way_order` reverse-order restore. The return from 1-phase to 3-phase SHALL stay governed by the averaged gate and dwell (`ev-phase-switching`).
-
-Anti-flap back-off: when a charger pauses again within 10 minutes of a re-fit, its next confirm window SHALL grow one step — `resume_confirm_s`, then 30 s, then 120 s (each never shorter than `resume_confirm_s`). A pause more than 10 minutes after the last re-fit SHALL reset the window to `resume_confirm_s`. `resume_delay_s` SHALL NOT gate the re-fit.
+When a charger is at its minimum current (`min_current_a`, default 6 A, the IEC 61851 floor) and is the frontmost non-exhausted `give_way_order` entry on a phase that remains overloaded, the balancer SHALL first attempt the 1-phase relief step where eligible (see "1-phase relief step in the degradation ladder").
 
 #### Scenario: Heavy load forces a pause
 - **WHEN** available headroom on a phase the EV uses stays below 6 A worth of charging for longer than `pause_debounce_s`, no higher-listed entry can give way, and 1-phase relief is not possible
@@ -153,8 +189,47 @@ Anti-flap back-off: when a charger pauses again within 10 minutes of a re-fit, i
 - **WHEN** charger A is at its floor, the phase remains overloaded, and a shed entry listed above charger A on that phase has not yet been shed
 - **THEN** the balancer SHALL shed that load before pausing charger A
 
+#### Scenario: Pause only after debounced persistent overload
+- **WHEN** a charger at `min_current_a` remains overloaded and the 1-phase relief step is not applicable
+- **THEN** it SHALL pause charging only after the overload has persisted continuously for `pause_debounce_s` (default 5 s), holding `min_current_a` meanwhile
+- **AND** the same applies when the binding headroom cannot sustain even the minimum current and no entry above the charger can still give way
+- **AND** the overload timer SHALL reset whenever the phase returns to non-negative headroom
+
+#### Scenario: Severe overload pauses immediately
+- **WHEN** any phase the charger draws on reads above `severe_overload_percent` of `main_fuse_a` (default 125 %)
+- **THEN** the pause SHALL be immediate, without debounce
+
+#### Scenario: Pause semantics and minimum current floor
+- **WHEN** the balancer pauses a charger
+- **THEN** the balancer SHALL NEVER set a setpoint below `min_current_a`
+- **AND** a pause stops charging through the charger's switch entity as defined by `ev-current-control` "Minimum current floor with pause semantics" and SHALL NOT be expressed as a 0 A or sub-floor setpoint
+
+#### Scenario: Paused charger re-fit check
+- **WHEN** a charger is paused
+- **THEN** the balancer SHALL re-check every tick, on the momentary reading of each phase, whether the charger fits: a phase mode fits when every phase it would draw on has room for `min_current_a` without exceeding `target_margin_percent` of `main_fuse_a` (after this tick's decisions for entries above it)
+- **AND** once a mode has fitted continuously for the confirm window (`resume_confirm_s`, default 10 s), with fresh sensor readings throughout, the charger SHALL re-fit as in the next scenario
+
+#### Scenario: Re-fit phase mode selection
+- **WHEN** the confirm window has elapsed
+- **THEN** (a) the charger SHALL re-fit in its current phase mode when that mode fits
+- **AND** (b) otherwise in 1-phase mode on `phase_1_line`, when the charger is in 3-phase mode, 1-phase on that line fits, phase switching is available and `phase_switch_min_dwell_s` has elapsed since the last phase change, through the 1-phase relief demand, and only if the switch is actually applied
+- **AND** (c) otherwise it SHALL stay paused and keep checking
+
+#### Scenario: Resume setpoint and ordering
+- **WHEN** a paused charger resumes
+- **THEN** it SHALL resume at the largest whole ampere setpoint that fits on the chosen mode's phases within the target margin, never below `min_current_a` and never above `min(max_current_a, planner-derived amps)`
+- **AND** it SHALL then ramp through the averaged gate of "Asymmetric ramping with resume margin"
+- **AND** resume SHALL still respect `give_way_order` reverse-order restore
+- **AND** the return from 1-phase to 3-phase SHALL stay governed by the averaged gate and dwell (`ev-phase-switching`)
+
+#### Scenario: Anti-flap back-off
+- **WHEN** a charger pauses again within 10 minutes of a re-fit
+- **THEN** its next confirm window SHALL grow one step: `resume_confirm_s`, then 30 s, then 120 s (each never shorter than `resume_confirm_s`)
+- **AND** a pause more than 10 minutes after the last re-fit SHALL reset the window to `resume_confirm_s`
+- **AND** `resume_delay_s` SHALL NOT gate the re-fit
+
 ### Requirement: Prioritized shedding and reverse-order restore of on/off loads
-A shed entry in `give_way_order` SHALL give way by switching its load off once every entry above it drawing on the overloaded phase(s) is exhausted, per the top-down processing defined in "EV charger is throttled first using per-phase feedback". Shedding a water heater SHALL use its existing minimum-target actuation; shedding a custom entity SHALL write its configured off value; shedding a `type: binary` EV charger SHALL turn off its switch entity. A `type: current` EV charger SHALL NOT appear as a shed entry — it participates exclusively as a charger (throttle/pause) entry. Restore SHALL happen in exact reverse `give_way_order` (the last entry to give way is restored first), across chargers and shed loads alike. A shed load SHALL be restored only after `resume_delay_s` has elapsed and its phases have headroom within the target margin; a paused charger SHALL resume per the quick re-fit rules of "Pause below minimum current with anti-flap resume".
+A shed entry in `give_way_order` SHALL give way by switching its load off once every entry above it drawing on the overloaded phase(s) is exhausted, per the top-down processing defined in "EV charger is throttled first using per-phase feedback".
 
 #### Scenario: EV at floor is not enough
 - **WHEN** every entry above the water heater in `give_way_order` is exhausted and L2 remains over `main_fuse_a`
@@ -166,14 +241,21 @@ A shed entry in `give_way_order` SHALL give way by switching its load off once e
 - **THEN** the lower-listed entry SHALL be restored before the higher-listed entry
 - **AND** each restore SHALL wait for its own conditions (confirm window for a charger, resume delay and margin for a shed load)
 
+#### Scenario: Shed actuation by load type
+- **WHEN** a shed entry gives way
+- **THEN** shedding a water heater SHALL use its existing minimum-target actuation
+- **AND** shedding a custom entity SHALL write its configured off value
+- **AND** shedding a `type: binary` EV charger SHALL turn off its switch entity
+- **AND** a `type: current` EV charger SHALL NOT appear as a shed entry, because it participates exclusively as a charger (throttle/pause) entry
+
+#### Scenario: Reverse-order restore
+- **WHEN** loads are restored after an overload
+- **THEN** restore SHALL happen in exact reverse `give_way_order` (the last entry to give way is restored first), across chargers and shed loads alike
+- **AND** a shed load SHALL be restored only after `resume_delay_s` has elapsed and its phases have headroom within the target margin
+- **AND** a paused charger SHALL resume per the quick re-fit rules of "Pause below minimum current with anti-flap resume"
+
 ### Requirement: Stale sensor fail-safe
 If any per-phase grid current value is missing or older than `sensor_stale_after_s` (default 30 s), the balancer SHALL immediately reduce the EV to `min_current_a`. If staleness persists beyond one resume cycle (`resume_delay_s`), the balancer SHALL pause charging. Balancing decisions SHALL never be made from stale data as if it were fresh.
-
-The balancer status message for this condition SHALL name each affected phase as "L1".."L3", distinguish a missing reading ("no reading", no age) from a stale one (reporting the actual age of the reading, measured as described below), and SHALL report the time the balancer has been in the stale/paused state separately, labelled as a pause duration, never conflated with sensor age.
-
-A reading's age SHALL be measured from its reading-freshness timestamp as defined by the `ha-reading-freshness` capability (`last_reported`, falling back to `last_updated`, then `last_changed`) — i.e., from when HA last received a report, not from when the value last changed. A sensor that keeps reporting an unchanged value SHALL NOT be considered stale.
-
-For a phase in power-sensor mode with a configured voltage entity, "the per-phase grid current value" for staleness purposes SHALL be considered stale if either the power reading or the voltage reading is missing or older than `sensor_stale_after_s` — i.e., the fail-safe SHALL use the older of the two readings' timestamps. A phase with no voltage entity configured is not affected by this rule (it always uses the nominal fallback voltage, which has no staleness of its own).
 
 #### Scenario: Phase sensor stops updating mid-charge
 - **WHEN** the L1 sensor's last report is older than 30 s while the EV charges at 16 A
@@ -206,6 +288,22 @@ For a phase in power-sensor mode with a configured voltage entity, "the per-phas
 - **WHEN** staleness has lasted past `resume_delay_s` and charging is paused
 - **THEN** the message states the pause duration separately from the sensor age
 
+#### Scenario: Stale-sensor status message
+- **WHEN** the balancer reports the stale-sensor condition
+- **THEN** the status message SHALL name each affected phase as "L1".."L3"
+- **AND** it SHALL distinguish a missing reading ("no reading", no age) from a stale one (reporting the actual age of the reading, measured as described below)
+- **AND** it SHALL report the time the balancer has been in the stale/paused state separately, labelled as a pause duration, never conflated with sensor age
+
+#### Scenario: Reading age measured from report time
+- **WHEN** a reading's age is measured
+- **THEN** it SHALL be measured from its reading-freshness timestamp as defined by the `ha-reading-freshness` capability (`last_reported`, falling back to `last_updated`, then `last_changed`), i.e., from when HA last received a report, not from when the value last changed
+- **AND** a sensor that keeps reporting an unchanged value SHALL NOT be considered stale
+
+#### Scenario: Power sensor with voltage entity staleness
+- **WHEN** a phase is in power-sensor mode with a configured voltage entity
+- **THEN** "the per-phase grid current value" for staleness purposes SHALL be considered stale if either the power reading or the voltage reading is missing or older than `sensor_stale_after_s`, i.e., the fail-safe SHALL use the older of the two readings' timestamps
+- **AND** a phase with no voltage entity configured is not affected by this rule (it always uses the nominal fallback voltage, which has no staleness of its own)
+
 ### Requirement: Feature gating
 Load balancing SHALL run only when `load_balancing.enabled` is true and prerequisites are configured (fuse rating, per-phase sensors, at least one balanced load). When disabled or unconfigured, executor behavior SHALL be identical to the pre-change system, including binary EV control.
 
@@ -215,8 +313,6 @@ Load balancing SHALL run only when `load_balancing.enabled` is true and prerequi
 
 ### Requirement: Execution log throttling at high tick frequency
 The executor SHALL write an execution-log record only when the tick produced a change (mode intent, dispatched action, override or balancer state transition), plus a heartbeat record at least once per 15-minute slot. Every balancer state transition (throttle start/stop, shed, restore, pause, resume, stale-data fallback) SHALL be logged with a human-readable reason.
-
-The execution history UI SHALL disclose this recording policy: it SHALL display the time and outcome of the most recent executor tick (even when that tick produced no record) and state that only changes plus one heartbeat per slot are recorded, so a sparse history reads as a quiet system rather than a dead one.
 
 #### Scenario: Idle 5-second ticks do not flood the database
 - **WHEN** the executor ticks every 5 s and nothing changes for a full slot
@@ -231,13 +327,13 @@ The execution history UI SHALL disclose this recording policy: it SHALL display 
 - **THEN** the execution history page SHALL show the last tick's time and outcome and state the change-only recording policy
 - **AND** the page SHALL NOT present an empty list with no explanation
 
-### Requirement: Balancer intervention notifications
-When `load_balancing.notify_interventions` is true, the balancer SHALL send user notifications through the existing notification path (Home Assistant notify service with Discord webhook fallback) as follows:
-- **Always notify:** a load is shed, or the stale-sensor fail-safe engages.
-- **Charger pause:** notify only when the pause puts an active EV goal at risk. A goal is at risk when the charger has an active goal (deadline and positive required energy) and the most recent planner `ev_goal_diagnostics` for that charger report a shortfall or at-risk status, or when the pause occurs inside a slot the plan scheduled for goal charging within 2 hours of the deadline. Pauses that do not put a goal at risk SHALL NOT notify; they are recorded in the execution log only.
-- **Never notify:** routine throttle adjustments, ramp-ups, and 1-phase relief switches.
+#### Scenario: Execution history discloses recording policy
+- **WHEN** the execution history UI is displayed
+- **THEN** it SHALL display the time and outcome of the most recent executor tick (even when that tick produced no record)
+- **AND** it SHALL state that only changes plus one heartbeat per slot are recorded, so a sparse history reads as a quiet system rather than a dead one
 
-Each qualifying transition SHALL produce at most one notification (no per-tick repeats), carrying the same human-readable reason as its execution-log record. The default for `notify_interventions` SHALL be false.
+### Requirement: Balancer intervention notifications
+When `load_balancing.notify_interventions` is true, the balancer SHALL send user notifications through the existing notification path (Home Assistant notify service with Discord webhook fallback) according to the always-notify, charger-pause and never-notify rules defined in the scenarios below.
 
 #### Scenario: Water heater is shed overnight
 - **WHEN** `notify_interventions` is true and the balancer sheds the water heater because L2 stayed over the fuse with all higher-listed entries exhausted
@@ -260,8 +356,23 @@ Each qualifying transition SHALL produce at most one notification (no per-tick r
 - **WHEN** a user upgrades without touching config
 - **THEN** `notify_interventions` SHALL be false and no notifications are sent
 
+#### Scenario: Always-notify events
+- **WHEN** `load_balancing.notify_interventions` is true and a load is shed or the stale-sensor fail-safe engages
+- **THEN** the balancer SHALL send a notification through the existing notification path (Home Assistant notify service with Discord webhook fallback)
+
+#### Scenario: Charger pause notifies only when a goal is at risk
+- **WHEN** a charger pauses and the charger has an active goal (deadline and positive required energy) and the most recent planner `ev_goal_diagnostics` for that charger report a shortfall or at-risk status, or the pause occurs inside a slot the plan scheduled for goal charging within 2 hours of the deadline
+- **THEN** the pause is considered to put the goal at risk and SHALL notify
+- **AND** pauses that do not put a goal at risk SHALL NOT notify; they are recorded in the execution log only
+
+#### Scenario: Never-notify events and notification limits
+- **WHEN** a routine throttle adjustment, ramp-up, or 1-phase relief switch occurs
+- **THEN** the balancer SHALL NOT notify
+- **AND** each qualifying transition SHALL produce at most one notification (no per-tick repeats), carrying the same human-readable reason as its execution-log record
+- **AND** the default for `notify_interventions` SHALL be false
+
 ### Requirement: Target safety margin
-The balancer SHALL steer every phase a balanced load draws on toward `target_margin_percent` of `main_fuse_a` (default 85 %), not toward 100 %. It SHALL NOT raise any setpoint, restore any shed load, or return a charger from 1-phase to 3-phase if doing so would push a phase's projected averaged current (see "Asymmetric ramping with resume margin") above that target. It SHALL NOT resume a paused charger at a current that would push a phase's momentary current above that target (see "Pause below minimum current with anti-flap resume"). The target SHALL NOT itself trigger a reduction: a phase between the target and `main_fuse_a` holds its current setpoints. Reductions SHALL continue to be triggered only by negative headroom against `main_fuse_a`.
+The balancer SHALL steer every phase a balanced load draws on toward `target_margin_percent` of `main_fuse_a` (default 85 %), not toward 100 %. It SHALL NOT raise any setpoint, restore any shed load, or return a charger from 1-phase to 3-phase if doing so would push a phase's projected averaged current (see "Asymmetric ramping with resume margin") above that target.
 
 #### Scenario: Quiet night leaves room for full charging
 - **WHEN** `main_fuse_a` is 16 A, `target_margin_percent` is 85, the house draws 2 A per phase, and the planner target is 10 A
@@ -272,30 +383,17 @@ The balancer SHALL steer every phase a balanced load draws on toward `target_mar
 - **THEN** the balancer SHALL NOT raise the setpoint to 9 A (projected 14 A > 13.6 A)
 - **AND** it SHALL NOT reduce the setpoint either, because L1 is below `main_fuse_a`
 
+#### Scenario: No resume above the target margin
+- **WHEN** the balancer resumes a paused charger
+- **THEN** it SHALL NOT resume at a current that would push a phase's momentary current above that target (see "Pause below minimum current with anti-flap resume")
+
+#### Scenario: Target margin does not trigger reductions
+- **WHEN** a phase is between the target and `main_fuse_a`
+- **THEN** the target SHALL NOT itself trigger a reduction: the phase holds its current setpoints
+- **AND** reductions SHALL continue to be triggered only by negative headroom against `main_fuse_a`
+
 ### Requirement: 1-phase relief step in the degradation ladder
-This requirement applies to a `type: current` charger with phase switching enabled, a configured `phase_mode_entity` and a non-failed phase controller. When a phase it draws on is overloaded, the balancer SHALL degrade in this order:
-1. Reduce the ampere setpoint immediately (the existing throttle).
-2. Request 1-phase mode from the phase controller, but only if all of these hold:
-   - the setpoint is at `min_current_a`;
-   - the charger is in 3-phase mode;
-   - every overloaded phase is one that 1-phase mode does not use (per `phase_1_line`);
-   - the charger's EV goal is at risk, as judged by the goal-risk evaluation (no goal, or a goal on track, counts as not at risk), OR the current plan slot is solar-surplus charging for that charger (the plan's surplus kW for that charger in the current slot is above 0).
-3. Pause (see "Pause below minimum current with anti-flap resume").
-
-The goal-risk evaluation SHALL run before the balancer decides, and SHALL fail open: if it cannot be evaluated, the goal counts as at risk. The surplus-slot condition SHALL come from the plan, not from live grid export; if it cannot be read, it counts as false.
-
-The same condition (goal at risk or surplus slot) SHALL apply when a paused charger resumes. A charger whose goal is not at risk and whose current slot is not a surplus slot SHALL resume only in its current phase mode, not in 1-phase.
-
-A 1-phase relief request SHALL bypass the power-threshold hysteresis of the phase state machine, but SHALL still respect `phase_switch_min_dwell_s` and the phase-mode fail-safe.
-
-When step 2 is not possible, the balancer SHALL proceed directly to step 3. These cases include:
-- the goal is not at risk and the current slot is not a surplus slot;
-- dwell not yet elapsed;
-- the 1-phase line itself is overloaded;
-- phase switching is disabled or failed;
-- a `type: binary` charger.
-
-While a relief request is outstanding, the charger SHALL be held at `min_current_a` rather than paused, unless the severe-overload rule applies. Chargers without phase switching SHALL behave exactly as before this requirement.
+This requirement applies to a `type: current` charger with phase switching enabled, a configured `phase_mode_entity` and a non-failed phase controller. When a phase it draws on is overloaded, the balancer SHALL degrade in this order: first reduce the ampere setpoint immediately (the existing throttle); second request 1-phase mode from the phase controller, but only if all eligibility conditions in the scenarios below hold; third pause (see "Pause below minimum current with anti-flap resume").
 
 #### Scenario: Floor heating on L3 moves the car to L1 when the goal is at risk
 - **WHEN** the charger runs 3-phase at 6 A with `phase_1_line: 1`
@@ -337,6 +435,37 @@ While a relief request is outstanding, the charger SHALL be held at `min_current
 #### Scenario: Charger without phase switching is unchanged
 - **WHEN** `phase_switching_enabled` is false for the charger
 - **THEN** the ladder SHALL be throttle then pause, identical to prior behavior
+
+#### Scenario: 1-phase relief eligibility conditions
+- **WHEN** the balancer evaluates step 2 of the degradation ladder (request 1-phase mode)
+- **THEN** the setpoint SHALL be at `min_current_a`
+- **AND** the charger SHALL be in 3-phase mode
+- **AND** every overloaded phase SHALL be one that 1-phase mode does not use (per `phase_1_line`)
+- **AND** the charger's EV goal SHALL be at risk, as judged by the goal-risk evaluation (no goal, or a goal on track, counts as not at risk), OR the current plan slot SHALL be solar-surplus charging for that charger (the plan's surplus kW for that charger in the current slot is above 0)
+
+#### Scenario: Goal-risk evaluation fails open
+- **WHEN** the goal-risk evaluation runs
+- **THEN** it SHALL run before the balancer decides, and SHALL fail open: if it cannot be evaluated, the goal counts as at risk
+- **AND** the surplus-slot condition SHALL come from the plan, not from live grid export; if it cannot be read, it counts as false
+
+#### Scenario: Resume uses the same relief condition
+- **WHEN** a paused charger resumes
+- **THEN** the same condition (goal at risk or surplus slot) SHALL apply
+- **AND** a charger whose goal is not at risk and whose current slot is not a surplus slot SHALL resume only in its current phase mode, not in 1-phase
+
+#### Scenario: Relief request bypasses hysteresis but not dwell
+- **WHEN** a 1-phase relief request is made
+- **THEN** it SHALL bypass the power-threshold hysteresis of the phase state machine
+- **AND** it SHALL still respect `phase_switch_min_dwell_s` and the phase-mode fail-safe
+
+#### Scenario: Relief step not possible falls through to pause
+- **WHEN** step 2 is not possible, because the goal is not at risk and the current slot is not a surplus slot, dwell has not yet elapsed, the 1-phase line itself is overloaded, phase switching is disabled or failed, or the charger is a `type: binary` charger
+- **THEN** the balancer SHALL proceed directly to step 3 (pause, see "Pause below minimum current with anti-flap resume")
+
+#### Scenario: Relief request outstanding
+- **WHEN** a relief request is outstanding
+- **THEN** the charger SHALL be held at `min_current_a` rather than paused, unless the severe-overload rule applies
+- **AND** chargers without phase switching SHALL behave exactly as before this requirement
 
 ### Requirement: Ramp-up hold-off after a setpoint reduction
 

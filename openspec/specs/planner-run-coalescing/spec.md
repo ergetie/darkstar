@@ -4,7 +4,7 @@
 Ensure planner run requests that arrive while a run is in progress are coalesced into a single follow-up run instead of being dropped, so goal changes and plug events are never lost.
 ## Requirements
 ### Requirement: Planner run requests are coalesced, never dropped
-When a planner run is requested while another run is in progress, the planner service SHALL record that a follow-up run is required and SHALL execute exactly one additional run after the in-progress run finishes (whether it succeeded or failed). Multiple requests arriving during one in-progress run SHALL collapse into that single follow-up run. EV plug-state overrides carried by queued requests SHALL be merged per charger, with the most recent value for a charger winning, and applied to the follow-up run. A request SHALL NOT be answered with a "Planner already running" failure.
+When a planner run is requested while another run is in progress, the planner service SHALL record that a follow-up run is required and SHALL execute exactly one additional run after the in-progress run finishes (whether it succeeded or failed). Multiple requests arriving during one in-progress run SHALL collapse into that single follow-up run.
 
 #### Scenario: Request during a running plan
 - **WHEN** a goal-change replan is requested while a scheduled run is solving
@@ -22,6 +22,14 @@ When a planner run is requested while another run is in progress, the planner se
 #### Scenario: Plug override survives coalescing
 - **WHEN** a plug-in replan for `ev_charger_1` (override plugged=True) arrives while a run is in progress
 - **THEN** the follow-up run SHALL apply plugged=True for `ev_charger_1`
+
+#### Scenario: Plug-state overrides merged across queued requests
+- **WHEN** several queued requests carry EV plug-state overrides
+- **THEN** the overrides SHALL be merged per charger, with the most recent value for a charger winning, and applied to the follow-up run
+
+#### Scenario: No "Planner already running" failure
+- **WHEN** a planner run is requested while another is in progress
+- **THEN** the request SHALL NOT be answered with a "Planner already running" failure
 
 ### Requirement: Goal-change replan requests are debounced
 Replan requests with reason goal-change SHALL be debounced for a short fixed window (about 2 seconds) so that a burst of goal edits (for example HA updating target SoC and ready-by as two separate events) results in one planner run. Plug-event replan requests SHALL NOT be debounced.

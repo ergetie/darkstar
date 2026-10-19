@@ -5,7 +5,7 @@ Defines manual EV charging per charger: starting, current selection, keep-on thr
 ## Requirements
 
 ### Requirement: Manual charge can be started per charger
-The system SHALL let the user start a manual charge on a specific EV charger with a target SoC (integer 1–100). The request SHALL be rejected when the charger id is unknown, disabled, or `externally_controlled`, when the car is not plugged in, when the car's plug state is unknown (charger unreachable or the plug read failed), when the target SoC is outside 1–100, or when the car's current SoC is unavailable or already at or above the target. SoC and plug state SHALL come from the shared live EV state reader.
+The system SHALL let the user start a manual charge on a specific EV charger with a target SoC (integer 1–100).
 
 #### Scenario: Start on a plugged-in car
 - **GIVEN** charger `ev_charger_1` is plugged in with SoC 49%
@@ -31,6 +31,14 @@ The system SHALL let the user start a manual charge on a specific EV charger wit
 - **GIVEN** the charger's SoC sensor is missing or unavailable
 - **WHEN** a manual charge is requested
 - **THEN** the request SHALL be rejected with an error saying the car SoC is unknown
+
+#### Scenario: Manual charge request rejection conditions
+- **WHEN** a manual charge is requested and the charger id is unknown, disabled, or `externally_controlled`, the car is not plugged in, the car's plug state is unknown (charger unreachable or the plug read failed), the target SoC is outside 1–100, or the car's current SoC is unavailable or already at or above the target
+- **THEN** the request SHALL be rejected
+
+#### Scenario: Shared live EV state reader for start validation
+- **WHEN** a manual charge request reads SoC and plug state
+- **THEN** SoC and plug state SHALL come from the shared live EV state reader
 
 ### Requirement: Charging current for manual charge
 For a `type: current` charger the manual charge SHALL request `max_current_a`, unless the user supplied a current, which SHALL be accepted only within `min_current_a`–`max_current_a`. For a `type: binary` charger the manual charge SHALL only switch the charger on, and a supplied current SHALL be rejected.
@@ -78,7 +86,7 @@ The load balancer SHALL still throttle or pause a manually charged current-type 
 - **THEN** the charger SHALL be switched off while shed and back on when restored, while the manual charge is still active
 
 ### Requirement: Manual charge ends automatically
-A manual charge SHALL end when the car SoC reaches or exceeds the target, when the car is reported unplugged, when the user stops it, or when a safety timeout of 24 hours since start elapses. SoC and plug state SHALL come from the shared live EV state reader. If SoC or plug state becomes unknown during a charge, charging SHALL continue until the reading returns or the timeout elapses. When a manual charge ends, the charger SHALL return to plan control on the next tick and a replan SHALL be requested (subject to the existing replan rate limit).
+A manual charge SHALL end when the car SoC reaches or exceeds the target, when the car is reported unplugged, when the user stops it, or when a safety timeout of 24 hours since start elapses. SoC and plug state SHALL come from the shared live EV state reader.
 
 #### Scenario: Target reached
 - **GIVEN** a manual charge to 80%
@@ -98,6 +106,15 @@ A manual charge SHALL end when the car SoC reaches or exceeds the target, when t
 #### Scenario: Stopped by user
 - **WHEN** the user stops the manual charge
 - **THEN** it SHALL end immediately and the charger SHALL follow the plan on the next tick
+
+#### Scenario: Unknown readings during a manual charge
+- **WHEN** SoC or plug state becomes unknown during a charge
+- **THEN** charging SHALL continue until the reading returns or the timeout elapses
+
+#### Scenario: Return to plan control after a manual charge
+- **WHEN** a manual charge ends
+- **THEN** the charger SHALL return to plan control on the next tick
+- **AND** a replan SHALL be requested (subject to the existing replan rate limit)
 
 ### Requirement: Manual charge does not change the charging goal
 Starting, running or ending a manual charge SHALL NOT modify the charger's saved goal (target SoC, ready-by, repeat, keep-on-after-target).
@@ -134,7 +151,7 @@ The EV charger API response SHALL include per charger whether a manual charge is
 - **THEN** `ev_charger_1` SHALL show the manual charge from the state file
 
 ### Requirement: Manual charge UI
-The command bar SHALL show an EV Charge control when at least one controllable charger is plugged in, using the shared SoC stepper for the target. With more than one plugged-in controllable charger the user SHALL choose which charger; with one, no selection step SHALL be shown. For current-type chargers an optional current setting SHALL be available in the control's popover, defaulting to the charger maximum; for binary chargers it SHALL NOT be shown. While active, the control SHALL show the target and offer Stop, and the charger's EV card SHALL show "Manual charge → target%" with a Stop action.
+The command bar SHALL show an EV Charge control when at least one controllable charger is plugged in, using the shared SoC stepper for the target. With more than one plugged-in controllable charger the user SHALL choose which charger; with one, no selection step SHALL be shown.
 
 #### Scenario: Single charger
 - **GIVEN** exactly one controllable charger, plugged in
@@ -150,3 +167,13 @@ The command bar SHALL show an EV Charge control when at least one controllable c
 - **GIVEN** the selected charger is binary
 - **WHEN** the EV Charge control is opened
 - **THEN** no current setting SHALL be offered
+
+#### Scenario: Current setting only for current-type chargers
+- **WHEN** the EV Charge control is shown for a charger
+- **THEN** for current-type chargers an optional current setting SHALL be available in the control's popover, defaulting to the charger maximum
+- **AND** for binary chargers the current setting SHALL NOT be shown
+
+#### Scenario: Active manual charge display
+- **WHEN** a manual charge is active
+- **THEN** the control SHALL show the target and offer Stop
+- **AND** the charger's EV card SHALL show "Manual charge → target%" with a Stop action

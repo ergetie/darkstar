@@ -18,7 +18,7 @@ The Dashboard's PowerFlow card SHALL render a tab strip with **Flow** and **Load
 - **THEN** the card shows only the flow view with no tab strip, visually identical to the current card
 
 ### Requirement: Load Balancer tab shows a compact live status view
-The Load Balancer tab SHALL display: per-phase current bars for L1/L2/L3 versus the main fuse rating with the same color coding as the Executor page's card (normal / near-limit / over-limit), the current balancer state with its reason text, and compact entries for currently throttled EV chargers and currently shed loads. Idle chargers/loads SHALL be omitted. The view SHALL update live from the same data feed as the Executor page card (initial REST fetch plus `live_metrics` WebSocket updates) and SHALL contain a link to the Executor page for full detail. The tab SHALL NOT contain any bypass or override control.
+The Load Balancer tab SHALL display: per-phase current bars for L1/L2/L3 versus the main fuse rating with the same color coding as the Executor page's card (normal / near-limit / over-limit), the current balancer state with its reason text, and compact entries for currently throttled EV chargers and currently shed loads. Idle chargers/loads SHALL be omitted.
 
 #### Scenario: Live phase bars
 - **WHEN** the Load Balancer tab is active and a `live_metrics` update arrives
@@ -28,8 +28,14 @@ The Load Balancer tab SHALL display: per-phase current bars for L1/L2/L3 versus 
 - **WHEN** the balancer is throttling an EV charger or shedding a load
 - **THEN** the affected charger/load appears with its status, and idle devices are not listed
 
+#### Scenario: Live updates and Executor link
+- **WHEN** the Load Balancer tab is displayed
+- **THEN** the view SHALL update live from the same data feed as the Executor page card (initial REST fetch plus `live_metrics` WebSocket updates)
+- **AND** it SHALL contain a link to the Executor page for full detail
+- **AND** the tab SHALL NOT contain any bypass or override control
+
 ### Requirement: Card auto-switches to the Load Balancer tab once per intervention episode
-When the balancer state transitions from a non-intervening state (idle, paused, disabled) into an intervening state (throttling, shedding, stale-sensor fallback), the card SHALL switch the active tab to Load Balancer once, at that transition. Transitions between intervening states SHALL NOT re-trigger the switch. If the user manually switches away during an ongoing episode, the card SHALL NOT force the tab again until a new episode begins. The auto-switch SHALL NOT overwrite the user's persisted tab preference.
+When the balancer state transitions from a non-intervening state (idle, paused, disabled) into an intervening state (throttling, shedding, stale-sensor fallback), the card SHALL switch the active tab to Load Balancer once, at that transition. Transitions between intervening states SHALL NOT re-trigger the switch. If the user manually switches away during an ongoing episode, the card SHALL NOT force the tab again until a new episode begins.
 
 #### Scenario: Intervention starts
 - **WHEN** the state changes from idle to shedding while the Flow tab is active
@@ -42,6 +48,10 @@ When the balancer state transitions from a non-intervening state (idle, paused, 
 #### Scenario: New episode after recovery
 - **WHEN** the balancer returns to idle and later starts throttling again
 - **THEN** the card auto-switches once more
+
+#### Scenario: Auto-switch does not overwrite tab preference
+- **WHEN** the card auto-switches to the Load Balancer tab at an intervention transition
+- **THEN** the auto-switch SHALL NOT overwrite the user's persisted tab preference
 
 ### Requirement: Warning indicator while an intervention is active and unseen
 While the balancer is in an intervening state and the Load Balancer tab is not the active tab, the Load Balancer tab label SHALL display a warning dot. The dot SHALL disappear when the intervention ends or the tab is viewed.

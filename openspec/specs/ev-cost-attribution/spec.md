@@ -4,12 +4,17 @@
 Attribute recorded EV charging energy per slot to solar (bounded by the measured PV surplus) and grid (the remainder), to produce the EV's grid import cost and an informational solar-share figure.
 ## Requirements
 ### Requirement: EV energy is attributed to solar by measured PV surplus, grid is the remainder
-For each recorded slot, the system SHALL split the slot's `ev_charging_kwh` into:
-- `pv_surplus_kwh = max(0, pv_kwh − load_kwh − water_kwh)`
-- `ev_solar_kwh = min(ev_charging_kwh, pv_surplus_kwh)`
-- `ev_grid_kwh = ev_charging_kwh − ev_solar_kwh`
+For each recorded slot, the system SHALL split the slot's `ev_charging_kwh` into `ev_solar_kwh = min(ev_charging_kwh, pv_surplus_kwh)` and `ev_grid_kwh = ev_charging_kwh − ev_solar_kwh`, where `pv_surplus_kwh = max(0, pv_kwh − load_kwh − water_kwh)`. Both values SHALL be non-negative and SHALL sum to `ev_charging_kwh`.
 
-Both values SHALL be non-negative and SHALL sum to `ev_charging_kwh`. Null inputs SHALL be treated as 0. `ev_solar_kwh` SHALL be 0 whenever `pv_kwh` is 0, regardless of `import_kwh`. Battery charging is not subtracted from the PV surplus, so `ev_solar_kwh` is an upper bound on solar-sourced EV energy.
+#### Scenario: Null and zero PV inputs
+- **WHEN** an input is null or `pv_kwh` is 0
+- **THEN** null inputs are treated as 0
+- **AND** `ev_solar_kwh` is 0 whenever `pv_kwh` is 0, regardless of `import_kwh`
+
+#### Scenario: Battery charging not subtracted
+- **WHEN** the PV surplus is computed
+- **THEN** battery charging is not subtracted
+- **AND** `ev_solar_kwh` is an upper bound on solar-sourced EV energy
 
 #### Scenario: Night charging entirely from grid
 - **WHEN** a slot has `ev_charging_kwh=1.5`, `pv_kwh=0` and `import_kwh=2.0`

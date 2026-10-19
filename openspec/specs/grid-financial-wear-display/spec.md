@@ -7,7 +7,9 @@ UI presentation of actual electricity cost, estimated battery wear and matched-c
 ### Requirement: Grid & Financial card shows net including battery wear
 The Grid & Financial card SHALL display a secondary line beneath the headline Net figure showing the net cost including battery wear, sourced from the endpoint's `net_cost_incl_wear_sek`. This secondary line SHALL be visually distinct (it "pops out") from the surrounding breakdown text so the user can read it at a glance. The headline Net figure SHALL continue to show `net_cost_sek` (real grid cash flow) and SHALL NOT change.
 
-The secondary line SHALL follow the same sign and color convention as the headline (savings vs. cost), applied to the wear-inclusive value.
+#### Scenario: Wear-inclusive secondary line convention
+- **WHEN** the secondary wear-inclusive line is displayed
+- **THEN** it SHALL follow the same sign and color convention as the headline (savings vs. cost), applied to the wear-inclusive value
 
 #### Scenario: Secondary net-incl-wear line is shown
 - **WHEN** the card renders with period data available
@@ -33,9 +35,15 @@ The financial breakdown section of the card SHALL include a "Battery Wear" row s
 ### Requirement: Grid & Financial card shows an EV sub-row under Grid Import
 When an EV charger is configured (`system.has_ev_charger`), the card's breakdown section SHALL always include an indented "↳ of which EV" sub-row directly under "Grid Import", even when the period has no EV energy. It SHALL show `ev_cost_sek` (the EV's grid import cost only) as a cost, the total EV kWh, and the solar share as a percentage. When no EV charger is configured, the sub-row SHALL be hidden unless the period has recorded EV energy.
 
-The sub-row SHALL explain, on hover, that the figure is the grid import cost of EV charging, part of Grid Import and not added to Net, and that solar energy is not given a price. The solar share SHALL explain, on hover, that it is the share of EV energy that came from solar and is for information only.
+#### Scenario: EV sub-row hover explanations
+- **WHEN** the user hovers the EV sub-row or its solar share
+- **THEN** the sub-row SHALL explain that the figure is the grid import cost of EV charging, part of Grid Import and not added to Net, and that solar energy is not given a price
+- **AND** the solar share SHALL explain that it is the share of EV energy that came from solar and is for information only
 
-The sub-row SHALL be presented as a component of Grid Import: the headline Net and the other rows SHALL NOT change. It SHALL use design-system tokens.
+#### Scenario: EV sub-row is a component of Grid Import
+- **WHEN** the EV sub-row is rendered
+- **THEN** it SHALL be presented as a component of Grid Import: the headline Net and the other rows SHALL NOT change
+- **AND** it SHALL use design-system tokens
 
 #### Scenario: EV row with solar share
 - **WHEN** the period returns `ev_cost_sek=18.4`, `ev_charging_kwh=12.0`, `ev_solar_share=0.4`
@@ -78,13 +86,47 @@ The period control SHALL be a single-line segmented control with the options Tod
 - **THEN** the breakdown and the cost chart show the last 7 days including today
 
 ### Requirement: Grid & Financial card shows a cost chart for the period
-Below the breakdown the card SHALL show one chart from `/api/energy/cost-series` filling the remaining card height, with no Actual/Comparison switch. A single-day chart SHALL use hourly buckets and heading "Actual cost so far"; longer periods SHALL use daily buckets and heading "Actual cost per day". All x positions SHALL use elapsed UTC time within `grid_only_comparison.time_axis.start`/`end`, spanning the full requested local period. Single-day axes SHALL represent 24 elapsed hours normally, 23 on spring-forward days and 25 on fall-back days. Daily buckets SHALL use their actual installation-local midnight boundaries, rather than assuming every day is 86,400 seconds. Labels and readouts SHALL use `time_axis.timezone` independently of the browser timezone. Nonexistent local hours SHALL be omitted; repeated local hours SHALL have distinct x positions and UTC-offset labels. These time-axis rules SHALL also apply to the Actual-only fallback.
+Below the breakdown the card SHALL show one chart from `/api/energy/cost-series` filling the remaining card height, with no Actual/Comparison switch. A single-day chart SHALL use hourly buckets and heading "Actual cost so far"; longer periods SHALL use daily buckets and heading "Actual cost per day". All x positions SHALL use elapsed UTC time within `grid_only_comparison.time_axis.start`/`end`, spanning the full requested local period.
 
-When `grid_only_comparison` contains valid amounts, bucket points and covered segments, the chart SHALL draw a solid **DS** line directly from segment boundary `cumulative_ds_cost_sek` and a dotted **Grid-only** line directly from segment boundary `cumulative_grid_only_cost_sek`. Faint import/export bars and bucket readouts SHALL use comparison bucket points covering the same eligible completed slots. Neither line SHALL use self-use simulation, stored-energy adjustments, legacy fields, or differently covered top-level actual points. Their shared vertical scale SHALL contain both lines and zero. The DS line SHALL be green at zero/below and red above zero, with the existing dashed zero reference.
+#### Scenario: Chart time axis is elapsed UTC time
+- **WHEN** the cost chart axis is drawn
+- **THEN** single-day axes SHALL represent 24 elapsed hours normally, 23 on spring-forward days and 25 on fall-back days
+- **AND** daily buckets SHALL use their actual installation-local midnight boundaries, rather than assuming every day is 86,400 seconds
+- **AND** labels and readouts SHALL use `time_axis.timezone` independently of the browser timezone
+- **AND** nonexistent local hours SHALL be omitted; repeated local hours SHALL have distinct x positions and UTC-offset labels
+- **AND** these time-axis rules SHALL also apply to the Actual-only fallback
 
-The area between comparable covered stretches SHALL use low-opacity design-system good/bad tones according to which bill is lower, split at crossings within each covered segment, with no shading legend entry. Each segment SHALL be drawn independently. Lines and shading SHALL NOT connect across excluded slots, including gaps inside partially covered hourly/daily buckets, or fabricate excluded contributions. Cumulative totals SHALL carry into the next segment without drawing across the gap. The last drawn point SHALL equal its comparison summary within rounding. Hover/tap SHALL expose the bucket's installation-local 24-hour time/date, eligible import/export costs, DS running cost and Grid-only running cost; repeated-hour readouts SHALL include the UTC offset. Without amount-bearing comparison data, the chart SHALL retain its top-level metered Actual-only fallback, bars and accounting.
+#### Scenario: DS and Grid-only lines
+- **WHEN** `grid_only_comparison` contains valid amounts, bucket points and covered segments
+- **THEN** the chart SHALL draw a solid **DS** line directly from segment boundary `cumulative_ds_cost_sek` and a dotted **Grid-only** line directly from segment boundary `cumulative_grid_only_cost_sek`
+- **AND** faint import/export bars and bucket readouts SHALL use comparison bucket points covering the same eligible completed slots
+- **AND** neither line SHALL use self-use simulation, stored-energy adjustments, legacy fields, or differently covered top-level actual points
+- **AND** their shared vertical scale SHALL contain both lines and zero
+- **AND** the DS line SHALL be green at zero/below and red above zero, with the existing dashed zero reference
 
-Loading SHALL show a skeleton; empty metered data SHALL display "No recorded slots yet for this period". Reduced motion SHALL disable entrance animations. Existing responsive layout and design tokens SHALL be used. Battery absence SHALL NOT suppress an otherwise usable Grid-only line.
+#### Scenario: Shading between comparable covered stretches
+- **WHEN** the DS and Grid-only lines are drawn over comparable covered stretches
+- **THEN** the area between them SHALL use low-opacity design-system good/bad tones according to which bill is lower, split at crossings within each covered segment, with no shading legend entry
+
+#### Scenario: Segments are not connected across excluded slots
+- **WHEN** the chart contains excluded slots
+- **THEN** each segment SHALL be drawn independently
+- **AND** lines and shading SHALL NOT connect across excluded slots, including gaps inside partially covered hourly/daily buckets, or fabricate excluded contributions
+- **AND** cumulative totals SHALL carry into the next segment without drawing across the gap
+- **AND** the last drawn point SHALL equal its comparison summary within rounding
+
+#### Scenario: Hover readout and Actual-only fallback
+- **WHEN** the user hovers or taps a bucket
+- **THEN** the readout SHALL expose the bucket's installation-local 24-hour time/date, eligible import/export costs, DS running cost and Grid-only running cost; repeated-hour readouts SHALL include the UTC offset
+- **AND** without amount-bearing comparison data, the chart SHALL retain its top-level metered Actual-only fallback, bars and accounting
+
+#### Scenario: Chart loading, empty and motion states
+- **WHEN** the chart is loading, has no metered data, has reduced motion enabled, or the battery is absent
+- **THEN** loading SHALL show a skeleton
+- **AND** empty metered data SHALL display "No recorded slots yet for this period"
+- **AND** reduced motion SHALL disable entrance animations
+- **AND** existing responsive layout and design tokens SHALL be used
+- **AND** battery absence SHALL NOT suppress an otherwise usable Grid-only line
 
 #### Scenario: Today excludes an unfinished slot from comparison lines
 - **WHEN** Today is selected at 14:20 and valid comparison data exists
@@ -150,9 +192,26 @@ Loading SHALL show a skeleton; empty metered data SHALL display "No recorded slo
 ### Requirement: Grid & Financial card summarises the saving in one line with a details panel
 The card SHALL show exactly one compact signed monetary comparison beneath the actual net figures, labelled **DS vs grid-only**. It SHALL use `grid_only_comparison.saving_sek`: positive values show `+X.XX kr` with the good token, negative values show `-X.XX kr` with the bad token and zero uses a neutral token. It SHALL NOT use "Darkstar saved you", "Darkstar cost you extra", Estimate/Verified chips, self-use figures or a remaining-battery-energy adjustment.
 
-The existing accessible info control SHALL toggle an opaque details panel that closes on outside tap or Escape. The explanation SHALL read "Same recorded consumption bought entirely from the grid at each slot's price, compared with actual import costs minus export income, including estimated battery wear." The panel SHALL identify the whole-installation comparison, show grid-only electricity and zero wear, DS electricity and DS wear, the wear-inclusive DS total, completed-through installation-local `YYYY-MM-DD HH:mm`, and covered/total completed slot counts with exclusions. It SHALL contain no loss calibration, assumed SoC mapping, monetary battery inventory, future-price or nested adjustment details. Partial coverage SHALL retain a muted "· N% of the period" suffix with the covered share floored and capped at 99.
+#### Scenario: Comparison details panel behavior
+- **WHEN** the user activates the accessible info control
+- **THEN** it SHALL toggle an opaque details panel that closes on outside tap or Escape
 
-No-data/unavailable results SHALL show one concise plain-language reason with no monetary comparison or legacy fallback. The comparison SHALL be shown without a battery when relevant inputs are usable. Actual headline electricity cost, the separate wear-inclusive figure, Grid Import, EV sub-row, Export Rev, informational Battery Charge and Battery Wear rows SHALL retain their accounting and design-system presentation. Battery Charge SHALL be clearly identified as informational because its cost is already included in Grid Import, and SHALL never be deducted again.
+#### Scenario: Comparison details panel content
+- **WHEN** the details panel is open
+- **THEN** the explanation SHALL read "Same recorded consumption bought entirely from the grid at each slot's price, compared with actual import costs minus export income, including estimated battery wear."
+- **AND** the panel SHALL identify the whole-installation comparison, show grid-only electricity and zero wear, DS electricity and DS wear, the wear-inclusive DS total, completed-through installation-local `YYYY-MM-DD HH:mm`, and covered/total completed slot counts with exclusions
+- **AND** it SHALL contain no loss calibration, assumed SoC mapping, monetary battery inventory, future-price or nested adjustment details
+
+#### Scenario: Partial coverage suffix
+- **WHEN** coverage of the period is partial
+- **THEN** the comparison SHALL retain a muted "· N% of the period" suffix with the covered share floored and capped at 99
+
+#### Scenario: No-data results and unchanged accounting rows
+- **WHEN** the comparison result is no-data or unavailable
+- **THEN** it SHALL show one concise plain-language reason with no monetary comparison or legacy fallback
+- **AND** the comparison SHALL be shown without a battery when relevant inputs are usable
+- **AND** actual headline electricity cost, the separate wear-inclusive figure, Grid Import, EV sub-row, Export Rev, informational Battery Charge and Battery Wear rows SHALL retain their accounting and design-system presentation
+- **AND** Battery Charge SHALL be clearly identified as informational because its cost is already included in Grid Import, and SHALL never be deducted again
 
 #### Scenario: Positive difference including wear
 - **WHEN** grid-only cost is 40 kr, DS electricity cost is 28 kr and DS wear is 2 kr

@@ -146,11 +146,12 @@ The default configuration template (`config.default.yaml`) SHALL NOT include pla
 - **AND** no HTTP requests are made for non-existent water heater entities
 
 ### Requirement: Config help tooltips document soft vs hard bounds clearly
-The configuration help text (`frontend/src/config-help.json`) SHALL document `battery.max_soc_percent` and `system.battery.max_soc_percent` as **soft** ceilings — a preference the solver penalizes overshooting but tolerates when the battery is already above the limit at planning time.
+The configuration help text (`frontend/src/config-help.json`) SHALL document `battery.max_soc_percent` and `system.battery.max_soc_percent` as **soft** ceilings, and the comments in `config.default.yaml` next to `max_soc_percent` SHALL be updated with the same guidance.
 
-The tooltip SHALL explicitly state that (a) the BMS enforces the absolute physical limit, (b) the solver treats this value as a target ceiling, and (c) starting the plan above the ceiling results in a discharge action, not a failure.
-
-The comments in `config.default.yaml` next to `max_soc_percent` SHALL be updated with the same guidance.
+#### Scenario: Soft ceiling tooltip content
+- **WHEN** the help text for these settings is shown
+- **THEN** it SHALL describe the value as a preference the solver penalizes overshooting but tolerates when the battery is already above the limit at planning time
+- **AND** the tooltip SHALL explicitly state that (a) the BMS enforces the absolute physical limit, (b) the solver treats this value as a target ceiling, and (c) starting the plan above the ceiling results in a discharge action, not a failure
 
 #### Scenario: Tooltip describes soft semantics
 - **WHEN** a user hovers the help indicator for `battery.max_soc_percent` in Settings
@@ -171,7 +172,12 @@ The configuration help text for the per-charger `max_power_kw` field SHALL expli
 - **AND** the tooltip warns that a missing or zero value disables the charger
 
 ### Requirement: Cumulative energy counter keys removed
-The configuration SHALL NOT support `input_sensors.total_pv_production`, `total_load_consumption`, `total_grid_import`, `total_grid_export`, `total_battery_charge`, `total_battery_discharge`, `recorder.max_meter_delta_kwh` or `learning.sensor_map`. Startup config migration SHALL remove these keys from existing configs silently and idempotently, after the legacy numeric `total_load_consumption` value has been moved to `synthetic_daily_load_kwh`. The keys SHALL NOT be re-added by the default-template merge. The legacy `secrets.home_assistant.consumption_entity_id` fallback SHALL NOT be read.
+The configuration SHALL NOT support `input_sensors.total_pv_production`, `total_load_consumption`, `total_grid_import`, `total_grid_export`, `total_battery_charge`, `total_battery_discharge`, `recorder.max_meter_delta_kwh` or `learning.sensor_map`. The legacy `secrets.home_assistant.consumption_entity_id` fallback SHALL NOT be read.
+
+#### Scenario: Startup migration removes legacy keys
+- **WHEN** startup config migration runs on an existing config containing these keys
+- **THEN** it SHALL remove them silently and idempotently, after the legacy numeric `total_load_consumption` value has been moved to `synthetic_daily_load_kwh`
+- **AND** the keys SHALL NOT be re-added by the default-template merge
 
 #### Scenario: Existing config with counters
 - **WHEN** a config contains all six `input_sensors.total_*` keys set to sensor entities

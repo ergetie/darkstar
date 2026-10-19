@@ -7,14 +7,23 @@ Store cheap energy for the first day the planner cannot see prices for, by raisi
 ## Requirements
 
 ### Requirement: Price reserve for the first unseen day
-On every planner run in `full` mode with `price_forecast.enabled: true`, the system SHALL compute a price reserve (kWh, battery-side) for the **unseen window**: the 24 hours immediately after the end of the published-price horizon (the same window the deficit-based safety floor looks at). The reserve SHALL use, for every unseen-window slot, the latest-issue `spot_p50` forecast converted to an import price with the user's own pricing configuration (VAT, energy tax, flat or time-of-use transfer fee for that slot), and, for every **known-window** slot (from the current slot to the end of the published-price horizon), the planner's own import price.
+On every planner run in `full` mode with `price_forecast.enabled: true`, the system SHALL compute a price reserve (kWh, battery-side) for the **unseen window**: the 24 hours immediately after the end of the published-price horizon (the same window the deficit-based safety floor looks at). The reserve SHALL be sized per unseen-window slot as described in the scenarios below.
 
-Per delivered kWh, the system SHALL define:
-- `known_cost` = marginal known-window import price ÷ (charge_efficiency × discharge_efficiency) + wear cost, taking known-window slots cheapest-first, each slot contributing at most `max_charge_kw × slot_hours × charge_efficiency` stored kWh;
-- `own_day_cost` = the same, computed over the unseen-window slots (cheapest-first) using forecast import prices;
-- for an unseen-window slot `h` with forecast import price `P_h`: `gain_h = min(P_h, own_day_cost) − known_cost`.
+#### Scenario: Prices used for reserve sizing
+- **WHEN** the reserve is computed
+- **THEN** the system SHALL use, for every unseen-window slot, the latest-issue `spot_p50` forecast converted to an import price with the user's own pricing configuration (VAT, energy tax, flat or time-of-use transfer fee for that slot)
+- **AND** for every **known-window** slot (from the current slot to the end of the published-price horizon), the planner's own import price
 
-The system SHALL visit unseen-window slots from the highest `P_h` to the lowest and add energy for slot `h` only while `gain_h > threshold` (see "Risk-dependent profitability threshold"), recomputing the marginal `known_cost` and `own_day_cost` as energy is added. The energy added for slot `h` SHALL be `min(net_load_h, max_discharge_kw × slot_hours) / discharge_efficiency`, where `net_load_h = max(0, load_forecast_kwh − pv_forecast_kwh)` from the same extended forecast data the deficit-based floor uses.
+#### Scenario: Cost and gain definitions
+- **WHEN** the reserve is sized
+- **THEN** per delivered kWh the system SHALL define `known_cost` = marginal known-window import price ÷ (charge_efficiency × discharge_efficiency) + wear cost, taking known-window slots cheapest-first, each slot contributing at most `max_charge_kw × slot_hours × charge_efficiency` stored kWh
+- **AND** `own_day_cost` = the same, computed over the unseen-window slots (cheapest-first) using forecast import prices
+- **AND** for an unseen-window slot `h` with forecast import price `P_h`: `gain_h = min(P_h, own_day_cost) - known_cost`
+
+#### Scenario: Slot visiting and energy added
+- **WHEN** the reserve is sized
+- **THEN** the system SHALL visit unseen-window slots from the highest `P_h` to the lowest and add energy for slot `h` only while `gain_h > threshold` (see "Risk-dependent profitability threshold"), recomputing the marginal `known_cost` and `own_day_cost` as energy is added
+- **AND** the energy added for slot `h` SHALL be `min(net_load_h, max_discharge_kw × slot_hours) / discharge_efficiency`, where `net_load_h = max(0, load_forecast_kwh - pv_forecast_kwh)` from the same extended forecast data the deficit-based floor uses
 
 #### Scenario: Unseen day is more expensive to charge than the known window
 - **GIVEN** the known window's cheapest charging slots cost 0.80 SEK/kWh import and the unseen day's cheapest forecast slots cost 1.40 SEK/kWh
@@ -40,12 +49,16 @@ The system SHALL visit unseen-window slots from the highest `P_h` to the lowest 
 - **THEN** the unseen window SHALL be tomorrow (the 24 hours after today's last published slot) and the reserve SHALL be computed for it in the same way
 
 ### Requirement: Per-user battery and price parameters
-The price reserve SHALL use only the user's own configuration, with the same resolution the solver uses:
-- charge and discharge power limits resolved exactly as the solver adapter does (Ampere control unit: current × battery nominal voltage; Watt control unit: watt limits), through one shared resolver function used by both the adapter and the reserve; the resolver's discharge limit is used as is (the inverter AC limit is intentionally not applied, so reserve and solver never disagree);
-- `battery.charge_efficiency` and `battery.discharge_efficiency` with the solver's defaults when unset;
-- wear cost from `battery_economics.battery_cycle_cost_kwh` (default 0.0);
-- `battery.capacity_kwh`, `battery.min_soc_percent`, `battery.max_soc_percent`;
-- the user's `pricing` section for every forecast slot's import price.
+The price reserve SHALL use only the user's own configuration, with the same resolution the solver uses, as listed in the scenarios below.
+
+#### Scenario: Parameters resolved from user configuration
+- **WHEN** the price reserve is computed
+- **THEN** charge and discharge power limits SHALL be resolved exactly as the solver adapter does (Ampere control unit: current × battery nominal voltage; Watt control unit: watt limits), through one shared resolver function used by both the adapter and the reserve
+- **AND** the resolver's discharge limit SHALL be used as is (the inverter AC limit is intentionally not applied, so reserve and solver never disagree)
+- **AND** `battery.charge_efficiency` and `battery.discharge_efficiency` SHALL be used with the solver's defaults when unset
+- **AND** wear cost SHALL come from `battery_economics.battery_cycle_cost_kwh` (default 0.0)
+- **AND** `battery.capacity_kwh`, `battery.min_soc_percent` and `battery.max_soc_percent` SHALL be used
+- **AND** the user's `pricing` section SHALL be used for every forecast slot's import price
 
 #### Scenario: Ampere-controlled inverter
 - **GIVEN** `executor.inverter.control_unit: "A"`, `max_charge_a: 185`, `nominal_voltage_v: 48`
@@ -94,14 +107,20 @@ The final end-of-horizon SoC target SHALL be `max(safety_floor_kwh, min_soc_kwh 
 - **THEN** the target SHALL be 16.05 kWh
 
 ### Requirement: Price reserve fallbacks
-The price reserve SHALL be 0 kWh (target equals the deficit-based floor) with a specific `price_reserve_reason` when:
-- `price_forecast.enabled` is false → `"disabled"`;
-- fewer than 90% of unseen-window slots have a forecast `spot_p50` → `"insufficient_forecast"`;
-- the extended load/PV forecast covers fewer than 90% of unseen-window slots → `"insufficient_load_forecast"`;
-- the known window has no slots → `"no_known_window"`;
-- reading forecasts fails → `"forecast_read_error"` (logged as a warning; the planner run SHALL continue).
+The price reserve SHALL be 0 kWh (target equals the deficit-based floor) with a specific `price_reserve_reason` whenever it cannot be computed, and SHALL report a reason when it is computed, as listed in the scenarios below.
 
-When the reserve is computed, `price_reserve_reason` SHALL be `"active"` (reserve > 0), `"own_day_cheaper"`, `"below_threshold"` (no slot clears the threshold), `"no_net_load"` (no unseen slot has net load) or `"no_charge_capacity"` (the known window cannot charge).
+#### Scenario: Zero reserve reasons
+- **WHEN** the reserve cannot be computed
+- **THEN** the reserve SHALL be 0 kWh (target equals the deficit-based floor) with `price_reserve_reason` set as follows
+- **AND** `price_forecast.enabled` false → `"disabled"`
+- **AND** fewer than 90% of unseen-window slots have a forecast `spot_p50` → `"insufficient_forecast"`
+- **AND** the extended load/PV forecast covers fewer than 90% of unseen-window slots → `"insufficient_load_forecast"`
+- **AND** the known window has no slots → `"no_known_window"`
+- **AND** reading forecasts fails → `"forecast_read_error"` (logged as a warning; the planner run SHALL continue)
+
+#### Scenario: Reasons when the reserve is computed
+- **WHEN** the reserve is computed
+- **THEN** `price_reserve_reason` SHALL be `"active"` (reserve > 0), `"own_day_cheaper"`, `"below_threshold"` (no slot clears the threshold), `"no_net_load"` (no unseen slot has net load) or `"no_charge_capacity"` (the known window cannot charge)
 
 #### Scenario: Forecast store unavailable
 - **WHEN** reading the price forecast store raises an error
@@ -114,7 +133,16 @@ When the reserve is computed, `price_reserve_reason` SHALL be `"active"` (reserv
 - **THEN** no forecast store query SHALL be made and the target SHALL equal the deficit-based floor
 
 ### Requirement: Price reserve debug output
-The safety-floor debug output SHALL include: `price_reserve_active`, `price_reserve_reason`, `price_reserve_threshold_sek`, `unseen_window_start`, `unseen_window_end`, `known_cost_sek_kwh` (first marginal value), `own_day_cost_sek_kwh` (first marginal value), `price_reserve_kwh` (sized), `price_reserve_applied_kwh` (target increase over the deficit floor), `forecast_issue_timestamp` (latest issue used) and `final_floor_kwh`. `price_reserve_active` SHALL mean the reserve was sized above 0, even when the deficit floor already covers it (`price_reserve_applied_kwh` is then 0). An extra key `price_reserve_capped_by` (`usable_capacity` or `known_window_charge`) SHALL be present only when a physical cap reduced the reserve.
+The safety-floor debug output SHALL include the price-reserve keys listed in the scenarios below, and `price_reserve_active` SHALL mean the reserve was sized above 0.
+
+#### Scenario: Debug keys present
+- **WHEN** the safety-floor debug output is produced
+- **THEN** it SHALL include: `price_reserve_active`, `price_reserve_reason`, `price_reserve_threshold_sek`, `unseen_window_start`, `unseen_window_end`, `known_cost_sek_kwh` (first marginal value), `own_day_cost_sek_kwh` (first marginal value), `price_reserve_kwh` (sized), `price_reserve_applied_kwh` (target increase over the deficit floor), `forecast_issue_timestamp` (latest issue used) and `final_floor_kwh`
+
+#### Scenario: Active flag semantics and cap key
+- **WHEN** the reserve was sized above 0 but the deficit floor already covers it
+- **THEN** `price_reserve_active` SHALL still be true and `price_reserve_applied_kwh` SHALL be 0
+- **AND** an extra key `price_reserve_capped_by` (`usable_capacity` or `known_window_charge`) SHALL be present only when a physical cap reduced the reserve
 
 #### Scenario: Debug fields present when inactive
 - **WHEN** the reserve is 0 for any reason

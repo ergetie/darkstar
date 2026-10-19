@@ -73,7 +73,8 @@ The template merge step SHALL never overwrite user-configured values with templa
 - **AND** no file SHALL be created
 
 ### Requirement: Strip deprecated EV goal fields from chargers
-The migration SHALL remove all deprecated EV goal fields from every `ev_chargers[]` entry: `departure_time`, `penalty_levels`, `target_soc_percent`, `ready_by`, `repeat`, `n_days`, `ready_by_date`, and `keep_on_after_target`. Each removal SHALL be logged. The set of deprecated goal field names SHALL be defined in exactly one module and shared with the executor's deprecation warning (no duplicated hand-maintained lists). Old values are NOT preserved anywhere in the config; the migration's standard automatic backup is the only recovery path.
+
+The migration SHALL remove all deprecated EV goal fields from every `ev_chargers[]` entry, logging each removal. The set of deprecated field names SHALL be defined in exactly one module and shared with the executor's deprecation warning.
 
 #### Scenario: Legacy departure_time stripped
 - **WHEN** a charger entry contains `departure_time: 1200` (or any value, valid or malformed)
@@ -87,6 +88,18 @@ The migration SHALL remove all deprecated EV goal fields from every `ev_chargers
 #### Scenario: Clean config untouched
 - **WHEN** no charger entry contains any deprecated goal field
 - **THEN** this migration step SHALL report no change (idempotent, no write triggered by this step)
+
+#### Scenario: Fields removed
+- **WHEN** an `ev_chargers[]` entry contains any of `departure_time`, `penalty_levels`, `target_soc_percent`, `ready_by`, `repeat`, `n_days`, `ready_by_date`, or `keep_on_after_target`
+- **THEN** the migration removes them and logs each removal
+
+#### Scenario: Single source for deprecated names
+- **WHEN** the migration and the executor's deprecation warning need the deprecated field names
+- **THEN** both use the one shared definition, with no duplicated hand-maintained lists
+
+#### Scenario: Recovery path
+- **WHEN** old values need to be recovered
+- **THEN** they are not preserved anywhere in the config and the migration's standard automatic backup is the only recovery path
 
 ### Requirement: Migrate executor EV charger settings into first charger
 The migration SHALL copy `executor.ev_charger.switch_entity`, `executor.ev_charger.replan_on_plugin`, and `executor.ev_charger.replan_on_unplug` into the first enabled `ev_chargers[]` entry, only if those fields are not already set on that entry.

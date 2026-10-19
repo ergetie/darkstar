@@ -1,6 +1,7 @@
 ## Purpose
 
-TBD - Energy recording capability for accurate historical energy tracking using step-integrated power sensor history.
+Records accurate historical energy per slot by step-integrating power sensor history from Home Assistant, and keeps the stored observations correctable and traceable to their measurement source.
+
 ## Requirements
 ### Requirement: Load Profile Sanity Bound
 The `get_load_profile_from_ha` function SHALL build the 7-day load profile by step-integrating `input_sensors.load_power` history and SHALL validate the computed daily total before returning. If the daily total exceeds a reasonable residential threshold, the function SHALL discard the profile and use the fallback profile.
@@ -57,8 +58,16 @@ The system SHALL provide a generic function that fetches power sensor history fr
 - **THEN** the function SHALL exclude those samples, and hold the previous valid power across the excluded interval
 
 ### Requirement: Unit Propagation in Power History Integration
+The `get_energy_from_power_history` function SHALL propagate the `unit_of_measurement` from the first HA history state entry to all subsequent entries that lack attributes, and SHALL apply the resolved unit when converting each state's power value to kilowatts.
 
-The `get_energy_from_power_history` function SHALL propagate the `unit_of_measurement` from the first HA history state entry to all subsequent entries that lack attributes, and SHALL apply the resolved unit when converting each state's power value to kilowatts. The HA history API only includes attributes on the first entry in a response series — the function MUST NOT rely on every state entry having its own `unit_of_measurement`. Power values SHALL be converted to kW as: `"W"` divided by 1000, `"MW"` multiplied by 1000, and `"kW"` (or any other / absent unit) used as-is.
+#### Scenario: Attributes only on first entry
+- **WHEN** the HA history API includes attributes only on the first entry of a series
+- **THEN** the function does not rely on every state entry having its own `unit_of_measurement`
+
+#### Scenario: Unit conversion to kW
+- **WHEN** a power value is converted to kW
+- **THEN** `"W"` is divided by 1000 and `"MW"` is multiplied by 1000
+- **AND** `"kW"` (or any other or absent unit) is used as-is
 
 #### Scenario: HA history returns the unit only on the first entry
 
@@ -175,7 +184,17 @@ The recorder SHALL store per-device water energy in versioned existing slot obse
 - **AND** a current device count of one alone SHALL NOT certify historical sole ownership
 
 ### Requirement: Consistent per-heater active-power normalization
-The system SHALL apply each heater's finite non-negative `idle_power_threshold_kw` after power-unit conversion and before integrating energy. Samples below the cutoff SHALL contribute zero active-heating power; samples at or above the cutoff SHALL retain their normalized power. The default SHALL be 0 for backward compatibility. History integration, snapshot fallback, backfill, recent planner progress, live load disaggregation and heating activity detection SHALL use the same rule. Filtered water energy SHALL be subtracted from total load; excluded idle consumption SHALL remain in household base load, with metered grid energy unchanged.
+The system SHALL apply each heater's finite non-negative `idle_power_threshold_kw` after power-unit conversion and before integrating energy. Samples below the cutoff SHALL contribute zero active-heating power; samples at or above the cutoff SHALL retain their normalized power. The default SHALL be 0 for backward compatibility.
+
+#### Scenario: Same rule on all paths
+- **WHEN** history integration, snapshot fallback, backfill, recent planner progress, live load disaggregation or heating activity detection evaluates heater power
+- **THEN** each uses the same idle-threshold rule
+
+#### Scenario: Filtered energy and base load
+- **WHEN** water energy is filtered by the idle threshold
+- **THEN** the filtered water energy is subtracted from total load
+- **AND** excluded idle consumption remains in household base load
+- **AND** metered grid energy is unchanged
 
 #### Scenario: Idle draw is household consumption
 - **WHEN** a heater draws 0.06 kW throughout a 15-minute slot with cutoff 0.10 kW
@@ -329,7 +348,11 @@ The recorder SHALL record the 15-minute slot that has just **finished**, labelin
 - **THEN** it SHALL derive `slot_start` from the wall clock (the completed `12:15` slot) rather than assuming the previous iteration's slot
 
 ### Requirement: Correctable Energy Storage
-The slot-observation UPSERT SHALL distinguish "no measurement available" (skip the column, keep any existing value) from "a real measurement" (write it). A real measurement from the authoritative live recorder SHALL be written even when it is lower than, or equal to zero relative to, the stored value, so over-counts can be corrected and genuine zeros can be stored. Non-authoritative backfill writes SHALL only fill columns that have no authoritative measurement yet and SHALL NOT overwrite an authoritative value.
+The slot-observation UPSERT SHALL distinguish "no measurement available" (skip the column, keep any existing value) from "a real measurement" (write it). Non-authoritative backfill writes SHALL only fill columns that have no authoritative measurement yet and SHALL NOT overwrite an authoritative value.
+
+#### Scenario: Authoritative corrections and zeros
+- **WHEN** the authoritative live recorder writes a real measurement lower than, or equal to zero relative to, the stored value
+- **THEN** it is written, so over-counts can be corrected and genuine zeros can be stored
 
 #### Scenario: Live recorder corrects an over-counted value downward
 - **WHEN** a slot already stores `pv_kwh = 8.0` from an earlier spike
@@ -350,9 +373,16 @@ The slot-observation UPSERT SHALL distinguish "no measurement available" (skip t
 - **THEN** the store SHALL keep any existing value for that column rather than overwriting it with a default
 
 ### Requirement: Single Live Recorder Instance
-Exactly one live recorder instance SHALL write `slot_observations` energy and price columns at runtime. The deployment runtime SHALL NOT start more than one concurrent recorder, and the in-process `RecorderService` (started by `backend/main.py`) SHALL be the single canonical live recorder. Container entrypoints SHALL NOT additionally launch the standalone `python -m backend.recorder` loop alongside the application server.
+Exactly one live recorder instance SHALL write `slot_observations` energy and price columns at runtime, and the in-process `RecorderService` (started by `backend/main.py`) SHALL be that single canonical recorder. Container entrypoints SHALL NOT additionally launch the standalone `python -m backend.recorder` loop alongside the application server.
 
-Authoritative writes use last-writer-wins (so genuine zeros and downward corrections can be stored); a single live recorder keeps those writes well-defined and avoids duplicate history requests for the same slot.
+#### Scenario: No concurrent recorders
+- **WHEN** the deployment runtime starts
+- **THEN** it does not start more than one concurrent recorder
+
+#### Scenario: Last-writer-wins rationale
+- **WHEN** authoritative writes occur
+- **THEN** they use last-writer-wins so genuine zeros and downward corrections can be stored
+- **AND** a single live recorder keeps those writes well-defined and avoids duplicate history requests for the same slot
 
 #### Scenario: Application server starts exactly one recorder
 - **WHEN** the container starts the application server (`uvicorn backend.main:app`)
@@ -382,7 +412,14 @@ Each `slot_observations` column SHALL have exactly one canonical owner. The reco
 ### Requirement: All slot energy is integrated from power history
 The recorder SHALL compute `pv_kwh`, total load, `import_kwh`, `export_kwh`, `batt_charge_kwh`, `batt_discharge_kwh`, `ev_charging_kwh` and `water_kwh` for the completed slot by step-integrating (zero-order hold) the configured power sensors' HA history over exactly `[slot_start, slot_end]`. This SHALL be the only primary method; the system SHALL NOT read cumulative energy counters for any metric.
 
-The power sensors used SHALL be `input_sensors.pv_power`, `load_power`, `grid_power` (net meter) or `grid_import_power` and `grid_export_power` (dual meter), `battery_power`, each enabled EV charger's `sensor` and each enabled water heater's `sensor`. Metrics for a subsystem that is disabled (`has_solar`, `has_battery`, `has_ev_charger`, `has_water_heater` false) SHALL be recorded as `0.0` without fetching history.
+#### Scenario: Power sensors used
+- **WHEN** the recorder integrates a completed slot
+- **THEN** it uses `input_sensors.pv_power`, `load_power`, `grid_power` (net meter) or `grid_import_power` and `grid_export_power` (dual meter), and `battery_power`
+- **AND** it uses each enabled EV charger's `sensor` and each enabled water heater's `sensor`
+
+#### Scenario: Disabled subsystem
+- **WHEN** `has_solar`, `has_battery`, `has_ev_charger` or `has_water_heater` is false
+- **THEN** the subsystem's metrics are recorded as `0.0` without fetching history
 
 #### Scenario: Load starting mid-slot is placed in the right slot
 - **WHEN** the grid power is `0.3 kW` until `00:15:08` and `7.2 kW` from `00:15:09` to the end of the slot `[00:15, 00:30]`
@@ -405,9 +442,17 @@ The power sensors used SHALL be `input_sensors.pv_power`, `load_power`, `grid_po
 ### Requirement: Signed power is split by sign per sample interval
 The integrator SHALL return the positive and negative energy of a power series separately, accumulating each sample interval into one side by the sign of its held value. Inversion flags SHALL be applied before splitting.
 
-- Net grid: after `input_sensors.grid_power_inverted`, the positive part SHALL be `import_kwh` and the magnitude of the negative part SHALL be `export_kwh`.
-- Battery: after `input_sensors.battery_power_inverted`, the positive part SHALL be `batt_discharge_kwh` and the magnitude of the negative part SHALL be `batt_charge_kwh`.
-- PV, load, dual-meter import and export, EV and water: negative samples SHALL contribute `0`.
+#### Scenario: Net grid split
+- **WHEN** a net grid series is split after `input_sensors.grid_power_inverted` is applied
+- **THEN** the positive part is `import_kwh` and the magnitude of the negative part is `export_kwh`
+
+#### Scenario: Battery split
+- **WHEN** a battery series is split after `input_sensors.battery_power_inverted` is applied
+- **THEN** the positive part is `batt_discharge_kwh` and the magnitude of the negative part is `batt_charge_kwh`
+
+#### Scenario: Unsigned series
+- **WHEN** PV, load, dual-meter import and export, EV or water series have negative samples
+- **THEN** the negative samples contribute `0`
 
 #### Scenario: Net meter splits import and export
 - **WHEN** a net grid power sensor is `+2.0 kW` for the first 5 minutes of a slot and `−4.0 kW` for the remaining 10 minutes
@@ -472,7 +517,17 @@ On startup, the recorder service SHALL delete `data/recorder_state.json` if it e
 - **THEN** startup SHALL proceed without a warning
 
 ### Requirement: Actual measurement provenance accompanies recorded values
-The recorder SHALL persist versioned per-component measurement provenance and writer ownership, measurement-boundary fingerprint, supported energy-semantics identifier and SoC source/ownership in existing `quality_flags`. It SHALL distinguish integrated power history, snapshot estimates, disabled zeros, unconfigured zeros, derived/mixed energy and live/cached SoC. Derived base load and aggregate device energy SHALL reflect all contributing source paths. Metadata SHALL describe the actual path, not just the application version or successful completion of a history request. Backfills SHALL retain their non-authoritative source while recording their measurement method, including accepted components in a partially recorder-owned row.
+The recorder SHALL persist versioned per-component measurement provenance and writer ownership, measurement-boundary fingerprint, supported energy-semantics identifier and SoC source/ownership in existing `quality_flags`. Metadata SHALL describe the actual path, not just the application version or successful completion of a history request.
+
+#### Scenario: Source categories distinguished
+- **WHEN** provenance is recorded
+- **THEN** it distinguishes integrated power history, snapshot estimates, disabled zeros, unconfigured zeros, derived/mixed energy and live/cached SoC
+- **AND** derived base load and aggregate device energy reflect all contributing source paths
+
+#### Scenario: Backfill provenance
+- **WHEN** a backfill writes values
+- **THEN** it retains its non-authoritative source while recording its measurement method
+- **AND** this includes accepted components in a partially recorder-owned row
 
 #### Scenario: One missing history entity
 - **WHEN** only battery history is missing from a successful batch response
@@ -492,7 +547,17 @@ The recorder SHALL persist versioned per-component measurement provenance and wr
 - **THEN** the SoC source is cached and is not labelled live
 
 ### Requirement: Measurement metadata follows accepted corrections
-Observation UPSERTs SHALL update values and corresponding provenance together. Retained authoritative values SHALL retain their method/ownership metadata; partial writes SHALL NOT certify untouched fields. Corrections without supported provenance SHALL mark overwritten fields unknown. Non-authoritative writes SHALL NOT overwrite authoritative battery energy or SoC or relabel retained values. Ordinary recording writes SHALL preserve unrelated flags, especially explicit exclusions. Changed annotated measurements SHALL invalidate their legacy attestation.
+Observation UPSERTs SHALL update values and corresponding provenance together. Retained authoritative values SHALL retain their method/ownership metadata, and partial writes SHALL NOT certify untouched fields.
+
+#### Scenario: Corrections and non-authoritative writes
+- **WHEN** a correction lacks supported provenance
+- **THEN** the overwritten fields are marked unknown
+- **AND** non-authoritative writes do not overwrite authoritative battery energy or SoC or relabel retained values
+
+#### Scenario: Flags and attestation
+- **WHEN** an ordinary recording write occurs
+- **THEN** unrelated flags, especially explicit exclusions, are preserved
+- **AND** changed annotated measurements invalidate their legacy attestation
 
 #### Scenario: Partial authoritative correction
 - **WHEN** a live write corrects PV but supplies no battery measurement

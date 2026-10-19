@@ -2,7 +2,8 @@
 
 ## Purpose
 
-TBD - Defines the BatteryStrategyCard component that displays battery state of charge, strategy metrics (S-Index, Cycles, Safety Floor, Tradable energy), and 7-day price outlook.
+Defines the BatteryStrategyCard component, which shows battery state of charge and target, strategy metrics (S-Index, cycles, held-back safety floor with price reserve) and a 7-day price outlook.
+
 ## Requirements
 ### Requirement: BatteryStrategyCard displays current SoC and target with color coding
 The `BatteryStrategyCard` component (`frontend/src/components/BatteryStrategyCard.tsx`) SHALL display the current battery SoC (from `soc` prop) and the current slot target SoC (from `socTarget` prop) prominently, as large figures separated by an arrow. SoC SHALL be color-coded: green (`text-good`) when > 50%, amber (`text-warn`) when > 20%, red (`text-bad`) when ≤ 20%. Below the figures, the actual kWh SHALL be shown (e.g., "7.2 / 10.0 kWh"), with "—" for values that are unavailable.
@@ -24,9 +25,8 @@ The `BatteryStrategyCard` component (`frontend/src/components/BatteryStrategyCar
 - **THEN** the card shows "7.2 / 10.0 kWh" below the SoC
 
 ### Requirement: BatteryStrategyCard displays strategy metrics in a vertical stack
-The card SHALL display the battery cycles count in the card header (e.g., "1.2 cycles today", empty when unavailable). Below the SoC section it SHALL display, in a vertical stack, the battery stack with its "Held back" figure, the price reserve box, and the S-Index on a single row. These SHALL be derived from `plannerMeta`, `batteryCycles`, and `batteryCapacity`. When a value is unavailable, it SHALL display "—". The 7-day price outlook SHALL follow and use the remaining card height.
 
-S-Index is derived from `plannerMeta.s_index.effective_load_margin` (preferred) or `plannerMeta.s_index.risk_factor`, formatted as `×{value}` (e.g., "×1.42").
+The card SHALL display the battery cycles count in its header and, below the SoC section, a vertical stack of the battery stack with its "Held back" figure, the price reserve box, and the S-Index row, followed by the 7-day price outlook using the remaining card height. Unavailable values SHALL display "—".
 
 #### Scenario: All metrics show when data is available
 - **WHEN** plannerMeta and batteryCycles are populated
@@ -36,10 +36,21 @@ S-Index is derived from `plannerMeta.s_index.effective_load_margin` (preferred) 
 - **WHEN** plannerMeta is null
 - **THEN** S-Index displays "—" and the battery stack area shows a loading placeholder
 
-### Requirement: BatteryStrategyCard displays price outlook as a pixel sparkline
-When `priceOutlook` is available, the card SHALL display up to 7 days of price outlook as vertical bars below the metrics. The bars SHALL fill the card height that remains after the other sections, with one bar per day. Bar color SHALL indicate price level: `bg-good` for cheap, `bg-warn` for normal, `bg-bad` for expensive, `bg-muted` for unknown. Bar height SHALL be scaled between a visible minimum (cheapest day) and the full plot height (dearest day), so the cheapest day is never invisible; when all prices are equal, the bars SHALL be drawn at a mid height. A `reference_avg` dashed line SHALL be shown when available, on the same scale. Day labels and `avg_spot_p50` values SHALL be displayed below the bars. Hovering a bar SHALL show that day's price and, when known, its low and high values.
+#### Scenario: Cycles shown in the header
+- **WHEN** battery cycles data is available
+- **THEN** the header shows it (e.g., "1.2 cycles today") and is empty when unavailable
 
-When `priceOutlook` is not yet available, the card SHALL show skeleton bars and label placeholders instead of text.
+#### Scenario: Metrics derive from planner data
+- **WHEN** the metrics are rendered
+- **THEN** they are derived from `plannerMeta`, `batteryCycles`, and `batteryCapacity`
+
+#### Scenario: S-Index formatting
+- **WHEN** `plannerMeta.s_index.effective_load_margin` (preferred) or `plannerMeta.s_index.risk_factor` is available
+- **THEN** the S-Index is formatted as `×{value}` (e.g., "×1.42")
+
+### Requirement: BatteryStrategyCard displays price outlook as a pixel sparkline
+
+When `priceOutlook` is available, the card SHALL display up to 7 days of price outlook as one vertical bar per day below the metrics, filling the card height that remains after the other sections. When it is not yet available, the card SHALL show skeleton bars and label placeholders instead of text.
 
 #### Scenario: Bars render one per day
 - **WHEN** `priceOutlook.days` contains 7 entries
@@ -56,6 +67,21 @@ When `priceOutlook` is not yet available, the card SHALL show skeleton bars and 
 #### Scenario: Skeleton while loading
 - **WHEN** `priceOutlook` is undefined or has zero days
 - **THEN** the card shows skeleton bars and no "loading" text, and marks the area as busy for assistive technology
+
+#### Scenario: Bar color indicates price level
+- **WHEN** bars are drawn
+- **THEN** the color is `bg-good` for cheap, `bg-warn` for normal, `bg-bad` for expensive, and `bg-muted` for unknown
+
+#### Scenario: Bar height scaling
+- **WHEN** bars are scaled
+- **THEN** height runs between a visible minimum (cheapest day) and the full plot height (dearest day), so the cheapest day is never invisible
+- **AND** when all prices are equal the bars are drawn at a mid height
+
+#### Scenario: Reference line, labels and hover
+- **WHEN** `reference_avg` is available
+- **THEN** a dashed reference line is shown on the same scale
+- **AND** day labels and `avg_spot_p50` values are displayed below the bars
+- **AND** hovering a bar shows that day's price and, when known, its low and high values
 
 ### Requirement: BatteryStrategyCard displays S-Index with inline decomposition
 The card SHALL display the S-Index value on a single row together with a compact decomposition when available. When `plannerMeta.s_index` contains `avg_deficit`, the row SHALL also show, right aligned: `base {base_factor} · deficit +{contribution} · cold +{contribution}`, using 1.00 and 0.00 for missing parts. When `avg_deficit` is unavailable, only the `×{effective_load_margin}` value SHALL be shown.
@@ -109,16 +135,8 @@ The card SHALL display SoC, metrics, and price outlook all in a single scrollabl
 - **THEN** SoC, metrics grid, and price outlook are all visible without any click or tab selection
 
 ### Requirement: BatteryStrategyCard displays a stacked battery bar of what is held back
-When `plannerMeta.s_index.safety_floor` has `min_soc_kwh` and `calculated_floor_kwh` and `batteryCapacity` > 0, the card SHALL display a horizontal battery bar whose width is the full battery capacity, split in this order into zones: Min SoC (`min_soc_kwh`), Deficit, Weather, Price, Tradable.
 
-- Deficit and Weather SHALL be the capped values: together they equal `calculated_floor_kwh - min_soc_kwh`. Deficit is the effective reserve (`effective_reserve_kwh`, falling back to `base_reserve_kwh`) limited to that amount; Weather is the remainder.
-- Price SHALL be only the part the price reserve adds on top of the deficit floor: `max(0, final_floor_kwh - calculated_floor_kwh)`. The planner combines the two floors with a maximum, so the zones SHALL NOT add the full price reserve to the deficit.
-- Tradable SHALL be `capacity - final floor`, never negative.
-- The final floor SHALL be `final_floor_kwh`, or `calculated_floor_kwh` when `final_floor_kwh` is absent.
-
-The bar SHALL be filled, zone by zone, up to the current SoC. A marker SHALL show the target SoC and a second marker the final floor. Zones smaller than 0.01 kWh SHALL not be drawn. Hovering a zone SHALL show its name and kWh.
-
-Below the bar the card SHALL show "Held back" with the final floor in kWh and as a percentage of capacity, and a legend with every zone and its kWh (zones with no energy shown muted). When the data is unavailable, a loading placeholder SHALL be shown instead of the bar.
+When `plannerMeta.s_index.safety_floor` has `min_soc_kwh` and `calculated_floor_kwh` and `batteryCapacity` > 0, the card SHALL display a horizontal battery bar whose width is the full battery capacity, split in order into zones: Min SoC, Deficit, Weather, Price, Tradable. Below it the card SHALL show "Held back" and a legend of zones.
 
 #### Scenario: Floor without price reserve
 - **WHEN** capacity is 10 kWh, `min_soc_kwh` 1.0, `calculated_floor_kwh` 3.0, `effective_reserve_kwh` 1.5 and `final_floor_kwh` 3.0
@@ -144,18 +162,31 @@ Below the bar the card SHALL show "Held back" with the final floor in kWh and as
 - **WHEN** `safety_floor` is missing or capacity is unknown
 - **THEN** a placeholder is shown instead of the bar
 
+#### Scenario: Zone sizing rules
+- **WHEN** zones are computed
+- **THEN** Deficit and Weather are the capped values that together equal `calculated_floor_kwh - min_soc_kwh`, where Deficit is the effective reserve (`effective_reserve_kwh`, falling back to `base_reserve_kwh`) limited to that amount and Weather is the remainder
+- **AND** Price is only `max(0, final_floor_kwh - calculated_floor_kwh)`, so the zones do not add the full price reserve to the deficit because the planner combines the two floors with a maximum
+- **AND** Tradable is `capacity - final floor`, never negative
+- **AND** the final floor is `final_floor_kwh`, or `calculated_floor_kwh` when `final_floor_kwh` is absent
+
+#### Scenario: Fill, markers and hover
+- **WHEN** the bar is rendered
+- **THEN** it is filled zone by zone up to the current SoC, with a marker for the target SoC and a second marker for the final floor
+- **AND** zones smaller than 0.01 kWh are not drawn
+- **AND** hovering a zone shows its name and kWh
+
+#### Scenario: Held back figure and legend
+- **WHEN** the bar is shown
+- **THEN** below it the card shows "Held back" with the final floor in kWh and as a percentage of capacity
+- **AND** a legend lists every zone with its kWh, with zones holding no energy shown muted
+
+#### Scenario: Loading placeholder
+- **WHEN** the data is unavailable
+- **THEN** a loading placeholder is shown instead of the bar
+
 ### Requirement: BatteryStrategyCard explains the price reserve in plain language
-When `plannerMeta.s_index.safety_floor.price_reserve_reason` is present, the card SHALL display a price reserve box with a one-sentence title and, where useful, a detail line, for every reason:
 
-- `active`: title "Holding {applied} kWh extra for {weekday}" when `price_reserve_applied_kwh` is above 0.05; otherwise "{sized} kWh wanted for {weekday}, already covered by the safety buffer". The detail line SHALL compare the cost of charging now with the cost on that day ("charging now ~{x} öre vs ~{y} öre on {weekday}") when both costs are known, and SHALL add "limited by battery size" when `price_reserve_capped_by` is `usable_capacity` or "limited by charging time left" when it is `known_window_charge`.
-- `own_day_cheaper`: "No extra reserve: {weekday} looks cheaper to charge", with the cost comparison.
-- `below_threshold`: "No extra reserve: price gap too small to pay off", with the cost comparison.
-- `no_net_load`: "No extra reserve: solar should cover {weekday}".
-- `no_charge_capacity`: "No extra reserve: no charging time left before {weekday}".
-- `disabled`: "Price reserve is turned off".
-- any other reason (such as an unavailable forecast): "No extra reserve: price forecast unavailable".
-
-The weekday SHALL come from `unseen_window_start`, or read "the next unknown day" when it is missing. The box SHALL be highlighted when the Price zone is above 0.01 kWh and muted otherwise. When `price_reserve_reason` is missing, no box SHALL be shown.
+When `plannerMeta.s_index.safety_floor.price_reserve_reason` is present, the card SHALL display a price reserve box with a one-sentence title and, where useful, a detail line, for every reason. When the reason is missing, no box SHALL be shown.
 
 #### Scenario: Active reserve
 - **WHEN** the reason is `active`, 2.5 kWh is applied, the unseen day is a Thursday, charging now costs 0.42 SEK/kWh and Thursday 0.95
@@ -180,3 +211,30 @@ The weekday SHALL come from `unseen_window_start`, or read "the next unknown day
 #### Scenario: No reason available
 - **WHEN** `price_reserve_reason` is absent
 - **THEN** no price reserve box is shown
+
+#### Scenario: Active reason text
+- **WHEN** the reason is `active`
+- **THEN** the title is "Holding {applied} kWh extra for {weekday}" when `price_reserve_applied_kwh` is above 0.05, otherwise "{sized} kWh wanted for {weekday}, already covered by the safety buffer"
+- **AND** the detail line compares costs ("charging now ~{x} öre vs ~{y} öre on {weekday}") when both are known
+- **AND** it adds "limited by battery size" when `price_reserve_capped_by` is `usable_capacity` or "limited by charging time left" when it is `known_window_charge`
+
+#### Scenario: Reasons with no extra reserve
+- **WHEN** the reason is `own_day_cheaper`
+- **THEN** the title is "No extra reserve: {weekday} looks cheaper to charge", with the cost comparison
+- **WHEN** the reason is `below_threshold`
+- **THEN** the title is "No extra reserve: price gap too small to pay off", with the cost comparison
+- **WHEN** the reason is `no_net_load`
+- **THEN** the title is "No extra reserve: solar should cover {weekday}"
+- **WHEN** the reason is `no_charge_capacity`
+- **THEN** the title is "No extra reserve: no charging time left before {weekday}"
+
+#### Scenario: Disabled or other reason
+- **WHEN** the reason is `disabled`
+- **THEN** the title is "Price reserve is turned off"
+- **WHEN** the reason is any other (such as an unavailable forecast)
+- **THEN** the title is "No extra reserve: price forecast unavailable"
+
+#### Scenario: Weekday and highlight
+- **WHEN** the weekday is rendered
+- **THEN** it comes from `unseen_window_start`, or reads "the next unknown day" when missing
+- **AND** the box is highlighted when the Price zone is above 0.01 kWh and muted otherwise

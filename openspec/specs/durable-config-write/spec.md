@@ -7,7 +7,11 @@ Defines durable write behavior for `config.yaml` so startup migration and UI sav
 ## Requirements
 
 ### Requirement: All config writers persist atomically
-Every code path that writes `config.yaml` at runtime SHALL persist the file through the single shared config writer, which writes to a temporary file in the same directory as the resolved target and then atomically replaces the target. This covers startup migration, the UI/wizard save endpoint, config reset, the Reflex toggle, executor endpoints, theme selection, and the Reflex learning engine. No writer SHALL open the live config file in truncating write mode (`"w"`), stream content directly into it, or copy over it outside the shared writer.
+Every code path that writes `config.yaml` at runtime SHALL persist the file through the single shared config writer, which writes to a temporary file in the same directory as the resolved target and then atomically replaces the target. No writer SHALL open the live config file in truncating write mode (`"w"`), stream content directly into it, or copy over it outside the shared writer.
+
+#### Scenario: Covered writer paths
+- **WHEN** any of startup migration, the UI/wizard save endpoint, config reset, the Reflex toggle, executor endpoints, theme selection, or the Reflex learning engine writes `config.yaml`
+- **THEN** it persists the file through the single shared config writer
 
 #### Scenario: UI save uses the atomic writer
 - **WHEN** a user saves configuration via `POST /api/config/save` and validation passes

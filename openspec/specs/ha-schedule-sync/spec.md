@@ -1,10 +1,17 @@
 # ha-schedule-sync Specification
 
 ## Purpose
-TBD - created by archiving change price-forecasting-module-5. Update Purpose after archive.
+Keep EV charger ready-by and target-SoC goals in sync with Home Assistant entities, including the plumbing needed to read and write `input_datetime` and `input_number` entities through the backend and executor.
+
+
 ## Requirements
 ### Requirement: Backend subscribes to the HA ready-by and target-SoC entities
-When a charger has `ha_ready_by_entity` (`input_datetime`) and/or `ha_target_soc_entity` (`input_number`) configured, the backend SHALL subscribe to `state_changed` events for those entities via the existing HA WebSocket connection and update the charger's goal in `data/ev_multi_day_state.json` when they change. The entities SHALL be registered in the websocket's monitored-entities map under `ev_ready_by_{idx}` / `ev_target_soc_{idx}` keys (mirroring the vacation-mode pattern) — subscription without registration is a defect, since the `state_changed` dispatch only fires for registered entities.
+When a charger has `ha_ready_by_entity` (`input_datetime`) and/or `ha_target_soc_entity` (`input_number`) configured, the backend SHALL subscribe to `state_changed` events for those entities via the existing HA WebSocket connection and update the charger's goal in `data/ev_multi_day_state.json` when they change.
+
+#### Scenario: Monitored entities registered
+- **WHEN** the backend subscribes to `state_changed` events for a charger's HA entities
+- **THEN** the entities SHALL be registered in the websocket's monitored-entities map under `ev_ready_by_{idx}` / `ev_target_soc_{idx}` keys (mirroring the vacation-mode pattern)
+- **AND** subscription without registration is a defect, since the `state_changed` dispatch only fires for registered entities
 
 #### Scenario: User sets the ready-by time in HA
 - **WHEN** the user sets `input_datetime.ev_ready_by` to `"2026-06-12 07:00:00"` and the charger maps `ha_ready_by_entity` to it
@@ -24,7 +31,15 @@ When a charger has `ha_ready_by_entity` (`input_datetime`) and/or `ha_target_soc
 - **THEN** the HA value SHALL take precedence over the dashboard-set value for that field (mirroring the vacation-mode override)
 
 ### Requirement: Backend reads the HA entities on startup
-On startup and on every websocket reconnect, for each charger with HA entities configured, the backend SHALL read the entities' current values and reconcile with the rule **HA wins, subject to sanity checks**: an HA value SHALL be adopted into the state-file goal when it is sane (target SoC within 1–100; datetime parseable and not in the past). When an HA value fails the sanity check, the backend SHALL keep the state-file value for that field and push it to HA once to resync. The backend SHALL NOT unconditionally push the state file to HA on reconnect — doing so reverts edits the user made in HA while Darkstar was down.
+On startup and on every websocket reconnect, for each charger with HA entities configured, the backend SHALL read the entities' current values and reconcile with the rule **HA wins, subject to sanity checks**: an HA value SHALL be adopted into the state-file goal when it is sane (target SoC within 1–100; datetime parseable and not in the past).
+
+#### Scenario: Failed sanity check keeps state-file value
+- **WHEN** an HA value fails the sanity check during reconciliation
+- **THEN** the backend SHALL keep the state-file value for that field and push it to HA once to resync
+
+#### Scenario: No unconditional push on reconnect
+- **WHEN** the websocket reconnects
+- **THEN** the backend SHALL NOT unconditionally push the state file to HA, because doing so reverts edits the user made in HA while Darkstar was down
 
 #### Scenario: HA has sane values on startup
 - **WHEN** the backend starts and the HA entities hold a future datetime and SoC 90
@@ -74,11 +89,23 @@ The backend SHALL parse `input_datetime` states in `"YYYY-MM-DD HH:MM:SS"` (HA d
 - **THEN** the backend SHALL log a warning and SHALL NOT update the state file
 
 ### Requirement: input_datetime plumbing across four surfaces (currently absent)
-Module 5's HA sync for the ready-by `input_datetime` requires plumbing that does not exist today. **All four SHALL be added:**
-1. **`HAClient.call_service()`** domain allowlist SHALL include `input_datetime` (service `set_datetime`) for write operations; executor SHALL expose a new `set_input_datetime(entity_id, datetime)`. Target-SoC writes SHALL reuse the already-allowed `input_number.set_value`.
-2. **`executor/profiles.py` `VALID_DOMAINS`** SHALL include `"input_datetime"` (currently `{"select","number","switch","input_number"}`).
-3. **`backend/api/routers/ha.py`** entity-list filter SHALL include `"input_datetime."` (currently only `"input_number."`) so the entity picker surfaces `input_datetime` entities in the UI.
-4. **`backend/ha_socket.py`** SHALL register `ev_ready_by_{idx}` / `ev_target_soc_{idx}` monitored-entity keys for each charger with `ha_ready_by_entity` / `ha_target_soc_entity` (alongside the existing `ev_plug_{idx}` mapping), with `state_changed` handlers that update the state-file goal.
+Module 5's HA sync for the ready-by `input_datetime` requires plumbing that does not exist today. **All four SHALL be added, as specified in the scenarios below.**
+
+#### Scenario: HAClient and executor input_datetime write support
+- **WHEN** the ready-by `input_datetime` sync writes to HA
+- **THEN** the `HAClient.call_service()` domain allowlist SHALL include `input_datetime` (service `set_datetime`) for write operations
+- **AND** the executor SHALL expose a new `set_input_datetime(entity_id, datetime)`
+- **AND** target-SoC writes SHALL reuse the already-allowed `input_number.set_value`
+
+#### Scenario: Valid domains and entity picker include input_datetime
+- **WHEN** executor profiles and the entity picker handle `input_datetime` entities
+- **THEN** `executor/profiles.py` `VALID_DOMAINS` SHALL include `"input_datetime"` (currently `{"select","number","switch","input_number"}`)
+- **AND** the `backend/api/routers/ha.py` entity-list filter SHALL include `"input_datetime."` (currently only `"input_number."`) so the entity picker surfaces `input_datetime` entities in the UI
+
+#### Scenario: Socket registers goal entity keys
+- **WHEN** a charger has `ha_ready_by_entity` / `ha_target_soc_entity` configured
+- **THEN** `backend/ha_socket.py` SHALL register `ev_ready_by_{idx}` / `ev_target_soc_{idx}` monitored-entity keys for it (alongside the existing `ev_plug_{idx}` mapping)
+- **AND** it SHALL register `state_changed` handlers that update the state-file goal
 
 #### Scenario: call_service with input_datetime
 - **WHEN** `call_service(domain="input_datetime", service="set_datetime", …)` is called

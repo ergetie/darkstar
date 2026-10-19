@@ -22,7 +22,7 @@ The Kepler solver SHALL create separate decision variables for each enabled wate
 - **THEN** the solver output SHALL be equivalent to the current single-heater model
 
 ### Requirement: Per-device daily minimum energy constraint
-The solver SHALL enforce a per-device daily minimum energy constraint for each heater: `sum(water_heat[d][t] * power_kw * h for t in day_slots) >= min_kwh_per_day - heated_today_kwh - violation[d]`. The violation variable is penalized by the global `water_reliability_penalty_sek`. `heated_today_kwh` SHALL be credited only to the first already-started quota bucket. A shared local-time bucket definition SHALL govern solver grouping and measured progress: with deferral h, bucket D covers `[D at h:00, D+1 at h:00)`. Each energy interval SHALL belong to exactly one bucket; timezone/DST transitions SHALL use actual elapsed durations. Minimums SHALL remain soft minimums, not upper limits on heating.
+The solver SHALL enforce a per-device daily minimum energy constraint for each heater: `sum(water_heat[d][t] * power_kw * h for t in day_slots) >= min_kwh_per_day - heated_today_kwh - violation[d]`. The violation variable is penalized by the global `water_reliability_penalty_sek`. `heated_today_kwh` SHALL be credited only to the first already-started quota bucket.
 
 #### Scenario: Two heaters with different daily requirements
 - **WHEN** heater A has `min_kwh_per_day: 6.0` and heater B has `min_kwh_per_day: 4.0`
@@ -45,6 +45,16 @@ The solver SHALL enforce a per-device daily minimum energy constraint for each h
 - **WHEN** a supported fractional deferral boundary or daylight-saving transition occurs inside the measured window
 - **THEN** energy SHALL be apportioned by the actual boundary and elapsed time without omission or double credit
 - **AND** all later buckets SHALL keep their independent daily minimum
+
+#### Scenario: Shared local-time quota buckets
+- **WHEN** the solver groups slots into daily quota buckets and measured progress is attributed
+- **THEN** a shared local-time bucket definition SHALL govern solver grouping and measured progress: with deferral h, bucket D covers `[D at h:00, D+1 at h:00)`
+- **AND** each energy interval SHALL belong to exactly one bucket
+- **AND** timezone/DST transitions SHALL use actual elapsed durations
+
+#### Scenario: Daily minimums are soft minimums
+- **WHEN** a heater has reached its daily minimum energy
+- **THEN** the minimum SHALL NOT act as an upper limit on heating
 
 ### Requirement: Per-device block duration constraint
 The solver SHALL enforce a per-device maximum block duration using a sliding window: for each heater `d`, `sum(water_heat[d][t:t+window]) <= max_block_slots + overshoot[d]`. The window size is determined by the global `max_block_hours` setting.
@@ -134,13 +144,7 @@ The adapter SHALL create a `WaterHeaterInput` dataclass for each enabled water h
 - **THEN** the adapter SHALL NOT include that heater in the `WaterHeaterInput` list
 
 ### Requirement: Per-device gap-comfort penalty with deadband
-The Kepler solver SHALL bound the time between water-heating blocks per device using a soft, linear discomfort penalty with a deadband at the configured maximum gap. For each enabled heater `d`, the solver SHALL create non-negative variables `discomfort[d][t]` and `gap_over[d][t]` and enforce, for every slot `t` with `duration = slot_hours[t]` and a large constant `M` (100.0):
-
-- `discomfort[d][0] >= duration - water_heat[d][0] * M`
-- `discomfort[d][t] >= discomfort[d][t-1] + duration - water_heat[d][t] * M` for `t > 0`
-- `gap_over[d][t] >= discomfort[d][t] - deadband`, where `deadband = heater.max_hours_between_heating` for device `d`
-
-The objective SHALL include `sum over d,t of gap_over[d][t] * water_gap_penalty_sek`. The penalty SHALL be active for each heater only when its `max_hours_between_heating > 0`, top-ups are enabled, vacation mode is inactive, AND `water_gap_penalty_sek > 0`; otherwise no gap variables, constraints, or objective term SHALL be added. The formulation SHALL be O(T) per heater (no sliding-window constraints).
+The Kepler solver SHALL bound the time between water-heating blocks per device using a soft, linear discomfort penalty with a deadband at the configured maximum gap. For each enabled heater `d`, the solver SHALL create non-negative variables `discomfort[d][t]` and `gap_over[d][t]` and enforce, for every slot `t` with `duration = slot_hours[t]` and a large constant `M` (100.0), `discomfort[d][0] >= duration - water_heat[d][0] * M`; see the scenarios below for the rest.
 
 #### Scenario: Gaps within the ceiling are free
 - **GIVEN** a heater with `max_hours_between_heating = 8` and a schedule where the longest gap between heating is 6 hours
@@ -167,6 +171,18 @@ The objective SHALL include `sum over d,t of gap_over[d][t] * water_gap_penalty_
 - **THEN** each SHALL use its own deadband rather than a shared default of 8 hours
 - **AND** their gap penalties SHALL activate independently
 
+#### Scenario: Gap penalty recurrence and objective term
+- **WHEN** the water-heating gap penalty is active for heater `d`
+- **THEN** the solver SHALL enforce `discomfort[d][t] >= discomfort[d][t-1] + duration - water_heat[d][t] * M` for `t > 0`
+- **AND** it SHALL enforce `gap_over[d][t] >= discomfort[d][t] - deadband`, where `deadband = heater.max_hours_between_heating` for device `d`
+- **AND** the objective SHALL include `sum over d,t of gap_over[d][t] * water_gap_penalty_sek`
+- **AND** the formulation SHALL be O(T) per heater (no sliding-window constraints)
+
+#### Scenario: Gap penalty activation conditions
+- **WHEN** a heater's `max_hours_between_heating` is not above 0, top-ups are disabled, vacation mode is active, or `water_gap_penalty_sek` is not above 0
+- **THEN** no gap variables, constraints, or objective term SHALL be added
+- **AND** the penalty SHALL be active for a heater only when its `max_hours_between_heating > 0`, top-ups are enabled, vacation mode is inactive, AND `water_gap_penalty_sek > 0`
+
 ### Requirement: comfort_level scales the gap penalty weight, not the ceiling
 The water-heating gap penalty weight `water_gap_penalty_sek` SHALL be derived solely from `comfort_level` via `COMFORT_MAP`, and SHALL increase monotonically from level 1 to level 5. `comfort_level` SHALL NOT modify `max_hours_between_heating` / `water_heating_max_gap_hours`; the gap ceiling SHALL remain exactly the operator-configured value regardless of comfort level.
 
@@ -181,7 +197,7 @@ The water-heating gap penalty weight `water_gap_penalty_sek` SHALL be derived so
 - **THEN** the deadband SHALL equal 8 hours for every comfort level
 
 ### Requirement: Water comfort control surface is truthful
-The configuration and settings UI SHALL expose only water-comfort controls that the solver actually reads: `comfort_level`, per-heater `max_hours_between_heating`, `min_kwh_per_day`, `water_min_spacing_hours`, and `power_kw`. The global `water_heating.reliability_penalty_sek`, `water_heating.block_start_penalty_sek`, `water_heating.spacing_penalty_sek`, and `water_heating.block_penalty_sek` keys SHALL NOT appear in `config.default.yaml` or the settings UI, because the solver derives those weights from `comfort_level` and never reads the keys.
+The configuration and settings UI SHALL expose only water-comfort controls that the solver actually reads: `comfort_level`, per-heater `max_hours_between_heating`, `min_kwh_per_day`, `water_min_spacing_hours`, and `power_kw`.
 
 #### Scenario: Dead penalty keys absent from defaults and UI
 - **WHEN** inspecting `config.default.yaml` and the settings UI field definitions
@@ -192,8 +208,12 @@ The configuration and settings UI SHALL expose only water-comfort controls that 
 - **WHEN** the app loads the config
 - **THEN** the app SHALL load successfully and ignore the extra keys (no error, no behavior change)
 
+#### Scenario: Unread global water penalty keys are not exposed
+- **WHEN** `config.default.yaml` or the settings UI is inspected
+- **THEN** the global `water_heating.reliability_penalty_sek`, `water_heating.block_start_penalty_sek`, `water_heating.spacing_penalty_sek`, and `water_heating.block_penalty_sek` keys SHALL NOT appear, because the solver derives those weights from `comfort_level` and never reads the keys
+
 ### Requirement: Water settings validate effective scheduling inputs
-Configuration load and settings save SHALL reject non-finite deferral and values outside 0–23 hours inclusive with a field-specific actionable error. Settings SHALL expose the same bounds and explain the local-time quota boundary. The system SHALL NOT silently clamp or reinterpret invalid existing values. Per-heater maximum-gap settings SHALL support values above 24 hours, including 28, consistently with solver inputs. Per-heater `idle_power_threshold_kw` SHALL be configurable with explicit units and non-negative finite validation, default 0, and guidance explaining active-energy filtering.
+Configuration load and settings save SHALL reject non-finite deferral and values outside 0–23 hours inclusive with a field-specific actionable error. Settings SHALL expose the same bounds and explain the local-time quota boundary. The system SHALL NOT silently clamp or reinterpret invalid existing values. Per-heater maximum-gap settings SHALL support values above 24 hours, including 28, consistently with solver inputs.
 
 #### Scenario: Existing out-of-range deferral
 - **WHEN** a configuration sets `water_heating.defer_up_to_hours` to 30
@@ -213,3 +233,8 @@ Configuration load and settings save SHALL reject non-finite deferral and values
 - **WHEN** a valid older configuration omits the idle cutoff
 - **THEN** the cutoff SHALL default to 0 and preserve previous sample inclusion
 - **AND** the settings help SHALL explain when an operator can configure a cutoff such as 0.10 kW for a roughly 0.06 kW idle draw
+
+#### Scenario: Idle power threshold setting
+- **WHEN** a per-heater `idle_power_threshold_kw` is configured
+- **THEN** it SHALL be configurable with explicit units and non-negative finite validation, default 0
+- **AND** the settings SHALL include guidance explaining active-energy filtering

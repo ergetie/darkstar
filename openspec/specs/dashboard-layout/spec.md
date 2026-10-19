@@ -2,7 +2,8 @@
 
 ## Purpose
 
-TBD - Defines the layout structure for the main dashboard page including the three-row layout, bento grid configuration, and removal of the lab page.
+Defines the layout structure of the main dashboard page, including the three-row layout, the bento grid configuration, the removal of the lab page, and the mobile behavior of the schedule chart.
+
 ## Requirements
 ### Requirement: Dashboard uses a three-row layout
 The dashboard at `/` SHALL consist of three vertical sections in order: (1) schedule chart row using `ChartCard`, (2) unified command bar row using `CommandBar`, (3) bento grid row. The layout SHALL be responsive and collapse to a single column on small screens.
@@ -52,7 +53,17 @@ The `/dashboard-lab` route, its sidebar navigation link, and its source file (`D
 ---
 
 ### Requirement: Mobile chart slot selection panel
-`ChartCard` SHALL show a slot info panel above the chart plot at all viewport sizes, in place of any floating tooltip. The panel SHALL show the slot under the pointer on desktop, the tapped slot on mobile viewports (below Tailwind `md` / < 768 px), and the current slot when no slot is pinned. On mobile, tapping a slot SHALL select it, drawing a guide line at that slot and marking the panel as pinned; tapping the selected slot again SHALL clear the selection. The panel SHALL NOT change the card height when a slot is selected. The panel's contents are specified in the `chart-planned-actual-display` capability.
+`ChartCard` SHALL show a slot info panel above the chart plot at all viewport sizes, in place of any floating tooltip. On mobile viewports (below Tailwind `md` / < 768 px), tapping a slot SHALL select it and pin the panel, and tapping the selected slot again SHALL clear the selection. The panel's contents are specified in the `chart-planned-actual-display` capability.
+
+#### Scenario: Panel slot source
+- **WHEN** the panel is shown
+- **THEN** it shows the slot under the pointer on desktop, the tapped slot on mobile viewports, and the current slot when no slot is pinned
+
+#### Scenario: Selection visuals and card height
+- **WHEN** a slot is selected on mobile
+- **THEN** a guide line is drawn at that slot and the panel is marked as pinned
+- **AND** tapping the selected slot again clears the selection
+- **AND** the panel does not change the card height when a slot is selected
 
 #### Scenario: Mobile tap selects slot and pins the panel
 - **WHEN** a user on a mobile viewport (< 768 px) taps a slot on the schedule chart
@@ -75,7 +86,12 @@ The `/dashboard-lab` route, its sidebar navigation link, and its source file (`D
 - **THEN** the selection is cleared and the panel shows the current slot
 
 ### Requirement: Mobile slot selection survives live updates
-On mobile viewports, a slot selected on the `ChartCard` SHALL stay selected, with its band and values panel visible, until the user dismisses it by tapping outside the card or tapping the selected slot again. Live metric updates and other re-renders of the dashboard that do not change the schedule data SHALL NOT clear the selection or rebuild the chart data. When the schedule data does change and the selected index is still within the new data, the selection SHALL be kept and the panel SHALL show the updated values; if the index is no longer valid, the selection SHALL be cleared.
+On mobile viewports, a slot selected on the `ChartCard` SHALL stay selected, with its band and values panel visible, until the user dismisses it by tapping outside the card or tapping the selected slot again. Live metric updates and other re-renders that do not change the schedule data SHALL NOT clear the selection or rebuild the chart data.
+
+#### Scenario: Schedule data changes keep or clear selection
+- **WHEN** the schedule data changes
+- **THEN** the selection is kept and the panel shows the updated values if the selected index is still within the new data
+- **AND** the selection is cleared if the index is no longer valid
 
 #### Scenario: Selection stays across live metric updates
 - **GIVEN** a user on a mobile viewport has tapped a slot on the schedule chart
@@ -93,7 +109,16 @@ On mobile viewports, a slot selected on the `ChartCard` SHALL stay selected, wit
 - **THEN** the selection is cleared and the panel collapses
 
 ### Requirement: Chart hour labels fit the available width
-The `ChartCard` x axis SHALL show hour text labels only as often as they fit the chart's current width without overlapping. When a label for every visible hour does not fit, the axis SHALL show text only for every third hour (00, 03, 06, ...), and only for every sixth or twelfth hour if every third still does not fit. A mark for every hour SHALL remain drawn in the chart. The decision SHALL depend on the available chart width and visible range, not on whether the viewport is classified as mobile. When every hour label fits, the axis SHALL keep a label for every hour.
+The `ChartCard` x axis SHALL show hour text labels only as often as they fit the chart's current width without overlapping, while a mark for every hour SHALL remain drawn. The decision SHALL depend on the available chart width and visible range, not on whether the viewport is classified as mobile.
+
+#### Scenario: Label thinning steps
+- **WHEN** a label for every visible hour does not fit
+- **THEN** the axis shows text only for every third hour (00, 03, 06, ...)
+- **AND** only for every sixth or twelfth hour if every third still does not fit
+
+#### Scenario: All labels fit
+- **WHEN** every hour label fits the available width
+- **THEN** the axis keeps a label for every hour
 
 #### Scenario: Narrow width labels every third hour
 - **GIVEN** the chart shows today and tomorrow (48 hours) in a card about 350 px wide

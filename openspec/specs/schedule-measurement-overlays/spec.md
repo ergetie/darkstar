@@ -19,7 +19,13 @@ The schedule history API and chart SHALL keep planned water heating and its per-
 - **AND** the original plan SHALL remain separately available for comparison
 
 ### Requirement: Actual water overlays require component evidence
-Actual water values SHALL be presented only with supported water-component measurement provenance or valid legacy evidence explicitly establishing a water measurement. Integrated measurements and snapshot estimates SHALL retain distinct sources. A price-only row, a default zero column, or missing provenance SHALL NOT by itself establish a water actual. Unknown actuals SHALL remain unavailable; measured zero SHALL remain a valid actual. Aggregate and per-device actuals SHALL remain mutually consistent where attribution is known.
+Actual water values SHALL be presented only with supported water-component measurement provenance or valid legacy evidence explicitly establishing a water measurement. Unknown actuals SHALL remain unavailable; measured zero SHALL remain a valid actual.
+
+#### Scenario: Source distinction and insufficient evidence
+- **WHEN** water actuals are presented
+- **THEN** integrated measurements and snapshot estimates SHALL retain distinct sources
+- **AND** a price-only row, a default zero column, or missing provenance SHALL NOT by itself establish a water actual
+- **AND** aggregate and per-device actuals SHALL remain mutually consistent where attribution is known
 
 #### Scenario: Completed price-only row
 - **WHEN** a completed slot contains prices but no supported water measurement

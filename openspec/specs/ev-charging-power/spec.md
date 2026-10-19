@@ -1,17 +1,22 @@
 # ev-charging-power Specification
 
 ## Purpose
-TBD - created by archiving change ev-planning-model. Update Purpose after archive.
+Defines how EV charger power limits, the nominal grid voltage and charger phase configuration are derived and applied consistently across planning, execution and the UI.
+
 ## Requirements
 ### Requirement: Charger power limits are derived from electrical configuration
-A single shared helper SHALL compute each charger's power limits:
-- **`type: current` chargers:**
-  - `max_kw = max_current_a × len(phases) × V / 1000`;
-  - `min_kw = min_current_a × len(phases) × V / 1000 × 1.01`;
-  - `V` is `system.grid.nominal_voltage_v`, default 230.
-- **`type: binary` chargers:** `max_kw = min_kw = rated_power_kw`. Voltage, amps and phases SHALL NOT affect a binary charger's limits.
+A single shared helper SHALL compute each charger's power limits from its electrical configuration, and the planner adapter, pipeline status and diagnostics helpers, preflight, load registration service, and executor kW↔A conversion SHALL all use it. No consumer SHALL read `max_power_kw` for EV chargers.
 
-The planner adapter, pipeline status and diagnostics helpers, preflight, load registration service, and executor kW↔A conversion SHALL all use this helper. No consumer SHALL read `max_power_kw` for EV chargers.
+#### Scenario: Current-type charger limits
+- **WHEN** limits are computed for a `type: current` charger
+- **THEN** `max_kw = max_current_a × len(phases) × V / 1000`
+- **AND** `min_kw = min_current_a × len(phases) × V / 1000 × 1.01`
+- **AND** `V` is `system.grid.nominal_voltage_v`, default 230
+
+#### Scenario: Binary-type charger limits
+- **WHEN** limits are computed for a `type: binary` charger
+- **THEN** `max_kw = min_kw = rated_power_kw`
+- **AND** voltage, amps and phases do not affect the limits
 
 #### Scenario: 10 A three-phase current charger
 - **WHEN** a current charger has `max_current_a: 10`, `min_current_a: 6`, `phases: [1,2,3]`, and nominal voltage 230
@@ -57,13 +62,22 @@ The settings charger editor SHALL NOT offer a free-typed max-power field for cur
 - **THEN** the displayed maximum SHALL change from 8.3 kW to 6.9 kW
 
 ### Requirement: Single nominal grid voltage
-The system SHALL have one nominal grid voltage, `system.grid.nominal_voltage_v` (default 230 V, the EU standard), configured next to `system.grid.main_fuse_a`. Every kW↔A conversion SHALL use it:
-- EV charger power derivation (shared helper);
-- executor planned-kW-to-amps, manual-charge power, measured-draw and per-phase W→A conversion;
-- excess-PV surplus amps and the 1-/3-phase minimum-power thresholds;
-- the load balancer's power-mode phase conversion when that phase has no `input_sensors.grid_voltage_l*` entity. A configured per-phase voltage sensor SHALL take precedence for real-time control.
+The system SHALL have one nominal grid voltage, `system.grid.nominal_voltage_v` (default 230 V, the EU standard), configured next to `system.grid.main_fuse_a`, and every kW↔A conversion SHALL use it. No code path SHALL hard-code a grid voltage, and config validation SHALL reject a value outside 100–260 V.
 
-No code path SHALL hard-code a grid voltage. Config validation SHALL reject a value outside 100–260 V. The settings page SHALL show the field in the System profile next to the grid limits.
+#### Scenario: Conversions using the nominal voltage
+- **WHEN** a kW↔A conversion occurs
+- **THEN** the nominal voltage is used for EV charger power derivation (shared helper)
+- **AND** for executor planned-kW-to-amps, manual-charge power, measured-draw and per-phase W→A conversion
+- **AND** for excess-PV surplus amps and the 1-/3-phase minimum-power thresholds
+- **AND** for the load balancer's power-mode phase conversion when that phase has no `input_sensors.grid_voltage_l*` entity
+
+#### Scenario: Per-phase voltage sensor precedence
+- **WHEN** a per-phase voltage sensor is configured
+- **THEN** it takes precedence for real-time control
+
+#### Scenario: Settings page field
+- **WHEN** the settings page is shown
+- **THEN** the field appears in the System profile next to the grid limits
 
 #### Scenario: Default voltage
 - **WHEN** `system.grid.nominal_voltage_v` is unset
@@ -90,12 +104,23 @@ Config migration SHALL move `load_balancing.nominal_voltage_v` to `system.grid.n
 - **THEN** the config SHALL be unchanged
 
 ### Requirement: A current charger without phases is disabled visibly
-A `type: current` charger with no `phases` SHALL stay disabled for planning, but SHALL never be silent:
-- the load registration service SHALL register it with `disabled_reason: missing_phases` and log a warning;
-- `GET /api/ev/chargers` SHALL still list it, with a `disabled_reason` message naming the charger by its configured `name` (falling back to `id`), e.g. "Configure phases for <name> to enable planning"; the message SHALL never hard-code a charger brand;
-- the EV card SHALL show that message;
-- config migration SHALL log a warning for each such charger;
-- in the settings charger editor, phases SHALL be a required field for current chargers, pre-filled with L1/L2/L3 for new chargers, and saving a current charger without phases SHALL be blocked with the same message.
+A `type: current` charger with no `phases` SHALL stay disabled for planning, but SHALL never be silent: it SHALL be registered with `disabled_reason: missing_phases`, listed by `GET /api/ev/chargers` with a disabled-reason message, shown in the EV card, and flagged by a config migration warning and the settings editor.
+
+#### Scenario: Backend visibility
+- **WHEN** a current charger has no phases
+- **THEN** the load registration service registers it with `disabled_reason: missing_phases` and logs a warning
+- **AND** config migration logs a warning for each such charger
+
+#### Scenario: API and EV card message
+- **WHEN** `GET /api/ev/chargers` lists the charger
+- **THEN** it includes a `disabled_reason` message naming the charger by its configured `name` (falling back to `id`), e.g. "Configure phases for <name> to enable planning"
+- **AND** the message never hard-codes a charger brand
+- **AND** the EV card shows that message
+
+#### Scenario: Settings editor
+- **WHEN** a current charger is edited in the settings charger editor
+- **THEN** phases is a required field, pre-filled with L1/L2/L3 for new chargers
+- **AND** saving a current charger without phases is blocked with the same message
 
 #### Scenario: Charger missing phases
 - **WHEN** a current charger named "Garage" has `max_current_a: 12` and no `phases`

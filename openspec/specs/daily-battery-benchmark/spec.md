@@ -70,7 +70,23 @@ The benchmark SHALL run at 00:10 local and once after startup, processing not-ye
 - **THEN** every subsequent run recomputes it until it is scored, excluded, or leaves the window
 
 ### Requirement: Read-only API and Grid & Financial integration
-`GET /api/energy/battery-benchmark` SHALL return stored per-day results and totals (missed, values, score, status counts) for inclusive local dates, default the last 30 finished days, max 366, and SHALL never trigger a solve. The existing Grid & Financial card SHALL show a "DS vs hindsight" row directly under "DS vs grid-only" in the same style (missed kr, score, scored/total days, ⓘ details with excluded days and reasons), and its cost chart SHALL add a cumulative "Hindsight" line below the DS line with the area between them shaded. Existing grid-only values, line and area SHALL be unchanged.
+`GET /api/energy/battery-benchmark` SHALL return stored per-day results and totals for inclusive local dates and SHALL never trigger a solve. The existing Grid & Financial card SHALL show a "DS vs hindsight" row directly under "DS vs grid-only", and its cost chart SHALL add a cumulative "Hindsight" line below the DS line. Existing grid-only values, line and area SHALL be unchanged.
+
+#### Scenario: API response contents and range
+- **WHEN** `GET /api/energy/battery-benchmark` is called
+- **THEN** it returns stored per-day results and totals (missed, values, score, status counts) for inclusive local dates
+- **AND** the default range is the last 30 finished days with a maximum of 366
+- **AND** no solve is triggered
+
+#### Scenario: Card row style and content
+- **WHEN** the Grid & Financial card shows the "DS vs hindsight" row
+- **THEN** it appears directly under "DS vs grid-only" in the same style
+- **AND** it shows missed kr, score, scored/total days and an ⓘ with excluded days and reasons
+
+#### Scenario: Chart line and shading
+- **WHEN** the cost chart is shown
+- **THEN** the cumulative "Hindsight" line is drawn below the DS line with the area between them shaded
+- **AND** existing grid-only values, line and area are unchanged
 
 #### Scenario: Period with excluded days
 - **WHEN** the selected 30d range has 22 scored and 3 excluded days

@@ -7,7 +7,15 @@ Defines the independent receiver for validated telemetry ingestion, aggregate hi
 ## Requirements
 
 ### Requirement: Independent transparent receiver deployment
-The repository SHALL contain a separately runnable receiver and deployment README under `telemetry_receiver/`. It SHALL reuse currently pinned runtime dependencies and standard-library SQLite, operate without Darkstar's configuration/executor/learning databases, and remain outside normal Darkstar container start paths. Deployment examples SHALL cover a single-worker service in an LXC, persistent database storage, environment-supplied credentials, and a persistent Cloudflare Tunnel serving `telemetry.wxl.se` over HTTPS.
+The repository SHALL contain a separately runnable receiver and deployment README under `telemetry_receiver/`, operating without Darkstar's configuration/executor/learning databases and remaining outside normal Darkstar container start paths.
+
+#### Scenario: Dependencies
+- **WHEN** the receiver is built
+- **THEN** it SHALL reuse currently pinned runtime dependencies and standard-library SQLite
+
+#### Scenario: Deployment examples
+- **WHEN** the deployment README is read
+- **THEN** the examples SHALL cover a single-worker service in an LXC, persistent database storage, environment-supplied credentials, and a persistent Cloudflare Tunnel serving `telemetry.wxl.se` over HTTPS
 
 #### Scenario: Run the receiver independently
 - **WHEN** the receiver starts with its own database path and credentials
@@ -15,7 +23,22 @@ The repository SHALL contain a separately runnable receiver and deployment READM
 - **AND** starting a normal Darkstar install does not start the receiver
 
 ### Requirement: Bounded public ping ingestion
-`POST /api/ping` SHALL accept either the legacy six-field heartbeat or the current seven-field heartbeat without requiring authentication. The current payload SHALL add only `execution_mode`, restricted to `shadow`, `live`, or `unknown`; legacy payloads SHALL be normalized to `execution_mode: unknown`. Both shapes SHALL reject every other extra or missing field. The receiver SHALL validate UUIDv4, allowed enums and inverter identifiers, and a non-empty version of at most 128 characters. It SHALL reject bodies larger than 2 KiB, including streamed bodies without Content-Length. It SHALL apply a global in-memory limit of 60 ping requests/second with burst 60 before database writes, returning 429 and Retry-After when exceeded. Invalid submissions SHALL NOT create or modify installation records.
+`POST /api/ping` SHALL accept either the legacy six-field heartbeat or the current seven-field heartbeat without requiring authentication, SHALL bound its input and request rate, and invalid submissions SHALL NOT create or modify installation records.
+
+#### Scenario: Payload shapes
+- **WHEN** a ping is received
+- **THEN** the current payload SHALL add only `execution_mode`, restricted to `shadow`, `live`, or `unknown`
+- **AND** legacy payloads SHALL be normalized to `execution_mode: unknown`
+- **AND** both shapes SHALL reject every other extra or missing field
+
+#### Scenario: Field validation and body size
+- **WHEN** a ping is received
+- **THEN** the receiver SHALL validate UUIDv4, allowed enums and inverter identifiers, and a non-empty version of at most 128 characters
+- **AND** it SHALL reject bodies larger than 2 KiB, including streamed bodies without Content-Length
+
+#### Scenario: Global rate limit
+- **WHEN** ping requests exceed a global in-memory limit of 60 requests/second with burst 60
+- **THEN** the receiver SHALL return 429 and Retry-After before database writes
 
 #### Scenario: Current and legacy public pings
 - **WHEN** a valid seven-field or legacy six-field payload is posted without credentials
@@ -56,7 +79,16 @@ The receiver SHALL store at most one installation row per ID, containing latest 
 - **AND** a subsequent failed database write returns an error rather than HTTP 204
 
 ### Requirement: Active windows and metadata breakdowns
-The receiver SHALL report distinct installation counts for 7-day and 30-day trailing windows relative to an explicit as-of UTC time, including the lower boundary. Each window SHALL include breakdowns by latest version, release channel, installation type, architecture, inverter profile, and execution mode. Each breakdown's counts SHALL sum to its window total. Summary labels SHALL describe active reporting installations and SHALL NOT claim exact users, households, or healthy executors. Empty datasets SHALL return zero counts and empty breakdowns.
+The receiver SHALL report distinct installation counts for 7-day and 30-day trailing windows relative to an explicit as-of UTC time, including the lower boundary. Summary labels SHALL describe active reporting installations and SHALL NOT claim exact users, households, or healthy executors.
+
+#### Scenario: Breakdowns per window
+- **WHEN** a window is reported
+- **THEN** it SHALL include breakdowns by latest version, release channel, installation type, architecture, inverter profile, and execution mode
+- **AND** each breakdown's counts SHALL sum to its window total
+
+#### Scenario: Empty dataset
+- **WHEN** the dataset is empty
+- **THEN** the receiver SHALL return zero counts and empty breakdowns
 
 #### Scenario: Execution mode counts for both windows
 - **WHEN** active installations have reported `shadow`, `live`, and `unknown` modes
@@ -74,7 +106,22 @@ The receiver SHALL report distinct installation counts for 7-day and 30-day trai
 - **AND** an empty database reports zero totals and empty breakdowns
 
 ### Requirement: Aggregate history and individual retention
-At startup and once per UTC day the receiver SHALL record one aggregate snapshot per UTC date, including its actual sample timestamp, both active-window totals, metadata breakdowns, and execution-mode breakdowns. Snapshot records SHALL contain no installation IDs and SHALL survive individual-record cleanup indefinitely. The current day's sample SHALL be labeled as partial/sampled; missed days SHALL remain gaps. At startup and daily, the receiver SHALL delete installation records strictly older than 60 days since last report. Startup SHALL apply an additive, idempotent SQLite migration: existing installation rows SHALL receive mode `unknown`, and existing snapshots SHALL retain their stored times, totals, and metadata breakdowns while their new mode counts represent their recorded totals as `unknown`. The migration SHALL NOT infer historic modes from current observations.
+At startup and once per UTC day the receiver SHALL record one aggregate snapshot per UTC date containing no installation IDs, and SHALL delete installation records strictly older than 60 days since last report. Snapshot records SHALL survive individual-record cleanup indefinitely.
+
+#### Scenario: Snapshot contents and gaps
+- **WHEN** a snapshot is recorded
+- **THEN** it SHALL include its actual sample timestamp, both active-window totals, metadata breakdowns, and execution-mode breakdowns
+- **AND** the current day's sample SHALL be labeled as partial/sampled
+- **AND** missed days SHALL remain gaps
+
+#### Scenario: Retention cleanup
+- **WHEN** the receiver starts and once daily
+- **THEN** it SHALL delete installation records strictly older than 60 days since last report
+
+#### Scenario: Additive mode migration
+- **WHEN** startup applies the SQLite migration
+- **THEN** it SHALL be additive and idempotent: existing installation rows SHALL receive mode `unknown`, and existing snapshots SHALL retain their stored times, totals, and metadata breakdowns while their new mode counts represent their recorded totals as `unknown`
+- **AND** the migration SHALL NOT infer historic modes from current observations
 
 #### Scenario: Stale records expire
 - **WHEN** cleanup runs with records aged exactly 60 days and more than 60 days
@@ -93,7 +140,17 @@ At startup and once per UTC day the receiver SHALL record one aggregate snapshot
 - **AND** days missed during receiver downtime are not backfilled with invented values
 
 ### Requirement: Protected simple summary on the public hostname
-The receiver SHALL serve a simple HTML summary at `/` and aggregate JSON/history through `/api/stats` on `telemetry.wxl.se`, protected by HTTP Basic authentication over HTTPS. Credentials SHALL come from server environment variables and missing/empty credentials SHALL refuse startup. All read routes SHALL enforce authentication with constant-time credential comparison, return generic HTTP 401 with WWW-Authenticate for invalid credentials, and disable caching. Public API docs/schema SHALL be disabled. The page SHALL show current totals, metadata and execution-mode breakdowns for both windows, and aggregate history using local styling and safely escaped values, without exposing individual IDs or payloads. Its explanatory text SHALL describe mode as the latest reported setting and explain that unavailable and pre-migration modes are `unknown`.
+The receiver SHALL serve a simple HTML summary at `/` and aggregate JSON/history through `/api/stats` on `telemetry.wxl.se`, protected by HTTP Basic authentication over HTTPS, with public API docs/schema disabled.
+
+#### Scenario: Credentials and authentication
+- **WHEN** the receiver starts or a read route is requested
+- **THEN** credentials SHALL come from server environment variables and missing/empty credentials SHALL refuse startup
+- **AND** all read routes SHALL enforce authentication with constant-time credential comparison, return generic HTTP 401 with WWW-Authenticate for invalid credentials, and disable caching
+
+#### Scenario: Page content
+- **WHEN** the summary page is shown
+- **THEN** it SHALL show current totals, metadata and execution-mode breakdowns for both windows, and aggregate history using local styling and safely escaped values, without exposing individual IDs or payloads
+- **AND** its explanatory text SHALL describe mode as the latest reported setting and explain that unavailable and pre-migration modes are `unknown`
 
 #### Scenario: Unauthorized statistics access
 - **WHEN** a visitor requests `/` or `/api/stats` without valid credentials

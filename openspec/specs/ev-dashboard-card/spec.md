@@ -1,7 +1,7 @@
 # ev-dashboard-card Specification
 
 ## Purpose
-TBD - created by archiving change price-forecasting-module-5. Update Purpose after archive.
+Define the EV controls on the dashboard Energy Resources card: the persisted Metrics/EV tab, per-charger goal controls, progress and status display, and at-risk and prerequisite hints, so users can set and monitor EV charging goals.
 ## Requirements
 ### Requirement: EV controls live in a persisted tab inside the Energy Resources card
 The Energy Resources card SHALL include a "Metrics | EV" tab switch when `has_ev_charger` is true. The "Metrics" tab SHALL show the existing resource metrics (including the at-a-glance EV summary line); the "EV" tab SHALL show the per-charger goal controls. The active tab SHALL be persisted in `localStorage` (reusing the ChartCard overlay-persistence pattern: a versioned key, migration, and a new-user default of `"metrics"`).
@@ -19,7 +19,7 @@ The Energy Resources card SHALL include a "Metrics | EV" tab switch when `has_ev
 - **THEN** the at-a-glance EV line (plug state + today's kWh) SHALL still be visible
 
 ### Requirement: EV tab shows goal controls per charger (no modes)
-For each configured charger, the EV tab SHALL render: a target SoC % slider (default 80), a ready-by time input, a repeat selector (Every day / Weekdays / Weekends / Every N days / Specific date), a date input shown only for "Specific date", and a keep-charger-on-after-target checkbox. **No "EV-before-battery priority" checkbox** — surplus ordering is owned by the shipped `excess_pv.priority[]` list (home battery implicitly first via `soc_threshold_percent`). There SHALL be no "daily vs multi-day" mode dropdown. Changing any control SHALL call the schedule write API.
+For each configured charger, the EV tab SHALL render: a target SoC % slider (default 80), a ready-by time input, a repeat selector (Every day / Weekdays / Weekends / Every N days / Specific date), a date input shown only for "Specific date", and a keep-charger-on-after-target checkbox. **No "EV-before-battery priority" checkbox** — surplus ordering is owned by the shipped `excess_pv.priority[]` list (home battery implicitly first via `soc_threshold_percent`).
 
 #### Scenario: Set a daily goal
 - **WHEN** the user sets target 80%, ready-by 07:00, repeat "Every day"
@@ -37,14 +37,13 @@ For each configured charger, the EV tab SHALL render: a target SoC % slider (def
 - **WHEN** more than one charger is configured
 - **THEN** the EV tab SHALL render an independent control block per charger
 
-### Requirement: EV tab shows read-only progress and status
-The EV tab SHALL display the following per charger:
-- a progress bar and percent computed as current SoC divided by the target SoC (clamped 0-100%) for chargers with a SoC sensor, and as delivered kWh divided by required kWh (clamped 0-100%) for chargers without one; the bar SHALL never show 100% from missing data;
-- "Delivered Today" as an informational kWh value that does not drive the progress bar for chargers with SoC;
-- a status badge (`on_track` / `behind` / `complete` / `idle` / `paused_by_load_balancer`);
-- a planned per-day estimate from `planned_by_day`: one chip per day from today through the deadline day, showing the planned kWh.
+#### Scenario: No mode dropdown and controls write the schedule
+- **WHEN** the EV tab renders a charger's controls
+- **THEN** there SHALL be no "daily vs multi-day" mode dropdown
+- **AND** changing any control SHALL call the schedule write API
 
-Chips with `basis: "known"` SHALL render solid. Chips with `basis: "estimated"` SHALL render visually de-emphasised with an "est." label and a tooltip explaining that the value is based on forecast prices. Today's chip SHALL be highlighted. The section title SHALL read "Planned per day", not "Upcoming Daily Quotas".
+### Requirement: EV tab shows read-only progress and status
+The EV tab SHALL display, per charger, a progress bar, a Delivered Today value, a status badge and a planned per-day estimate, as specified in the scenarios below.
 
 #### Scenario: On-track goal
 - **WHEN** the charger is progressing toward its target within the deadline
@@ -70,6 +69,24 @@ Chips with `basis: "known"` SHALL render solid. Chips with `basis: "estimated"` 
 - **WHEN** `planned_by_day` is empty or absent
 - **THEN** the per-day section SHALL be hidden
 
+#### Scenario: Progress bar computation
+- **WHEN** the EV tab shows a charger's progress
+- **THEN** the progress bar and percent SHALL be computed as current SoC divided by the target SoC (clamped 0-100%) for chargers with a SoC sensor, and as delivered kWh divided by required kWh (clamped 0-100%) for chargers without one
+- **AND** the bar SHALL never show 100% from missing data
+
+#### Scenario: Delivered Today and status badge
+- **WHEN** the EV tab shows a charger's status
+- **THEN** it SHALL show "Delivered Today" as an informational kWh value that does not drive the progress bar for chargers with SoC
+- **AND** it SHALL show a status badge (`on_track` / `behind` / `complete` / `idle` / `paused_by_load_balancer`)
+
+#### Scenario: Planned per-day chips
+- **WHEN** the EV tab shows the planned per-day estimate from `planned_by_day`
+- **THEN** it SHALL render one chip per day from today through the deadline day, showing the planned kWh
+- **AND** chips with `basis: "known"` SHALL render solid
+- **AND** chips with `basis: "estimated"` SHALL render visually de-emphasised with an "est." label and a tooltip explaining that the value is based on forecast prices
+- **AND** today's chip SHALL be highlighted
+- **AND** the section title SHALL read "Planned per day", not "Upcoming Daily Quotas"
+
 ### Requirement: EV tab indicates HA-driven values and missing HA entities
 When a goal field is currently driven by Home Assistant (`source: "ha"`), the EV tab SHALL indicate that. When a goal is active but no HA entities are configured, the tab SHALL show a non-blocking tip about connecting HA helpers.
 
@@ -82,7 +99,7 @@ When a goal field is currently driven by Home Assistant (`source: "ha"`), the EV
 - **THEN** the tab SHALL show a subtle tip to connect HA helpers for automation/voice control
 
 ### Requirement: EV tab surfaces the Excess-PV priority-list prerequisite (surplus absorption off)
-Surplus-PV absorption requires the charger to be listed as an `ev` entry in `excess_pv.priority[]` (configured under Settings → Advanced → "Excess PV Dispatch"). For a current-type charger not found in that list, the EV tab SHALL show a non-blocking hint "Surplus absorption off — add this charger to Excess PV priority" with a jump-link to that Advanced editor. The jump-link SHALL use client-side routing (React Router `Link`, honoring the router basename) so it works under HA Ingress; raw anchors that trigger full-page navigation are a defect. For a binary charger (which can never absorb surplus), the EV tab SHALL instead show an informational note that binary chargers cannot absorb surplus and that a current-type charger is required for free-PV charging.
+Surplus-PV absorption requires the charger to be listed as an `ev` entry in `excess_pv.priority[]` (configured under Settings → Advanced → "Excess PV Dispatch"). For a current-type charger not found in that list, the EV tab SHALL show a non-blocking hint "Surplus absorption off — add this charger to Excess PV priority" with a jump-link to that Advanced editor.
 
 #### Scenario: Current-type charger missing from priority list
 - **WHEN** a configured current-type charger is not referenced by any entry in `excess_pv.priority[]`
@@ -100,8 +117,17 @@ Surplus-PV absorption requires the charger to be listed as an `ev` entry in `exc
 - **WHEN** a configured current-type charger is referenced by an `ev` entry in `excess_pv.priority[]`
 - **THEN** the EV tab SHALL show no surplus hint (absorption is on)
 
+#### Scenario: Jump-link uses client-side routing
+- **WHEN** the EV tab shows the jump-link to the Advanced editor
+- **THEN** the jump-link SHALL use client-side routing (React Router `Link`, honoring the router basename) so it works under HA Ingress
+- **AND** raw anchors that trigger full-page navigation are a defect
+
+#### Scenario: Binary charger surplus note
+- **WHEN** the EV tab shows a binary charger (which can never absorb surplus)
+- **THEN** it SHALL instead show an informational note that binary chargers cannot absorb surplus and that a current-type charger is required for free-PV charging
+
 ### Requirement: Paused-by-load-balancer status wording
-When the fuse balancer is currently throttling or shedding the EV (per-phase cap reached), the EV tab's status badge SHALL read "Paused by load balancer" rather than "behind on target", so the user understands the goal isn't failing — the fuse, a physical constraint, is the authority. The badge SHALL key on the balancer's actual per-EV states — `throttling`, `paused`, and `stale_fallback` — not on non-existent state names. `stale_fallback` (charging halted by the stale-sensor fail-safe) SHALL be surfaced as a paused-style badge, never as "on track". When headroom returns, the badge SHALL revert to the underlying goal status (`on_track` / `behind` / `complete` / `idle`).
+When the fuse balancer is currently throttling or shedding the EV (per-phase cap reached), the EV tab's status badge SHALL read "Paused by load balancer" rather than "behind on target", so the user understands the goal isn't failing — the fuse, a physical constraint, is the authority.
 
 #### Scenario: Balancer actively throttling the EV
 - **WHEN** the load balancer reports state `throttling` for this charger
@@ -116,8 +142,17 @@ When the fuse balancer is currently throttling or shedding the EV (per-phase cap
 - **WHEN** the balancer resumes the EV (headroom healthy)
 - **THEN** the badge SHALL revert to the underlying `on_track` / `behind` / `complete` / `idle` status
 
+#### Scenario: Badge keyed on actual balancer states
+- **WHEN** the badge reflects the load balancer's state
+- **THEN** it SHALL key on the balancer's actual per-EV states (`throttling`, `paused`, and `stale_fallback`), not on non-existent state names
+- **AND** `stale_fallback` (charging halted by the stale-sensor fail-safe) SHALL be surfaced as a paused-style badge, never as "on track"
+
+#### Scenario: Badge reverts when headroom returns
+- **WHEN** headroom returns
+- **THEN** the badge SHALL revert to the underlying goal status (`on_track` / `behind` / `complete` / `idle`)
+
 ### Requirement: Card state truthfully mirrors server state
-The EV charging card SHALL derive its view/edit mode and displayed values from the current server-provided charger props on every render — never from a one-shot initialization. Specifically: when the server reports no goal, the card SHALL show the no-goal editing state (never a phantom goal built from local defaults); after a save, the card SHALL show the submitted values and SHALL NOT transiently revert to pre-save values while the refetch is in flight; fields cleared server-side SHALL reset locally rather than leaking into the next edit session; a failed charger fetch SHALL surface an error that is cleared on the next successful fetch; and concurrent fetches SHALL be guarded so a stale response never overwrites a newer one. While the server reports `plan_pending: true` for a charger, the card SHALL show a "Re-planning…" indicator and SHALL NOT display plan-derived values from the previous plan (delivered/remaining, status badge, `planned_by_day` chips); the goal values themselves SHALL remain visible. When a planner failure is reported while a plan was pending, the card SHALL show that the re-plan failed and MAY show the previous plan's values marked as stale.
+The EV charging card SHALL derive its view/edit mode and displayed values from the current server-provided charger props on every render — never from a one-shot initialization.
 
 #### Scenario: Goal cleared elsewhere
 - **WHEN** the goal is cleared from another browser or via HA and the card refreshes
@@ -144,6 +179,28 @@ The EV charging card SHALL derive its view/edit mode and displayed values from t
 - **WHEN** a `planner_error` is received while the card shows "Re-planning…"
 - **THEN** the card SHALL show that the re-plan failed instead of the pending indicator
 
+#### Scenario: Card state derived from server props
+- **WHEN** the EV charging card renders
+- **THEN** when the server reports no goal, the card SHALL show the no-goal editing state (never a phantom goal built from local defaults)
+- **AND** after a save, the card SHALL show the submitted values and SHALL NOT transiently revert to pre-save values while the refetch is in flight
+- **AND** fields cleared server-side SHALL reset locally rather than leaking into the next edit session
+
+#### Scenario: Fetch errors and concurrent fetches
+- **WHEN** the card fetches charger data
+- **THEN** a failed charger fetch SHALL surface an error that is cleared on the next successful fetch
+- **AND** concurrent fetches SHALL be guarded so a stale response never overwrites a newer one
+
+#### Scenario: Re-planning indicator while plan is pending
+- **WHEN** the server reports `plan_pending: true` for a charger
+- **THEN** the card SHALL show a "Re-planning…" indicator
+- **AND** it SHALL NOT display plan-derived values from the previous plan (delivered/remaining, status badge, `planned_by_day` chips)
+- **AND** the goal values themselves SHALL remain visible
+
+#### Scenario: Planner failure while plan was pending
+- **WHEN** a planner failure is reported while a plan was pending
+- **THEN** the card SHALL show that the re-plan failed
+- **AND** it MAY show the previous plan's values marked as stale
+
 ### Requirement: All date logic uses the user's local calendar
 Date defaults, "today" comparisons, and weekday labels in the EV card SHALL be computed in the browser's local timezone (and quota-schedule keys interpreted as planner-local dates). UTC-based helpers (`toISOString().slice(0,10)`, `new Date("YYYY-MM-DD")` for display) SHALL NOT be used for calendar logic.
 
@@ -164,7 +221,7 @@ When the server reports `assumed_plugged: true` for an unplugged charger with an
 - **AND** SHALL state that the house battery is not affected while the car is away
 
 ### Requirement: Single charger fills the EV tab with actions at the bottom
-When exactly one charger is shown in the EV tab, its card SHALL fill the available height of the Energy Resources cell and its action buttons (Clear and Configure Goal) SHALL be pinned to the bottom. On desktop, the charger list SHALL fill the cell without increasing the height of the dashboard row, and SHALL scroll inside the cell when several chargers do not fit. A charger card's action buttons SHALL always be visible without scrolling; when the card's content does not fit, the content between the header and the buttons SHALL scroll inside the card and SHALL never be clipped unreachably.
+When exactly one charger is shown in the EV tab, its card SHALL fill the available height of the Energy Resources cell and its action buttons (Clear and Configure Goal) SHALL be pinned to the bottom.
 
 #### Scenario: One charger
 - **WHEN** one charger is shown
@@ -183,6 +240,16 @@ When exactly one charger is shown in the EV tab, its card SHALL fill the availab
 #### Scenario: Editing a goal in a short cell
 - **WHEN** the goal form is open and taller than the cell
 - **THEN** the Save and Cancel buttons SHALL be fully visible and the form fields SHALL scroll
+
+#### Scenario: Charger list sizing on desktop
+- **WHEN** the EV tab is displayed on desktop
+- **THEN** the charger list SHALL fill the cell without increasing the height of the dashboard row
+- **AND** it SHALL scroll inside the cell when several chargers do not fit
+
+#### Scenario: Action buttons always visible
+- **WHEN** a charger card's content does not fit
+- **THEN** the action buttons SHALL always be visible without scrolling
+- **AND** the content between the header and the buttons SHALL scroll inside the card and SHALL never be clipped unreachably
 
 ### Requirement: EV card colours use theme tokens
 Status badges, the HA-driven badge, the keep-enabled indicator and the surplus-PV hints on the EV card SHALL use design-system colour tokens (good, warn, water) rather than fixed palette colours, so they are readable in both light and dark themes. Text on gold (accent) buttons and the active tab of the Energy Resources card SHALL be dark in both themes.

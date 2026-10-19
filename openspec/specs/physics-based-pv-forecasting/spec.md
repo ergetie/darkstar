@@ -68,7 +68,7 @@ For historical training data, the system SHALL use **stored open-meteo forecasts
 - **AND** log the reason
 
 ### Requirement: Final Forecast Composition
-The final PV forecast SHALL be the open-meteo baseline plus the bounded ML residual from the LightGBM PV model, clamped to a physical *generation* ceiling. The generation ceiling SHALL be derived from DC-side limits — panel capacity (`total_kwp * max_efficiency`) and the inverter DC input limit (`max_dc_input_kw`) — and SHALL NOT be reduced by the inverter AC output limit (`max_ac_power_kw`) on DC-coupled systems, because surplus PV above the AC limit charges the battery on the DC side and is still real generation. The effective ceiling (its value and which limit bound it) SHALL be logged when forecasts are generated. The previously removed Aurora corrector SHALL NOT add a separate residual.
+The final PV forecast SHALL be the open-meteo baseline plus the bounded ML residual from the LightGBM PV model, clamped to a physical *generation* ceiling.
 
 #### Scenario: Final forecast calculation
 - **WHEN** returning forecast via API
@@ -95,6 +95,16 @@ The final PV forecast SHALL be the open-meteo baseline plus the bounded ML resid
 - **WHEN** API consumers request forecast data
 - **THEN** the response structure SHALL remain compatible
 - **AND** `final.pv_kwh` SHALL remain the authoritative forecast value
+
+#### Scenario: Generation ceiling derived from DC-side limits
+- **WHEN** the generation ceiling for the final PV forecast is derived
+- **THEN** it SHALL be derived from DC-side limits: panel capacity (`total_kwp * max_efficiency`) and the inverter DC input limit (`max_dc_input_kw`)
+- **AND** it SHALL NOT be reduced by the inverter AC output limit (`max_ac_power_kw`) on DC-coupled systems, because surplus PV above the AC limit charges the battery on the DC side and is still real generation
+
+#### Scenario: Effective ceiling logged and no Aurora residual
+- **WHEN** forecasts are generated
+- **THEN** the effective ceiling (its value and which limit bound it) SHALL be logged
+- **AND** the previously removed Aurora corrector SHALL NOT add a separate residual
 
 ### Requirement: Open-Meteo Fallback
 The system SHALL fall back to the **last successful stored open-meteo fetch** when a new fetch fails, and surface a warning, rather than computing a home-grown simplified forecast.

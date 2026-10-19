@@ -5,9 +5,33 @@
 Defines the configuration schema, startup validation, settings UI, and live status surface for the phase load balancing feature.
 ## Requirements
 ### Requirement: Load balancing configuration schema
-The config SHALL support: `system.grid.main_fuse_a` (positive integer, per-phase fuse rating in ampere); `input_sensors.grid_current_l1/l2/l3` (HA entity IDs for per-phase grid current or power at the connection point — the value SHALL be auto-detected as a current or power sensor per the `phase-load-balancing` capability, and the config key names remain `grid_current_l*` for backward compatibility even when a power sensor is configured); `input_sensors.grid_voltage_l1/l2/l3` (optional HA entity IDs for per-phase grid voltage, used only to convert a power-mode phase to current); and a `load_balancing` section with `enabled` (bool, default false), `resume_delay_s` (default 120), `resume_margin_percent` (default 90), `increase_step_a` (default 1), `sensor_stale_after_s` (default 30), `nominal_voltage_v` (default 220, used to convert a power-mode phase to current when that phase has no configured voltage entity), `notify_interventions` (bool, default false), `replan_after_throttled_s` (default 600), `loads[]` (each entry: device reference to a water heater, custom entity, or `type: binary` EV charger — `type: current` EV chargers SHALL NOT be referenced here — plus a `phases` list; entries SHALL NOT carry a priority field), and `give_way_order[]` — an ordered list of references (`{kind: charger, id}` for a `type: current` EV charger, `{kind: shed, id}` for a `loads[]` entry) where the top entry gives way first.
+The config SHALL support: `system.grid.main_fuse_a` (positive integer, per-phase fuse rating in ampere); `input_sensors.grid_current_l1/l2/l3` (HA entity IDs for per-phase grid current or power at the connection point — the value SHALL be auto-detected as a current or power sensor per the `phase-load-balancing` capability). The key naming, voltage sensors, the `load_balancing` section keys, `loads[]` and `give_way_order[]` are specified in the scenarios below.
 
-The previous `load_balancing.charger_priority` map and `loads[].priority` field are replaced by `give_way_order` and SHALL be migrated automatically at startup: chargers ordered by their old `charger_priority` (falling back to `ev_chargers[]` position), followed by `loads[]` entries ordered by their old `priority` ascending; the old keys are then dropped. The migration SHALL be idempotent and logged. On every config load, `give_way_order` SHALL be self-healed: current-type chargers absent from the list are appended after the last charger entry (or at the top if none), `loads[]` entries absent from the list are appended at the end, and entries referencing missing devices (or chargers no longer `type: current`) are dropped with a logged warning. `system.grid.max_power_kw` SHALL remain unchanged in meaning and use.
+#### Scenario: grid_current key names kept for power sensors
+- **WHEN** a power sensor is configured under `input_sensors.grid_current_l1/l2/l3`
+- **THEN** the config key names SHALL remain `grid_current_l*` for backward compatibility
+
+#### Scenario: Grid voltage sensors and load_balancing section keys
+- **WHEN** the load-balancing configuration is read
+- **THEN** `input_sensors.grid_voltage_l1/l2/l3` SHALL be supported as optional HA entity IDs for per-phase grid voltage, used only to convert a power-mode phase to current
+- **AND** a `load_balancing` section SHALL support `enabled` (bool, default false), `resume_delay_s` (default 120), `resume_margin_percent` (default 90), `increase_step_a` (default 1), `sensor_stale_after_s` (default 30), `nominal_voltage_v` (default 220, used to convert a power-mode phase to current when that phase has no configured voltage entity), `notify_interventions` (bool, default false) and `replan_after_throttled_s` (default 600)
+
+#### Scenario: Load entries and give-way order list
+- **WHEN** `load_balancing.loads[]` and `give_way_order[]` are configured
+- **THEN** each `loads[]` entry SHALL be a device reference to a water heater, custom entity, or `type: binary` EV charger, plus a `phases` list
+- **AND** `type: current` EV chargers SHALL NOT be referenced in `loads[]`, and entries SHALL NOT carry a priority field
+- **AND** `give_way_order[]` SHALL be an ordered list of references (`{kind: charger, id}` for a `type: current` EV charger, `{kind: shed, id}` for a `loads[]` entry) where the top entry gives way first
+
+#### Scenario: Legacy priority keys migrated to give_way_order
+- **WHEN** the config contains the previous `load_balancing.charger_priority` map or `loads[].priority` field
+- **THEN** they are replaced by `give_way_order` and SHALL be migrated automatically at startup: chargers ordered by their old `charger_priority` (falling back to `ev_chargers[]` position), followed by `loads[]` entries ordered by their old `priority` ascending; the old keys are then dropped
+- **AND** the migration SHALL be idempotent and logged
+
+#### Scenario: give_way_order self-healing on config load
+- **WHEN** the config is loaded
+- **THEN** `give_way_order` SHALL be self-healed: current-type chargers absent from the list are appended after the last charger entry (or at the top if none), and `loads[]` entries absent from the list are appended at the end
+- **AND** entries referencing missing devices (or chargers no longer `type: current`) are dropped with a logged warning
+- **AND** `system.grid.max_power_kw` SHALL remain unchanged in meaning and use
 
 #### Scenario: Defaults are safe
 - **WHEN** a user upgrades without touching config
@@ -45,11 +69,27 @@ The previous `load_balancing.charger_priority` map and `loads[].priority` field 
 - **THEN** the next config load SHALL drop that entry with a logged warning
 
 ### Requirement: Startup validation with actionable errors
-When `load_balancing.enabled` is true, startup validation SHALL verify that `main_fuse_a` is set and positive, all three per-phase sensors are configured, and `loads[]` contains at least one entry referencing an existing device with a non-empty `phases` list, OR at least one `type: current` EV charger is configured (which is automatically balanced without needing a `loads[]` entry). Each violation SHALL produce an error naming the missing key and how to fix it. Implausible values (e.g. `main_fuse_a` > 125 or ≤ 0) SHALL be rejected.
+When `load_balancing.enabled` is true, startup validation SHALL verify that `main_fuse_a` is set and positive, all three per-phase sensors are configured, and `loads[]` contains at least one entry referencing an existing device with a non-empty `phases` list, OR at least one `type: current` EV charger is configured (which is automatically balanced without needing a `loads[]` entry). Each violation SHALL produce an error naming the missing key and how to fix it.
 
-For each configured per-phase sensor, validation SHALL confirm its unit resolves to a recognized current or power unit; an unrecognized unit SHALL fail validation naming the phase and the offending entity. If any phase resolves to power-sensor mode, `load_balancing.nominal_voltage_v` (or that phase's voltage entity) SHALL be available — since `nominal_voltage_v` always has a default, this SHALL never block validation on its own. Any `loads[]` entry referencing an EV charger whose `type` is `current` SHALL fail validation with a message directing the user to the give-way list instead (the charger appears there automatically).
+#### Scenario: Implausible fuse values rejected
+- **WHEN** `main_fuse_a` is greater than 125 or less than or equal to 0
+- **THEN** startup validation SHALL reject the value
 
-Validation SHALL additionally emit non-blocking warnings (logged and surfaced in the settings UI, never failing startup): when `load_balancing.enabled` is true and `executor.interval_seconds` exceeds 15, a warning SHALL name both keys and state that the balancer reacts and reports only once per tick (recommended ≤ 15 s); and when any `type: current` EV charger has no `soc_sensor` configured, a warning SHALL name the charger and state that Darkstar cannot track its charging progress or recover throttling shortfall (plan-time SoC is assumed 0%).
+#### Scenario: Sensor unit validation
+- **WHEN** startup validation checks each configured per-phase sensor
+- **THEN** validation SHALL confirm its unit resolves to a recognized current or power unit
+- **AND** an unrecognized unit SHALL fail validation naming the phase and the offending entity
+- **AND** if any phase resolves to power-sensor mode, `load_balancing.nominal_voltage_v` (or that phase's voltage entity) SHALL be available; since `nominal_voltage_v` always has a default, this SHALL never block validation on its own
+
+#### Scenario: Current-type charger in loads[] fails validation
+- **WHEN** a `loads[]` entry references an EV charger whose `type` is `current`
+- **THEN** validation SHALL fail with a message directing the user to the give-way list instead (the charger appears there automatically)
+
+#### Scenario: Non-blocking validation warnings
+- **WHEN** validation runs
+- **THEN** it SHALL additionally emit non-blocking warnings (logged and surfaced in the settings UI, never failing startup)
+- **AND** when `load_balancing.enabled` is true and `executor.interval_seconds` exceeds 15, a warning SHALL name both keys and state that the balancer reacts and reports only once per tick (recommended ≤ 15 s)
+- **AND** when any `type: current` EV charger has no `soc_sensor` configured, a warning SHALL name the charger and state that Darkstar cannot track its charging progress or recover throttling shortfall (plan-time SoC is assumed 0%)
 
 #### Scenario: Enabled without phase sensors
 - **WHEN** `load_balancing.enabled: true` but `grid_current_l2` is missing
@@ -82,19 +122,46 @@ Validation SHALL additionally emit non-blocking warnings (logged and surfaced in
 - **AND** startup SHALL proceed
 
 ### Requirement: Settings UI section
-The frontend SHALL provide a load-balancing settings section with a global enable toggle, the fuse rating, per-phase sensor pickers (labeled to indicate either current or power sensors are accepted), anti-flap tuning fields, a nominal voltage field, a notifications toggle ("Notify on load balancer interventions", bound to `notify_interventions`), and a single reorderable **give-way list** replacing the previous two labeled groups:
+The frontend SHALL provide a load-balancing settings section with a global enable toggle, the fuse rating, per-phase sensor pickers (labeled to indicate either current or power sensors are accepted), anti-flap tuning fields, a nominal voltage field, a notifications toggle ("Notify on load balancer interventions", bound to `notify_interventions`), and a single reorderable **give-way list** replacing the previous two labeled groups, with the behavior specified in the scenarios below.
 
-- The list SHALL be ordered top-to-bottom, top gives way first, reorderable by drag with always-available up/down button fallback, and SHALL show no numeric priority fields.
-- Every `type: current` EV charger SHALL appear in the list automatically (never user-added or user-removed); its row SHALL show name and configured phases read-only, a plain-language capability line derived from its configuration (e.g. "Throttle 16 → 6 A, then pause"), and a link to the EV tab where its settings live. Only its position SHALL be editable here.
-- Shed loads (water heater, custom entity, `type: binary` EV charger) SHALL be addable/removable in the list, each with device, phases, and a capability line ("Switch off"). The EV charger picker for shed entries SHALL offer only `type: binary` chargers.
-- The section copy SHALL state the top-down give-way rule in plain language and that phase assignment for on/off loads must match the physical installation.
-- The reorderable-list control SHALL be implemented as a reusable component suitable for other ordered lists (e.g. a future excess-PV sink priority list).
+#### Scenario: Give-way list behavior and content
+- **WHEN** the give-way list is displayed
+- **THEN** the list SHALL be ordered top-to-bottom, top gives way first, reorderable by drag with always-available up/down button fallback, and SHALL show no numeric priority fields
+- **AND** the reorderable-list control SHALL be implemented as a reusable component suitable for other ordered lists (e.g. a future excess-PV sink priority list)
+- **AND** the section copy SHALL state the top-down give-way rule in plain language and that phase assignment for on/off loads must match the physical installation
 
-The settings tab SHALL always be visible in navigation, regardless of `system.has_ev_charger` or `system.has_water_heater` — it SHALL NOT be conditionally hidden the way hardware-specific tabs (Solar, Battery, EV, Heating) are, since a `custom_entity` shed load requires no system flag at all. When the give-way list is empty — no `type: current` EV charger auto-included and no `loads[]` entries configured, regardless of the `has_ev_charger`/`has_water_heater` flags — the give-way section SHALL display an inline explanatory message pointing to the ways to populate it (a dynamically-throttled EV charger configured in the EV tab, or a water heater/custom entity added directly here) instead of a bare empty list. This message SHALL NOT block use of the enable toggle, fuse rating, or sensor fields.
+#### Scenario: Current-type chargers in the give-way list
+- **WHEN** a `type: current` EV charger exists
+- **THEN** it SHALL appear in the list automatically (never user-added or user-removed)
+- **AND** its row SHALL show name and configured phases read-only, a plain-language capability line derived from its configuration (e.g. "Throttle 16 → 6 A, then pause"), and a link to the EV tab where its settings live
+- **AND** only its position SHALL be editable here
 
-When `load_balancing.enabled` is true and `executor.interval_seconds` exceeds 15, the section SHALL display a persistent inline warning naming both keys and the recommended tick. If any phase resolves to power-sensor mode, the settings UI SHALL show all three per-phase voltage entity fields together as one group (not conditionally per individual phase), each optional and independently falling back to the nominal voltage if left blank.
+#### Scenario: Shed loads in the give-way list
+- **WHEN** the user manages shed loads (water heater, custom entity, `type: binary` EV charger)
+- **THEN** they SHALL be addable/removable in the list, each with device, phases, and a capability line ("Switch off")
+- **AND** the EV charger picker for shed entries SHALL offer only `type: binary` chargers
 
-In the EV chargers settings tab, the current-control load type option SHALL be labeled "Dynamic" (config value unchanged), and while selected the UI SHALL display its consequences in plain language: the planner sets the charge current per slot, the charger is automatically included in the load-balancing give-way list (with a link to that tab), and it becomes eligible for future PV-surplus charging. When a `type: current` charger has no SoC sensor configured, the EV tab SHALL show an inline warning that Darkstar cannot track its charging progress.
+#### Scenario: Settings tab always visible
+- **WHEN** navigation is rendered
+- **THEN** the settings tab SHALL always be visible, regardless of `system.has_ev_charger` or `system.has_water_heater`
+- **AND** it SHALL NOT be conditionally hidden the way hardware-specific tabs (Solar, Battery, EV, Heating) are, since a `custom_entity` shed load requires no system flag at all
+
+#### Scenario: Empty give-way list message
+- **WHEN** the give-way list is empty (no `type: current` EV charger auto-included and no `loads[]` entries configured, regardless of the `has_ev_charger`/`has_water_heater` flags)
+- **THEN** the give-way section SHALL display an inline explanatory message pointing to the ways to populate it (a dynamically-throttled EV charger configured in the EV tab, or a water heater/custom entity added directly here) instead of a bare empty list
+- **AND** this message SHALL NOT block use of the enable toggle, fuse rating, or sensor fields
+
+#### Scenario: Tick interval warning and voltage field group
+- **WHEN** `load_balancing.enabled` is true and `executor.interval_seconds` exceeds 15
+- **THEN** the section SHALL display a persistent inline warning naming both keys and the recommended tick
+- **WHEN** any phase resolves to power-sensor mode
+- **THEN** the settings UI SHALL show all three per-phase voltage entity fields together as one group (not conditionally per individual phase), each optional and independently falling back to the nominal voltage if left blank
+
+#### Scenario: EV tab Dynamic load type
+- **WHEN** the EV chargers settings tab shows the current-control load type option
+- **THEN** it SHALL be labeled "Dynamic" (config value unchanged)
+- **AND** while selected, the UI SHALL display its consequences in plain language: the planner sets the charge current per slot, the charger is automatically included in the load-balancing give-way list (with a link to that tab), and it becomes eligible for future PV-surplus charging
+- **AND** when a `type: current` charger has no SoC sensor configured, the EV tab SHALL show an inline warning that Darkstar cannot track its charging progress
 
 #### Scenario: User enables the feature from the UI
 - **WHEN** the user fills in fuse rating, sensors, and one give-way entry, then enables the toggle
@@ -138,9 +205,21 @@ In the EV chargers settings tab, the current-control load type option SHALL be l
 - **AND** the give-way list SHALL show that entry
 
 ### Requirement: Live per-phase status
-The system SHALL expose live balancer status — per-phase measured current, fuse rating, headroom, and the balancer's current action — via the existing live-metrics WebSocket emission and a REST status endpoint. The status SHALL include one named entry per dynamically-throttled EV charger (charger name, state — idle/throttling/paused/stale-fallback, current setpoint vs. planned target, and the measured draw in amps per phase or null when unavailable) rather than a single unnamed summary line, plus the shed-entry state (which loads are shed, with reason). The frontend SHALL render a status view with per-phase load bars against the fuse limit, a per-charger row for each dynamically-throttled charger (showing measured draw when available), and the active shed state with its reason.
+The system SHALL expose live balancer status — per-phase measured current, fuse rating, headroom, and the balancer's current action — via the existing live-metrics WebSocket emission and a REST status endpoint.
 
-The status view SHALL additionally display a data-freshness indicator derived from the latest received payload's timestamp (e.g. "updated 3 s ago"), updating continuously, and SHALL visually flag staleness when the age materially exceeds the executor tick interval — so a system whose measured currents are legitimately near zero (e.g. a zero-export inverter covering the house load) remains distinguishable from a frozen or disconnected one.
+#### Scenario: Per-charger status entries
+- **WHEN** live balancer status is reported
+- **THEN** the status SHALL include one named entry per dynamically-throttled EV charger (charger name, state — idle/throttling/paused/stale-fallback, current setpoint vs. planned target, and the measured draw in amps per phase or null when unavailable) rather than a single unnamed summary line
+- **AND** it SHALL include the shed-entry state (which loads are shed, with reason)
+
+#### Scenario: Status view rendering
+- **WHEN** the frontend renders the status view
+- **THEN** it SHALL render per-phase load bars against the fuse limit, a per-charger row for each dynamically-throttled charger (showing measured draw when available), and the active shed state with its reason
+
+#### Scenario: Data-freshness indicator
+- **WHEN** the status view is displayed
+- **THEN** it SHALL display a data-freshness indicator derived from the latest received payload's timestamp (e.g. "updated 3 s ago"), updating continuously
+- **AND** it SHALL visually flag staleness when the age materially exceeds the executor tick interval, so a system whose measured currents are legitimately near zero (e.g. a zero-export inverter covering the house load) remains distinguishable from a frozen or disconnected one
 
 #### Scenario: User watches the balancer act
 - **WHEN** the balancer reduces the EV from 16 A to 10 A because L1 is near the fuse limit
@@ -168,22 +247,40 @@ The status view SHALL additionally display a data-freshness indicator derived fr
 - **THEN** the status view SHALL visually flag the data as stale
 
 ### Requirement: Graceful degradation settings
-The `load_balancing` config section SHALL additionally support:
-- `target_margin_percent`: number, default 85, valid range 50–100.
-- `pause_debounce_s`: integer, default 5, valid range 0–60.
-- `resume_confirm_s`: integer, default 10, valid range 5–300 — how long a balancer-paused charger's phases must fit before it re-fits (see `phase-load-balancing` "Pause below minimum current with anti-flap resume").
-- `severe_overload_percent`: number, default 125, valid range 101–200.
-- `ramp_up_window_s`: integer, default 60, valid range 10–600.
+The `load_balancing` config section SHALL additionally support the graceful-degradation keys, validation, migration and settings exposure specified in the scenarios below.
 
-Each `ev_chargers[]` entry SHALL additionally support `phase_1_line` (1, 2 or 3; default 1). Out-of-range values SHALL fail validation with an error naming the key and its valid range.
+#### Scenario: Graceful degradation config keys
+- **WHEN** the `load_balancing` config section is read
+- **THEN** it SHALL support `target_margin_percent`: number, default 85, valid range 50–100
+- **AND** `pause_debounce_s`: integer, default 5, valid range 0–60
+- **AND** `resume_confirm_s`: integer, default 10, valid range 5–300, which is how long a balancer-paused charger's phases must fit before it re-fits (see `phase-load-balancing` "Pause below minimum current with anti-flap resume")
+- **AND** `severe_overload_percent`: number, default 125, valid range 101–200
+- **AND** `ramp_up_window_s`: integer, default 60, valid range 10–600
 
-`target_margin_percent` supersedes `resume_margin_percent`. On config load, a user-tuned `resume_margin_percent` with no `target_margin_percent` SHALL be migrated to `target_margin_percent` with the same value, and the old key dropped. A `resume_margin_percent` still at its old shipped default (90) carries no user intent (the template merge wrote it into every config) and SHALL be dropped so the new, more protective default applies. When both keys exist, `target_margin_percent` wins. This migration SHALL be idempotent and logged. `config.default.yaml` SHALL ship the new keys with explanatory comments.
+#### Scenario: phase_1_line and range validation
+- **WHEN** an `ev_chargers[]` entry or one of the new keys is validated
+- **THEN** each `ev_chargers[]` entry SHALL additionally support `phase_1_line` (1, 2 or 3; default 1)
+- **AND** out-of-range values SHALL fail validation with an error naming the key and its valid range
 
-`resume_delay_s` keeps its key and default (120 s) but no longer gates resuming a balancer-paused charger. It SHALL continue to govern restoring shed loads, the stale-sensor escalation from minimum-current fallback to pause, and the EV surplus controller's resume; its help text SHALL say so. No migration is needed: `resume_confirm_s` is added by the template merge with its default.
+#### Scenario: target_margin_percent supersedes resume_margin_percent
+- **WHEN** the config is loaded
+- **THEN** `target_margin_percent` supersedes `resume_margin_percent`
+- **AND** a user-tuned `resume_margin_percent` with no `target_margin_percent` SHALL be migrated to `target_margin_percent` with the same value, and the old key dropped
+- **AND** a `resume_margin_percent` still at its old shipped default (90) carries no user intent (the template merge wrote it into every config) and SHALL be dropped so the new, more protective default applies
+- **AND** when both keys exist, `target_margin_percent` wins
+- **AND** this migration SHALL be idempotent and logged
+- **AND** `config.default.yaml` SHALL ship the new keys with explanatory comments
 
-The load-balancing settings section SHALL expose:
-- the five global fields, with plain-language help, e.g. "Aim to keep each phase at or below this share of your fuse", "Only pause if the overload lasts this long" and "A paused charger starts again once its phases have had room for the minimum current for this long";
-- `phase_1_line`, shown in the EV charger's phase-switching block only when phase switching is enabled.
+#### Scenario: resume_delay_s scope
+- **WHEN** a balancer-paused charger is resumed
+- **THEN** `resume_delay_s` keeps its key and default (120 s) but no longer gates resuming a balancer-paused charger
+- **AND** it SHALL continue to govern restoring shed loads, the stale-sensor escalation from minimum-current fallback to pause, and the EV surplus controller's resume; its help text SHALL say so
+- **AND** no migration is needed: `resume_confirm_s` is added by the template merge with its default
+
+#### Scenario: Settings section exposes global fields
+- **WHEN** the load-balancing settings section is displayed
+- **THEN** it SHALL expose the five global fields, with plain-language help, e.g. "Aim to keep each phase at or below this share of your fuse", "Only pause if the overload lasts this long" and "A paused charger starts again once its phases have had room for the minimum current for this long"
+- **AND** it SHALL expose `phase_1_line`, shown in the EV charger's phase-switching block only when phase switching is enabled
 
 #### Scenario: Upgrade picks safe defaults
 - **WHEN** a user with load balancing enabled upgrades without touching config

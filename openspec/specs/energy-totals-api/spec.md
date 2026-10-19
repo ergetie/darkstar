@@ -28,15 +28,22 @@ The energy endpoints SHALL include `ev_charging_kwh` in the response, representi
 - **AND** the value is `0.0` if no EV charging occurred or no EV is configured
 
 ### Requirement: Energy endpoints return battery wear cost
-The `/api/energy/today` and `/api/energy/range` endpoints SHALL return a `battery_wear_cost_sek` field representing the modelled battery degradation cost for the requested period. It SHALL be computed from data already aggregated by the endpoint as:
+The `/api/energy/today` and `/api/energy/range` endpoints SHALL return a non-negative `battery_wear_cost_sek` field representing the modelled battery degradation cost for the requested period, computed from data already aggregated by the endpoint. They SHALL also return `net_cost_incl_wear_sek = net_cost_sek + battery_wear_cost_sek`, and the existing `net_cost_sek` field SHALL be unchanged.
 
-```
-battery_wear_cost_sek = (battery_charge_kwh + battery_discharge_kwh) * battery_cycle_cost_kwh * 0.5
-```
+#### Scenario: Wear cost formula
+- **WHEN** the endpoint computes `battery_wear_cost_sek`
+- **THEN** it equals `(battery_charge_kwh + battery_discharge_kwh) * battery_cycle_cost_kwh * 0.5`
+- **AND** `battery_cycle_cost_kwh` is read from `battery_economics.battery_cycle_cost_kwh` in configuration
+- **AND** the `* 0.5` factor mirrors the solver's wear model so a full charge+discharge cycle is charged the configured cost per kWh once
 
-where `battery_cycle_cost_kwh` is read from `battery_economics.battery_cycle_cost_kwh` in configuration. The `* 0.5` factor mirrors the solver's wear model so a full charge+discharge cycle is charged the configured cost per kWh once. The value SHALL be non-negative and `0.0` when there is no battery throughput in the period.
+#### Scenario: No battery throughput
+- **WHEN** there is no battery throughput in the period
+- **THEN** `battery_wear_cost_sek` is `0.0`
 
-The endpoints SHALL also return `net_cost_incl_wear_sek = net_cost_sek + battery_wear_cost_sek`, i.e. the net grid cost with battery wear added. The existing `net_cost_sek` field (pure grid import cost minus export revenue) SHALL be unchanged.
+#### Scenario: Net cost fields
+- **WHEN** the endpoint returns cost fields
+- **THEN** `net_cost_incl_wear_sek` is the net grid cost with battery wear added
+- **AND** `net_cost_sek` remains pure grid import cost minus export revenue
 
 #### Scenario: Response includes battery wear cost
 - **WHEN** a client calls GET /api/energy/today or /api/energy/range
@@ -54,9 +61,15 @@ The endpoints SHALL also return `net_cost_incl_wear_sek = net_cost_sek + battery
 - **THEN** it still equals import cost minus export revenue, with no wear cost mixed in
 
 ### Requirement: Energy endpoints return source-attributed EV cost
-`/api/energy/today` and `/api/energy/range` SHALL return `ev_grid_kwh`, `ev_solar_kwh`, `ev_cost_sek` and `ev_solar_share` for the period. They SHALL be computed per slot as defined by the `ev-cost-attribution` capability and summed from `slot_observations`. `ev_cost_sek` SHALL be the EV's grid import cost only and SHALL NOT exceed `import_cost_sek`.
+`/api/energy/today` and `/api/energy/range` SHALL return `ev_grid_kwh`, `ev_solar_kwh`, `ev_cost_sek` and `ev_solar_share` for the period, computed per slot as defined by the `ev-cost-attribution` capability and summed from `slot_observations`. `ev_cost_sek` SHALL be the EV's grid import cost only and SHALL NOT exceed `import_cost_sek`.
 
-The existing fields, including `ev_charging_kwh`, `import_cost_sek` and `net_cost_sek`, SHALL be unchanged. The zero-fallback response SHALL include the new fields, with 0 values and a null share.
+#### Scenario: Existing fields unchanged
+- **WHEN** the endpoints return the new EV fields
+- **THEN** the existing fields, including `ev_charging_kwh`, `import_cost_sek` and `net_cost_sek`, are unchanged
+
+#### Scenario: Zero-fallback response
+- **WHEN** the zero-fallback response is returned
+- **THEN** it includes the new fields with 0 values and a null share
 
 #### Scenario: Fields present
 - **WHEN** a client calls either endpoint for a period with EV charging
@@ -68,9 +81,25 @@ The existing fields, including `ev_charging_kwh`, `import_cost_sek` and `net_cos
 - **THEN** `ev_cost_sek` SHALL be 0 and `ev_solar_share` SHALL be null
 
 ### Requirement: Cost series endpoint returns cost per bucket and the running net
-`GET /api/energy/cost-series` SHALL accept the same `period` (`today`, `yesterday`, `week`, `month`, `custom`) and `start_date`/`end_date` parameters as `/api/energy/range`, resolve them with the same shared period helper, and return cost per bucket from the SlotObservation table. For each slot the import cost SHALL be `import_kwh × import_price_sek_kwh` and the export revenue `export_kwh × export_price_sek_kwh`, the same pricing as `/api/energy/range`. Slots SHALL be bucketed by local hour when the range is a single day and by local day otherwise; the response `bucket` SHALL be `"hour"` or `"day"`.
+`GET /api/energy/cost-series` SHALL accept the same `period` and `start_date`/`end_date` parameters as `/api/energy/range`, resolve them with the same shared period helper, and return cost per bucket from the SlotObservation table, priced the same as `/api/energy/range`. Slots SHALL be bucketed by local hour for a single-day range and by local day otherwise, and the response `bucket` SHALL be `"hour"` or `"day"`.
 
-Each point SHALL contain `start` (local ISO time of the bucket), `import_cost_sek`, `export_revenue_sek`, `net_cost_sek` (import minus export) and `cumulative_net_cost_sek` (running sum over the points up to and including it). Points SHALL be ordered by time. Slots that have not started yet SHALL be excluded, even if the recorder holds rows for them. An invalid custom range (bad date format, or end before start) SHALL return an empty `points` list and an `error` message rather than failing.
+#### Scenario: Accepted periods and pricing
+- **WHEN** the endpoint is called
+- **THEN** `period` accepts `today`, `yesterday`, `week`, `month` or `custom`
+- **AND** for each slot the import cost is `import_kwh × import_price_sek_kwh` and the export revenue is `export_kwh × export_price_sek_kwh`
+
+#### Scenario: Point contents and ordering
+- **WHEN** points are returned
+- **THEN** each contains `start` (local ISO time of the bucket), `import_cost_sek`, `export_revenue_sek`, `net_cost_sek` (import minus export) and `cumulative_net_cost_sek` (running sum up to and including the point)
+- **AND** points are ordered by time
+
+#### Scenario: Future slots excluded
+- **WHEN** the recorder holds rows for slots that have not started yet
+- **THEN** those slots are excluded
+
+#### Scenario: Invalid custom range
+- **WHEN** the custom range has a bad date format or end before start
+- **THEN** the endpoint returns an empty `points` list and an `error` message rather than failing
 
 #### Scenario: Hourly buckets and running net for one day
 - **WHEN** a client calls GET /api/energy/cost-series?period=today and two started hours have import cost 8.0 and export revenue 1.0 in the second
@@ -93,15 +122,47 @@ Each point SHALL contain `start` (local ISO time of the bucket), `import_cost_se
 - **THEN** the response has an empty `points` list and an `error` message
 
 ### Requirement: Cost series endpoint returns the without-Darkstar baseline
-`GET /api/energy/cost-series` SHALL preserve its period/date/bucket/error contract and top-level actual metered points, including `import_cost_sek`, `export_revenue_sek`, `net_cost_sek` and `cumulative_net_cost_sek`, with existing started-slot coverage. It SHALL replace the legacy self-use `baseline`, per-point `baseline_*` fields and `battery_comparison` with a separately named `grid_only_comparison` object defined by grid-only-comparison. Retired fields SHALL be absent, and consumers SHALL NOT fall back to their values.
+`GET /api/energy/cost-series` SHALL preserve its period/date/bucket/error contract and top-level actual metered points. It SHALL replace the legacy self-use `baseline`, per-point `baseline_*` fields and `battery_comparison` with a separate `grid_only_comparison` object defined by grid-only-comparison, with retired fields absent and never used as a fallback. The new object SHALL NOT fabricate amounts when data is unavailable.
 
-`grid_only_comparison` SHALL contain `status`, `reason`, `method_version: grid-only-bill-v1`, and `coverage: {covered_slots, total_slots, excluded_slots}`. Status/reason SHALL be `available/complete_coverage` when all expected completed slots are usable; `partial/partial_coverage` when usable slots exist and any completed slot is excluded; `no_data/no_completed_observations` when no completed observations exist; or `unavailable/no_usable_observations` when completed observations exist but none is usable. Coverage SHALL count the requested period's expected elapsed completed slots, including missing observations, even on no-data/unavailable responses.
+#### Scenario: Preserved actual points and retired fields
+- **WHEN** the endpoint responds
+- **THEN** the top-level actual metered points, including `import_cost_sek`, `export_revenue_sek`, `net_cost_sek` and `cumulative_net_cost_sek`, keep their existing contract
+- **AND** the legacy `baseline`, per-point `baseline_*` fields and `battery_comparison` are absent
+- **AND** consumers do not fall back to their values
 
-For valid period requests, `grid_only_comparison` SHALL also contain `time_axis: {timezone, start, end}` for every status. `timezone` SHALL be the installation's IANA timezone; offset-qualified local ISO `start`/`end` SHALL span the full requested period from its first local midnight to the exclusive following midnight, without clipping to completed coverage. These bounds SHALL support elapsed-UTC chart positioning and installation-local labels even when comparison amounts are unavailable.
+#### Scenario: Status, reason and coverage
+- **WHEN** `grid_only_comparison` is returned
+- **THEN** it contains `status`, `reason`, `method_version: grid-only-bill-v1`, and `coverage: {covered_slots, total_slots, excluded_slots}`
+- **AND** status/reason is `available/complete_coverage` when all expected completed slots are usable
+- **AND** `partial/partial_coverage` when usable slots exist and any completed slot is excluded
+- **AND** `no_data/no_completed_observations` when no completed observations exist
+- **AND** `unavailable/no_usable_observations` when completed observations exist but none is usable
+- **AND** coverage counts the requested period's expected elapsed completed slots, including missing observations, even on no-data/unavailable responses
 
-Amount-bearing statuses SHALL also include `through`, `grid_only_cost_sek`, zero `grid_only_wear_cost_sek`, `ds_electricity_cost_sek`, `ds_wear_cost_sek`, wear-inclusive `ds_cost_sek`, `saving_sek`, comparison bucket `points` and covered `segments`. Each bucket point SHALL carry offset-qualified local ISO `start` and exclusive `end`, eligible `import_cost_sek`, `export_revenue_sek`, `ds_electricity_cost_sek`, `ds_wear_cost_sek`, zero `grid_only_wear_cost_sek`, wear-inclusive `ds_cost_sek`, `grid_only_cost_sek`, `cumulative_ds_cost_sek` and `cumulative_grid_only_cost_sek`. Each segment SHALL carry offset-qualified local ISO `start`, exclusive `end`, and boundary `points` with `at`, `cumulative_ds_cost_sek` and `cumulative_grid_only_cost_sek`, as defined by grid-only-comparison. Bucket points, segment points and summaries SHALL use the same eligible completed slots and SHALL reconcile. No-data/unavailable responses SHALL omit amount fields, comparison points and segments rather than fabricating zeros, while retaining `time_axis`. Invalid period requests SHALL retain empty actual points and the existing error response without fabricated comparison amounts.
+#### Scenario: Time axis
+- **WHEN** a valid period request is answered
+- **THEN** `grid_only_comparison` contains `time_axis: {timezone, start, end}` for every status
+- **AND** `timezone` is the installation's IANA timezone
+- **AND** offset-qualified local ISO `start`/`end` span the full requested period from its first local midnight to the exclusive following midnight, without clipping to completed coverage
+- **AND** these bounds support elapsed-UTC chart positioning and installation-local labels even when comparison amounts are unavailable
 
-The new object SHALL NOT carry battery inventory, loss factors, reference prices, calibration diagnostics, cohort diagnostics, Estimate/Verified bases or a no-battery status. Actual range/today totals and separate wear fields SHALL remain unchanged. No 30-day calibration query, prior-SoC query, self-use replay or fit-cache operation SHALL be performed for this comparison.
+#### Scenario: Amount-bearing statuses
+- **WHEN** the status bears amounts
+- **THEN** the object also includes `through`, `grid_only_cost_sek`, zero `grid_only_wear_cost_sek`, `ds_electricity_cost_sek`, `ds_wear_cost_sek`, wear-inclusive `ds_cost_sek`, `saving_sek`, comparison bucket `points` and covered `segments`
+- **AND** each bucket point carries offset-qualified local ISO `start` and exclusive `end`, eligible `import_cost_sek`, `export_revenue_sek`, `ds_electricity_cost_sek`, `ds_wear_cost_sek`, zero `grid_only_wear_cost_sek`, wear-inclusive `ds_cost_sek`, `grid_only_cost_sek`, `cumulative_ds_cost_sek` and `cumulative_grid_only_cost_sek`
+- **AND** each segment carries offset-qualified local ISO `start`, exclusive `end`, and boundary `points` with `at`, `cumulative_ds_cost_sek` and `cumulative_grid_only_cost_sek`, as defined by grid-only-comparison
+- **AND** bucket points, segment points and summaries use the same eligible completed slots and reconcile
+
+#### Scenario: Unavailable and invalid responses
+- **WHEN** the response is no-data or unavailable
+- **THEN** amount fields, comparison points and segments are omitted rather than fabricated as zeros, while `time_axis` is retained
+- **AND** invalid period requests retain empty actual points and the existing error response without fabricated comparison amounts
+
+#### Scenario: Excluded content and operations
+- **WHEN** `grid_only_comparison` is produced
+- **THEN** it does not carry battery inventory, loss factors, reference prices, calibration diagnostics, cohort diagnostics, Estimate/Verified bases or a no-battery status
+- **AND** actual range/today totals and separate wear fields remain unchanged
+- **AND** no 30-day calibration query, prior-SoC query, self-use replay or fit-cache operation is performed
 
 #### Scenario: New comparison contract
 - **WHEN** the request has usable completed inputs

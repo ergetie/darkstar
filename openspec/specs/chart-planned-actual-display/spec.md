@@ -1,6 +1,7 @@
 ## Purpose
 
-TBD: Define the purpose of chart planned vs actual display capability.
+Defines how the main schedule chart displays planned versus actual values for power, SoC and action series, including shared axis scaling, EV standby marks, the info panel and visual hierarchy.
+
 ## Requirements
 ### Requirement: Main chart displays planned values for all slots
 
@@ -169,9 +170,7 @@ The ChartCard SHALL render a new bar dataset for the custom entity sink, visible
 
 ### Requirement: All main-chart power series share one power axis scale
 
-The main ChartCard SHALL render all power series — every power bar (load, charge, discharge, export, water heating, water-heating boost, EV charging, excess-PV sink) AND the PV forecast line — against a single shared power axis maximum, so that an identical power value is drawn at an identical height regardless of which series it belongs to.
-
-The shared power axis maximum SHALL be `max(gridMaxKw, inverterMaxKw, solarKwp)` and SHALL be applied consistently both when the chart is first created and when the scaling configuration changes at runtime.
+The main ChartCard SHALL render all power series, every power bar and the PV forecast line, against a single shared power axis maximum so an identical power value is drawn at an identical height regardless of series.
 
 #### Scenario: Bar and PV line at equal power render at equal height
 - **WHEN** a power bar and the PV forecast line both represent the same power value (e.g. 4 kW) in the same chart
@@ -189,9 +188,18 @@ The shared power axis maximum SHALL be `max(gridMaxKw, inverterMaxKw, solarKwp)`
 - **WHEN** the scaling configuration changes after the chart has loaded real data
 - **THEN** the bar axes and the PV line axis SHALL all be updated to the same recomputed `max(gridMaxKw, inverterMaxKw, solarKwp)` value
 
+#### Scenario: Series covered by the shared axis
+- **WHEN** the chart renders load, charge, discharge, export, water heating, water-heating boost, EV charging and excess-PV sink bars together with the PV forecast line
+- **THEN** all of them use the one shared power axis maximum
+
+#### Scenario: Shared maximum definition
+- **WHEN** the shared power axis maximum is computed
+- **THEN** it is `max(gridMaxKw, inverterMaxKw, solarKwp)`
+- **AND** it is applied both when the chart is first created and when the scaling configuration changes at runtime
+
 ### Requirement: Keep-on slots render as an EV standby band
 
-The main schedule chart SHALL render slots whose `ev_keep_on` dict contains any true flag — and whose planned `ev_charging_kw` is 0 — as an "EV standby" mark on the action strip, visually fainter than the EV charging marks. The mark SHALL NOT encode any power value (keep-on plans no energy). It SHALL have its own entry in the Overlays menu, and the slot info panel SHALL explain the semantics for such a slot ("EV switch held on"). Slots with genuinely planned EV power SHALL continue to render as normal EV charging marks regardless of keep-on flags.
+The main schedule chart SHALL render slots whose `ev_keep_on` dict contains any true flag, and whose planned `ev_charging_kw` is 0, as an "EV standby" mark on the action strip, visually fainter than EV charging marks and encoding no power value.
 
 #### Scenario: Keep-on slot renders standby mark, no charging mark
 - **WHEN** a schedule slot has `ev_keep_on = {"ev1": true}` and `ev_charging_kw` = 0
@@ -210,6 +218,15 @@ The main schedule chart SHALL render slots whose `ev_keep_on` dict contains any 
 #### Scenario: Schedules without keep-on data render unchanged
 - **WHEN** a schedule slot has no `ev_keep_on` field
 - **THEN** the chart SHALL render no standby mark
+
+#### Scenario: Standby mark controls and explanation
+- **WHEN** an EV standby mark is rendered
+- **THEN** it has its own entry in the Overlays menu
+- **AND** the slot info panel explains the semantics for such a slot ("EV switch held on")
+
+#### Scenario: Genuine planned EV power
+- **WHEN** a slot has genuinely planned EV power
+- **THEN** it renders as a normal EV charging mark regardless of keep-on flags
 
 ### Requirement: slot_plans stores each slot's end
 The `slot_plans` table SHALL have a nullable `slot_end` column, added by an idempotent Alembic migration that runs on startup. `store_plan` SHALL write each slot's end, taken from the plan's `end_time`, in the same local ISO format as `slot_start`, and SHALL update it on upsert. A plan row whose end is missing or not after its start SHALL be stored with `slot_end` NULL, converted as a 15-minute slot, and logged as a warning.
@@ -234,7 +251,8 @@ The schedule API SHALL convert observed water energy (`slot_observations.water_k
 - **THEN** the API SHALL return `actual_water_kw` 3.0
 
 ### Requirement: Schedule chart has a clear visual hierarchy
-The Schedule Overview chart SHALL draw price as a soft filled area, battery SoC as the strongest line, and PV and load as thin lines. Actions SHALL be marks on a strip under the plot. A legend SHALL state that a solid line is actual and a dashed line is plan. The plot SHALL span the full card width with no side scale labels. A "NOW" line with a small NOW label SHALL separate past from future, with the past faintly tinted. Hovering SHALL draw a guide on the slot shown in the info panel. A glow effect SHALL be used only in dark mode.
+
+The Schedule Overview chart SHALL draw price as a soft filled area, battery SoC as the strongest line, PV and load as thin lines, and actions as marks on a strip under the plot, with a legend stating that solid is actual and dashed is plan.
 
 #### Scenario: Legend explains line styles
 - **WHEN** the chart renders
@@ -252,8 +270,19 @@ The Schedule Overview chart SHALL draw price as a soft filled area, battery SoC 
 - **WHEN** the theme is light
 - **THEN** no line glow is drawn
 
+#### Scenario: Plot layout and NOW line
+- **WHEN** the chart is rendered
+- **THEN** the plot spans the full card width with no side scale labels
+- **AND** a "NOW" line with a small NOW label separates past from future, with the past faintly tinted
+
+#### Scenario: Hover guide and glow
+- **WHEN** the user hovers a slot
+- **THEN** a guide is drawn on the slot shown in the info panel
+- **AND** a glow effect is used only in dark mode
+
 ### Requirement: Schedule chart info panel replaces the floating tooltip
-The chart SHALL show a fixed info panel above the plot instead of a floating tooltip. It SHALL show the slot under the pointer (desktop), the tapped slot (mobile), or the current slot when none is pinned, with a phase badge (Now, Past, Plan or Estimated), the slot time as a 24-hour range (never AM/PM) and the planned action text. By default the panel SHALL be one compact line with the slot's price, SoC, PV and load. A "Details" toggle SHALL expand it into grouped values (price with its spot and fee split when known, battery, solar and load, and actions), where a measured past value leads and the plan is shown beside it. The Details choice SHALL be remembered in `localStorage` and the chart SHALL work when storage is unavailable. At phone width the compact line SHALL wrap rather than overflow.
+
+The chart SHALL show a fixed info panel above the plot instead of a floating tooltip, showing the slot under the pointer (desktop), the tapped slot (mobile), or the current slot when none is pinned. By default the panel SHALL be one compact line with the slot's price, SoC, PV and load.
 
 #### Scenario: Compact by default
 - **WHEN** a new user opens the dashboard
@@ -270,6 +299,20 @@ The chart SHALL show a fixed info panel above the plot instead of a floating too
 #### Scenario: Time shown on 24-hour clock
 - **WHEN** the panel shows a slot starting at 14:15 with 15-minute slots
 - **THEN** the time reads "14:15–14:30"
+
+#### Scenario: Header content
+- **WHEN** the panel is shown
+- **THEN** it has a phase badge (Now, Past, Plan or Estimated), the slot time as a 24-hour range (never AM/PM) and the planned action text
+
+#### Scenario: Details toggle
+- **WHEN** the user toggles "Details"
+- **THEN** the panel expands into grouped values: price with its spot and fee split when known, battery, solar and load, and actions
+- **AND** a measured past value leads with the plan shown beside it
+- **AND** the choice is remembered in `localStorage`, and the chart works when storage is unavailable
+
+#### Scenario: Phone width
+- **WHEN** the viewport is phone width
+- **THEN** the compact line wraps rather than overflows
 
 ### Requirement: Schedule chart marks estimated prices
 Slots whose `price_source` is `"forecast"` SHALL be treated as having estimated prices. The chart SHALL draw their price area hatched and lighter, tint a band over those slots with an "ESTIMATED PRICES" label, show an "est. price" entry in the legend, and show an "Estimated" badge in the info panel for such slots that are not in the past. When no slot is estimated, none of these SHALL appear.

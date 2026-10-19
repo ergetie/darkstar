@@ -60,7 +60,15 @@ The results panel SHALL contain a distinct "Guides" section listing guides whose
 - **THEN** the guide view closes and the standard jump-to-field behavior runs for that field
 
 ### Requirement: Initial guide library
-The guide library SHALL contain fourteen guides: Load Balancing, EV Charging, Water Heater, Battery/S-Index, Solar Forecast, Planner & Executor Basics, Quick Actions & Command Bar, Vacation Mode, Notifications & Alerts, AI Advisor, Excess PV Dispatch, Aurora / ML Forecasting, Arbitrage & Economics, and Getting Started / HA Connection. Each SHALL be written in plain, non-technical language, explain what the function does and how its main settings affect behavior, and reference its related settings fields. Where a new guide covers a topic previously summarized inside an existing guide (Excess PV Dispatch in Solar Forecast, economics in Battery/S-Index, vacation mode in Water Heater), the existing guide SHALL mention the dedicated guide rather than being rewritten.
+The guide library SHALL contain fourteen guides, each written in plain, non-technical language, explaining what the function does and how its main settings affect behavior, and referencing its related settings fields.
+
+#### Scenario: Guide list
+- **WHEN** the guide library is inspected
+- **THEN** it SHALL contain the fourteen guides: Load Balancing, EV Charging, Water Heater, Battery/S-Index, Solar Forecast, Planner & Executor Basics, Quick Actions & Command Bar, Vacation Mode, Notifications & Alerts, AI Advisor, Excess PV Dispatch, Aurora / ML Forecasting, Arbitrage & Economics, and Getting Started / HA Connection
+
+#### Scenario: Topic previously summarized in an existing guide
+- **WHEN** a new guide covers a topic previously summarized inside an existing guide (Excess PV Dispatch in Solar Forecast, economics in Battery/S-Index, vacation mode in Water Heater)
+- **THEN** the existing guide SHALL mention the dedicated guide rather than being rewritten
 
 #### Scenario: All fourteen guides discoverable
 - **WHEN** the user searches for any of the fourteen topics by name
@@ -71,7 +79,12 @@ The guide library SHALL contain fourteen guides: Load Balancing, EV Charging, Wa
 - **THEN** every listed field key exists in the searchable field index (enforced by a unit test)
 
 ### Requirement: Search results include glossary entries
-The search SHALL maintain a glossary of short plain-language definitions for domain jargon (at minimum: SoC, S-Index, arbitrage, give-way, curtailment, load disaggregation). Matching glossary entries SHALL appear in a distinct "Glossary" section of the results panel, after fields and guides. Selecting a glossary entry SHALL open a readable view of the definition; when the entry lists related settings fields or related guides, those SHALL be presented as links that perform the standard jump-to-field behavior or open the related guide.
+The search SHALL maintain a glossary of short plain-language definitions for domain jargon (at minimum: SoC, S-Index, arbitrage, give-way, curtailment, load disaggregation). Matching glossary entries SHALL appear in a distinct "Glossary" section of the results panel, after fields and guides.
+
+#### Scenario: Selecting a glossary entry
+- **WHEN** the user selects a glossary entry
+- **THEN** a readable view of the definition SHALL open
+- **AND** when the entry lists related settings fields or related guides, those SHALL be presented as links that perform the standard jump-to-field behavior or open the related guide
 
 #### Scenario: Jargon term is defined
 - **WHEN** the user types "arbitrage"
@@ -108,17 +121,21 @@ The searchable field index SHALL be derived programmatically from the existing p
 - **THEN** the field appears in search results with no change to search code or a manual registry
 
 ### Requirement: EV Charging guide describes the current EV system
-The EV Charging guide SHALL be a complete, plain-language description of the current EV behaviour, with every statement matching the code. It SHALL cover, in scannable numbered sections:
-- charger setup: current chargers (amps × phases × `system.grid.nominal_voltage_v` derive power), binary chargers (`rated_power_kw`), the missing-phases prompt, and the plug sensor;
-- goals: one-off and repeating (daily, weekdays, weekends, every N days), a Home Assistant ready-by change always creating a one-off goal, and keep-on after target;
-- planning: direct optimisation on published prices, deferral pricing beyond them at the published or forecast price plus a risk margin ramping from the base to the deadline value, the shortfall penalty, and the known/estimated planned-per-day chips;
-- solar surplus: battery first, then the Excess PV sink priority order with overflow to the next sink, surplus counting toward the goal;
-- replanning: on goal save or HA change (with the "Re-planning" state), plug-in/unplug, SoC recovery, planning while unplugged, and the global plug-in reminder;
-- stale SoC behaviour; the EV cost sub-row under Grid Import;
-- load balancing: 85 % target margin, instant amp reduction, 1-phase relief, pause after the 5 s delay, immediate pause above 125 %, 60 s averaged ramp-up, and dwell;
-- phase switching setup, with a go-e example (`select.<charger>_psm`, options `one_phase` / `three_phases`, 1-phase line L1) and the rule that `binary_sensor` entities cannot be used.
+The EV Charging guide SHALL be a complete, plain-language description of the current EV behaviour, with every statement matching the code, covering the topics listed in the scenarios below in scannable numbered sections. The guide SHALL reference its related settings fields, and every referenced field SHALL exist in the search index.
 
-The guide SHALL reference its related settings fields, and every referenced field SHALL exist in the search index.
+#### Scenario: Guide coverage
+- **WHEN** the EV Charging guide is read
+- **THEN** it SHALL cover charger setup: current chargers (amps × phases × `system.grid.nominal_voltage_v` derive power), binary chargers (`rated_power_kw`), the missing-phases prompt, and the plug sensor
+- **AND** goals: one-off and repeating (daily, weekdays, weekends, every N days), a Home Assistant ready-by change always creating a one-off goal, and keep-on after target
+- **AND** planning: direct optimisation on published prices, deferral pricing beyond them at the published or forecast price plus a risk margin ramping from the base to the deadline value, the shortfall penalty, and the known/estimated planned-per-day chips
+- **AND** solar surplus: battery first, then the Excess PV sink priority order with overflow to the next sink, surplus counting toward the goal
+- **AND** replanning: on goal save or HA change (with the "Re-planning" state), plug-in/unplug, SoC recovery, planning while unplugged, and the global plug-in reminder
+- **AND** stale SoC behaviour and the EV cost sub-row under Grid Import
+
+#### Scenario: Load balancing and phase switching coverage
+- **WHEN** the EV Charging guide is read
+- **THEN** it SHALL cover load balancing: 85 % target margin, instant amp reduction, 1-phase relief, pause after the 5 s delay, immediate pause above 125 %, 60 s averaged ramp-up, and dwell
+- **AND** phase switching setup, with a go-e example (`select.<charger>_psm`, options `one_phase` / `three_phases`, 1-phase line L1) and the rule that `binary_sensor` entities cannot be used
 
 #### Scenario: Guide found by everyday words
 - **WHEN** the user searches "phase switching" or "plug-in reminder"

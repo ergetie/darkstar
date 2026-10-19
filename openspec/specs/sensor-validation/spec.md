@@ -1,6 +1,6 @@
 ## Purpose
 
-TBD - Sensor data validation capability for detecting and handling anomalous sensor readings before they corrupt historical data or skew ML training.
+Sensor data validation capability for detecting and handling anomalous sensor readings before they corrupt historical data or skew ML training.
 
 ## Requirements
 

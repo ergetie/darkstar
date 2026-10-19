@@ -4,7 +4,7 @@
 Optionally notify the user a configurable time before scheduled EV charging when the charger is not plugged in, so planned charging is not missed.
 ## Requirements
 ### Requirement: Optional plug-in reminder before planned charging
-The plug-in reminder SHALL be a global notification setting: `executor.notifications.on_ev_plug_in_reminder` (boolean, default false) turns it on for every EV charger, and `executor.notifications.ev_plug_in_reminder_minutes` (integer minutes, 1-1440, default 30) sets the lead time. Chargers SHALL NOT carry a per-charger reminder setting. When enabled, the executor SHALL send one notification through the existing executor notification channel when a charger's first upcoming slot with planned EV charging (> 0.1 kW) starts within `ev_plug_in_reminder_minutes` and the charger's live plug state is not connected. The notification SHALL name the charger and the planned start time. An invalid or out-of-range lead time SHALL fall back to the default (logged).
+The plug-in reminder SHALL be a global notification setting: `executor.notifications.on_ev_plug_in_reminder` (boolean, default false) turns it on for every EV charger, and `executor.notifications.ev_plug_in_reminder_minutes` (integer minutes, 1-1440, default 30) sets the lead time.
 
 #### Scenario: Car not plugged in 30 minutes before planned charging
 - **WHEN** `on_ev_plug_in_reminder: true`, `ev_plug_in_reminder_minutes: 30`, charging is planned from 22:00, the time is 21:30 and the charger is unplugged
@@ -22,6 +22,19 @@ The plug-in reminder SHALL be a global notification setting: `executor.notificat
 - **WHEN** the reminder is on with `ev_plug_in_reminder_minutes: 15` and two unplugged chargers have planned charging
 - **THEN** each charger SHALL be reminded 15 minutes before its own planned start
 
+#### Scenario: No per-charger reminder setting
+- **WHEN** an EV charger is configured
+- **THEN** chargers SHALL NOT carry a per-charger reminder setting
+
+#### Scenario: Reminder notification sent when not plugged in
+- **WHEN** the reminder is enabled and a charger's first upcoming slot with planned EV charging (> 0.1 kW) starts within `ev_plug_in_reminder_minutes` and the charger's live plug state is not connected
+- **THEN** the executor SHALL send one notification through the existing executor notification channel
+- **AND** the notification SHALL name the charger and the planned start time
+
+#### Scenario: Invalid lead time falls back to default
+- **WHEN** the lead time is invalid or out of range
+- **THEN** it SHALL fall back to the default (logged)
+
 ### Requirement: Plug-in reminder is sent at most once per charging window
 The reminder SHALL be deduplicated per charger and planned charging window (keyed by the window's start time), so repeated executor ticks do not resend it. Plugging the charger in SHALL reset the dedupe for that charger; a later, different planned window MAY produce a new reminder.
 
@@ -34,7 +47,7 @@ The reminder SHALL be deduplicated per charger and planned charging window (keye
 - **THEN** one new reminder SHALL be sent for the 02:00 window
 
 ### Requirement: Plug-in reminder lead time is configurable in settings
-The UI tab's Notifications section SHALL expose the reminder alongside the other `executor.notifications.on_*` toggles: an on/off toggle for `on_ev_plug_in_reminder` and, shown while it is on, the lead time `ev_plug_in_reminder_minutes` with quick choices 15 and 30 minutes and a custom value. The EV charger editor SHALL NOT show a reminder field. The Executor page's notification toggle list SHALL include the reminder toggle, and the notifications API SHALL return both keys. `config.default.yaml` SHALL document both keys with the reminder off by default. Config validation SHALL reject a lead time that is not an integer from 1 to 1440 with an error naming the key.
+The UI tab's Notifications section SHALL expose the reminder alongside the other `executor.notifications.on_*` toggles: an on/off toggle for `on_ev_plug_in_reminder` and, shown while it is on, the lead time `ev_plug_in_reminder_minutes` with quick choices 15 and 30 minutes and a custom value.
 
 #### Scenario: User enables a 15-minute reminder
 - **WHEN** the user turns on the plug-in reminder in UI → Notifications, selects 15 minutes and saves
@@ -47,6 +60,20 @@ The UI tab's Notifications section SHALL expose the reminder alongside the other
 #### Scenario: Out-of-range lead time rejected
 - **WHEN** the user saves `ev_plug_in_reminder_minutes: 0`
 - **THEN** validation SHALL reject it with an error naming `executor.notifications.ev_plug_in_reminder_minutes`
+
+#### Scenario: No reminder field in the EV charger editor
+- **WHEN** the EV charger editor is displayed
+- **THEN** it SHALL NOT show a reminder field
+
+#### Scenario: Reminder toggle in the Executor page and notifications API
+- **WHEN** the Executor page's notification toggle list is rendered or the notifications API is called
+- **THEN** the toggle list SHALL include the reminder toggle
+- **AND** the notifications API SHALL return both keys
+
+#### Scenario: Config defaults and validation of the lead time
+- **WHEN** `config.default.yaml` is shipped or config validation runs
+- **THEN** `config.default.yaml` SHALL document both keys with the reminder off by default
+- **AND** config validation SHALL reject a lead time that is not an integer from 1 to 1440 with an error naming the key
 
 ### Requirement: Per-charger reminder settings migrate to the global setting
 On startup the config migration SHALL convert any `ev_chargers[].plug_in_reminder_minutes` to the global setting, writing a timestamped backup before the config is written. If any charger had a value greater than 0, it SHALL set `executor.notifications.on_ev_plug_in_reminder: true` and `ev_plug_in_reminder_minutes` to the largest such value. The per-charger keys SHALL always be removed. The migration SHALL be idempotent: a config without per-charger keys SHALL be left unchanged.

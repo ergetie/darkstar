@@ -50,7 +50,14 @@ The settings tab previously labeled "Water" SHALL be labeled "Heating". The tab'
 - **AND** deep links / persisted tab state referencing the `water` id still resolve to it
 
 ### Requirement: Installation statistics controls in System settings
-Settings → System SHALL include a normal-mode searchable Installation statistics section with an enabled toggle and an editable receiver endpoint. Fields SHALL use the existing settings form, validation, dirty-change comparison, save/error flow, and design-system controls. The section SHALL explain the daily minimal payload and user control without adding a notice elsewhere. Successful changes SHALL notify the reporting service; a disabled value SHALL persist through reloads and upgrades. The endpoint SHALL remain editable when reporting is disabled.
+Settings → System SHALL include a normal-mode searchable Installation statistics section with an enabled toggle and an editable receiver endpoint, using the existing settings form, validation, dirty-change comparison, save/error flow, and design-system controls.
+
+#### Scenario: Section content and behavior
+- **WHEN** the Installation statistics section is shown or changed
+- **THEN** it SHALL explain the daily minimal payload and user control without adding a notice elsewhere
+- **AND** successful changes SHALL notify the reporting service
+- **AND** a disabled value SHALL persist through reloads and upgrades
+- **AND** the endpoint SHALL remain editable when reporting is disabled
 
 #### Scenario: Disable through Settings
 - **WHEN** a user turns off statistics reporting and saves

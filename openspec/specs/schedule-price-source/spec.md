@@ -4,7 +4,16 @@
 Tells the frontend which schedule slots rest on published Nordpool prices and which on forecasts, so the chart can mark estimated prices.
 ## Requirements
 ### Requirement: Schedule slots state whether their price is published or forecast
-Every slot returned by `GET /api/schedule` and `GET /api/schedule/today_with_history` SHALL carry a `price_source` field. It SHALL be `"nordpool"` when a published (not forecast-fallback) price exists for the slot's local start time, and `"forecast"` otherwise, including slots beyond the published price horizon where the planner used forecast prices. Price entries without a source SHALL count as published. If the price overlay is unavailable, the endpoint SHALL still respond and slots MAY lack the field.
+Every slot returned by `GET /api/schedule` and `GET /api/schedule/today_with_history` SHALL carry a `price_source` field. It SHALL be `"nordpool"` when a published (not forecast-fallback) price exists for the slot's local start time, and `"forecast"` otherwise.
+
+#### Scenario: Forecast beyond published horizon and unsourced entries
+- **WHEN** a slot lies beyond the published price horizon where the planner used forecast prices
+- **THEN** its `price_source` SHALL be `"forecast"`
+- **AND** price entries without a source SHALL count as published
+
+#### Scenario: Price overlay unavailable
+- **WHEN** the price overlay is unavailable
+- **THEN** the endpoint SHALL still respond and slots MAY lack the field
 
 #### Scenario: Published slot
 - **WHEN** the price feed has a Nordpool price for a slot's start time

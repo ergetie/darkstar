@@ -21,12 +21,7 @@ The system SHALL train a LightGBM quantile regression model (p10/p50/p90) to pre
 - **THEN** the price model SHALL train alongside the existing load and PV models
 
 ### Requirement: Price forecast feature engineering
-The model SHALL use the following feature categories: calendar features (hour, day_of_week, month, is_weekend, is_holiday), regional wind index (from regional weather coordinates), local weather (temperature, cloud cover, solar radiation), price lags (same hour yesterday, same hour last week, trailing daily average), and `days_ahead` (integer 1-7).
-
-Price lag features SHALL respect issue-time knowability in both directions of the pipeline:
-
-- **Inference** SHALL resolve every lag source slot from `slot_observations` and, when the slot has no observation, from the published Nordpool spot prices available at issue time (`get_known_spot_by_slot`; forecast-fallback entries are never treated as published). A database session SHALL be provided to feature building. Lags whose source slot is neither observed nor published SHALL be NaN. Each generation run SHALL record `known_prices_until`: the end (exclusive) of the last published slot it had available, or null when no published prices were available. The value is therefore also non-null for the morning run (the end of today), and training treats today's published prices as knowable, consistent with inference.
-- **Training** SHALL only materialise a lag value when its source slot was knowable when the row was issued: the source slot start strictly precedes the row's `issue_timestamp`, OR the row has a non-null `known_prices_until` and the source slot starts before it. For the trailing 24-hour average, the whole window SHALL be masked to NaN unless its last slot is knowable by the same rule. Rows with null `known_prices_until` (including all rows written before this change) SHALL use the issue-timestamp rule only.
+The model SHALL use the following feature categories: calendar features (hour, day_of_week, month, is_weekend, is_holiday), regional wind index (from regional weather coordinates), local weather (temperature, cloud cover, solar radiation), price lags (same hour yesterday, same hour last week, trailing daily average), and `days_ahead` (integer 1-7). Price lag features SHALL respect issue-time knowability in both directions of the pipeline, as specified in the scenarios below.
 
 #### Scenario: Calendar features extracted from target slot
 - **WHEN** building features for a forecast slot
@@ -67,14 +62,25 @@ Price lag features SHALL respect issue-time knowability in both directions of th
 - **WHEN** building features for a slot that is N days in the future
 - **THEN** the `days_ahead` feature SHALL be set to N (integer 1-7)
 
+#### Scenario: Inference resolves lags from observations or published spot prices
+- **WHEN** price forecast inference builds lag features
+- **THEN** it SHALL resolve every lag source slot from `slot_observations` and, when the slot has no observation, from the published Nordpool spot prices available at issue time (`get_known_spot_by_slot`; forecast-fallback entries are never treated as published)
+- **AND** a database session SHALL be provided to feature building
+- **AND** lags whose source slot is neither observed nor published SHALL be NaN
+
+#### Scenario: Generation run records known_prices_until
+- **WHEN** a generation run completes
+- **THEN** it SHALL record `known_prices_until`: the end (exclusive) of the last published slot it had available, or null when no published prices were available
+- **AND** the value is therefore also non-null for the morning run (the end of today), and training treats today's published prices as knowable, consistent with inference
+
+#### Scenario: Training only uses knowable lag values
+- **WHEN** training materialises a lag value for a row
+- **THEN** it SHALL only do so when the source slot was knowable when the row was issued: the source slot start strictly precedes the row's `issue_timestamp`, OR the row has a non-null `known_prices_until` and the source slot starts before it
+- **AND** for the trailing 24-hour average, the whole window SHALL be masked to NaN unless its last slot is knowable by the same rule
+- **AND** rows with null `known_prices_until` (including all rows written before this change) SHALL use the issue-timestamp rule only
+
 ### Requirement: Price forecast inference
 The system SHALL generate price forecasts for D+1 through D+7 at 15-minute slot resolution. D+1 forecasts SHALL serve as fallback before the ~13:00 CET Nordpool day-ahead auction. Once real Nordpool D+1 prices are available, they SHALL take precedence over the D+1 forecast. When no trained model exists, the system SHALL still fetch regional weather and persist rows with null spot prediction columns to accumulate training data.
-
-`get_price_forecasts_from_db` SHALL return exactly one record per `slot_start` value. When multiple DB rows share the same `slot_start` (due to duplicate writes), the function SHALL keep the row with the latest `issue_timestamp`; if rows also tie on `issue_timestamp`, any single row for that slot is acceptable. This guarantee applies regardless of whether `days_ahead` filtering is active.
-
-`get_d1_price_forecast_fallback` SHALL deduplicate its return value on `slot_start` before returning, so that callers never receive two entries with the same slot timestamp. `get_d1_price_forecast_fallback` SHALL filter out any slots whose `slot_start` date is on or before the current date (today), returning only slots that are strictly in the future (tomorrow or later).
-
-`_process_nordpool_data` SHALL deduplicate the assembled entry list by `start_time` before returning, keeping the first occurrence of each timestamp. Because real Nordpool entries are always prepended before fallback entries, this ensures real prices take precedence.
 
 #### Scenario: Daily forecast generation
 - **WHEN** the forecast pipeline runs and a trained price model exists
@@ -115,17 +121,24 @@ The system SHALL generate price forecasts for D+1 through D+7 at 15-minute slot 
 - **THEN** the returned list SHALL contain at most one entry per `start_time` value
 - **AND** when two sources provide the same `start_time`, the entry that appeared first in the input (real Nordpool) SHALL be kept
 
+#### Scenario: One record per slot from the database
+- **WHEN** `get_price_forecasts_from_db` returns forecasts and multiple DB rows share the same `slot_start` (due to duplicate writes)
+- **THEN** it SHALL return exactly one record per `slot_start` value
+- **AND** the function SHALL keep the row with the latest `issue_timestamp`; if rows also tie on `issue_timestamp`, any single row for that slot is acceptable
+- **AND** this guarantee SHALL apply regardless of whether `days_ahead` filtering is active
+
+#### Scenario: D+1 fallback is deduplicated and strictly future
+- **WHEN** `get_d1_price_forecast_fallback` returns its result
+- **THEN** it SHALL deduplicate its return value on `slot_start` so that callers never receive two entries with the same slot timestamp
+- **AND** it SHALL filter out any slots whose `slot_start` date is on or before the current date (today), returning only slots that are strictly in the future (tomorrow or later)
+
+#### Scenario: Nordpool entries deduplicated with real prices first
+- **WHEN** `_process_nordpool_data` returns the assembled entry list
+- **THEN** it SHALL deduplicate the list by `start_time`, keeping the first occurrence of each timestamp
+- **AND** because real Nordpool entries are always prepended before fallback entries, real prices SHALL take precedence
+
 ### Requirement: Price forecast scheduling
-The system SHALL call `generate_price_forecasts()` on three independent schedules: once on every training cycle (regardless of whether training succeeded), once per day on a dedicated daily tick (configurable `price_forecast.daily_run_time`, default 06:00), and once per day as soon as the next day's Nordpool prices are published (the **post-publication run**). This ensures weather snapshots accumulate continuously from first install and that the afternoon planner decisions use a forecast that knows tomorrow's prices.
-
-`generate_price_forecasts` SHALL accept the horizons to generate as `days_ahead_range` (default D+1 through D+7).
-
-The post-publication run SHALL:
-- cover D+2 through D+7 only (D+1 is published; its morning forecast rows are kept for the D+1 fallback and accuracy reporting);
-- be triggered when the published prices for the whole next local day are available, checked no more often than every 10 minutes and only from 12:00 local time until 23:59;
-- run at most once per local day, determined from the persisted forecast rows (a row issued today with `known_prices_until` at or after the end of tomorrow), so restarts do not cause duplicate runs;
-- be skipped for that day if the next day's prices are never published, with a "waiting for publication" info log written once per local day;
-- not run while another scheduler task is active (it waits for the next check).
+The system SHALL call `generate_price_forecasts()` on three independent schedules: once on every training cycle (regardless of whether training succeeded), once per day on a dedicated daily tick (configurable `price_forecast.daily_run_time`, default 06:00), and once per day as soon as the next day's Nordpool prices are published (the **post-publication run**).
 
 #### Scenario: Weather snapshots run on every training cycle
 - **WHEN** the training orchestrator runs a training cycle
@@ -152,10 +165,24 @@ The post-publication run SHALL:
 - **THEN** the run SHALL happen at the first check after publication
 - **AND** if prices are never published that day, no post-publication run SHALL happen and the next morning run SHALL proceed normally
 
+#### Scenario: Scheduling rationale and horizon parameter
+- **WHEN** price forecasts are generated on the three schedules
+- **THEN** weather snapshots SHALL accumulate continuously from first install and the afternoon planner decisions SHALL use a forecast that knows tomorrow's prices
+- **AND** `generate_price_forecasts` SHALL accept the horizons to generate as `days_ahead_range` (default D+1 through D+7)
+
+#### Scenario: Post-publication run coverage and trigger
+- **WHEN** the post-publication run is evaluated
+- **THEN** it SHALL cover D+2 through D+7 only (D+1 is published; its morning forecast rows are kept for the D+1 fallback and accuracy reporting)
+- **AND** it SHALL be triggered when the published prices for the whole next local day are available, checked no more often than every 10 minutes and only from 12:00 local time until 23:59
+- **AND** it SHALL NOT run while another scheduler task is active (it waits for the next check)
+
+#### Scenario: Post-publication run frequency and skipping
+- **WHEN** the post-publication run has already happened today, or the next day's prices are never published
+- **THEN** it SHALL run at most once per local day, determined from the persisted forecast rows (a row issued today with `known_prices_until` at or after the end of tomorrow), so restarts do not cause duplicate runs
+- **AND** it SHALL be skipped for that day if the next day's prices are never published, with a "waiting for publication" info log written once per local day
+
 ### Requirement: Price forecast persistence
 Each price forecast record SHALL be persisted to a `price_forecasts` table in `planner_learning.db`. Each record SHALL store the weather feature values used at prediction time alongside the forecast output to enable honest training, and the run's `known_prices_until` (nullable timestamp). Records without spot predictions (weather-only rows) are valid and SHALL be stored with null spot columns.
-
-Persistence SHALL be overwrite-on-save keyed on `(slot_start, days_ahead)`: when a generation run persists a forecast for a `(slot_start, days_ahead)` pair that already has a stored row, the write SHALL replace the existing row rather than append an additional one. The replacing row SHALL carry the new `issue_timestamp`, `known_prices_until` and the newly computed weather/spot values. Consequently, immediately after any single generation run completes, at most one row SHALL exist per `(slot_start, days_ahead)` pair for the slots that run covered. No database-level UNIQUE constraint is required; the behavior SHALL be enforced by the write path. The existing startup duplicate-cleanup SHALL be retained as a backstop and legacy-data sweep. The `known_prices_until` column SHALL be added by an additive Alembic migration; existing rows SHALL keep null.
 
 #### Scenario: Forecast record stores weather inputs
 - **WHEN** a price forecast is generated for a target slot
@@ -184,6 +211,18 @@ Persistence SHALL be overwrite-on-save keyed on `(slot_start, days_ahead)`: when
 #### Scenario: Migration on an existing database
 - **WHEN** the migration runs on a database with existing `price_forecasts` rows
 - **THEN** the column SHALL be added as nullable and every existing row SHALL have null `known_prices_until`
+
+#### Scenario: Overwrite-on-save persistence
+- **WHEN** a generation run persists a forecast for a `(slot_start, days_ahead)` pair that already has a stored row
+- **THEN** the write SHALL replace the existing row rather than append an additional one
+- **AND** the replacing row SHALL carry the new `issue_timestamp`, `known_prices_until` and the newly computed weather/spot values
+- **AND** immediately after any single generation run completes, at most one row SHALL exist per `(slot_start, days_ahead)` pair for the slots that run covered
+- **AND** no database-level UNIQUE constraint is required; the behavior SHALL be enforced by the write path
+
+#### Scenario: Duplicate cleanup and known_prices_until migration
+- **WHEN** the system starts or the schema is migrated
+- **THEN** the existing startup duplicate-cleanup SHALL be retained as a backstop and legacy-data sweep
+- **AND** the `known_prices_until` column SHALL be added by an additive Alembic migration; existing rows SHALL keep null
 
 ### Requirement: Import/export price derivation
 At inference time, forecasted import and export prices SHALL be derived from the raw spot price prediction by applying the same fee/VAT/tax logic used in `backend/core/prices.py`. The model SHALL NOT predict import prices directly.

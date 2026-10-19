@@ -2,23 +2,16 @@
 
 ## Purpose
 
-TBD - Defines how the system handles multiple EV chargers with independent per-device scheduling, MILP decision variables, deadline constraints, SoC tracking, and executor control.
+Defines how the system handles multiple EV chargers with independent per-device scheduling, MILP decision variables, deadline constraints, SoC tracking, and executor control.
 ## Requirements
 ### Requirement: Per-device EV config structure
-Each entry in `ev_chargers[]` SHALL support the following per-device fields: `switch_entity` (string, HA charging-control entity ID), `charge_enabled_value` (string, default `"on"`), `charge_disabled_value` (string, default `"off"`), `plugged_in_states` (comma-separated string, default `"on,true,1,connected"`), `phase_1_value` (string, default `"1"`), `phase_3_value` (string, default `"3"`), `replan_on_plugin` (boolean, default true), `replan_on_unplug` (boolean, default false), plus hardware facts (`sensor`, `soc_sensor`, `plug_sensor`, `battery_capacity_kwh`, `type`, current/phase entities) and the optional HA goal entities (`ha_ready_by_entity`, `ha_target_soc_entity`). The new mapping fields SHALL be optional and their absence SHALL preserve existing switch-based and numeric phase-option behavior.
+Each entry in `ev_chargers[]` SHALL support the per-device control fields, hardware facts and optional HA goal entities listed in the scenario below.
 
-**Charger power fields:**
-- `type: current` chargers SHALL specify power only through `min_current_a`, `max_current_a` and `phases`. Their power limits are derived (see `ev-charging-power`).
-- `type: binary` chargers SHALL specify `rated_power_kw` (> 0).
-- `max_power_kw` and `nominal_power_kw` SHALL NOT be read for EV chargers. Config migration converts them (see `ev-charging-power`).
-
-`switch_entity` SHALL accept Home Assistant `switch`, `input_boolean`, `select`, and `input_select` domains. For a select-like entity, `charge_enabled_value` and `charge_disabled_value` SHALL both be non-empty and SHALL differ from each other. When a custom `plugged_in_states` value is present, it SHALL contain at least one non-empty comma-separated token. When phase switching is enabled, `phase_1_value` and `phase_3_value` SHALL both be non-empty and SHALL differ from each other.
-
-Config validation SHALL NOT require Home Assistant to be reachable, and SHALL NOT require a configured option value to be present in the entity's current Home Assistant option list.
-
-**Goal fields do NOT live in config.** `target_soc_percent`, `ready_by`, `repeat`, `n_days`, `ready_by_date`, and `keep_on_after_target` SHALL NOT be read from `config.yaml`; goals are owned by `data/ev_multi_day_state.json` via the dashboard/API/HA sync (see `ev-schedule-api`). If any goal field (or the legacy `departure_time` / `penalty_levels`) is present in config, the loader SHALL log a deprecation warning naming the dashboard as the place to set goals, and SHALL ignore the value for scheduling. Malformed values in these ignored fields SHALL NOT crash config loading, and config validation (the settings save/validate path) SHALL NOT report errors or warnings for them — deprecated goal fields MUST never block a settings save, regardless of their value. Config migration strips these fields (see `config-migration`); the loader tolerance exists for configs that have not (yet) been migrated.
-
-**No `charge_priority` field.** Surplus-PV routing is owned by the existing `excess_pv.priority[]` list (see `excess-pv-priority-dispatch`).
+#### Scenario: Supported per-device fields
+- **WHEN** an `ev_chargers[]` entry is configured
+- **THEN** it supports `switch_entity` (string, HA charging-control entity ID), `charge_enabled_value` (string, default `"on"`), `charge_disabled_value` (string, default `"off"`), `plugged_in_states` (comma-separated string, default `"on,true,1,connected"`), `phase_1_value` (string, default `"1"`), `phase_3_value` (string, default `"3"`), `replan_on_plugin` (boolean, default true) and `replan_on_unplug` (boolean, default false)
+- **AND** it supports hardware facts (`sensor`, `soc_sensor`, `plug_sensor`, `battery_capacity_kwh`, `type`, current/phase entities)
+- **AND** it supports the optional HA goal entities (`ha_ready_by_entity`, `ha_target_soc_entity`)
 
 #### Scenario: Config with goal fields is tolerated but ignored
 - **WHEN** a charger config still contains `target_soc_percent: 90` or `departure_time: "07:00"`
@@ -69,17 +62,46 @@ Config validation SHALL NOT require Home Assistant to be reachable, and SHALL NO
 - **WHEN** a current charger has `min_current_a: 6`, `max_current_a: 10`, `phases: [1,2,3]`, and no `max_power_kw`
 - **THEN** config validation SHALL accept the charger and its limits SHALL be derived
 
+#### Scenario: Optional mapping fields preserve existing behavior
+- **WHEN** the optional mapping fields are absent from an `ev_chargers[]` entry
+- **THEN** their absence SHALL preserve existing switch-based and numeric phase-option behavior
+
+#### Scenario: Charger power fields by type
+- **WHEN** an EV charger's power is configured
+- **THEN** `type: current` chargers SHALL specify power only through `min_current_a`, `max_current_a` and `phases`, and their power limits are derived (see `ev-charging-power`)
+- **AND** `type: binary` chargers SHALL specify `rated_power_kw` (> 0)
+- **AND** `max_power_kw` and `nominal_power_kw` SHALL NOT be read for EV chargers, and config migration converts them (see `ev-charging-power`)
+
+#### Scenario: Control entity domains and mapping value validation
+- **WHEN** an EV charger's control and mapping fields are validated
+- **THEN** `switch_entity` SHALL accept Home Assistant `switch`, `input_boolean`, `select`, and `input_select` domains
+- **AND** for a select-like entity, `charge_enabled_value` and `charge_disabled_value` SHALL both be non-empty and SHALL differ from each other
+- **AND** when a custom `plugged_in_states` value is present, it SHALL contain at least one non-empty comma-separated token
+- **AND** when phase switching is enabled, `phase_1_value` and `phase_3_value` SHALL both be non-empty and SHALL differ from each other
+
+#### Scenario: Config validation is independent of Home Assistant
+- **WHEN** config validation runs for an EV charger
+- **THEN** it SHALL NOT require Home Assistant to be reachable
+- **AND** it SHALL NOT require a configured option value to be present in the entity's current Home Assistant option list
+
+#### Scenario: Goal fields are not read from config
+- **WHEN** `config.yaml` contains `target_soc_percent`, `ready_by`, `repeat`, `n_days`, `ready_by_date`, or `keep_on_after_target`
+- **THEN** these fields SHALL NOT be read from `config.yaml`, because goals are owned by `data/ev_multi_day_state.json` via the dashboard/API/HA sync (see `ev-schedule-api`)
+- **AND** if any goal field (or the legacy `departure_time` / `penalty_levels`) is present in config, the loader SHALL log a deprecation warning naming the dashboard as the place to set goals, and SHALL ignore the value for scheduling
+
+#### Scenario: Deprecated goal fields never block loading or saving
+- **WHEN** deprecated goal fields in config contain malformed values
+- **THEN** config loading SHALL NOT crash
+- **AND** config validation (the settings save/validate path) SHALL NOT report errors or warnings for them, and deprecated goal fields MUST never block a settings save, regardless of their value
+- **AND** config migration strips these fields (see `config-migration`); the loader tolerance exists for configs that have not (yet) been migrated
+
+#### Scenario: No charge_priority field
+- **WHEN** surplus-PV routing between chargers is configured
+- **THEN** there SHALL be no `charge_priority` field on EV chargers
+- **AND** surplus-PV routing SHALL be owned by the existing `excess_pv.priority[]` list (see `excess-pv-priority-dispatch`)
+
 ### Requirement: Per-device MILP decision variables
-The Kepler solver SHALL create separate decision variables for each enabled EV charger that is plugged in, and for each enabled EV charger that is unplugged but has an active goal with a resolved deadline and a known last SoC ("assumed plugged"): a binary `ev_charge[d][t]` (charging on/off) and continuous `ev_energy[d][t]` (energy in kWh) indexed by device `d` and time slot `t`. Assumed-plugged chargers SHALL NOT receive surplus-charging variables. Their goal requirement SHALL be modelled exactly as for a plugged charger with a goal (in-horizon scheduled energy plus post-horizon deferral tiers plus shortfall, per `ev-deferral-value`); only surplus energy is absent from it. Their scheduled energy SHALL count in the energy balance and grid import budget like any other charger, and their results SHALL be marked `assumed_plugged: true` in the per-charger schedule output.
-
-The energy link SHALL depend on the charger's control type:
-
-- For `type: binary` chargers: `ev_energy[d][t] == ev_charge[d][t] × max_power_kw × slot_h` (full power or off, unchanged).
-- For `type: current` chargers: `min_power_kw × slot_h × ev_charge[d][t] <= ev_energy[d][t] <= max_power_kw × slot_h × ev_charge[d][t]` (semi-continuous: when on, any power between the charger's minimum and maximum; when off, zero).
-
-`min_power_kw` SHALL be derived from the charger's configured `min_current_a` and phase count (`min_current_a × 230 V × phases / 1000`), never hardcoded, and SHALL include a small upward margin (~1%) so the executor's floor-based kW→amps conversion never rounds a planned minimum below `min_current_a`. Fractional planning SHALL always apply to `type: current` chargers — there is no opt-out setting.
-
-The binary `ev_charge[d][t]` SHALL continue to drive discharge blocking (`any_ev_charging`), surplus-charging exclusivity, and all other on/off-gated constraints for both charger types.
+The Kepler solver SHALL create separate decision variables for each enabled EV charger that is plugged in, and for each enabled EV charger that is unplugged but has an active goal with a resolved deadline and a known last SoC ("assumed plugged"): a binary `ev_charge[d][t]` (charging on/off) and continuous `ev_energy[d][t]` (energy in kWh) indexed by device `d` and time slot `t`.
 
 #### Scenario: Two plugged-in chargers get independent variables
 - **WHEN** two enabled chargers are both plugged in
@@ -122,6 +144,30 @@ The binary `ev_charge[d][t]` SHALL continue to drive discharge blocking (`any_ev
 #### Scenario: Fractional charging still blocks battery discharge
 - **WHEN** a `type: current` charger is planned at partial power in slot t
 - **THEN** `any_ev_charging[t]` SHALL be 1 and battery discharge SHALL be blocked in slot t (source isolation unchanged)
+
+#### Scenario: Assumed-plugged chargers model goals like plugged chargers
+- **WHEN** a charger is modelled as "assumed plugged"
+- **THEN** it SHALL NOT receive surplus-charging variables
+- **AND** its goal requirement SHALL be modelled exactly as for a plugged charger with a goal (in-horizon scheduled energy plus post-horizon deferral tiers plus shortfall, per `ev-deferral-value`); only surplus energy is absent from it
+- **AND** its scheduled energy SHALL count in the energy balance and grid import budget like any other charger, and its results SHALL be marked `assumed_plugged: true` in the per-charger schedule output
+
+#### Scenario: Energy link for binary chargers
+- **WHEN** the solver links `ev_energy[d][t]` for a `type: binary` charger
+- **THEN** `ev_energy[d][t] == ev_charge[d][t] × max_power_kw × slot_h` (full power or off, unchanged)
+
+#### Scenario: Energy link for current chargers
+- **WHEN** the solver links `ev_energy[d][t]` for a `type: current` charger
+- **THEN** `min_power_kw × slot_h × ev_charge[d][t] <= ev_energy[d][t] <= max_power_kw × slot_h × ev_charge[d][t]` (semi-continuous: when on, any power between the charger's minimum and maximum; when off, zero)
+- **AND** fractional planning SHALL always apply to `type: current` chargers, with no opt-out setting
+
+#### Scenario: Derived minimum power with margin
+- **WHEN** `min_power_kw` is computed for a current-type charger
+- **THEN** it SHALL be derived from the charger's configured `min_current_a` and phase count (`min_current_a × 230 V × phases / 1000`), never hardcoded
+- **AND** it SHALL include a small upward margin (~1%) so the executor's floor-based kW→amps conversion never rounds a planned minimum below `min_current_a`
+
+#### Scenario: Binary charge variable keeps driving on/off constraints
+- **WHEN** constraints gated on charging on/off are built for either charger type
+- **THEN** the binary `ev_charge[d][t]` SHALL continue to drive discharge blocking (`any_ev_charging`), surplus-charging exclusivity, and all other on/off-gated constraints
 
 ### Requirement: Active goal that yields zero scheduled energy logs a warning
 When a charger has an active goal (`required_kwh > 0` with a resolved deadline) and the solver returns a schedule with zero total planned energy for that charger, the pipeline SHALL log a WARNING that names the charger, the required kWh, the per-day quota split, and the minimum schedulable chunk — an active goal SHALL never silently convert entirely to shortfall.
@@ -186,11 +232,7 @@ The schedule output SHALL include a per-device `ev_chargers` dict in each slot, 
 - **AND** `ev_charging_kw` SHALL be `0.0`
 
 ### Requirement: Per-device executor control loop
-The executor SHALL iterate over all enabled chargers with a control entity configured (`switch_entity` for `type: binary`, `current_entity` for `type: current`). For each binary charger, the executor SHALL independently decide whether charging is enabled based on that charger's entry in the schedule's `ev_chargers` dict. A `switch` or `input_boolean` control entity SHALL use its existing turn-on/turn-off service. A `select` or `input_select` control entity SHALL use `select.select_option` with the charger's configured `charge_enabled_value` or `charge_disabled_value`. For each current-type charger, the executor SHALL compute an ampere setpoint from that charger's planned kW (subject to load-balancer capping when enabled) and write it to the `current_entity`.
-
-Idempotence SHALL compare the current HA state with the exact desired mapped state. For select-based control, a state that matches neither configured value SHALL NOT be assumed off: Darkstar SHALL send the configured enabled or disabled value required by the current plan. Action verification, shadow-mode reporting, execution history, and notifications SHALL report the mapped target value while preserving existing start/stop action semantics.
-
-The action result's new value SHALL carry the mapped target value that was sent (`on`/`off` for switch-like control, the configured option for select-like control) rather than a raw boolean. The `ev_charge_start` and `ev_charge_stop` action types SHALL be unchanged.
+The executor SHALL iterate over all enabled chargers with a control entity configured (`switch_entity` for `type: binary`, `current_entity` for `type: current`). For each binary charger, the executor SHALL independently decide whether charging is enabled based on that charger's entry in the schedule's `ev_chargers` dict. A `switch` or `input_boolean` control entity SHALL use its existing turn-on/turn-off service.
 
 #### Scenario: Two chargers controlled independently
 - **WHEN** the schedule has charger A at 11 kW and charger B at 0 kW in the current slot
@@ -225,12 +267,27 @@ The action result's new value SHALL carry the mapped target value that was sent 
 - **THEN** the recorded new value SHALL be `on`
 - **AND** the execution-history rendering SHALL be unchanged from the previous boolean behavior
 
+#### Scenario: Select-like control uses option selection
+- **WHEN** the executor controls a charger whose entity is a `select` or `input_select`
+- **THEN** it SHALL use `select.select_option` with the charger's configured `charge_enabled_value` or `charge_disabled_value`
+
+#### Scenario: Current-type charger setpoint
+- **WHEN** the executor handles a current-type charger
+- **THEN** it SHALL compute an ampere setpoint from that charger's planned kW (subject to load-balancer capping when enabled) and write it to the `current_entity`
+
+#### Scenario: Idempotence against the mapped state
+- **WHEN** the executor compares the current HA state with the desired state
+- **THEN** idempotence SHALL compare the current HA state with the exact desired mapped state
+- **AND** for select-based control, a state that matches neither configured value SHALL NOT be assumed off: Darkstar SHALL send the configured enabled or disabled value required by the current plan
+
+#### Scenario: Reporting of mapped target values
+- **WHEN** an EV control action is executed, verified or reported
+- **THEN** action verification, shadow-mode reporting, execution history, and notifications SHALL report the mapped target value while preserving existing start/stop action semantics
+- **AND** the action result's new value SHALL carry the mapped target value that was sent (`on`/`off` for switch-like control, the configured option for select-like control) rather than a raw boolean
+- **AND** the `ev_charge_start` and `ev_charge_stop` action types SHALL be unchanged
+
 ### Requirement: EV mapping fields are configured from Home Assistant entity metadata
-The EV charger settings editor SHALL derive its mapping fields from the selected Home Assistant entity rather than requiring the user to recall vendor-specific values. The entity's domain SHALL be derived from its entity ID prefix. `GET /api/ha/entities` SHALL return an `options` list for `select` and `input_select` entities, sourced from the entity's `options` attribute in the Home Assistant states payload, without introducing an additional request per field.
-
-The editor SHALL hide the charge enabled/disabled value fields entirely when the charging-control entity is switch-like, and SHALL render them as option dropdowns when it is select-like. `phase_1_value` and `phase_3_value` SHALL render as option dropdowns over the phase-mode entity's options, and only when `phase_switching_enabled` is true. `plugged_in_states` SHALL render as a multi-select over the plug sensor's options when the sensor exposes them, and SHALL store the same comma-separated string in either presentation.
-
-When Home Assistant is unreachable, the entity list is empty, or the selected entity exposes no options, every affected field SHALL fall back to a free-text input pre-filled with the stored value. No stored value SHALL be cleared or rewritten because options could not be fetched, and a stored value absent from the fetched option list SHALL be preserved and displayed as the current selection.
+The EV charger settings editor SHALL derive its mapping fields from the selected Home Assistant entity rather than requiring the user to recall vendor-specific values. The entity's domain SHALL be derived from its entity ID prefix.
 
 #### Scenario: Switch-like control entity hides value fields
 - **WHEN** the charging-control entity is `switch.ev_charger`
@@ -254,6 +311,21 @@ When Home Assistant is unreachable, the entity list is empty, or the selected en
 - **WHEN** `charge_enabled_value` is `On` and the fetched option list does not contain `On`
 - **THEN** the stored value SHALL be displayed as the current selection
 - **AND** it SHALL NOT be cleared or replaced by a fetched option
+
+#### Scenario: Entity options exposed by the API
+- **WHEN** `GET /api/ha/entities` returns `select` or `input_select` entities
+- **THEN** it SHALL return an `options` list sourced from the entity's `options` attribute in the Home Assistant states payload, without introducing an additional request per field
+
+#### Scenario: Editor renders mapping fields by entity type
+- **WHEN** the EV charger settings editor renders mapping fields
+- **THEN** it SHALL hide the charge enabled/disabled value fields entirely when the charging-control entity is switch-like, and SHALL render them as option dropdowns when it is select-like
+- **AND** `phase_1_value` and `phase_3_value` SHALL render as option dropdowns over the phase-mode entity's options, and only when `phase_switching_enabled` is true
+- **AND** `plugged_in_states` SHALL render as a multi-select over the plug sensor's options when the sensor exposes them, and SHALL store the same comma-separated string in either presentation
+
+#### Scenario: Free-text fallback without options
+- **WHEN** Home Assistant is unreachable, the entity list is empty, or the selected entity exposes no options
+- **THEN** every affected field SHALL fall back to a free-text input pre-filled with the stored value
+- **AND** no stored value SHALL be cleared or rewritten because options could not be fetched, and a stored value absent from the fetched option list SHALL be preserved and displayed as the current selection
 
 ### Requirement: Per-device executor state tracking
 The executor SHALL maintain independent state per charger: charging active flag, slot end time, zero-power tick count, and failure notification flag. Stopping a charger when its plan ends SHALL follow directly from the plan for that charger, independently of other chargers. There SHALL be no separate time-based "safety timeout" overrun check.
@@ -286,13 +358,7 @@ The executor SHALL read power from each enabled charger's sensor independently v
 - **AND** source isolation SHALL be active
 
 ### Requirement: EV charger with invalid power is registered as disabled
-The load registration service SHALL register as visible-but-disabled any EV charger whose derived maximum power (see `ev-charging-power`) is ≤ 0 or cannot be derived. This covers:
-- a `type: current` charger missing `max_current_a` or `phases`, or with `max_current_a` ≤ 0;
-- a `type: binary` charger with missing or ≤ 0 `rated_power_kw`.
-
-The charger SHALL appear in the load registry with a `disabled_reason` of `"missing_power_kw"` so it remains visible in the UI and health surfaces. The planner's adapter SHALL exclude such chargers when building `KeplerConfig.ev_chargers`, and the solver SHALL NOT create decision variables for them.
-
-A `HealthIssue` with `category="ev"`, `severity="critical"`, and `code="EV_MISSING_POWER"` SHALL be emitted for each such charger. The issue's `entity_id` SHALL be the charger ID. `details` SHALL include the charger ID, the charger type, and the offending field values. The guidance SHALL name the fields to set: amps and phases for current chargers, `rated_power_kw` for binary chargers.
+The load registration service SHALL register as visible-but-disabled any EV charger whose derived maximum power (see `ev-charging-power`) is ≤ 0 or cannot be derived. This covers a `type: current` charger missing `max_current_a` or `phases` or with `max_current_a` ≤ 0, and a `type: binary` charger with missing or ≤ 0 `rated_power_kw`.
 
 #### Scenario: Current charger missing max_current_a registers as disabled
 - **GIVEN** an enabled current charger with no `max_current_a`
@@ -325,8 +391,20 @@ A `HealthIssue` with `category="ev"`, `severity="critical"`, and `code="EV_MISSI
 - **AND** the corresponding `EV_MISSING_POWER` HealthIssue is cleared
 - **AND** the next planner run includes the charger in `KeplerConfig.ev_chargers`
 
+#### Scenario: Disabled charger remains visible with reason
+- **WHEN** a charger is registered as visible-but-disabled because its derived maximum power is missing or not positive
+- **THEN** it SHALL appear in the load registry with a `disabled_reason` of `"missing_power_kw"` so it remains visible in the UI and health surfaces
+- **AND** the planner's adapter SHALL exclude such chargers when building `KeplerConfig.ev_chargers`, and the solver SHALL NOT create decision variables for them
+
+#### Scenario: Missing power health issue
+- **WHEN** a charger is registered as disabled for missing power
+- **THEN** a `HealthIssue` with `category="ev"`, `severity="critical"`, and `code="EV_MISSING_POWER"` SHALL be emitted for each such charger
+- **AND** the issue's `entity_id` SHALL be the charger ID
+- **AND** `details` SHALL include the charger ID, the charger type, and the offending field values
+- **AND** the guidance SHALL name the fields to set: amps and phases for current chargers, `rated_power_kw` for binary chargers
+
 ### Requirement: Per-device ready-by resolution
-The pipeline SHALL resolve each charger's next ready-by datetime independently from its state-file goal (`ready_by` + `repeat`, `n_days` when `repeat: every_n_days`, or `ready_by_date` when `repeat: none`). Resolution SHALL use **one shared resolver function** used identically by the planner pipeline, the schedule API, and the HA sync — divergent duplicate implementations are a defect. The shared resolver SHALL default `n_days` to 1 and SHALL anchor the `every_n_days` cycle to the goal's `anchor_date`, falling back to the local date of `last_updated` only for legacy goals without an `anchor_date` (the fallback value SHALL be persisted as `anchor_date` by the next goal write so the cycle is locked), not a hard-coded epoch. A missing/null `repeat` SHALL be treated as `daily` (never string-matched against `"none"`). This resolved datetime SHALL be used as the Kepler deadline for that charger. A charger past a non-repeating ready-by datetime SHALL have no deadline (inert). Resolution SHALL apply to chargers with an active goal whether or not they are currently plugged in.
+The pipeline SHALL resolve each charger's next ready-by datetime independently from its state-file goal (`ready_by` + `repeat`, `n_days` when `repeat: every_n_days`, or `ready_by_date` when `repeat: none`). Resolution SHALL use **one shared resolver function** used identically by the planner pipeline, the schedule API, and the HA sync — divergent duplicate implementations are a defect.
 
 #### Scenario: Daily repeat resolves to the next occurrence
 - **WHEN** `ready_by: "07:00"`, `repeat: daily`, and the current time is 22:00
@@ -362,8 +440,19 @@ The pipeline SHALL resolve each charger's next ready-by datetime independently f
 - **WHEN** a charger with a daily 07:00 goal is unplugged at 22:00
 - **THEN** its deadline SHALL still resolve to tomorrow 07:00
 
+#### Scenario: Resolver defaults and anchoring
+- **WHEN** the shared resolver evaluates a goal
+- **THEN** it SHALL default `n_days` to 1 and SHALL anchor the `every_n_days` cycle to the goal's `anchor_date`, not a hard-coded epoch
+- **AND** it SHALL fall back to the local date of `last_updated` only for legacy goals without an `anchor_date`, and the fallback value SHALL be persisted as `anchor_date` by the next goal write so the cycle is locked
+- **AND** a missing/null `repeat` SHALL be treated as `daily` (never string-matched against `"none"`)
+
+#### Scenario: Resolved datetime used as deadline
+- **WHEN** a charger has an active goal
+- **THEN** the resolved datetime SHALL be used as the Kepler deadline for that charger, whether or not it is currently plugged in
+- **AND** a charger past a non-repeating ready-by datetime SHALL have no deadline (inert)
+
 ### Requirement: Per-device EV config supports optional HA goal entities
-Each entry in `ev_chargers[]` SHALL support two optional fields: `ha_ready_by_entity` (string, HA `input_datetime` entity ID) and `ha_target_soc_entity` (string, HA `input_number` entity ID). When configured, the backend SHALL sync the charger's ready-by time and target SoC bidirectionally with those entities, and HA values SHALL take priority over the dashboard value when set. (The core goal fields — `target_soc_percent`, `ready_by`, `repeat`, `keep_on_after_target` — are defined by the `per-device-ev-scheduling` change in Module 4. **No `charge_priority`** — surplus ordering is owned by `excess_pv.priority[]`.)
+Each entry in `ev_chargers[]` SHALL support two optional fields: `ha_ready_by_entity` (string, HA `input_datetime` entity ID) and `ha_target_soc_entity` (string, HA `input_number` entity ID). When configured, the backend SHALL sync the charger's ready-by time and target SoC bidirectionally with those entities, and HA values SHALL take priority over the dashboard value when set.
 
 #### Scenario: Charger with HA goal entities configured
 - **WHEN** a charger has `ha_ready_by_entity: "input_datetime.ev_ready_by"` and `ha_target_soc_entity: "input_number.ev_target_soc"`
@@ -378,6 +467,11 @@ Each entry in `ev_chargers[]` SHALL support two optional fields: `ha_ready_by_en
 #### Scenario: HA value overrides the dashboard value
 - **WHEN** both an HA goal entity and a dashboard-set value exist for the same field
 - **THEN** the HA value SHALL take precedence (mirroring the vacation-mode override)
+
+#### Scenario: Core goal fields and surplus ordering defined elsewhere
+- **WHEN** the optional HA goal entities are configured
+- **THEN** the core goal fields (`target_soc_percent`, `ready_by`, `repeat`, `keep_on_after_target`) are defined by the `per-device-ev-scheduling` change in Module 4
+- **AND** there SHALL be no `charge_priority` field, because surplus ordering is owned by `excess_pv.priority[]`
 
 ### Requirement: Executor ignores planned charging for chargers that are not plugged in
 The executor SHALL use a charger's planned EV kW, keep-on flag and surplus flag for switch control and source isolation only while the charger's live plug state is connected. When the plug state is disconnected or unknown, planned charging for that charger SHALL NOT switch the charger on and SHALL NOT block battery discharge. The measured-EV-draw fail-safe for source isolation and manual-charge handling SHALL be unaffected.

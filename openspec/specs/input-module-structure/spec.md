@@ -30,20 +30,25 @@ This module SHALL have no imports from other `backend.core` modules (it is the d
 ---
 
 ### Requirement: HA client module provides Home Assistant sensor access
+`backend/core/ha_client.py` SHALL contain all Home Assistant HTTP client functions. It SHALL export the following public functions with signatures identical to the current `inputs.py`, as listed in the scenarios below.
 
-`backend/core/ha_client.py` SHALL contain all Home Assistant HTTP client functions. It SHALL export the following public functions with signatures identical to the current `inputs.py`:
-- `make_ha_headers(token: str) -> dict[str, str]`
-- `get_ha_entity_state(entity_id: str) -> dict[str, Any] | None`
-- `get_ha_sensor_float(entity_id: str) -> float | None`
-- `get_ha_sensor_kw_normalized(entity_id: str) -> float | None`
-- `get_ha_bool(entity_id: str) -> bool`
-- `get_load_profile_from_ha(config: dict[str, Any]) -> list[float]`
-- `get_initial_state(config: ...) -> dict`
-- `get_dummy_load_profile(config: dict[str, Any]) -> list[float]`
+#### Scenario: HA client public function signatures preserved
+- **WHEN** the HA client module is imported
+- **THEN** it SHALL export the following functions with signatures identical to the current `inputs.py`:
+  - `make_ha_headers(token: str) -> dict[str, str]`
+  - `get_ha_entity_state(entity_id: str) -> dict[str, Any] | None`
+  - `get_ha_sensor_float(entity_id: str) -> float | None`
+  - `get_ha_sensor_kw_normalized(entity_id: str) -> float | None`
+  - `get_ha_bool(entity_id: str) -> bool`
+  - `get_load_profile_from_ha(config: dict[str, Any]) -> list[float]`
+  - `get_initial_state(config: ...) -> dict`
+  - `get_dummy_load_profile(config: dict[str, Any]) -> list[float]`
 
-Private helpers (`_normalize_energy_to_kwh`) SHALL also move to this module.
-
-This module SHALL import from `backend.core.secrets` using module-level reference (`from backend.core import secrets`) and call `secrets.load_yaml()`, `secrets.load_home_assistant_config()` etc. via attribute access, NOT via `from backend.core.secrets import load_yaml`.
+#### Scenario: HA client private helper and secrets access
+- **WHEN** the `inputs.py` split is carried out
+- **THEN** the private helper `_normalize_energy_to_kwh` SHALL also move to the HA client module
+- **AND** the module SHALL import from `backend.core.secrets` using module-level reference (`from backend.core import secrets`)
+- **AND** it SHALL call `secrets.load_yaml()`, `secrets.load_home_assistant_config()` etc. via attribute access, NOT via `from backend.core.secrets import load_yaml`
 
 #### Scenario: HA sensor functions use secrets module for config
 - **WHEN** any HA client function needs Home Assistant configuration
@@ -56,15 +61,15 @@ This module SHALL import from `backend.core.secrets` using module-level referenc
 ---
 
 ### Requirement: Prices module provides Nordpool electricity pricing
-
 `backend/core/prices.py` SHALL contain all electricity price fetching functions. It SHALL export the following public functions with signatures identical to the current `inputs.py`:
 - `get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]`
 - `calculate_import_export_prices(...) -> ...` (same signature)
 - `get_current_slot_prices(config: dict[str, Any]) -> dict[str, float] | None`
 
-Private helpers (`_process_nordpool_data`) SHALL also move to this module.
-
-This module SHALL import from `backend.core.secrets` using module-level reference.
+#### Scenario: Prices module private helper and secrets access
+- **WHEN** the `inputs.py` split is carried out
+- **THEN** the private helper `_process_nordpool_data` SHALL also move to the prices module
+- **AND** the module SHALL import from `backend.core.secrets` using module-level reference
 
 #### Scenario: Nordpool data fetching works identically
 - **WHEN** `get_nordpool_data()` is called
@@ -77,16 +82,16 @@ This module SHALL import from `backend.core.secrets` using module-level referenc
 ---
 
 ### Requirement: Forecasts module provides PV/load forecast orchestration
-
 `backend/core/forecasts.py` SHALL contain all forecast-related functions. It SHALL export the following public functions with signatures identical to the current `inputs.py`:
 - `get_forecast_data(config: ...) -> ...`
 - `get_all_input_data(config_path: str = ...) -> ...`
 - `get_db_forecast_slots(db_path: ...) -> ...`
 - `build_db_forecast_for_slots(config: ...) -> ...`
 
-Private helpers (`_interpolate_small_gaps`, `_get_forecast_data_aurora`, `_get_forecast_data_async`) SHALL also move to this module.
-
-This module SHALL import from `backend.core.secrets`, `backend.core.ha_client`, and `backend.core.prices` using module-level references.
+#### Scenario: Forecasts module private helpers and imports
+- **WHEN** the `inputs.py` split is carried out
+- **THEN** the private helpers `_interpolate_small_gaps`, `_get_forecast_data_aurora` and `_get_forecast_data_async` SHALL also move to the forecasts module
+- **AND** the module SHALL import from `backend.core.secrets`, `backend.core.ha_client`, and `backend.core.prices` using module-level references
 
 #### Scenario: get_all_input_data orchestrates all data sources
 - **WHEN** `get_all_input_data()` is called

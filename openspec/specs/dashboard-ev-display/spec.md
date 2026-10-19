@@ -5,18 +5,31 @@
 Dashboard display of energy resources and EV charging metrics with conditional rendering based on system configuration.
 ## Requirements
 ### Requirement: Dashboard Energy Resources card renders metrics conditionally
-The Dashboard Energy Resources card SHALL display metrics conditionally based on system `has_*` configuration flags. Metrics SHALL only appear when the corresponding feature is enabled.
+The Dashboard Energy Resources card SHALL display metrics conditionally based on system `has_*` flags, only when the corresponding feature is enabled. The "House Load" metric SHALL always be displayed, with actual and average values both representing base household load excluding EV charging and water-heater consumption. When `has_ev_charger` is true the card SHALL expose a "Metrics | EV" tab switch, and when false it SHALL render the Metrics view regardless of any persisted tab value.
 
-| Metric | Condition |
-|--------|-----------|
-| Solar Production | `has_solar: true` |
-| Battery Charge / Discharge | `has_battery: true` |
-| Water Heating | `has_water_heater: true` |
-| EV Charging | `has_ev_charger: true` |
+#### Scenario: Metric visibility conditions
+- **WHEN** the card renders
+- **THEN** Solar Production appears only when `has_solar: true`
+- **AND** Battery Charge / Discharge appears only when `has_battery: true`
+- **AND** Water Heating appears only when `has_water_heater: true`
+- **AND** EV Charging appears only when `has_ev_charger: true`
 
-The "House Load" metric SHALL always be displayed. Its actual and average values SHALL both represent base household load, excluding enabled EV charging and water-heater consumption that are tracked separately. The average SHALL be `base_load_avg_daily_kwh` from `GET /api/energy/today`: the base-load total of the last 96 completed 15-minute slots, scaled to 96 slots, and `null` when fewer than 87 slots are recorded. It SHALL NOT be derived from the gross whole-home power sensor. It is a full-day figure shown next to today's so-far actual.
+#### Scenario: House Load average definition
+- **WHEN** the card shows the House Load average
+- **THEN** it is `base_load_avg_daily_kwh` from `GET /api/energy/today`: the base-load total of the last 96 completed 15-minute slots, scaled to 96 slots, and `null` when fewer than 87 slots are recorded
+- **AND** it is not derived from the gross whole-home power sensor
+- **AND** it is a full-day figure shown next to today's so-far actual
 
-When `has_ev_charger` is true, the card SHALL expose a "Metrics | EV" tab switch. The "Metrics" tab SHALL show the resource metrics (including an at-a-glance EV summary line); the "EV" tab SHALL show per-charger goal controls and progress as defined in the `ev-dashboard-card` capability. The active tab SHALL be persisted in `localStorage`. When `has_ev_charger` is false (or no chargers are configured), the card SHALL render the Metrics view **regardless of any persisted tab value** — a stale `localStorage` preference for the EV tab SHALL never lock the user out of the Metrics view.
+#### Scenario: EV tab switch behavior
+- **WHEN** `has_ev_charger` is true
+- **THEN** the "Metrics" tab shows the resource metrics including an at-a-glance EV summary line
+- **AND** the "EV" tab shows per-charger goal controls and progress as defined in the `ev-dashboard-card` capability
+- **AND** the active tab is persisted in `localStorage`
+
+#### Scenario: Stale tab preference ignored without chargers
+- **WHEN** `has_ev_charger` is false or no chargers are configured
+- **THEN** the card renders the Metrics view regardless of any persisted tab value
+- **AND** a stale `localStorage` EV preference never locks the user out of the Metrics view
 
 #### Scenario: Full configuration (all features enabled)
 - **WHEN** the Dashboard loads with all `has_*` flags `true`
