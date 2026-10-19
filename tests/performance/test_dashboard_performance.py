@@ -9,6 +9,7 @@ Usage:
 """
 
 import json
+import statistics
 import sys
 import time
 from dataclasses import dataclass, field
@@ -188,34 +189,42 @@ def performance_report() -> PerformanceReport:
 # -----------------------------------------------------------------------------
 
 
+TIMED_SAMPLES = 5
+
+
 def time_endpoint(client: Any, endpoint: str, config: dict[str, Any]) -> EndpointResult:
-    """Time a single endpoint request."""
-    start = time.perf_counter()
+    """Time an endpoint: one untimed warm-up call, then the median of N timed calls.
+
+    The first request pays one-off cold-start costs (lazy imports, app init) that
+    vary wildly under load; the median of warm calls still catches real slowdowns.
+    """
+
+    def build(ms: float, status: int, error: str | None) -> EndpointResult:
+        return EndpointResult(
+            endpoint=endpoint,
+            response_time_ms=ms,
+            status_code=status,
+            threshold_warn=config["threshold_warn"],
+            threshold_error=config["threshold_error"],
+            critical=config["critical"],
+            success=error is None,
+            error=error,
+        )
+
+    samples: list[float] = []
+    status = 0
     try:
-        response = client.get(endpoint)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        return EndpointResult(
-            endpoint=endpoint,
-            response_time_ms=elapsed_ms,
-            status_code=response.status_code,
-            threshold_warn=config["threshold_warn"],
-            threshold_error=config["threshold_error"],
-            critical=config["critical"],
-            success=response.status_code == 200,
-            error=None if response.status_code == 200 else f"HTTP {response.status_code}",
-        )
+        client.get(endpoint)  # warm-up, untimed
+        for _ in range(TIMED_SAMPLES):
+            start = time.perf_counter()
+            response = client.get(endpoint)
+            samples.append((time.perf_counter() - start) * 1000)
+            status = response.status_code
+            if status != 200:
+                return build(statistics.median(samples), status, f"HTTP {status}")
     except Exception as e:
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        return EndpointResult(
-            endpoint=endpoint,
-            response_time_ms=elapsed_ms,
-            status_code=0,
-            threshold_warn=config["threshold_warn"],
-            threshold_error=config["threshold_error"],
-            critical=config["critical"],
-            success=False,
-            error=str(e),
-        )
+        return build(statistics.median(samples) if samples else 0.0, 0, str(e))
+    return build(statistics.median(samples), status, None)
 
 
 # -----------------------------------------------------------------------------
