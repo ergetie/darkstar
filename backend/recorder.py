@@ -35,6 +35,7 @@ from backend.core.water_heating import (
     DEFAULT_IDLE_POWER_THRESHOLD_KW,
     WATER_HEATER_ENERGY_SCHEMA_VERSION,
     WATER_HEATER_ENERGY_SEMANTICS,
+    active_water_heaters,
     normalize_active_power_kw,
 )
 from backend.learning.backfill import BackfillEngine
@@ -403,11 +404,11 @@ async def record_observation_from_current_state(
         cast("list[dict[str, Any]]", ev_config_value) if isinstance(ev_config_value, list) else []
     )
     water_config_value = config.get("water_heaters")
-    water_config = (
-        cast("list[dict[str, Any]]", water_config_value)
-        if isinstance(water_config_value, list)
-        else []
+    water_configured_any = isinstance(water_config_value, list) and bool(
+        cast("list[Any]", water_config_value)
     )
+    # The flag wins: with has_water_heater false this is empty even with stale entries.
+    water_config = active_water_heaters(config)
     ev_methods = [method_for(energy.ev.get(sensor), True) for _, sensor in sources.ev_chargers]
 
     def aggregate_method(methods: list[str], enabled: bool, configured: bool) -> str:
@@ -433,11 +434,10 @@ async def record_observation_from_current_state(
     water_method = aggregate_method(
         water_methods,
         bool(system_config.get("has_water_heater", True))
-        and (not water_config or any(item.get("enabled", True) for item in water_config)),
-        bool(sources.water_heaters)
-        and all(item.get("sensor") for item in water_config if item.get("enabled", True)),
+        and (not water_configured_any or bool(water_config)),
+        bool(sources.water_heaters) and all(item.get("sensor") for item in water_config),
     )
-    if any(not item.get("sensor") for item in water_config if item.get("enabled", True)):
+    if any(not item.get("sensor") for item in water_config):
         water_method = "unknown"
     if not water_methods and water_method == "unconfigured_zero":
         water_heater_devices = {}

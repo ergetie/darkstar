@@ -41,6 +41,9 @@ export const WaterTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode })
     const hasTemperatureHeater =
         waterHeaters.length === 0 || waterHeaters.some((heater) => heater.control_type !== 'switch')
 
+    const waterHeatingOff =
+        (config as { system?: { has_water_heater?: boolean } } | null)?.system?.has_water_heater === false
+
     if (loading) {
         return <Card className="p-6 text-sm text-muted">Loading water heating configuration…</Card>
     }
@@ -54,6 +57,13 @@ export const WaterTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode })
     return (
         <div className="space-y-4">
             <UnsavedChangesBanner visible={isDirty} onSave={() => save()} saving={saving} />
+
+            {waterHeatingOff && (
+                <div className="banner banner-info" role="status" data-testid="water-heating-off-notice">
+                    Water heating is off. Turn on &quot;Smart water heater&quot; under System to plan and control water
+                    heating. These settings are kept but not used.
+                </div>
+            )}
 
             {waterSections.map((section) => {
                 // Check section-level showIf

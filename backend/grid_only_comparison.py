@@ -40,6 +40,7 @@ class _SlotCosts:
     ds_wear_cost: float
     ds_cost: float
     grid_only_cost: float
+    water_unmeasured: bool = False
 
 
 class _BucketTotals(TypedDict):
@@ -76,7 +77,28 @@ def _quality_flags(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _recording_is_eligible(flags: dict[str, Any], *, battery_present: bool) -> bool:
+def _component_method(flags: dict[str, Any], name: str) -> object:
+    recording: Any = flags.get("recording")
+    if not isinstance(recording, dict):
+        return None
+    components: Any = cast("dict[str, Any]", recording).get("components")
+    if not isinstance(components, dict):
+        return None
+    component: Any = cast("dict[str, Any]", components).get(name)
+    if not isinstance(component, dict):
+        return None
+    return cast("dict[str, Any]", component).get("method")
+
+
+def _recording_is_eligible(
+    flags: dict[str, Any], *, battery_present: bool, allow_unmeasured_water: bool = False
+) -> bool:
+    """Whether recorder provenance allows the slot into the comparison.
+
+    ``allow_unmeasured_water`` accepts a water component with method ``unknown`` only
+    when the load was derived from history (so it still contains the unmeasured water)
+    and every other relevant component is eligible.
+    """
     source = flags.get("source")
     if source != "recorder":
         return False
@@ -117,6 +139,14 @@ def _recording_is_eligible(flags: dict[str, Any], *, battery_present: bool) -> b
         component_metadata = cast("dict[str, Any]", component)
         method = component_metadata.get("method")
         owner = component_metadata.get("owner")
+        if (
+            name == "water"
+            and method == "unknown"
+            and owner == "recorder"
+            and allow_unmeasured_water
+            and _component_method(flags, "load") == "derived_history"
+        ):
+            continue
         if owner != "recorder" or method in {"snapshot", "mixed", "unconfigured_zero", "unknown"}:
             return False
         if (
@@ -147,16 +177,24 @@ def _slot_costs(
     if battery_present and not math.isfinite(cycle_cost_kwh):
         return None
     start_utc = _valid_slot_start(row.start)
-    if start_utc is None or not _recording_is_eligible(
-        _quality_flags(row.quality_flags), battery_present=battery_present
+    if start_utc is None:
+        return None
+    flags = _quality_flags(row.quality_flags)
+    if not _recording_is_eligible(
+        flags, battery_present=battery_present, allow_unmeasured_water=True
     ):
         return None
+    water_unmeasured = _component_method(flags, "water") == "unknown"
 
+    # Unmeasured water (null or zero) is not a filled value: derived load still contains it.
+    water_value = _finite_number(row.water_kwh, nonnegative=True)
+    if water_unmeasured and water_value is None and row.water_kwh is None:
+        water_value = 0.0
     energies = (
         _finite_number(row.import_kwh, nonnegative=True),
         _finite_number(row.export_kwh, nonnegative=True),
         _finite_number(row.load_kwh, nonnegative=True),
-        _finite_number(row.water_kwh, nonnegative=True),
+        water_value,
         _finite_number(row.ev_charging_kwh, nonnegative=True),
     )
     prices = (
@@ -174,7 +212,6 @@ def _slot_costs(
     if any(value is None for value in (*energies, *prices, *battery_flows)):
         return None
 
-    flags = _quality_flags(row.quality_flags)
     recording: Any = flags.get("recording")
     components: dict[str, Any] = {}
     if isinstance(recording, dict):
@@ -189,6 +226,9 @@ def _slot_costs(
     assert load_kwh is not None and water_kwh is not None and ev_kwh is not None
     assert import_price is not None and export_price is not None
     assert charge_kwh is not None and discharge_kwh is not None
+    if water_unmeasured and ev_kwh > 0 and load_kwh == 0:
+        # The base-load clamp (ev + water > total) may have hidden real demand.
+        return None
     values_by_component = {
         "import": import_kwh,
         "export": export_kwh,
@@ -231,6 +271,7 @@ def _slot_costs(
         ds_wear_cost,
         ds_cost,
         grid_only_cost,
+        water_unmeasured,
     )
 
 
@@ -297,6 +338,7 @@ def build_grid_only_comparison(
     covered = len(eligible)
     total = len(expected)
     excluded = total - covered
+    water_unmeasured_slots = sum(1 for slot in eligible if slot.water_unmeasured)
     if not has_completed_observations:
         status, reason = "no_data", "no_completed_observations"
     elif covered == 0:
@@ -314,6 +356,8 @@ def build_grid_only_comparison(
             "covered_slots": covered,
             "total_slots": total,
             "excluded_slots": excluded,
+            "water_unmeasured_slots": water_unmeasured_slots,
+            "water_unmeasured_hours": water_unmeasured_slots * 0.25,
         },
         "time_axis": {
             "timezone": getattr(timezone, "zone", str(timezone)),

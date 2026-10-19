@@ -9,6 +9,7 @@ import websockets
 
 from backend.core.ev_plug import resolve_plug_state
 from backend.core.secrets import load_home_assistant_config, load_yaml
+from backend.core.water_heating import active_water_heaters
 
 logger = logging.getLogger("darkstar.ha_socket")
 
@@ -108,18 +109,15 @@ class HAWebSocketClient:
                 mapping[sensors["battery_power"]] = "battery_kw"
 
             # ARC15: Water heater sensors from water_heaters[] array
-            if system.get("has_water_heater", False):
-                water_heaters: list[dict[str, Any]] = cfg.get("water_heaters", [])
-                self.water_heater_configs: list[dict[str, Any]] = []
-                used_water_sensors: set[str] = set()
-                for idx, wh in enumerate(water_heaters):
-                    if wh.get("enabled", True):
-                        wh_name = wh.get("name", f"Water Heater {idx + 1}")
-                        active_idx = len(self.water_heater_configs)
-                        self.water_heater_configs.append({"index": active_idx, "name": wh_name})
-                        if wh.get("sensor") and wh["sensor"] not in used_water_sensors:
-                            mapping[wh["sensor"]] = f"water_kw_{active_idx}"
-                            used_water_sensors.add(wh["sensor"])
+            # Default true like every other reader; the helper is empty when the flag is off.
+            self.water_heater_configs: list[dict[str, Any]] = []
+            used_water_sensors: set[str] = set()
+            for idx, wh in enumerate(active_water_heaters(cfg)):
+                wh_name = wh.get("name", f"Water Heater {idx + 1}")
+                self.water_heater_configs.append({"index": idx, "name": wh_name})
+                if wh.get("sensor") and wh["sensor"] not in used_water_sensors:
+                    mapping[wh["sensor"]] = f"water_kw_{idx}"
+                    used_water_sensors.add(wh["sensor"])
 
             if "vacation_mode" in sensors:
                 mapping[sensors["vacation_mode"]] = "vacation_mode"

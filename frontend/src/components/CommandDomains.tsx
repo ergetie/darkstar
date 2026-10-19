@@ -512,6 +512,11 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                                         ? ` (${comparison.coverage.excluded_slots} excluded)`
                                         : ''}
                                 </div>
+                                {comparison.coverage.water_unmeasured_slots > 0 && (
+                                    <div className="mt-1 text-warn" data-testid="water-unmeasured-note">
+                                        {`Water not measured for ${Number(comparison.coverage.water_unmeasured_hours.toFixed(2))} h, included`}
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

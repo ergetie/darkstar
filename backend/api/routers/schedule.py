@@ -600,6 +600,16 @@ async def schedule_today_with_history(
     except Exception as exc:
         logger.warning("Price overlay unavailable in today_with_history: %s", exc)
 
+    # has_water_heater=false: mask planned/future water only; completed slots keep history.
+    if not config.get("system", {}).get("has_water_heater", True):
+        for slot in merged_slots:
+            if slot.get("is_historical"):
+                continue
+            slot["water_heating_kw"] = 0.0
+            slot["planned_water_heating_kw"] = 0.0
+            for field in ("water_heaters", "planned_water_heaters", "actual_water_heaters_kw"):
+                slot.pop(field, None)
+
     result_data = {"date": today_local.isoformat(), "slots": merged_slots}
     return cast("dict[str, Any]", _clean_nans(result_data))
 

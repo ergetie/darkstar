@@ -17,6 +17,7 @@ from backend.core.ev_power import (
     nominal_voltage_v,
 )
 from backend.core.load_balancing_margin import effective_target_margin_percent
+from backend.core.water_heating import active_water_heaters
 
 from .types import (
     EVChargerInput,
@@ -536,7 +537,7 @@ def config_to_kepler_config(
 
     # ARC15: Detect config format and load water heating settings
     config_version = _get_config_version(planner_config)
-    water_heaters_cfg = planner_config.get("water_heaters", [])
+    water_heaters_cfg = active_water_heaters(planner_config)
     ev_chargers = planner_config.get("ev_chargers", [])
     global_wh = planner_config.get("water_heating", {})
 

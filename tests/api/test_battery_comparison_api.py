@@ -163,7 +163,7 @@ async def test_configured_battery_missing_flow_excludes_slot_and_measured_wear_r
     comparison = result["grid_only_comparison"]
     # The first configured-battery flow has charge but no discharge, so it is
     # excluded. The second slot carries its flows and one eligible bill amount.
-    assert comparison["coverage"] == {"covered_slots": 1, "total_slots": 96, "excluded_slots": 95}
+    assert comparison["coverage"] == {"covered_slots": 1, "total_slots": 96, "excluded_slots": 95, "water_unmeasured_slots": 0, "water_unmeasured_hours": 0.0}
     assert comparison["status"] == "partial"
     assert comparison["ds_electricity_cost_sek"] == pytest.approx(3.5)
     assert comparison["ds_wear_cost_sek"] == pytest.approx(2.8)
@@ -223,7 +223,7 @@ async def test_started_slot_remains_in_actual_points_but_is_excluded_from_both_c
     assert len(result["points"]) == 2
     assert result["points"][-1]["import_cost_sek"] == pytest.approx(2.0)
     comparison = result["grid_only_comparison"]
-    assert comparison["coverage"] == {"covered_slots": 1, "total_slots": 40, "excluded_slots": 39}
+    assert comparison["coverage"] == {"covered_slots": 1, "total_slots": 40, "excluded_slots": 39, "water_unmeasured_slots": 0, "water_unmeasured_hours": 0.0}
     assert comparison["through"] == "2026-10-05T10:00:00+02:00"
     assert comparison["ds_cost_sek"] == pytest.approx(2.0)
     assert comparison["grid_only_cost_sek"] == pytest.approx(2.0)

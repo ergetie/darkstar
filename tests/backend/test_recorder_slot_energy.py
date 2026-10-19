@@ -607,3 +607,68 @@ async def test_unavailable_water_measurement_does_not_write_default_zero():
         recorded["quality_flags"]["water_heater_energy"]["devices"]["tank"]["coverage"]
         == "unavailable"
     )
+
+
+class TestWaterFlagWinsOverStaleHeaters:
+    STALE = [{"id": "main_tank", "enabled": True, "sensor": "", "target_entity": ""}]
+
+    async def _water(self, system, heaters):
+        config = base_config(system={"has_water_heater": True} | system, water_heaters=heaters)
+        if "has_water_heater" not in system:
+            config["system"].pop("has_water_heater")
+        history = {
+            "sensor.load": constant("sensor.load", 1.0),
+            "sensor.grid": constant("sensor.grid", 1.0),
+            "sensor.batt": constant("sensor.batt", 0.0),
+            "sensor.pv": constant("sensor.pv", 0.0),
+        }
+        row, _ = await record(config, history)
+        return row
+
+    @pytest.mark.asyncio
+    async def test_flag_off_with_sensorless_enabled_heater_is_disabled_zero(self):
+        row = await self._water({"has_water_heater": False}, self.STALE)
+        water = row["quality_flags"]["recording"]["components"]["water"]
+        assert water["method"] == "disabled_zero"
+        assert row["water_kwh"] == 0.0
+
+        from backend.grid_only_comparison import _recording_is_eligible
+
+        assert _recording_is_eligible(row["quality_flags"], battery_present=False)
+
+    @pytest.mark.asyncio
+    async def test_flag_on_with_sensorless_heater_stays_unknown(self):
+        row = await self._water({"has_water_heater": True}, self.STALE)
+        assert row["quality_flags"]["recording"]["components"]["water"]["method"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_flag_missing_defaults_to_true_and_sensorless_is_unknown(self):
+        row = await self._water({}, self.STALE)
+        assert row["quality_flags"]["recording"]["components"]["water"]["method"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_flag_off_without_heaters_is_disabled_zero(self):
+        row = await self._water({"has_water_heater": False}, [])
+        assert row["quality_flags"]["recording"]["components"]["water"]["method"] == "disabled_zero"
+
+
+class TestIdlessHeaterUnchanged:
+    @pytest.mark.asyncio
+    async def test_flag_on_idless_heater_with_sensor_is_still_measured(self):
+        config = base_config(
+            system={"has_water_heater": True},
+            water_heaters=[{"enabled": True, "sensor": "sensor.w"}],
+        )
+        history = {
+            key: constant(key, value)
+            for key, value in {
+                "sensor.load": 1.0,
+                "sensor.grid": 1.0,
+                "sensor.batt": 0.0,
+                "sensor.pv": 0.0,
+                "sensor.w": 0.5,
+            }.items()
+        }
+        row, _ = await record(config, history)
+        assert row["quality_flags"]["recording"]["components"]["water"]["method"] != "disabled_zero"
+        assert row["water_kwh"] > 0

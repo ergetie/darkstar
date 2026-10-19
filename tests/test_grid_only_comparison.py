@@ -311,7 +311,7 @@ def test_missing_slot_keeps_anchor_and_returns_independent_segments_with_reconci
     result = compare(rows, starts)
     comparison_points = result["points"]
     segments = result["segments"]
-    assert result["coverage"] == {"covered_slots": 7, "total_slots": 8, "excluded_slots": 1}
+    assert result["coverage"] == {"covered_slots": 7, "total_slots": 8, "excluded_slots": 1, "water_unmeasured_slots": 0, "water_unmeasured_hours": 0.0}
     assert result["status"] == "partial"
     assert len(segments) == 2
     assert segments[0]["start"].endswith("10:00:00+02:00")
@@ -391,3 +391,107 @@ def test_non_quarter_or_naive_timestamps_are_ineligible():
     off_grid = row(valid + timedelta(minutes=1))
     assert compare([naive], expected)["status"] == "unavailable"
     assert compare([off_grid], expected)["status"] == "unavailable"
+
+
+def recording_flags(**methods: str) -> dict:
+    names = ("import", "export", "load", "water", "ev")
+    base = {
+        "import": "power_history",
+        "export": "power_history",
+        "load": "derived_history",
+        "water": "power_history",
+        "ev": "power_history",
+    }
+    base.update(methods)
+    return {
+        "source": "recorder",
+        "recording": {
+            "schema_version": 1,
+            "semantics": "slot-energy-v1",
+            "components": {n: {"method": base[n], "owner": "recorder"} for n in names},
+        },
+    }
+
+
+def test_unmeasured_water_slot_is_included_with_note_and_exact_demand():
+    start = datetime(2026, 10, 5, tzinfo=UTC)
+    result = compare(
+        [row(start, water_kwh=0.0, quality_flags=recording_flags(water="unknown"))], [start]
+    )
+    assert result["coverage"]["covered_slots"] == 1
+    assert result["coverage"]["excluded_slots"] == 0
+    assert result["coverage"]["water_unmeasured_slots"] == 1
+    assert result["coverage"]["water_unmeasured_hours"] == pytest.approx(0.25)
+    assert result["grid_only_cost_sek"] == pytest.approx((1.0 + 0.0 + 2.0) * 2.0)
+
+
+def test_null_water_with_unavailable_sensor_counts_as_zero():
+    start = datetime(2026, 10, 5, tzinfo=UTC)
+    result = compare(
+        [row(start, water_kwh=None, quality_flags=recording_flags(water="unknown"))], [start]
+    )
+    assert result["coverage"]["water_unmeasured_slots"] == 1
+    assert result["grid_only_cost_sek"] == pytest.approx(6.0)
+
+
+@pytest.mark.parametrize("load_method", ["snapshot", "mixed", "unknown", "power_history"])
+def test_unknown_water_with_non_derived_load_is_rejected(load_method):
+    start = datetime(2026, 10, 5, tzinfo=UTC)
+    flags = recording_flags(water="unknown", load=load_method)
+    result = compare([row(start, water_kwh=0.0, quality_flags=flags)], [start])
+    assert result["coverage"]["covered_slots"] == 0
+    assert result["coverage"]["water_unmeasured_slots"] == 0
+
+
+def test_clamp_suspect_unknown_water_slot_is_rejected():
+    start = datetime(2026, 10, 5, tzinfo=UTC)
+    flags = recording_flags(water="unknown")
+    result = compare(
+        [row(start, water_kwh=0.0, load_kwh=0.0, ev_charging_kwh=1.0, quality_flags=flags)],
+        [start],
+    )
+    assert result["coverage"]["covered_slots"] == 0
+    # Zero EV with zero load is fine (nothing could have been clamped).
+    ok = compare(
+        [row(start, water_kwh=0.0, load_kwh=0.0, ev_charging_kwh=0.0, quality_flags=flags)],
+        [start],
+    )
+    assert ok["coverage"]["covered_slots"] == 1
+
+
+@pytest.mark.parametrize("component", ["ev", "import", "export"])
+def test_other_unknown_components_stay_rejected_with_unknown_water(component):
+    start = datetime(2026, 10, 5, tzinfo=UTC)
+    flags = recording_flags(water="unknown", **{component: "unknown"})
+    result = compare([row(start, water_kwh=0.0, quality_flags=flags)], [start])
+    assert result["coverage"]["covered_slots"] == 0
+
+
+def test_mixed_day_counts_totals_and_hours_and_zero_when_none():
+    start = datetime(2026, 10, 5, tzinfo=UTC)
+    starts = [start + i * SLOT for i in range(8)]
+    rows = [
+        row(
+            s,
+            water_kwh=0.0,
+            quality_flags=recording_flags(water="unknown" if i < 3 else "power_history"),
+        )
+        for i, s in enumerate(starts)
+    ]
+    result = compare(rows, starts)
+    assert result["coverage"]["covered_slots"] == 8
+    assert result["coverage"]["water_unmeasured_slots"] == 3
+    assert result["coverage"]["water_unmeasured_hours"] == pytest.approx(0.75)
+    assert result["grid_only_cost_sek"] == pytest.approx(8 * 6.0)
+    none = compare(rows[3:], starts[3:])
+    assert none["coverage"]["water_unmeasured_slots"] == 0
+    assert none["coverage"]["water_unmeasured_hours"] == 0
+
+
+def test_large_unmeasured_fixture_is_fully_included():
+    start = datetime(2026, 9, 1, tzinfo=UTC)
+    starts = [start + i * SLOT for i in range(851)]
+    flags = recording_flags(water="unknown")
+    result = compare([row(s, water_kwh=0.0, quality_flags=flags) for s in starts], starts)
+    assert result["coverage"]["covered_slots"] == 851
+    assert result["coverage"]["water_unmeasured_hours"] == pytest.approx(851 * 0.25)

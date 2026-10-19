@@ -560,7 +560,7 @@ export default function Dashboard() {
                 </div>
             )}
 
-            {(vacationMode || vacationModeHA) && (
+            {systemFlags.hasWaterHeater && (vacationMode || vacationModeHA) && (
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -572,7 +572,7 @@ export default function Dashboard() {
                 </motion.div>
             )}
 
-            {waterBoostActive?.boost && (
+            {systemFlags.hasWaterHeater && waterBoostActive?.boost && (
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -652,6 +652,7 @@ export default function Dashboard() {
                     refreshToken={chartRefreshToken}
                     slotsOverride={slotsOverride}
                     evAwaitingPlugInIds={evAwaitingPlugInIds}
+                    hasWaterHeater={systemFlags.hasWaterHeater}
                 />
             </motion.div>
 
@@ -666,6 +667,7 @@ export default function Dashboard() {
                     vacationMode={vacationMode}
                     vacationModeHA={vacationModeHA}
                     waterBoostActive={waterBoostActive}
+                    hasWaterHeater={systemFlags.hasWaterHeater}
                     waterHeaters={(config?.water_heaters ?? []).map((heater) => ({
                         id: heater.id,
                         name: heater.name,

@@ -729,6 +729,8 @@ type ChartCardProps = {
     slotsOverride?: ScheduleSlot[]
     /** Chargers planned while unplugged; their slots render as "awaiting plug-in" */
     evAwaitingPlugInIds?: string[]
+    /** system.has_water_heater; false hides planned/future water only; past slots keep their water history */
+    hasWaterHeater?: boolean
 }
 
 export default function ChartCard({
@@ -737,6 +739,7 @@ export default function ChartCard({
     slotsOverride,
     useHistoryForToday = false,
     evAwaitingPlugInIds,
+    hasWaterHeater = true,
 }: ChartCardProps) {
     // Stable key so the data effect only re-runs when the set of ids changes.
     const evAwaitingKey = (evAwaitingPlugInIds ?? []).slice().sort().join(',')
@@ -1152,7 +1155,7 @@ export default function ChartCard({
         const applyData = (slots: ScheduleSlot[]) => {
             if (!isChartUsable(chartRef.current)) return
             const liveData = buildLiveData(
-                slots,
+                hasWaterHeater ? slots : slots.map((slot) => withoutPlannedWater(slot)),
                 currentDay,
                 themeColors,
                 pricingConfig,
@@ -1260,6 +1263,7 @@ export default function ChartCard({
         pricingConfig,
         excessPvPowerKw,
         evAwaitingKey,
+        hasWaterHeater,
     ])
 
     // Memoize theme colors to prevent unnecessary re-computations
@@ -1434,6 +1438,19 @@ export default function ChartCard({
             </Card>
         </div>
     )
+}
+
+/** For installs without a water heater: drops planned/future water from slots not yet finished; completed slots keep history. */
+function withoutPlannedWater(slot: ScheduleSlot, now: number = Date.now()): ScheduleSlot {
+    const endMs = Date.parse(slot.end_time ?? slot.start_time)
+    const completed = slot.is_historical ?? (Number.isFinite(endMs) && endMs <= now)
+    if (completed) return slot
+    return {
+        ...slot,
+        water_heating_kw: undefined,
+        planned_water_heating_kw: undefined,
+        water_heating_boost: undefined,
+    }
 }
 
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly

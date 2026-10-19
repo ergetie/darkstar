@@ -21,7 +21,13 @@ function comparison(overrides: Partial<GridOnlyComparison> = {}): GridOnlyCompar
         status: 'available',
         reason: 'complete_coverage',
         method_version: 'grid-only-bill-v1',
-        coverage: { covered_slots: 4, total_slots: 4, excluded_slots: 0 },
+        coverage: {
+            covered_slots: 4,
+            total_slots: 4,
+            excluded_slots: 0,
+            water_unmeasured_slots: 0,
+            water_unmeasured_hours: 0,
+        },
         time_axis: normalAxis,
         through: '2026-10-05T01:00:00+02:00',
         grid_only_cost_sek: 10,
@@ -80,7 +86,13 @@ const unavailable = (axis = normalAxis): GridOnlyComparison => ({
     status: 'unavailable',
     reason: 'no_usable_observations',
     method_version: 'grid-only-bill-v1',
-    coverage: { covered_slots: 0, total_slots: 96, excluded_slots: 96 },
+    coverage: {
+        covered_slots: 0,
+        total_slots: 96,
+        excluded_slots: 96,
+        water_unmeasured_slots: 0,
+        water_unmeasured_hours: 0,
+    },
     time_axis: axis,
 })
 
@@ -100,7 +112,13 @@ describe('computeCostChartGeometry', () => {
         const partial = comparison({
             status: 'partial',
             reason: 'partial_coverage',
-            coverage: { covered_slots: 3, total_slots: 4, excluded_slots: 1 },
+            coverage: {
+                covered_slots: 3,
+                total_slots: 4,
+                excluded_slots: 1,
+                water_unmeasured_slots: 0,
+                water_unmeasured_hours: 0,
+            },
             grid_only_cost_sek: 5,
             ds_electricity_cost_sek: 3,
             ds_wear_cost_sek: 1,

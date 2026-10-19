@@ -195,3 +195,59 @@ describe('water plan and actual rendering', () => {
         },
     )
 })
+
+describe('planned water hidden, history kept when has_water_heater is false', () => {
+    beforeEach(() => {
+        charts.length = 0
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.setSystemTime(new Date('2026-10-04T17:00:00Z'))
+        vi.stubGlobal('localStorage', makeMemoryStorage())
+        vi.stubGlobal(
+            'matchMedia',
+            vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+        )
+    })
+    afterEach(() => {
+        vi.useRealTimers()
+        vi.unstubAllGlobals()
+    })
+
+    const waterSlots = () => {
+        const slots = makeSlots(96, 15)
+        slots[67] = {
+            ...slots[67],
+            end_time: '2026-10-04T17:00:00Z',
+            water_heating_kw: 3.1,
+            planned_water_heating_kw: 3.1,
+            actual_water_kw: 1.2,
+            actual_water_available: true,
+            actual_water_source: 'power_history',
+        }
+        slots[80] = { ...slots[80], water_heating_kw: 2.5, planned_water_heating_kw: 2.5 }
+        return slots
+    }
+
+    it('hides planned future water but keeps past water history and the legend toggle', async () => {
+        const view = render(<ChartCard slotsOverride={waterSlots()} hasWaterHeater={false} />)
+        await waitFor(() => expect(charts.length).toBeGreaterThan(0))
+        await waitFor(() => expect(chart().update).toHaveBeenCalled())
+        act(() => chart().options.onClick(null, [{ index: 67 }]))
+        await waitFor(() => expect(panel(view.container)).not.toBeNull())
+        fireEvent.click(view.getByRole('button', { name: 'Details' }))
+        fireEvent.click(view.getByRole('button', { name: 'Overlays' }))
+
+        const data = chart().data as { datasets: { label: string; data: (number | null)[] }[] }
+        const series = (label: string) => data.datasets.find((d) => d.label === label)?.data
+        expect(series('Water Heating (kW)')?.[80]).toBeNull()
+        expect(series('Water Heating (kW)')?.[67]).toBe(3.1)
+        expect(series('Actual Water (kW)')?.[67]).toBe(1.2)
+        expect(view.getByRole('button', { name: 'Water' })).toBeInTheDocument()
+    })
+
+    it('keeps the water legend toggle when the flag is on', async () => {
+        const view = render(<ChartCard slotsOverride={waterSlots()} />)
+        await waitFor(() => expect(charts.length).toBeGreaterThan(0))
+        fireEvent.click(view.getByRole('button', { name: 'Overlays' }))
+        expect(view.getByRole('button', { name: 'Water' })).toBeInTheDocument()
+    })
+})

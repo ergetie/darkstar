@@ -31,7 +31,7 @@ from backend.core.ev_power import (
     nominal_voltage_v,
 )
 from backend.core.version import get_version
-from backend.core.water_heating import validate_water_heating_config
+from backend.core.water_heating import active_water_heaters, validate_water_heating_config
 from backend.learning.store import LearningStore
 from planner.errors import PlannerError, PlannerErrorCode
 from planner.inputs.data_prep import apply_safety_margins, prepare_df
@@ -1442,12 +1442,9 @@ class PlannerPipeline:
 
         # Per-device mid-block detection (task 3.1)
         # force_water_by_heater: heater_id → set of timestamps to force ON
-        water_heaters_cfg: list[dict[str, Any]] = active_config.get("water_heaters", [])
-        enabled_heater_ids: list[str] = [
-            str(wh.get("id", ""))
-            for wh in water_heaters_cfg
-            if wh.get("enabled", True) and wh.get("id")
-        ]
+        # Single source of truth: empty when has_water_heater is false.
+        water_heaters_cfg: list[dict[str, Any]] = active_water_heaters(active_config)
+        enabled_heater_ids: list[str] = [str(wh["id"]) for wh in water_heaters_cfg if wh.get("id")]
         initial_state: dict[str, Any] = input_data.get("initial_state", {})
         force_water_by_heater = _detect_mid_block_slots(
             previous_schedule,
@@ -1811,7 +1808,8 @@ class PlannerPipeline:
         if ha_vacation:
             vacation_enabled = True
 
-        if vacation_enabled:
+        # Vacation mode only affects water heating: nothing to do without a heater.
+        if vacation_enabled and has_water_heater:
             logger.info("Vacation mode enabled - disabling comfort-based water heating")
             # Disable water heating (clear the per-device list)
             kepler_config.water_heaters = []

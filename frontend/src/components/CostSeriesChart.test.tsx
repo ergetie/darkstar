@@ -23,7 +23,13 @@ function comparison(status: 'available' | 'partial' | 'unavailable' = 'available
             status,
             reason: 'no_usable_observations',
             method_version: 'grid-only-bill-v1',
-            coverage: { covered_slots: 0, total_slots: 96, excluded_slots: 96 },
+            coverage: {
+                covered_slots: 0,
+                total_slots: 96,
+                excluded_slots: 96,
+                water_unmeasured_slots: 0,
+                water_unmeasured_hours: 0,
+            },
             time_axis: axis,
         }
     }
@@ -33,8 +39,20 @@ function comparison(status: 'available' | 'partial' | 'unavailable' = 'available
         reason: partial ? 'partial_coverage' : 'complete_coverage',
         method_version: 'grid-only-bill-v1',
         coverage: partial
-            ? { covered_slots: 3, total_slots: 4, excluded_slots: 1 }
-            : { covered_slots: 4, total_slots: 4, excluded_slots: 0 },
+            ? {
+                  covered_slots: 3,
+                  total_slots: 4,
+                  excluded_slots: 1,
+                  water_unmeasured_slots: 0,
+                  water_unmeasured_hours: 0,
+              }
+            : {
+                  covered_slots: 4,
+                  total_slots: 4,
+                  excluded_slots: 0,
+                  water_unmeasured_slots: 0,
+                  water_unmeasured_hours: 0,
+              },
         time_axis: axis,
         through: '2026-10-05T13:00:00+02:00',
         grid_only_cost_sek: 10,

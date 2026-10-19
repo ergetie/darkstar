@@ -573,6 +573,9 @@ export type CostSeriesCoverage = {
     covered_slots: number
     total_slots: number
     excluded_slots: number
+    /** Included slots whose water was not measured (counted as 0, load still contains it) */
+    water_unmeasured_slots: number
+    water_unmeasured_hours: number
 }
 
 export type CostSeriesTimeAxis = {

@@ -72,8 +72,35 @@ def normalize_active_power_kw(
     return 0.0 if 0.0 <= power_kw < cutoff_kw else power_kw
 
 
+def active_water_heaters(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Heaters that planning, recording and control may use.
+
+    Empty when ``system.has_water_heater`` is false (default true when absent);
+    otherwise the enabled ``water_heaters[]`` entries (id-less entries are kept,
+    as before; consumers that need an id skip them themselves).
+    """
+    system: Any = config.get("system", {})
+    if isinstance(system, dict) and not cast("dict[str, Any]", system).get(
+        "has_water_heater", True
+    ):
+        return []
+    raw: Any = config.get("water_heaters", [])
+    if not isinstance(raw, list):
+        return []
+    return [
+        cast("dict[str, Any]", wh)
+        for wh in cast("list[Any]", raw)
+        if isinstance(wh, dict) and cast("dict[str, Any]", wh).get("enabled", True)
+    ]
+
+
 def validate_water_heating_config(config: dict[str, Any]) -> None:
     """Reject invalid scheduling values with field-specific correction guidance."""
+    system: Any = config.get("system", {})
+    if isinstance(system, dict) and not cast("dict[str, Any]", system).get(
+        "has_water_heater", True
+    ):
+        return
     raw_water: Any = config.get("water_heating", {})
     water = cast("dict[str, Any]", raw_water) if isinstance(raw_water, dict) else {}
     defer = water.get("defer_up_to_hours", 6.0)

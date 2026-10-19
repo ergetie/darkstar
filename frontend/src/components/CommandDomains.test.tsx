@@ -188,7 +188,13 @@ function gridOnlyComparison(overrides: Record<string, unknown> = {}) {
         status: 'available',
         reason: 'complete_coverage',
         method_version: 'grid-only-bill-v1',
-        coverage: { covered_slots: 96, total_slots: 96, excluded_slots: 0 },
+        coverage: {
+            covered_slots: 96,
+            total_slots: 96,
+            excluded_slots: 0,
+            water_unmeasured_slots: 0,
+            water_unmeasured_hours: 0,
+        },
         time_axis: gridOnlyAxis,
         through: '2026-10-05T12:30:00+02:00',
         grid_only_cost_sek: 40,
@@ -322,7 +328,13 @@ describe('GridDomain grid-only comparison', () => {
                 gridOnlyComparison({
                     status: 'partial',
                     reason: 'partial_coverage',
-                    coverage: { covered_slots: 90, total_slots: 96, excluded_slots: 6 },
+                    coverage: {
+                        covered_slots: 90,
+                        total_slots: 96,
+                        excluded_slots: 6,
+                        water_unmeasured_slots: 0,
+                        water_unmeasured_hours: 0,
+                    },
                 }),
             ),
         )
@@ -332,6 +344,46 @@ describe('GridDomain grid-only comparison', () => {
         expect(screen.getByRole('dialog')).toHaveTextContent('90 of 96 slots (6 excluded)')
     })
 
+    const waterCoverage = (slots: number, excluded = 0) => ({
+        covered_slots: 96 - excluded,
+        total_slots: 96,
+        excluded_slots: excluded,
+        water_unmeasured_slots: slots,
+        water_unmeasured_hours: slots * 0.25,
+    })
+
+    it.each(['today', '30d'])('shows the unmeasured-water note for the %s payload', async (period) => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith(gridOnlyComparison({ coverage: waterCoverage(8) })),
+        )
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+        if (period === '30d') fireEvent.click(screen.getByRole('button', { name: '30d' }))
+        await screen.findByText('+10.00 kr')
+        openPanel()
+        expect(screen.getByTestId('water-unmeasured-note')).toHaveTextContent('Water not measured for 2 h, included')
+    })
+
+    it('hides the note at zero and coexists with the excluded count', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(gridOnlyComparison()))
+        const { unmount } = render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+        await screen.findByText('+10.00 kr')
+        openPanel()
+        expect(screen.queryByTestId('water-unmeasured-note')).toBeNull()
+        unmount()
+
+        vi.mocked(Api.energyCostSeries).mockResolvedValue(
+            seriesWith(gridOnlyComparison({ status: 'partial', coverage: waterCoverage(3, 6) })),
+        )
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+        await screen.findByText('· 93% of the period')
+        openPanel()
+        const dialog = screen.getByRole('dialog')
+        expect(dialog).toHaveTextContent('90 of 96 slots (6 excluded)')
+        expect(screen.getByTestId('water-unmeasured-note')).toHaveTextContent('Water not measured for 0.75 h, included')
+    })
+
     it('shows a plain unavailable reason without an amount or details panel', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(
@@ -339,7 +391,13 @@ describe('GridDomain grid-only comparison', () => {
                 status: 'unavailable',
                 reason: 'no_usable_observations',
                 method_version: 'grid-only-bill-v1',
-                coverage: { covered_slots: 0, total_slots: 96, excluded_slots: 96 },
+                coverage: {
+                    covered_slots: 0,
+                    total_slots: 96,
+                    excluded_slots: 96,
+                    water_unmeasured_slots: 0,
+                    water_unmeasured_hours: 0,
+                },
                 time_axis: gridOnlyAxis,
             }),
         )

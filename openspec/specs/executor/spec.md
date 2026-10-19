@@ -226,7 +226,7 @@ The executor SHALL set temperature for each heater independently based on its pe
 - **THEN** the scalar `water_temp` field SHALL reflect the maximum temperature across all heaters (for logging/status compat)
 
 ### Requirement: Water heater sensor reads are gated by has_water_heater flag
-The executor and recorder SHALL NOT fetch water heater power sensors when `system.has_water_heater` is `false`. The `water_heaters[]` sensor loop SHALL be skipped entirely when the system flag is disabled. In addition, the executor SHALL read a water heater's current temperature from its target entity only when `system.has_water_heater` is `true` and that heater's `control_type` is `temperature`; it SHALL NOT attempt a temperature read or parse for any heater with `control_type: switch`. The executor's single `current_water_temp` value is taken from the first configured heater (`water_heater_devices[0]`); when that heater is switch-controlled, no read occurs and `current_water_temp` keeps its default.
+The executor, recorder, load disaggregator and live-power socket mapping SHALL NOT fetch, register or map water heater power sensors when `system.has_water_heater` is `false`. A missing `has_water_heater` key SHALL be treated as `true` by every reader, including the socket client. The `water_heaters[]` sensor loop SHALL be skipped entirely when the system flag is disabled. In addition, the executor SHALL read a water heater's current temperature from its target entity only when `system.has_water_heater` is `true` and that heater's `control_type` is `temperature`; it SHALL NOT attempt a temperature read or parse for any heater with `control_type: switch`. The executor's single `current_water_temp` value is taken from the first configured heater (`water_heater_devices[0]`); when that heater is switch-controlled, no read occurs and `current_water_temp` keeps its default.
 
 #### Scenario: Water heating disabled skips sensor reads
 - **WHEN** the recorder or executor gathers power sensor readings
@@ -250,6 +250,20 @@ The executor and recorder SHALL NOT fetch water heater power sensors when `syste
 #### Scenario: Mixed multi-device setup
 - **WHEN** the first heater is `control_type: temperature` and a second is `control_type: switch`
 - **THEN** only the first heater's temperature is read and the second heater's target entity is never parsed as a temperature
+
+#### Scenario: Load disaggregator registers no water loads when flag off
+- **GIVEN** `system.has_water_heater` is `false` and `water_heaters[]` has an enabled heater with a sensor
+- **WHEN** the recorder builds its `LoadDisaggregator`
+- **THEN** no water heater load is registered and water energy is recorded as 0.0
+
+#### Scenario: Socket client with missing flag
+- **GIVEN** `system.has_water_heater` is absent
+- **WHEN** the live socket client builds its sensor mapping
+- **THEN** enabled heater sensors are mapped (default true)
+
+#### Scenario: Socket client with flag off
+- **GIVEN** `system.has_water_heater` is `false` with configured heaters
+- **THEN** no `water_kw_*` mapping exists and `water_heater_configs` is empty
 
 ### Requirement: EV charger sensor reads are gated by has_ev_charger flag
 The recorder SHALL NOT fetch EV charger power sensors when `system.has_ev_charger` is `false`.

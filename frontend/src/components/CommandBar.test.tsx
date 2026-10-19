@@ -361,3 +361,20 @@ describe('CommandBar custom boost length', () => {
         expect(screen.getByRole('button', { name: 'Start Boost for 1h 15m' })).toBeInTheDocument()
     })
 })
+
+describe('CommandBar without a water heater', () => {
+    it('shows boost, vacation and water comfort controls by default', () => {
+        renderBar()
+        expect(screen.getByRole('button', { name: /^Boost/ })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /^Vacay/ })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /^Water 3/ })).toBeInTheDocument()
+    })
+
+    it('hides every water control when hasWaterHeater is false', () => {
+        renderBar({ hasWaterHeater: false })
+        expect(screen.queryByRole('button', { name: /^Boost/ })).toBeNull()
+        expect(screen.queryByRole('button', { name: /^Vacay/ })).toBeNull()
+        expect(screen.queryByRole('button', { name: /^Water 3/ })).toBeNull()
+        expect(screen.getByRole('button', { name: /^Top Up/ })).toBeInTheDocument()
+    })
+})

@@ -128,3 +128,31 @@ async def test_connect_retries_after_socket_error():
 
     assert connect.call_count == 2
     sleep.assert_awaited_once_with(5)
+
+
+def _client_for(system: dict) -> HAWebSocketClient:
+    config = {
+        **CONFIG,
+        "system": {"grid_meter_type": "net"} | system,
+        "water_heaters": [{"id": "wh1", "enabled": True, "name": "Tank", "sensor": "sensor.wh"}],
+    }
+    with (
+        patch(
+            "backend.ha_socket.load_home_assistant_config",
+            return_value={"url": "http://ha.local", "token": "token"},
+        ),
+        patch("backend.ha_socket.load_yaml", return_value=config),
+    ):
+        return HAWebSocketClient()
+
+
+def test_missing_water_flag_defaults_to_true_and_maps_heater_sensor():
+    client = _client_for({})
+    assert client.monitored_entities["sensor.wh"] == "water_kw_0"
+    assert client.water_heater_configs == [{"index": 0, "name": "Tank"}]
+
+
+def test_water_flag_off_maps_no_heater_sensors():
+    client = _client_for({"has_water_heater": False})
+    assert "sensor.wh" not in client.monitored_entities
+    assert client.water_heater_configs == []

@@ -80,6 +80,8 @@ interface CommandBarProps {
         heaters?: Record<string, { expires_at: string; remaining_seconds: number }>
     } | null
     waterHeaters: { id: string; name: string }[]
+    /** system.has_water_heater; false hides every water control (default true) */
+    hasWaterHeater?: boolean
     soc: number | null
     /** Configured battery min SoC — lower bound of the Top Up target */
     batteryMinSoc: number
@@ -114,6 +116,7 @@ export default function CommandBar({
     vacationModeHA,
     waterBoostActive,
     waterHeaters,
+    hasWaterHeater = true,
     batteryMinSoc,
     evChargers,
     onEvRefresh,
@@ -636,138 +639,145 @@ export default function CommandBar({
             )}
 
             {/* Water Boost */}
-            <QuickAction
-                label="Boost"
-                icon={Flame}
-                tone="water"
-                title="Water Heater Boost"
-                active={isBoostActive}
-                value={isBoostActive ? (boostCountdown ?? 'On') : formatMinutes(boostMinutes)}
-            >
-                {(close) => (
-                    <>
-                        {waterHeaters.length > 1 && (
-                            <QuickActionSection label="Water heater">
-                                <select
-                                    aria-label="Water heater to boost"
-                                    value={effectiveSelectedHeaterId}
-                                    onChange={(e) => setSelectedHeaterId(e.target.value)}
-                                    className="qa-select"
-                                    disabled={loadingBoost}
-                                >
-                                    {waterHeaters.map((heater) => (
-                                        <option key={heater.id} value={heater.id}>
-                                            {heater.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </QuickActionSection>
-                        )}
-                        {isBoostActive ? (
-                            <p className="qa-status">
-                                Boosting{activeBoostNames ? ` ${activeBoostNames}` : ''}
-                                {boostCountdown ? ` — ${boostCountdown} left` : ''}.
-                            </p>
-                        ) : (
-                            <QuickActionSection label="Boost for">
-                                <QuickActionChips
-                                    label="Boost duration"
-                                    options={BOOST_MINUTES_OPTIONS.map((m) => ({ value: m, label: formatMinutes(m) }))}
-                                    value={boostMinutes}
-                                    onChange={setBoostMinutes}
-                                    disabled={loadingBoost}
-                                />
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs text-muted">Custom (minutes)</span>
-                                    <SocStepper
-                                        value={boostMinutes}
-                                        min={BOOST_MIN_MINUTES}
-                                        max={BOOST_MAX_MINUTES}
-                                        step={BOOST_STEP_MINUTES}
-                                        unit="m"
-                                        onChange={(m) =>
-                                            setBoostMinutes(
-                                                clampSoc(
-                                                    Math.round(m / BOOST_STEP_MINUTES) * BOOST_STEP_MINUTES,
-                                                    BOOST_MIN_MINUTES,
-                                                    BOOST_MAX_MINUTES,
-                                                ),
-                                            )
-                                        }
+            {hasWaterHeater && (
+                <QuickAction
+                    label="Boost"
+                    icon={Flame}
+                    tone="water"
+                    title="Water Heater Boost"
+                    active={isBoostActive}
+                    value={isBoostActive ? (boostCountdown ?? 'On') : formatMinutes(boostMinutes)}
+                >
+                    {(close) => (
+                        <>
+                            {waterHeaters.length > 1 && (
+                                <QuickActionSection label="Water heater">
+                                    <select
+                                        aria-label="Water heater to boost"
+                                        value={effectiveSelectedHeaterId}
+                                        onChange={(e) => setSelectedHeaterId(e.target.value)}
+                                        className="qa-select"
+                                        disabled={loadingBoost}
+                                    >
+                                        {waterHeaters.map((heater) => (
+                                            <option key={heater.id} value={heater.id}>
+                                                {heater.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </QuickActionSection>
+                            )}
+                            {isBoostActive ? (
+                                <p className="qa-status">
+                                    Boosting{activeBoostNames ? ` ${activeBoostNames}` : ''}
+                                    {boostCountdown ? ` — ${boostCountdown} left` : ''}.
+                                </p>
+                            ) : (
+                                <QuickActionSection label="Boost for">
+                                    <QuickActionChips
                                         label="Boost duration"
+                                        options={BOOST_MINUTES_OPTIONS.map((m) => ({
+                                            value: m,
+                                            label: formatMinutes(m),
+                                        }))}
+                                        value={boostMinutes}
+                                        onChange={setBoostMinutes}
                                         disabled={loadingBoost}
                                     />
-                                </div>
-                            </QuickActionSection>
-                        )}
-                        <button
-                            type="button"
-                            className="qa-submit"
-                            data-variant={isBoostActive ? 'stop' : undefined}
-                            disabled={loadingBoost}
-                            onClick={() => handleToggleBoost().then(close)}
-                        >
-                            {isBoostActive ? 'Stop Boost' : `Start Boost for ${formatMinutes(boostMinutes)}`}
-                        </button>
-                    </>
-                )}
-            </QuickAction>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs text-muted">Custom (minutes)</span>
+                                        <SocStepper
+                                            value={boostMinutes}
+                                            min={BOOST_MIN_MINUTES}
+                                            max={BOOST_MAX_MINUTES}
+                                            step={BOOST_STEP_MINUTES}
+                                            unit="m"
+                                            onChange={(m) =>
+                                                setBoostMinutes(
+                                                    clampSoc(
+                                                        Math.round(m / BOOST_STEP_MINUTES) * BOOST_STEP_MINUTES,
+                                                        BOOST_MIN_MINUTES,
+                                                        BOOST_MAX_MINUTES,
+                                                    ),
+                                                )
+                                            }
+                                            label="Boost duration"
+                                            disabled={loadingBoost}
+                                        />
+                                    </div>
+                                </QuickActionSection>
+                            )}
+                            <button
+                                type="button"
+                                className="qa-submit"
+                                data-variant={isBoostActive ? 'stop' : undefined}
+                                disabled={loadingBoost}
+                                onClick={() => handleToggleBoost().then(close)}
+                            >
+                                {isBoostActive ? 'Stop Boost' : `Start Boost for ${formatMinutes(boostMinutes)}`}
+                            </button>
+                        </>
+                    )}
+                </QuickAction>
+            )}
 
             {/* Vacation */}
-            <QuickAction
-                label="Vacay"
-                icon={Palmtree}
-                tone="warn"
-                title="Vacation Mode"
-                active={isVacationActive}
-                value={isVacationActive ? 'On' : `${vacationDays}d`}
-            >
-                {(close) => (
-                    <>
-                        {isVacationActive ? (
-                            <p className="qa-status">
-                                Vacation mode is on — normal water heating is paused; only the periodic anti-legionella
-                                cycle runs.
-                                {vacationModeHA && !vacationMode ? ' (Set from Home Assistant.)' : ''}
-                            </p>
-                        ) : (
-                            <QuickActionSection label="Away for">
-                                <QuickActionChips
-                                    label="Vacation length"
-                                    options={VACATION_DAYS_OPTIONS.map((d) => ({ value: d, label: `${d}d` }))}
-                                    value={vacationDays}
-                                    onChange={setVacationDays}
-                                    disabled={loadingVacation}
-                                />
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs text-muted">Custom</span>
-                                    <SocStepper
-                                        value={vacationDays}
-                                        min={1}
-                                        max={VACATION_MAX_DAYS}
-                                        step={1}
-                                        unit="d"
-                                        onChange={setVacationDays}
+            {hasWaterHeater && (
+                <QuickAction
+                    label="Vacay"
+                    icon={Palmtree}
+                    tone="warn"
+                    title="Vacation Mode"
+                    active={isVacationActive}
+                    value={isVacationActive ? 'On' : `${vacationDays}d`}
+                >
+                    {(close) => (
+                        <>
+                            {isVacationActive ? (
+                                <p className="qa-status">
+                                    Vacation mode is on — normal water heating is paused; only the periodic
+                                    anti-legionella cycle runs.
+                                    {vacationModeHA && !vacationMode ? ' (Set from Home Assistant.)' : ''}
+                                </p>
+                            ) : (
+                                <QuickActionSection label="Away for">
+                                    <QuickActionChips
                                         label="Vacation length"
+                                        options={VACATION_DAYS_OPTIONS.map((d) => ({ value: d, label: `${d}d` }))}
+                                        value={vacationDays}
+                                        onChange={setVacationDays}
                                         disabled={loadingVacation}
                                     />
-                                </div>
-                            </QuickActionSection>
-                        )}
-                        <button
-                            type="button"
-                            className="qa-submit"
-                            data-variant={isVacationActive ? 'stop' : undefined}
-                            disabled={loadingVacation}
-                            onClick={() => handleToggleVacation().then(close)}
-                        >
-                            {isVacationActive
-                                ? 'Turn off Vacation Mode'
-                                : `Start Vacation (${vacationDays} ${vacationDays === 1 ? 'day' : 'days'})`}
-                        </button>
-                    </>
-                )}
-            </QuickAction>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs text-muted">Custom</span>
+                                        <SocStepper
+                                            value={vacationDays}
+                                            min={1}
+                                            max={VACATION_MAX_DAYS}
+                                            step={1}
+                                            unit="d"
+                                            onChange={setVacationDays}
+                                            label="Vacation length"
+                                            disabled={loadingVacation}
+                                        />
+                                    </div>
+                                </QuickActionSection>
+                            )}
+                            <button
+                                type="button"
+                                className="qa-submit"
+                                data-variant={isVacationActive ? 'stop' : undefined}
+                                disabled={loadingVacation}
+                                onClick={() => handleToggleVacation().then(close)}
+                            >
+                                {isVacationActive
+                                    ? 'Turn off Vacation Mode'
+                                    : `Start Vacation (${vacationDays} ${vacationDays === 1 ? 'day' : 'days'})`}
+                            </button>
+                        </>
+                    )}
+                </QuickAction>
+            )}
         </div>
     )
 
@@ -819,7 +829,7 @@ export default function CommandBar({
                     </div>
 
                     {riskPills}
-                    {waterPills}
+                    {hasWaterHeater && waterPills}
                 </div>
 
                 {/* Quick actions */}

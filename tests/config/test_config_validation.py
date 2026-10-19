@@ -106,7 +106,7 @@ def test_water_heating_rejects_invalid_deferral_with_actionable_field(defer):
 def test_water_heating_rejects_invalid_idle_cutoff(cutoff):
     issues = _validate_config_for_save(
         {
-            "system": {"has_battery": False, "has_water_heater": False},
+            "system": {"has_battery": False, "has_water_heater": True},
             "water_heaters": [{"id": "tank", "idle_power_threshold_kw": cutoff}],
         }
     )

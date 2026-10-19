@@ -137,3 +137,12 @@ def test_current_charger_derived_power_registers_normally():
     assert load is not None
     assert load.disabled_reason is None
     assert load.nominal_power_kw == pytest.approx(6.9)
+
+
+def test_no_water_loads_registered_when_flag_off():
+    heaters = [{"id": "wh1", "enabled": True, "sensor": "sensor.wh", "power_kw": 3.0}]
+    config = _base_config([]) | {"water_heaters": heaters}
+    config["system"]["has_water_heater"] = False
+    assert LoadDisaggregator(config).get_load_by_id("wh1") is None
+    config["system"]["has_water_heater"] = True
+    assert LoadDisaggregator(config).get_load_by_id("wh1") is not None

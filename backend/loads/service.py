@@ -7,6 +7,7 @@ from backend.core.ev_power import charger_disabled_reason, charger_max_kw, nomin
 from backend.core.ha_client import get_ha_sensor_kw_normalized
 from backend.core.water_heating import (
     DEFAULT_IDLE_POWER_THRESHOLD_KW,
+    active_water_heaters,
     normalize_active_power_kw,
 )
 
@@ -40,7 +41,7 @@ class LoadDisaggregator:
         input_sensors = self.config.get("input_sensors", {})
 
         # Check for new entity-centric format (ARC15)
-        water_heaters = self.config.get("water_heaters", [])
+        water_heaters = active_water_heaters(self.config)
         ev_chargers = self.config.get("ev_chargers", [])
 
         if config_version >= 2 and (water_heaters or ev_chargers):
