@@ -646,11 +646,17 @@ class KeplerSolver:
                 # pv_to_battery is a sub-flow of total charge (can't exceed what the battery accepts)
                 prob += pv_to_battery[t] <= charge[t]
                 if config.inverter_topology == "ac_coupled":
-                    # Battery charging also crosses the AC inverter
-                    prob += pv_to_ac[t] + pv_to_battery[t] + discharge[t] <= inverter_ac_kwh
+                    # All battery charging (PV and grid) crosses the AC inverter
+                    prob += pv_to_ac[t] + charge[t] + discharge[t] <= inverter_ac_kwh
                 else:
-                    # DC-coupled (default): PV-to-battery bypasses the AC stage
-                    prob += pv_to_ac[t] + discharge[t] <= inverter_ac_kwh
+                    # DC-coupled (default): PV-to-battery bypasses the AC stage, but
+                    # grid-to-battery charging (charge - pv_to_battery) is rectified
+                    # by it. Flows are summed (conservative; simultaneous discharge
+                    # and grid charge is never economic).
+                    prob += (
+                        pv_to_ac[t] + discharge[t] + (charge[t] - pv_to_battery[t])
+                        <= inverter_ac_kwh
+                    )
 
             # Soft Grid Import Limit
             if config.grid_import_limit_kw is not None:

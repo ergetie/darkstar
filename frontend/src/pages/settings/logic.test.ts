@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isPowerModeEntity, shouldRenderField } from './logic'
+import { controlTypeForEntity, isPowerModeEntity, shouldRenderField } from './logic'
 import type { BaseField, HaEntity } from './types'
 
 const entities: HaEntity[] = [
@@ -94,5 +94,18 @@ describe('shouldRenderField', () => {
             shouldRenderField(field, { 'system.inverter_profile': 'solis' }, { system: { inverter_profile: 'deye' } }),
         ).toBe(false)
         expect(shouldRenderField(field, {}, { system: { inverter_profile: 'deye' } })).toBe(true)
+    })
+})
+
+describe('controlTypeForEntity', () => {
+    it('maps supported domains and rejects the rest', () => {
+        expect(controlTypeForEntity('switch.vvb')).toBe('switch')
+        expect(controlTypeForEntity('input_boolean.vvb')).toBe('switch')
+        expect(controlTypeForEntity('number.vvb')).toBe('temperature')
+        expect(controlTypeForEntity('input_number.vvb')).toBe('temperature')
+        expect(controlTypeForEntity('climate.vvb')).toBeNull()
+        expect(controlTypeForEntity('water_heater.vvb')).toBeNull()
+        expect(controlTypeForEntity('')).toBeNull()
+        expect(controlTypeForEntity(undefined)).toBeNull()
     })
 })

@@ -211,6 +211,21 @@ class TestWaterHeaterDeviceConfig:
 
         assert config.water_heater_devices[0].control_type == "temperature"
 
+    def test_missing_control_type_is_inferred_from_entity_domain(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "executor": {"enabled": True},
+                    "water_heaters": [{"id": "relay", "target_entity": "switch.vvb"}],
+                }
+            )
+        )
+
+        config = load_executor_config(str(config_file))
+
+        assert config.water_heater_devices[0].control_type == "switch"
+
     def test_unrecognised_control_type_falls_back_to_temperature(self, tmp_path):
         config_file = tmp_path / "config.yaml"
         config_file.write_text(

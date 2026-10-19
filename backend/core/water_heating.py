@@ -14,6 +14,28 @@ DEFAULT_IDLE_POWER_THRESHOLD_KW = 0.0
 WATER_HEATER_ENERGY_SCHEMA_VERSION = 1
 WATER_HEATER_ENERGY_SEMANTICS = "active-water-energy-v1"
 
+SWITCH_ENTITY_DOMAINS = ("switch", "input_boolean")
+TEMPERATURE_ENTITY_DOMAINS = ("number", "input_number")
+
+
+def infer_control_type(entity: object) -> str | None:
+    """Water heater control type implied by an entity's domain.
+
+    ``switch.``/``input_boolean.`` give ``"switch"``; ``number.``/``input_number.``
+    give ``"temperature"``. Any other domain (or a non-entity value) is
+    unsupported and gives ``None``.
+    """
+    if not isinstance(entity, str):
+        return None
+    domain, sep, _ = entity.strip().lower().partition(".")
+    if not sep:
+        return None
+    if domain in SWITCH_ENTITY_DOMAINS:
+        return "switch"
+    if domain in TEMPERATURE_ENTITY_DOMAINS:
+        return "temperature"
+    return None
+
 
 def normalize_active_power_kw(
     value: object,

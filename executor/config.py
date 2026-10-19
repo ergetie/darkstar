@@ -18,6 +18,7 @@ from backend.core.load_balancing_margin import (
     TARGET_MARGIN_RANGE,
     resolve_target_margin_percent,
 )
+from backend.core.water_heating import infer_control_type
 
 logger = logging.getLogger(__name__)
 
@@ -759,10 +760,11 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         if not target_ent:
             continue  # Only include heaters with a target_entity
         heater_id = str(heater.get("id", f"water_heater_{idx}"))
-        raw_control_type = heater.get("control_type", "temperature")
-        control_type = str(raw_control_type).strip().lower()
-        if control_type != "switch":
-            control_type = "temperature"
+        raw_control_type = heater.get("control_type")
+        control_type = str(raw_control_type or "").strip().lower()
+        if control_type not in ("switch", "temperature"):
+            # Missing/unrecognised: follow the entity domain, else legacy default
+            control_type = infer_control_type(target_ent) or "temperature"
 
         valid_prefixes = (
             ("switch.", "input_boolean.")

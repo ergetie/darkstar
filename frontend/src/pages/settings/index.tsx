@@ -25,6 +25,7 @@ import { UITab } from './UITab'
 import { AdvancedTab } from './AdvancedTab'
 import { DebugContent } from '../Debug'
 import { Api } from '../../lib/api'
+import { HEATER_ERRORS_EVENT, hasPendingHeaterErrors } from './hooks/heaterErrors'
 import { SettingsSearch } from './search/SettingsSearch'
 import { jumpToField } from './search/jump'
 
@@ -68,6 +69,14 @@ export default function Settings() {
     const [pendingJump, setPendingJump] = useState<{ tabId: string; fieldKey: string } | null>(() =>
         deepLinkField ? { tabId: activeTab, fieldKey: deepLinkField } : null,
     )
+
+    // A rejected save can carry heater errors that only the Heating tab can fix: flag it.
+    const [heaterErrorsPending, setHeaterErrorsPending] = useState(hasPendingHeaterErrors)
+    useEffect(() => {
+        const sync = () => setHeaterErrorsPending(hasPendingHeaterErrors())
+        window.addEventListener(HEATER_ERRORS_EVENT, sync)
+        return () => window.removeEventListener(HEATER_ERRORS_EVENT, sync)
+    }, [])
 
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY, String(advancedMode))
@@ -190,6 +199,13 @@ export default function Settings() {
                                 >
                                     {tab.icon}
                                     {tab.label}
+                                    {tab.id === 'water' && heaterErrorsPending && (
+                                        <span
+                                            role="img"
+                                            aria-label="Has errors"
+                                            className="h-2 w-2 rounded-full bg-bad"
+                                        />
+                                    )}
                                 </button>
                             ))}
                         </div>

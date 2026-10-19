@@ -26,6 +26,8 @@ interface SettingsFieldProps {
     value: string
     onChange: (key: string, value: string) => void
     error?: string
+    /** All form errors; entity arrays pick their per-item errors from it. */
+    fieldErrors?: Record<string, string>
     haEntities?: HaEntity[]
     haLoading?: boolean
     fullForm?: Record<string, string | boolean | number | undefined>
@@ -40,11 +42,22 @@ function nominalVoltageFromConfig(config: Record<string, unknown> | undefined): 
     return v > 0 ? v : DEFAULT_NOMINAL_VOLTAGE_V
 }
 
+/** Errors keyed `<arrayKey>.<index>.<prop>` for an entity array, by item index. */
+function itemErrors(fieldErrors: Record<string, string> | undefined, arrayKey: string): Record<number, string> {
+    const result: Record<number, string> = {}
+    for (const [key, message] of Object.entries(fieldErrors ?? {})) {
+        const match = key.startsWith(`${arrayKey}.`) ? key.slice(arrayKey.length + 1).match(/^(\d+)\./) : null
+        if (match && result[Number(match[1])] === undefined) result[Number(match[1])] = message
+    }
+    return result
+}
+
 export const SettingsField: React.FC<SettingsFieldProps> = ({
     field,
     value,
     onChange,
     error,
+    fieldErrors,
     haEntities = [],
     haLoading = false,
     fullForm = {},
@@ -212,6 +225,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         haEntities={haEntities}
                         haLoading={haLoading}
                         nominalVoltageV={nominalVoltageFromConfig(config)}
+                        entityErrors={itemErrors(fieldErrors, field.key)}
                     />
                 )
             }

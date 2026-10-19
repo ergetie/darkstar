@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -48,6 +48,7 @@ vi.mock('./components/AdvancedLockedNotice', () => ({
 vi.mock('./components/UnsavedChangesBanner', () => ({ UnsavedChangesBanner: () => null }))
 
 import Settings from './index'
+import { setPendingHeaterErrors } from './hooks/heaterErrors'
 
 function makeMemoryStorage(): Storage {
     const store = new Map<string, string>()
@@ -131,6 +132,20 @@ describe('Settings navigation', () => {
             expect(router.state.location.search).toBe(`?tab=${tabId}`)
         }
         expect(screen.getByRole('button', { name: 'Add Heater' })).toBeEnabled()
+    })
+
+    it('flags the Heating tab after a failed save and keeps it reachable', async () => {
+        renderAt('/settings?tab=system')
+        const heating = await screen.findByRole('button', { name: 'Heating' })
+        expect(screen.queryByRole('img', { name: 'Has errors' })).not.toBeInTheDocument()
+
+        act(() => setPendingHeaterErrors({ 'water_heaters.0.control_type': 'mismatch' }))
+        expect(await screen.findByRole('img', { name: 'Has errors' })).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: /Heating/ }))
+        expect(await screen.findByText('Heating Devices')).toBeInTheDocument()
+        expect(heating).toBeInTheDocument()
+        act(() => setPendingHeaterErrors({}))
     })
 
     it('keeps the unsaved-change guard when switching to a visible feature tab', async () => {

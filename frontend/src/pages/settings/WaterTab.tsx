@@ -106,6 +106,7 @@ export const WaterTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode })
                                                 value={form[field.key]}
                                                 onChange={handleChange}
                                                 error={fieldErrors[field.key]}
+                                                fieldErrors={fieldErrors}
                                                 haEntities={haEntities}
                                                 haLoading={haLoading}
                                                 fullForm={form}

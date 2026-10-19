@@ -474,6 +474,7 @@ class LearningStore:
                 "base_load_p10": stmt.excluded.base_load_p10,
                 "base_load_p90": stmt.excluded.base_load_p90,
                 "temp_c": stmt.excluded.temp_c,
+                "created_at": func.current_timestamp(),
             },
         )
 

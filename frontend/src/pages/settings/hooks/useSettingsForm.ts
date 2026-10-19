@@ -1,9 +1,15 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Api, ConfigResponse } from '../../../lib/api'
+import { Api, ApiError, ConfigResponse, type ConfigSaveError } from '../../../lib/api'
 import { useToast } from '../../../lib/useToast'
 import { BaseField, HaEntity, InverterProfile, standardInverterKeys } from '../types'
 import { buildFormState, buildPatch, evChargerArrayError, getDeepValue } from '../utils'
 import { rulesError } from '../transferFees'
+import {
+    HEATER_ERROR_PREFIX,
+    getPendingHeaterErrors,
+    hasPendingHeaterErrors,
+    setPendingHeaterErrors,
+} from './heaterErrors'
 
 export interface UseSettingsFormReturn {
     config: ConfigResponse | null
@@ -49,7 +55,9 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
     const { toast } = useToast()
     const [config, setConfig] = useState<ConfigResponse | null>(null)
     const [form, setForm] = useState<Record<string, string>>({})
-    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>(() =>
+        baseFields.some((f) => f.key === 'water_heaters') ? getPendingHeaterErrors() : {},
+    )
     const [loading, setLoading] = useState(true)
     const [formInitialized, setFormInitialized] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -261,6 +269,12 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                 setFieldErrors((errs) => {
                     const updated = { ...errs, ...newErrors }
                     if (!newErrors[key]) delete updated[key]
+                    if (key === 'water_heaters') {
+                        // Heater edits invalidate earlier server-side heater errors.
+                        for (const k of Object.keys(updated)) {
+                            if (k.startsWith(HEATER_ERROR_PREFIX)) delete updated[k]
+                        }
+                    }
                     // If it was a min/max SoC check, we might have cleared the other one too
                     if (key === 'battery.min_soc_percent' && !newErrors['battery.min_soc_percent'])
                         delete updated['battery.max_soc_percent']
@@ -271,6 +285,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                 return next
             })
             setStatusMessage(null)
+            if (key === 'water_heaters' && hasPendingHeaterErrors()) setPendingHeaterErrors({})
         },
         [validateField],
     )
@@ -347,7 +362,11 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
 
             // REV UI23: Only block on actual validation errors, not missing required fields
             // Missing required fields show a warning but don't block saves
-            const nonRequiredErrors = Object.entries(fieldErrors).filter(([_, msg]) => msg !== 'Required')
+            // Server-side heater errors are advisory here: the server re-validates every save, so a
+            // stale one (heater disabled/removed, has_water_heater off) must never trap the user.
+            const nonRequiredErrors = Object.entries(fieldErrors).filter(
+                ([key, msg]) => msg !== 'Required' && !key.startsWith(HEATER_ERROR_PREFIX),
+            )
             if (nonRequiredErrors.length > 0) {
                 setStatusMessage('Please fix validation errors before saving.')
                 return false
@@ -366,6 +385,36 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
 
             setSaving(true)
             setStatusMessage(null)
+            // Drop earlier server heater errors; a rejected save repopulates them.
+            setFieldErrors((prev) => {
+                const kept = Object.fromEntries(
+                    Object.entries(prev).filter(([k]) => !k.startsWith(HEATER_ERROR_PREFIX)),
+                )
+                return Object.keys(kept).length === Object.keys(prev).length ? prev : kept
+            })
+            const applyServerErrors = (errors: ConfigSaveError[] | undefined, fallback = 'Save failed') => {
+                const apiErrors: Record<string, string> = {}
+                errors?.forEach((err) => {
+                    if (err.field) apiErrors[err.field] = err.message
+                })
+                const ownsHeaters = fields.some((f) => f.key === 'water_heaters')
+                // Another tab cannot fix heater errors, so they must not block its own saves.
+                const localErrors = Object.fromEntries(
+                    Object.entries(apiErrors).filter(([k]) => ownsHeaters || !k.startsWith(HEATER_ERROR_PREFIX)),
+                )
+                setFieldErrors((prev) => ({ ...prev, ...localErrors }))
+                const heaterErrors = Object.fromEntries(
+                    Object.entries(apiErrors).filter(([k]) => k.startsWith(HEATER_ERROR_PREFIX)),
+                )
+                setPendingHeaterErrors(heaterErrors)
+                const firstMessage = errors?.[0]?.message || fallback
+                setStatusMessage(
+                    Object.keys(heaterErrors).length > 0 && !ownsHeaters
+                        ? `${firstMessage} (fix in the Heating tab)`
+                        : firstMessage,
+                )
+            }
+
             try {
                 const result = await Api.configSave(patch as Record<string, unknown>)
                 if (result.status === 'success') {
@@ -381,24 +430,26 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                     } else {
                         toast({ message: 'Settings saved successfully', variant: 'success' })
                     }
+                    setPendingHeaterErrors({})
                     await reload()
                     // REV UI23: Notify App.tsx to refresh config validation banner
                     window.dispatchEvent(new Event('config-changed'))
                     return true
                 } else {
-                    const apiErrors: Record<string, string> = {}
-                    result.errors?.forEach((err) => {
-                        if (err.field) apiErrors[err.field] = err.message
-                    })
-                    setFieldErrors((prev) => ({ ...prev, ...apiErrors }))
-                    setStatusMessage(result.errors?.[0]?.message || 'Save failed')
+                    applyServerErrors(result.errors)
                     toast({ message: 'Save failed', variant: 'error' })
                 }
             } catch (err: unknown) {
                 console.error('Save failed', err)
                 // REV LCL01: Show actual error message from config validation
                 const errMsg = err instanceof Error ? err.message : 'Unknown error'
-                setStatusMessage(errMsg)
+                const detail = err instanceof ApiError ? (err.detail as { errors?: unknown } | undefined) : undefined
+                if (Array.isArray(detail?.errors)) {
+                    // A 400 carries per-field errors; show them next to their fields.
+                    applyServerErrors(detail.errors as ConfigSaveError[], errMsg)
+                } else {
+                    setStatusMessage(errMsg)
+                }
                 toast({
                     message: 'Save failed',
                     description: errMsg,

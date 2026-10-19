@@ -8,6 +8,7 @@ import EntitySelect from '../../../components/EntitySelect'
 import { NumberInput } from '../../../components/ui/NumberInput'
 import { HaEntity } from '../types'
 import { evChargerMissingControlEntity } from '../utils'
+import { controlTypeForEntity, domainsForControlType, type WaterHeaterControlType } from '../logic'
 import Tooltip from '../../../components/Tooltip'
 import { DEFAULT_NOMINAL_VOLTAGE_V, evChargerDisabledReason, evChargerPowerLimits } from '../evPower'
 
@@ -89,6 +90,8 @@ interface EntityArrayEditorProps {
     haLoading?: boolean
     /** Nominal grid voltage (system.grid.nominal_voltage_v) for derived EV power */
     nominalVoltageV?: number
+    /** Server-side validation message per item index, shown beside that item's fields */
+    entityErrors?: Record<number, string>
 }
 
 const createDefaultWaterHeater = (index: number): WaterHeaterEntity => ({
@@ -382,6 +385,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
     haEntities = [],
     haLoading = false,
     nominalVoltageV = DEFAULT_NOMINAL_VOLTAGE_V,
+    entityErrors = {},
 }) => {
     const [expandedIndex, setExpandedIndex] = useState<number | null>(entities.length > 0 ? 0 : null)
 
@@ -752,12 +756,21 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                         (entity as WaterHeaterEntity).control_type ??
                                                                         'temperature'
                                                                     }
-                                                                    onChange={(e) =>
+                                                                    onChange={(e) => {
+                                                                        const control_type = e.target
+                                                                            .value as WaterHeaterControlType
+                                                                        const current = (entity as WaterHeaterEntity)
+                                                                            .target_entity
+                                                                        // Clear an entity the new control type cannot drive
+                                                                        const keep =
+                                                                            !current ||
+                                                                            controlTypeForEntity(current) ===
+                                                                                control_type
                                                                         updateEntity(index, {
-                                                                            control_type: e.target.value as
-                                                                                'temperature' | 'switch',
+                                                                            control_type,
+                                                                            ...(keep ? {} : { target_entity: '' }),
                                                                         } as Partial<WaterHeaterEntity>)
-                                                                    }
+                                                                    }}
                                                                     disabled={disabled}
                                                                     className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
                                                                 >
@@ -782,19 +795,23 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                     entities={haEntities.filter((haEntity) =>
                                                                         (entity as WaterHeaterEntity).control_type ===
                                                                         'switch'
-                                                                            ? ['switch', 'input_boolean'].includes(
+                                                                            ? domainsForControlType('switch').includes(
                                                                                   haEntity.domain,
                                                                               )
-                                                                            : ['number', 'input_number'].includes(
-                                                                                  haEntity.domain,
-                                                                              ),
+                                                                            : domainsForControlType(
+                                                                                  'temperature',
+                                                                              ).includes(haEntity.domain),
                                                                     )}
                                                                     value={(entity as WaterHeaterEntity).target_entity}
-                                                                    onChange={(val) =>
+                                                                    onChange={(val) => {
+                                                                        const inferred = controlTypeForEntity(val)
                                                                         updateEntity(index, {
                                                                             target_entity: val,
+                                                                            ...(inferred
+                                                                                ? { control_type: inferred }
+                                                                                : {}),
                                                                         } as Partial<WaterHeaterEntity>)
-                                                                    }
+                                                                    }}
                                                                     loading={haLoading}
                                                                     placeholder={
                                                                         (entity as WaterHeaterEntity).control_type ===
@@ -810,6 +827,14 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                         ? 'Switch or input_boolean entity. Scheduled heating turns it on; idle and shed periods turn it off.'
                                                                         : 'Number or input_number entity. The executor writes temp_off/temp_normal/temp_boost based on the schedule.'}
                                                                 </p>
+                                                                {entityErrors[index] && (
+                                                                    <p
+                                                                        role="alert"
+                                                                        className="text-[11px] text-bad mt-1"
+                                                                    >
+                                                                        {entityErrors[index]}
+                                                                    </p>
+                                                                )}
                                                             </div>
                                                         </>
                                                     )}

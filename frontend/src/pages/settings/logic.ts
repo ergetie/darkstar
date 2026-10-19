@@ -64,3 +64,25 @@ export const shouldRenderField = (
 
     return true
 }
+
+export type WaterHeaterControlType = 'temperature' | 'switch'
+
+const SWITCH_DOMAINS = ['switch', 'input_boolean']
+const TEMPERATURE_DOMAINS = ['number', 'input_number']
+
+/**
+ * Control type implied by a water heater target entity's domain, or null for an
+ * unsupported domain. Mirrors backend.core.water_heating.infer_control_type.
+ */
+export function controlTypeForEntity(entityId: string | undefined | null): WaterHeaterControlType | null {
+    const domain = (entityId ?? '').trim().toLowerCase().split('.', 2)
+    if (domain.length < 2) return null
+    if (SWITCH_DOMAINS.includes(domain[0])) return 'switch'
+    if (TEMPERATURE_DOMAINS.includes(domain[0])) return 'temperature'
+    return null
+}
+
+/** Water heater entity-picker domains accepted by a control type. */
+export function domainsForControlType(controlType: WaterHeaterControlType | undefined): string[] {
+    return controlType === 'switch' ? SWITCH_DOMAINS : TEMPERATURE_DOMAINS
+}

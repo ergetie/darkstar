@@ -221,12 +221,39 @@ class TestWaterHeaterValidation:
             ],
         }
 
-    def test_switch_entity_without_control_type_is_error(self):
-        issues = _validate_config_for_save(self._control_config({"target_entity": "switch.vvb"}))
-        assert any(
-            issue["severity"] == "error" and "control_type to 'switch'" in issue["message"]
-            for issue in issues
+    def test_switch_entity_without_control_type_is_inferred_and_written_back(self):
+        config = self._control_config({"target_entity": "switch.vvb"})
+        issues = _validate_config_for_save(config)
+        assert not any(
+            issue["severity"] == "error" and "target_entity" in issue["message"] for issue in issues
         )
+        assert config["water_heaters"][0]["control_type"] == "switch"
+
+    def test_number_entity_without_control_type_is_inferred_temperature(self):
+        config = self._control_config({"target_entity": "number.vvb", "control_type": ""})
+        issues = _validate_config_for_save(config)
+        assert not any(
+            issue["severity"] == "error" and "target_entity" in issue["message"] for issue in issues
+        )
+        assert config["water_heaters"][0]["control_type"] == "temperature"
+
+    def test_explicit_mismatch_is_error_with_heater_field(self):
+        issues = _validate_config_for_save(
+            self._control_config({"target_entity": "switch.vvb", "control_type": "temperature"})
+        )
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any(
+            "control_type to 'switch'" in e["message"] and e.get("field") == "water_heaters.0.control_type"
+            for e in errors
+        )
+
+    def test_unsupported_domains_are_errors_listing_supported(self):
+        for entity in ("climate.x", "water_heater.x"):
+            issues = _validate_config_for_save(self._control_config({"target_entity": entity}))
+            assert any(
+                i["severity"] == "error" and "number., input_number." in i["guidance"]
+                for i in issues
+            ), entity
 
     def test_number_entity_with_switch_control_is_error(self):
         issues = _validate_config_for_save(

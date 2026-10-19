@@ -1,11 +1,21 @@
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useSettingsForm } from '../hooks/useSettingsForm'
-import { Api } from '../../../lib/api'
+import { Api, ApiError } from '../../../lib/api'
+import { getPendingHeaterErrors, setPendingHeaterErrors } from '../hooks/heaterErrors'
 import { BaseField, batteryFieldList } from '../types'
 
 // Mock API
 vi.mock('../../../lib/api', () => ({
+    ApiError: class ApiError extends Error {
+        constructor(
+            message: string,
+            readonly status: number,
+            readonly detail?: unknown,
+        ) {
+            super(message)
+        }
+    },
     Api: {
         config: vi.fn(),
         haEntities: vi.fn(),
@@ -252,5 +262,97 @@ describe('useSettingsForm Hook', () => {
         })
         expect(result.current.form['installation_stats.enabled']).toBe('false')
         expect(result.current.isDirty).toBe(false)
+    })
+
+    describe('water heater validation errors', () => {
+        const heaterFields: BaseField[] = [
+            { key: 'water_heaters', label: 'Heaters', path: ['water_heaters'], type: 'entity_array' } as BaseField,
+        ]
+        const message = "Water heater 'tank' target_entity 'switch.vvb' is a switch - set control_type to 'switch'"
+        const rejectWithMismatch = () =>
+            vi.mocked(Api.configSave).mockRejectedValue(
+                new ApiError(message, 400, {
+                    errors: [{ severity: 'error', field: 'water_heaters.0.control_type', message }],
+                }),
+            )
+
+        beforeEach(() => {
+            setPendingHeaterErrors({})
+            vi.mocked(Api.config).mockResolvedValue({
+                water_heaters: [{ id: 'tank', target_entity: 'switch.vvb' }],
+            } as unknown as Awaited<ReturnType<typeof Api.config>>)
+        })
+
+        it('maps a 400 mismatch to the heater field and clears it when heaters are edited', async () => {
+            rejectWithMismatch()
+            const { result } = renderHook(() => useSettingsForm(heaterFields))
+            await waitFor(() => expect(result.current.loading).toBe(false))
+            act(() =>
+                result.current.handleChange(
+                    'water_heaters',
+                    JSON.stringify([{ id: 'tank', target_entity: 'switch.vvb', control_type: 'temperature' }]),
+                ),
+            )
+            await act(async () => expect(await result.current.save()).toBe(false))
+            expect(result.current.fieldErrors['water_heaters.0.control_type']).toBe(message)
+            expect(result.current.statusMessage).toBe(message)
+            expect(Object.keys(getPendingHeaterErrors())).toEqual(['water_heaters.0.control_type'])
+
+            act(() =>
+                result.current.handleChange(
+                    'water_heaters',
+                    JSON.stringify([{ id: 'tank', target_entity: 'switch.vvb', control_type: 'switch' }]),
+                ),
+            )
+            expect(result.current.fieldErrors['water_heaters.0.control_type']).toBeUndefined()
+            expect(getPendingHeaterErrors()).toEqual({})
+        })
+
+        it('a stale heater error never traps the Heating tab (feature off, heater disabled or removed)', async () => {
+            const tabFields: BaseField[] = [
+                {
+                    key: 'system.has_water_heater',
+                    label: 'Water heater',
+                    path: ['system', 'has_water_heater'],
+                    type: 'boolean',
+                } as BaseField,
+                ...heaterFields,
+            ]
+            vi.mocked(Api.config).mockResolvedValue({
+                system: { has_water_heater: true },
+                water_heaters: [{ id: 'tank', target_entity: 'switch.vvb' }],
+            } as unknown as Awaited<ReturnType<typeof Api.config>>)
+            rejectWithMismatch()
+            const { result } = renderHook(() => useSettingsForm(tabFields))
+            await waitFor(() => expect(result.current.loading).toBe(false))
+            act(() =>
+                result.current.handleChange(
+                    'water_heaters',
+                    JSON.stringify([{ id: 'tank', target_entity: 'switch.vvb', control_type: 'temperature' }]),
+                ),
+            )
+            await act(async () => expect(await result.current.save()).toBe(false))
+            expect(result.current.fieldErrors['water_heaters.0.control_type']).toBe(message)
+
+            // Turning the feature off (no heater edit) must save despite the stale error.
+            vi.mocked(Api.configSave).mockResolvedValue({ status: 'success' })
+            act(() => result.current.handleChange('system.has_water_heater', 'false'))
+            await act(async () => expect(await result.current.save()).toBe(true))
+            expect(Api.configSave).toHaveBeenLastCalledWith(
+                expect.objectContaining({ system: { has_water_heater: false } }),
+            )
+            expect(getPendingHeaterErrors()).toEqual({})
+        })
+
+        it('does not let heater errors block another tab but still records them for the Heating tab', async () => {
+            rejectWithMismatch()
+            const { result } = renderHook(() => useSettingsForm(mockFields))
+            await waitFor(() => expect(result.current.loading).toBe(false))
+            act(() => result.current.handleChange('test.field', '20'))
+            await act(async () => expect(await result.current.save()).toBe(false))
+            expect(result.current.fieldErrors['water_heaters.0.control_type']).toBeUndefined()
+            expect(result.current.statusMessage).toContain('fix in the Heating tab')
+            expect(getPendingHeaterErrors()['water_heaters.0.control_type']).toBe(message)
+        })
     })
 })

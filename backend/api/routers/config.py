@@ -24,7 +24,7 @@ from backend.core.prices import (
 )
 from backend.core.secrets import load_home_assistant_config, load_notifications_config, load_yaml
 from backend.core.time_windows import parse_window
-from backend.core.water_heating import validate_water_heating_config
+from backend.core.water_heating import infer_control_type, validate_water_heating_config
 from backend.loads.base import EV_CHARGER_LOAD_TYPES, WATER_HEATER_LOAD_TYPES
 from backend.services.installation_stats_contract import (
     effective_installation_stats,
@@ -329,6 +329,15 @@ async def save_config(
             validation_issues = _validate_config_for_save(data, phase_sensor_units)
             errors = [i for i in validation_issues if i["severity"] == "error"]
             warnings = [i for i in validation_issues if i["severity"] == "warning"]
+
+            # Heater pairing errors only block a save that edits water_heaters;
+            # a stale hand-edited mismatch must not trap saves from other tabs.
+            if "water_heaters" not in payload:
+                for issue in errors[:]:
+                    if str(issue.get("field", "")).startswith("water_heaters."):
+                        issue["severity"] = "warning"
+                        errors.remove(issue)
+                        warnings.append(issue)
 
             # If there are critical errors, reject the save
             if errors:
@@ -974,14 +983,27 @@ def _validate_config_for_save(
                     )
 
                 # Control type is separate from the load-model `type` field.
-                raw_control_type = wh.get("control_type", "temperature")
-                control_type = str(raw_control_type).strip().lower()
-                if control_type not in {"temperature", "switch"}:
+                # When missing/empty it follows the target entity domain.
+                heater_label = wh.get("id", i + 1)
+                control_field = f"water_heaters.{i}.control_type"
+                target_entity = wh.get("target_entity")
+                target_entity = str(target_entity).strip() if target_entity else ""
+                inferred_type = infer_control_type(target_entity)
+                raw_control_type = wh.get("control_type")
+                control_type = str(raw_control_type or "").strip().lower()
+                if not control_type:
+                    if inferred_type:
+                        control_type = inferred_type
+                        wh["control_type"] = inferred_type
+                    else:
+                        control_type = "temperature"
+                elif control_type not in {"temperature", "switch"}:
                     issues.append(
                         {
                             "severity": "warning",
+                            "field": control_field,
                             "message": (
-                                f"Water heater '{wh.get('id', i + 1)}' uses unsupported control_type: "
+                                f"Water heater '{heater_label}' uses unsupported control_type: "
                                 f"'{raw_control_type}'"
                             ),
                             "guidance": "control_type must be 'temperature' or 'switch'; treating it as 'temperature'.",
@@ -989,32 +1011,38 @@ def _validate_config_for_save(
                     )
                     control_type = "temperature"
 
-                target_entity = wh.get("target_entity")
+                # A disabled heater is skipped by the executor, so its entity pairing
+                # must never block a save (disabling it is the way out of a mismatch).
+                entity_severity = "error" if wh.get("enabled", True) else "warning"
                 if target_entity:
-                    target_entity = str(target_entity).strip()
-                    expected_prefixes = (
-                        ("switch.", "input_boolean.")
-                        if control_type == "switch"
-                        else ("number.", "input_number.")
-                    )
-                    if not target_entity.startswith(expected_prefixes):
-                        entered_domain = target_entity.split(".", 1)[0]
+                    if inferred_type is None:
+                        issues.append(
+                            {
+                                "severity": entity_severity,
+                                "field": control_field,
+                                "message": (
+                                    f"Water heater '{heater_label}' target_entity '{target_entity}' "
+                                    "has an unsupported domain"
+                                ),
+                                "guidance": (
+                                    "Supported entities: switch., input_boolean. (switch control) or "
+                                    "number., input_number. (temperature control)."
+                                ),
+                            }
+                        )
+                    elif inferred_type != control_type:
                         domain_label = (
                             "a switch"
-                            if entered_domain in {"switch", "input_boolean"}
+                            if inferred_type == "switch"
                             else "a temperature control entity"
-                        )
-                        accepted_type = (
-                            "switch"
-                            if entered_domain in {"switch", "input_boolean"}
-                            else "temperature"
                         )
                         issues.append(
                             {
-                                "severity": "error",
+                                "severity": entity_severity,
+                                "field": control_field,
                                 "message": (
-                                    f"Water heater '{wh.get('id', i + 1)}' target_entity '{target_entity}' is "
-                                    f"{domain_label} — set control_type to '{accepted_type}' to control this heater"
+                                    f"Water heater '{heater_label}' target_entity '{target_entity}' is "
+                                    f"{domain_label} — set control_type to '{inferred_type}' to control this heater"
                                 ),
                                 "guidance": (
                                     "Temperature control requires number./input_number.; switch control requires "

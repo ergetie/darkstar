@@ -329,3 +329,98 @@ def test_unset_inverter_limit_no_ac_constraint():
     assert total_export > 5.0, (
         f"Expected unconstrained export > 5.0 kWh, got {total_export}"
     )
+
+
+def _arbitrage_input(n_cheap: int = 4, n_dear: int = 4, load_kwh: float = 0.0, pv_kwh: float = 0.0):
+    start = datetime(2025, 6, 1, 0, 0)
+    slots = []
+    for i in range(n_cheap + n_dear):
+        cheap = i < n_cheap
+        slots.append(
+            KeplerInputSlot(
+                start_time=start + timedelta(minutes=15 * i),
+                end_time=start + timedelta(minutes=15 * (i + 1)),
+                load_kwh=load_kwh,
+                pv_kwh=pv_kwh,
+                import_price_sek_kwh=0.1 if cheap else 3.0,
+                export_price_sek_kwh=0.0 if cheap else 2.5,
+            )
+        )
+    return KeplerInput(slots=slots, initial_soc_kwh=0.0)
+
+
+def _arbitrage_config(topology: str, limit: float | None = 8.0) -> KeplerConfig:
+    return KeplerConfig(
+        capacity_kwh=40.0,
+        max_charge_power_kw=20.0,
+        max_discharge_power_kw=20.0,
+        charge_efficiency=1.0,
+        discharge_efficiency=1.0,
+        min_soc_percent=0.0,
+        max_soc_percent=100.0,
+        wear_cost_sek_per_kwh=0.0,
+        max_inverter_ac_kw=limit,
+        inverter_topology=topology,
+        enable_export=True,
+        max_export_power_kw=20.0,
+    )
+
+
+def test_dc_coupled_grid_charge_capped_by_inverter_limit():
+    """dc_coupled: grid-to-battery charging crosses the AC stage and is capped."""
+    result = KeplerSolver().solve(_arbitrage_input(), _arbitrage_config("dc_coupled"))
+    assert result.is_optimal
+    cap = 8.0 * 0.25
+    charges = [s.charge_kwh for s in result.slots[:4]]
+    assert max(charges) <= cap + 0.01
+    assert max(charges) > cap - 0.05  # the cap is what binds, not something else
+
+    uncapped = KeplerSolver().solve(_arbitrage_input(), _arbitrage_config("dc_coupled", None))
+    assert max(s.charge_kwh for s in uncapped.slots[:4]) > cap + 0.5
+
+
+def test_ac_coupled_grid_charge_capped_by_inverter_limit():
+    result = KeplerSolver().solve(_arbitrage_input(), _arbitrage_config("ac_coupled"))
+    assert result.is_optimal
+    assert max(s.charge_kwh for s in result.slots[:4]) <= 8.0 * 0.25 + 0.01
+
+
+def test_dc_coupled_pv_to_battery_not_counted_against_ac_limit():
+    """PV above the AC limit still charges the battery directly and stays feasible."""
+    start = datetime(2025, 6, 1, 12, 0)
+    slots = [
+        KeplerInputSlot(
+            start_time=start + timedelta(minutes=15 * i),
+            end_time=start + timedelta(minutes=15 * (i + 1)),
+            load_kwh=0.0,
+            pv_kwh=4.0,  # 16 kW, well above the 8 kW limit
+            import_price_sek_kwh=5.0,
+            export_price_sek_kwh=0.5,
+        )
+        for i in range(2)
+    ]
+    config = _arbitrage_config("dc_coupled")
+    config.curtailment_penalty_sek = 0.5
+    result = KeplerSolver().solve(KeplerInput(slots=slots, initial_soc_kwh=0.0), config)
+    assert result.is_optimal
+    # 2.0 kWh/slot must go to the battery via the DC path (more than the 2.0 AC cap alone allows)
+    assert all(s.charge_kwh >= 1.9 for s in result.slots)
+
+
+def test_inverter_limit_feasible_with_high_load():
+    """Load above the AC limit is served from grid directly; the plan stays feasible."""
+    result = KeplerSolver().solve(
+        _arbitrage_input(load_kwh=3.0), _arbitrage_config("dc_coupled")
+    )
+    assert result.is_optimal
+    for s in result.slots:
+        assert s.charge_kwh + s.discharge_kwh <= 2.0 + 0.01
+
+
+def test_inverter_limit_stacks_with_phase_import_limit():
+    """The AC row and the single-phase import rows coexist and stay feasible."""
+    config = _arbitrage_config("dc_coupled")
+    config.max_phase_import_kw = 5.0
+    result = KeplerSolver().solve(_arbitrage_input(load_kwh=1.0), config)
+    assert result.is_optimal
+    assert max(s.charge_kwh for s in result.slots[:4]) <= 2.0 + 0.01
