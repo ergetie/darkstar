@@ -176,6 +176,64 @@ describe('useSettingsForm Hook', () => {
         expect(result.current.fieldErrors['battery.max_soc_percent']).toBeDefined()
     })
 
+    describe('declared min/max take precedence over key-name heuristics', () => {
+        const rangedFields: BaseField[] = [
+            {
+                key: 'load_balancing.severe_overload_percent',
+                label: 'Immediate pause above (% of fuse)',
+                path: ['load_balancing', 'severe_overload_percent'],
+                type: 'number',
+                min: 101,
+                max: 200,
+            },
+            {
+                key: 'ev_planning.deferral_risk_margin_max_percent',
+                label: 'Deferral risk margin at deadline (%)',
+                path: ['ev_planning', 'deferral_risk_margin_max_percent'],
+                type: 'number',
+                min: 0,
+                max: 200,
+            },
+        ]
+
+        beforeEach(() => {
+            vi.mocked(Api.config).mockResolvedValue({
+                load_balancing: { severe_overload_percent: 125 },
+                ev_planning: { deferral_risk_margin_max_percent: 50 },
+            })
+        })
+
+        it('accepts severe_overload_percent within its declared 101-200 range', async () => {
+            const { result } = renderHook(() => useSettingsForm(rangedFields))
+            await waitFor(() => expect(result.current.loading).toBe(false))
+            act(() => result.current.handleChange('load_balancing.severe_overload_percent', '125'))
+            expect(result.current.fieldErrors['load_balancing.severe_overload_percent']).toBeUndefined()
+        })
+
+        it.each(['25', '250'])('rejects severe_overload_percent %s with the declared range', async (value) => {
+            const { result } = renderHook(() => useSettingsForm(rangedFields))
+            await waitFor(() => expect(result.current.loading).toBe(false))
+            act(() => result.current.handleChange('load_balancing.severe_overload_percent', value))
+            expect(result.current.fieldErrors['load_balancing.severe_overload_percent']).toBe(
+                'Must be between 101 and 200',
+            )
+        })
+
+        it('accepts deferral_risk_margin_max_percent above 100', async () => {
+            const { result } = renderHook(() => useSettingsForm(rangedFields))
+            await waitFor(() => expect(result.current.loading).toBe(false))
+            act(() => result.current.handleChange('ev_planning.deferral_risk_margin_max_percent', '150'))
+            expect(result.current.fieldErrors['ev_planning.deferral_risk_margin_max_percent']).toBeUndefined()
+        })
+
+        it('still applies the 0-100 fallback to percent fields without declared bounds', async () => {
+            const { result } = renderHook(() => useSettingsForm(mockFields))
+            await waitFor(() => expect(result.current.loading).toBe(false))
+            act(() => result.current.handleChange('battery.max_soc_percent', '150'))
+            expect(result.current.fieldErrors['battery.max_soc_percent']).toBe('Must be between 0 and 100')
+        })
+    })
+
     it('resets form to original state', async () => {
         const { result } = renderHook(() => useSettingsForm(mockFields))
         await waitFor(() => expect(result.current.loading).toBe(false))

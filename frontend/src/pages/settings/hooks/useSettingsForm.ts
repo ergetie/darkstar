@@ -229,7 +229,8 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                     ((field.min !== undefined && num < field.min) || (field.max !== undefined && num > field.max))
                 ) {
                     errors[key] = `Must be between ${field.min ?? '-∞'} and ${field.max ?? '∞'}`
-                } else if (!Number.isNaN(num)) {
+                } else if (!Number.isNaN(num) && field.min === undefined && field.max === undefined) {
+                    // Key-name heuristics only for fields that declare no explicit bounds
                     if (key.includes('percent') || key.includes('soc')) {
                         if (num < 0 || num > 100) {
                             errors[key] = 'Must be between 0 and 100'
