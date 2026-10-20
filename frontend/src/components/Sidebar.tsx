@@ -57,6 +57,7 @@ export default function Sidebar() {
             .then((data) => setVersion(data.version || 'dev'))
             .catch(() => setVersion('dev'))
     }, [])
+    const versionLabel = /^\d/.test(version) ? `v${version}` : version
 
     const closeMobile = () => setMobileOpen(false)
 
@@ -71,7 +72,7 @@ export default function Sidebar() {
                             <DarkstarLogo className="h-8 w-8 text-accent" />
                         </span>
                         <span className="absolute left-14 top-1/2 -translate-y-1/2 rounded-pill bg-surface2/90 border border-line/60 px-2 py-0.5 text-[10px] text-muted opacity-0 group-hover:opacity-100 transition whitespace-nowrap z-50 pointer-events-none">
-                            darkstar v{version}
+                            darkstar {versionLabel}
                         </span>
                     </Link>
 
@@ -106,7 +107,7 @@ export default function Sidebar() {
                             className="text-[10px] text-muted/60 font-mono select-none tracking-widest whitespace-nowrap opacity-80 hover:opacity-100 transition"
                             style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
                         >
-                            darkstar v{version}
+                            darkstar {versionLabel}
                         </span>
                     </div>
 
@@ -138,7 +139,7 @@ export default function Sidebar() {
                             <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-surface2 border border-line/60">
                                 <DarkstarLogo className="h-5 w-5 text-accent" />
                             </span>
-                            <span className="text-muted font-mono">darkstar v{version}</span>
+                            <span className="text-muted font-mono">darkstar {versionLabel}</span>
                         </div>
                         <button
                             type="button"

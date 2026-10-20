@@ -75,12 +75,14 @@ jobs:
             IS_DEV=false
           else
             # Build DEV image for any non-tag push (main or dev)
-            VERSION="dev-$(date +'%Y%m%d.%H%M')"
+            VERSION="dev-$(date +'%y%m%d.%H%M')"
             IMAGE_NAME="ergetie/darkstar-dev"
             ADDON_PATH="darkstar-dev"
             IS_DEV=true
             # Update version in config.yaml for HA to see the update
             sed -i "s/^version: .*/version: \"$VERSION\"/" darkstar-dev/config.yaml
+            # Dev images report this version in the app, telemetry and diagnostics
+            echo "$VERSION" > VERSION
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
