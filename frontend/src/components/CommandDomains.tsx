@@ -17,6 +17,7 @@ import {
     type ConfigResponse,
     type LoadBalancerStatusResponse,
     type CostSeriesResponse,
+    type BatteryBenchmarkDay,
     type BatteryBenchmarkResponse,
 } from '../lib/api'
 import { useSocket } from '../lib/hooks'
@@ -130,6 +131,19 @@ const BENCHMARK_REASONS: Record<string, string> = {
     stock_out_of_range: 'stored energy outside battery capacity',
     solver_not_optimal: 'hindsight solve did not finish',
     error: 'benchmark error',
+}
+
+function benchmarkWarningText(day: BatteryBenchmarkDay, warning: string): string {
+    switch (warning) {
+        case 'capacity_mismatch':
+            return 'battery capacity may not match recorded flows'
+        case 'unverified_slots':
+            return `${day.unverified_slots} of ${day.day_slots} slots not verified`
+        case 'stock_clamped':
+            return 'stored energy outside battery capacity, clamped'
+        default:
+            return warning
+    }
 }
 
 function useDismissOnOutside(open: boolean, close: () => void, ref: React.RefObject<HTMLDivElement | null>) {
@@ -316,6 +330,11 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
 
     const hindsight = period !== 'today' && benchmark && benchmark.totals.days_total > 0 ? benchmark.totals : null
     const excludedDays = benchmark?.days.filter((day) => day.status !== 'scored') ?? []
+    const warningDays = benchmark?.days.filter((day) => day.status === 'scored' && day.warnings.length > 0) ?? []
+    const fullerKwh =
+        hindsight && hindsight.days_scored > 0 && hindsight.score == null && hindsight.stored_change_kwh >= 0.05
+            ? hindsight.stored_change_kwh
+            : null
     const hindsightEmptyReason =
         hindsight && hindsight.days_scored === 0
             ? (BENCHMARK_REASONS[excludedDays[0]?.reason ?? ''] ?? 'no scored days yet')
@@ -547,6 +566,15 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                             <span className="text-muted tabular-nums">
                                 · {hindsight.days_scored}/{hindsight.days_total} days
                             </span>
+                            {warningDays.length > 0 && (
+                                <span
+                                    className="text-warn"
+                                    title="Some days have warnings, see details"
+                                    aria-label="Hindsight warnings"
+                                >
+                                    ⚠
+                                </span>
+                            )}
                             <button
                                 type="button"
                                 aria-expanded={benchmarkInfoOpen}
@@ -558,6 +586,12 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                                 ⓘ
                             </button>
                         </div>
+                        {fullerKwh != null && !hindsightEmptyReason && (
+                            <div className="text-muted" role="note">
+                                Battery ended {fullerKwh.toFixed(1)} kWh fuller than it started; that value shows up the
+                                next day
+                            </div>
+                        )}
                         {benchmarkInfoOpen && (
                             <div
                                 id="hindsight-details"
@@ -587,6 +621,24 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                                                     ` (recorded ${day.implied_capacity_kwh.toFixed(1)} kWh, configured ${day.capacity_kwh.toFixed(1)} kWh)`}
                                             </div>
                                         ))}
+                                    </div>
+                                )}
+                                {warningDays.length > 0 && (
+                                    <div className="mt-1">
+                                        <div className="text-warn">Warnings</div>
+                                        {warningDays.flatMap((day) =>
+                                            day.warnings.map((warning) => (
+                                                <div key={`${day.date}-${warning}`} className="tabular-nums">
+                                                    {day.date}{' '}
+                                                    <span className="text-text">
+                                                        {benchmarkWarningText(day, warning)}
+                                                    </span>
+                                                    {warning === 'capacity_mismatch' &&
+                                                        day.implied_capacity_kwh != null &&
+                                                        ` (recorded ${day.implied_capacity_kwh.toFixed(1)} kWh, configured ${day.capacity_kwh.toFixed(1)} kWh)`}
+                                                </div>
+                                            )),
+                                        )}
                                     </div>
                                 )}
                             </div>

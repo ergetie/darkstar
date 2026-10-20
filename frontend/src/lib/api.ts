@@ -671,7 +671,15 @@ export type BatteryBenchmarkDay = {
     reason: string | null
     capacity_kwh: number
     implied_capacity_kwh: number | null
+    /** Non-blocking warnings on the day (e.g. 'capacity_mismatch'); [] on legacy records. */
+    warnings: string[]
     snapshot_slots: number
+    /** Slots without verified recording, start-SoC slot included; 0 on legacy records. */
+    unverified_slots: number
+    /** Number of the day's slots; 0 on legacy records. */
+    day_slots: number
+    /** Stored energy at day end minus start (kWh); null when not computed or legacy. */
+    stored_change_kwh: number | null
     actual_cost_sek: number | null
     ideal_cost_sek: number | null
     no_battery_cost_sek: number | null
@@ -696,6 +704,30 @@ export type BatteryBenchmarkResponse = {
         days_total: number
         by_status: Record<string, number>
         by_reason: Record<string, number>
+        by_warning: Record<string, number>
+        /** Stored-energy change summed over scored days (kWh). */
+        stored_change_kwh: number
+    }
+}
+
+/** Default fields added after v1 records were stored, so legacy responses stay usable. */
+export function normalizeBatteryBenchmarkResponse(body: BatteryBenchmarkResponse): BatteryBenchmarkResponse {
+    return {
+        ...body,
+        days: body.days.map((day) => ({
+            ...day,
+            warnings: Array.isArray(day.warnings)
+                ? day.warnings.filter((warning): warning is string => typeof warning === 'string')
+                : [],
+            unverified_slots: typeof day.unverified_slots === 'number' ? day.unverified_slots : 0,
+            day_slots: typeof day.day_slots === 'number' ? day.day_slots : 0,
+            stored_change_kwh: typeof day.stored_change_kwh === 'number' ? day.stored_change_kwh : null,
+        })),
+        totals: {
+            ...body.totals,
+            by_warning: isRecord(body.totals.by_warning) ? body.totals.by_warning : {},
+            stored_change_kwh: typeof body.totals.stored_change_kwh === 'number' ? body.totals.stored_change_kwh : 0,
+        },
     }
 }
 
@@ -1598,7 +1630,7 @@ export const Api = {
     batteryBenchmark: (start_date: string, end_date: string) =>
         getJSON<BatteryBenchmarkResponse>(
             `/api/energy/battery-benchmark?start_date=${start_date}&end_date=${end_date}`,
-        ),
+        ).then(normalizeBatteryBenchmarkResponse),
     // Log management
     logInfo: () => getJSON<LogInfoResponse>('/api/system/log-info'),
     systemHealth: () => getJSON<SystemHealthResponse>('/api/system/health'),

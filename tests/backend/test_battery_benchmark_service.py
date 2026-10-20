@@ -75,8 +75,19 @@ async def test_run_stores_last_14_days_and_restart_does_not_recompute(store):
 @pytest.mark.asyncio
 async def test_version_bump_recomputes_stored_days(store):
     await _service().run_once(store)
-    with patch.object(service_module, "BENCHMARK_VERSION", 2):
+    with patch.object(service_module, "BENCHMARK_VERSION", service_module.BENCHMARK_VERSION + 1):
         assert len(await _service().run_once(store)) == 14
+
+
+@pytest.mark.asyncio
+async def test_v1_capacity_mismatch_record_is_recomputed(store):
+    await _service().run_once(store)
+    legacy = {"version": 1, "date": YESTERDAY.isoformat(), "status": "excluded", "reason": "capacity_mismatch"}
+    await store.set_system_state("battery_benchmark:2026-10-10", json.dumps(legacy))
+    assert await _service().run_once(store) == [YESTERDAY]
+    record = (await _stored(store))["battery_benchmark:2026-10-10"]
+    assert (record["version"], record["status"], record["reason"]) == (2, "scored", None)
+    assert record["warnings"] == []
 
 
 @pytest.mark.asyncio

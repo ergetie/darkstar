@@ -23,27 +23,24 @@ from planner.solver.types import KeplerBenchmark, KeplerConfig, KeplerInput, Kep
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-BENCHMARK_VERSION = 1
+BENCHMARK_VERSION = 2
 SLOT_MINUTES = 15
 CLEAN_METHODS = frozenset({"power_history", "derived_history", "disabled_zero"})
-MAX_SNAPSHOT_SLOTS = 2
+MAX_UNVERIFIED_SLOTS = 4
 CAPACITY_HISTORY_DAYS = 6
-CAPACITY_TOLERANCE = 0.15
-CAPACITY_MIN_MOVEMENT_PP = 20.0
-CAPACITY_MIN_SLOT_DELTA_PP = 1.0
+CAPACITY_TOLERANCE = 0.20
+CAPACITY_MIN_SOC_RANGE_PP = 20.0
 MIN_IDEAL_VALUE_SEK = 1.0
-EV_ACTIVE_KWH = 1e-6
-REQUIRED_FIELDS = (
+EV_CHARGING_MIN_KW = 0.02
+ENERGY_FIELDS = (
     "import_kwh",
     "export_kwh",
     "pv_kwh",
     "load_kwh",
     "water_kwh",
     "ev_charging_kwh",
-    "soc_end_percent",
-    "import_price_sek_kwh",
-    "export_price_sek_kwh",
 )
+PRICE_FIELDS = ("import_price_sek_kwh", "export_price_sek_kwh")
 
 
 def state_key(day: date) -> str:
@@ -113,20 +110,39 @@ def _local_day_bounds(day: date, tz: Any) -> tuple[datetime, datetime]:
     return start, end
 
 
-def _finite(row: Mapping[str, Any]) -> bool:
-    return all(
-        isinstance(row.get(k), int | float) and math.isfinite(row[k]) for k in REQUIRED_FIELDS
-    )
+def _finite_value(row: Mapping[str, Any], key: str) -> bool:
+    value = row.get(key)
+    return isinstance(value, int | float) and math.isfinite(value)
+
+
+def _has_gap(row: Mapping[str, Any]) -> bool:
+    """Whether a slot is missing recorded energy or SoC (nothing was recorded for it)."""
+    return not all(_finite_value(row, k) for k in (*ENERGY_FIELDS, "soc_end_percent"))
+
+
+def _gap_filled(row: dict[str, Any]) -> dict[str, Any]:
+    """Row with missing energy values as 0 kWh (no recorded flow) and missing SoC as None,
+    so actual and hindsight see identical inputs and the capacity fit skips the SoC."""
+    if not _has_gap(row):
+        return row
+    filled = dict(row)
+    for key in ENERGY_FIELDS:
+        if not _finite_value(row, key):
+            filled[key] = 0.0
+    if not _finite_value(row, "soc_end_percent"):
+        filled["soc_end_percent"] = None
+    return filled
 
 
 def _recording_reason(
     day: date, rows_by_day: Mapping[date, list[dict[str, Any]]], tz: Any, now: datetime
-) -> tuple[str | None, int]:
-    """First failing data reason (or None) and the snapshot-slot count."""
+) -> tuple[str | None, int, int]:
+    """First failing data reason (or None), the snapshot-slot count and the unverified-slot
+    count (snapshot or unusable provenance, including the start-SoC slot)."""
     rows = rows_by_day.get(day, [])
     start, end = _local_day_bounds(day, tz)
     if end > now:
-        return "not_finished", 0
+        return "not_finished", 0, 0
     expected = int((end - start).total_seconds() // (SLOT_MINUTES * 60))
     times = [
         (datetime.fromisoformat(r["slot_start"]), datetime.fromisoformat(r["slot_end"]))
@@ -138,35 +154,76 @@ def _recording_reason(
         or times[-1][1] != end
         or any(times[i - 1][1] != times[i][0] for i in range(1, len(times)))
     ):
-        return "incomplete_day", 0
+        return "incomplete_day", 0, 0
     previous = rows_by_day.get(day - timedelta(days=1), [])
     if not previous or datetime.fromisoformat(previous[-1]["slot_end"]) != start:
-        return "incomplete_day", 0
+        return "incomplete_day", 0, 0
     states = [slot_recording(r) for r in [previous[-1], *rows]]
     snapshots = states.count("snapshot")
-    if None in states or snapshots > MAX_SNAPSHOT_SLOTS:
-        return "not_clean_recording", snapshots
-    if not all(_finite(r) for r in [previous[-1], *rows]):
-        return "missing_values", snapshots
-    return None, snapshots
+    # A day slot missing energy or SoC (prices present) is a recording gap: unverified.
+    unverified = sum(
+        state != "clean" or (i > 0 and _has_gap(row))
+        for i, (state, row) in enumerate(zip(states, [previous[-1], *rows], strict=True))
+    )
+    if unverified > MAX_UNVERIFIED_SLOTS:
+        return "not_clean_recording", snapshots, unverified
+    # Cost needs every price; the start stock needs the start-SoC slot's SoC.
+    if not all(_finite_value(r, k) for r in rows for k in PRICE_FIELDS) or not _finite_value(
+        previous[-1], "soc_end_percent"
+    ):
+        return "missing_values", snapshots, unverified
+    return None, snapshots, unverified
+
+
+def _ev_charging(row: Mapping[str, Any]) -> bool:
+    """Whether the slot's average EV power shows real charging, not sensor idle noise."""
+    hours = (
+        datetime.fromisoformat(row["slot_end"]) - datetime.fromisoformat(row["slot_start"])
+    ).total_seconds() / 3600
+    return hours > 0 and row["ev_charging_kwh"] / hours > EV_CHARGING_MIN_KW
 
 
 def implied_capacity(
     days: list[list[dict[str, Any]]], prev_rows: list[dict[str, Any]], config: KeplerConfig
 ) -> tuple[float | None, float]:
-    """Capacity implied by meter flows vs SoC change, and total SoC movement in pp."""
-    energy = movement = 0.0
-    for prev, rows in zip(prev_rows, days, strict=True):
-        soc_before = prev["soc_end_percent"]
+    """Capacity implied by meter flows vs SoC over a window, and the window SoC range in pp.
+
+    Cumulative stored energy is fitted against SoC % by least squares over every slot, so
+    quantised or jittering SoC averages out instead of biasing the estimate. Days are given
+    with the last row of their previous day; consecutive days form one continuous segment
+    (stock carries across midnight), and each segment gets its own intercept so gaps between
+    eligible days do not break the fit. Capacity = slope * 100.
+    """
+    ordered = sorted(
+        zip(prev_rows, days, strict=True),
+        key=lambda pair: datetime.fromisoformat(pair[0]["slot_end"]),
+    )
+    segments: list[list[tuple[float, float]]] = []
+    last_end: str | None = None
+    stock = 0.0
+    for prev, rows in ordered:
+        if last_end is None or prev["slot_end"] != last_end:
+            stock = 0.0
+            segments.append([(prev["soc_end_percent"], stock)])
         for row in rows:
-            delta = row["soc_end_percent"] - soc_before
-            soc_before = row["soc_end_percent"]
             charge, discharge = meter_battery_flow(row)
-            stored = charge * config.charge_efficiency - discharge / config.discharge_efficiency
-            if abs(delta) >= CAPACITY_MIN_SLOT_DELTA_PP and stored * delta > 0:
-                energy += abs(stored)
-                movement += abs(delta)
-    return (energy / movement * 100.0 if movement > 0 else None), movement
+            stock += charge * config.charge_efficiency - discharge / config.discharge_efficiency
+            if row["soc_end_percent"] is not None:
+                segments[-1].append((row["soc_end_percent"], stock))
+        last_end = rows[-1]["slot_end"] if rows else prev["slot_end"]
+
+    socs = [soc for segment in segments for soc, _ in segment]
+    soc_range = max(socs) - min(socs) if socs else 0.0
+    sxx = sxy = 0.0
+    for segment in segments:
+        mean_soc = sum(soc for soc, _ in segment) / len(segment)
+        mean_stock = sum(e for _, e in segment) / len(segment)
+        for soc, e in segment:
+            sxx += (soc - mean_soc) ** 2
+            sxy += (soc - mean_soc) * (e - mean_stock)
+    if sxx <= 0:
+        return None, soc_range
+    return sxy / sxx * 100.0, soc_range
 
 
 def base_record(day: date, config: KeplerConfig) -> dict[str, Any]:
@@ -177,7 +234,11 @@ def base_record(day: date, config: KeplerConfig) -> dict[str, Any]:
         "reason": None,
         "capacity_kwh": config.capacity_kwh,
         "implied_capacity_kwh": None,
+        "warnings": [],
         "snapshot_slots": 0,
+        "unverified_slots": 0,
+        "day_slots": 0,
+        "stored_change_kwh": None,
         "actual_cost_sek": None,
         "ideal_cost_sek": None,
         "no_battery_cost_sek": None,
@@ -200,19 +261,27 @@ def benchmark_day(
     covering the day and the days before it (start SoC and capacity history)."""
     tz = pytz.timezone(config.timezone_name)
     record = base_record(day, config)
-    reason, record["snapshot_slots"] = _recording_reason(day, rows_by_day, tz, now)
+    reason, record["snapshot_slots"], record["unverified_slots"] = _recording_reason(
+        day, rows_by_day, tz, now
+    )
     if reason is not None:
         record["reason"] = reason
         return record
 
+    raw_rows_by_day = rows_by_day
+    rows_by_day = {d: [_gap_filled(r) for r in day_rows] for d, day_rows in rows_by_day.items()}
     rows = rows_by_day[day]
+    record["day_slots"] = len(rows)
+    if record["unverified_slots"] > 0:
+        # A few slots without verified provenance (start-SoC slot included) are tolerated.
+        record["warnings"].append("unverified_slots")
     history = [day]
     cursor = day - timedelta(days=1)
     while len(history) <= CAPACITY_HISTORY_DAYS and cursor in rows_by_day:
-        if _recording_reason(cursor, rows_by_day, tz, now)[0] is None:
+        if _recording_reason(cursor, raw_rows_by_day, tz, now)[0] is None:
             history.append(cursor)
         cursor -= timedelta(days=1)
-    implied, movement = implied_capacity(
+    implied, soc_range = implied_capacity(
         [rows_by_day[d] for d in history],
         [rows_by_day[d - timedelta(days=1)][-1] for d in history],
         config,
@@ -220,11 +289,11 @@ def benchmark_day(
     record["implied_capacity_kwh"] = implied
     if (
         implied is not None
-        and movement >= CAPACITY_MIN_MOVEMENT_PP
+        and soc_range >= CAPACITY_MIN_SOC_RANGE_PP
         and abs(implied - config.capacity_kwh) / config.capacity_kwh > CAPACITY_TOLERANCE
     ):
-        record["reason"] = "capacity_mismatch"
-        return record
+        # Advisory only: the estimate is too uncertain to justify dropping the day.
+        record["warnings"].append("capacity_mismatch")
 
     flows = [meter_battery_flow(r) for r in rows]
     initial = (
@@ -234,8 +303,11 @@ def benchmark_day(
         c * config.charge_efficiency - d / config.discharge_efficiency for c, d in flows
     )
     if not (0 <= initial <= config.capacity_kwh and 0 <= terminal <= config.capacity_kwh):
-        record["reason"] = "stock_out_of_range"
-        return record
+        # Flow drift or capacity config; clamped ends stay inside Kepler's SoC bounds.
+        initial = min(max(initial, 0.0), config.capacity_kwh)
+        terminal = min(max(terminal, 0.0), config.capacity_kwh)
+        record["warnings"].append("stock_clamped")
+    record["stored_change_kwh"] = terminal - initial
 
     slots = [
         KeplerInputSlot(
@@ -250,7 +322,7 @@ def benchmark_day(
     ]
     bench = KeplerBenchmark(
         terminal_soc_kwh=terminal,
-        no_discharge_slots=[r["ev_charging_kwh"] > EV_ACTIVE_KWH for r in rows],
+        no_discharge_slots=[_ev_charging(r) for r in rows],
     )
     started = time.monotonic()
     try:
@@ -289,13 +361,17 @@ def benchmark_day(
 
 
 def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Totals over scored days plus counts by status and reason."""
+    """Totals over scored days plus counts by status, reason and warning."""
     scored = [r for r in records if r.get("status") == "scored"]
     value_actual = sum(r["value_actual_sek"] for r in scored)
     value_ideal = sum(r["value_ideal_sek"] for r in scored)
     by_status: dict[str, int] = {}
     by_reason: dict[str, int] = {}
+    by_warning: dict[str, int] = {}
     for r in records:
+        warnings: list[str] = r.get("warnings") or []
+        for warning in warnings:
+            by_warning[warning] = by_warning.get(warning, 0) + 1
         by_status[r["status"]] = by_status.get(r["status"], 0) + 1
         if r.get("reason"):
             by_reason[r["reason"]] = by_reason.get(r["reason"], 0) + 1
@@ -308,4 +384,6 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         "days_total": len(records),
         "by_status": by_status,
         "by_reason": by_reason,
+        "by_warning": by_warning,
+        "stored_change_kwh": sum(r.get("stored_change_kwh") or 0.0 for r in scored),
     }

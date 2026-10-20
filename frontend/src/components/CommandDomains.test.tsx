@@ -448,13 +448,22 @@ describe('GridDomain grid-only comparison', () => {
 })
 
 describe('GridDomain hindsight row', () => {
-    const benchDay = (date: string, status: string, missed: number | null, reason: string | null = null) => ({
+    const benchDay = (
+        date: string,
+        status: string,
+        missed: number | null,
+        reason: string | null = null,
+        warnings: string[] = [],
+    ) => ({
         date,
         status,
         reason,
+        warnings,
         missed_sek: missed,
         capacity_kwh: 34.2,
-        implied_capacity_kwh: reason === 'capacity_mismatch' ? 19 : 31,
+        implied_capacity_kwh: reason === 'capacity_mismatch' || warnings.length > 0 ? 19 : 31,
+        unverified_slots: warnings.includes('unverified_slots') ? 3 : 0,
+        day_slots: 96,
     })
     const benchmark = (days: ReturnType<typeof benchDay>[], totals: Record<string, unknown>) =>
         ({ start_date: '2026-10-05', end_date: '2026-10-07', days, totals }) as never
@@ -490,6 +499,94 @@ describe('GridDomain hindsight row', () => {
         const panel = screen.getByRole('dialog', { name: 'DS versus hindsight details' })
         expect(panel).toHaveTextContent('2026-10-06 battery capacity does not match recorded flows')
         expect(panel).toHaveTextContent('recorded 19.0 kWh, configured 34.2 kWh')
+    })
+
+    it('counts a scored day with a capacity warning and lists the warning separately', async () => {
+        vi.mocked(Api.batteryBenchmark).mockResolvedValue(
+            benchmark(
+                [benchDay('2026-10-05', 'scored', 2), benchDay('2026-10-06', 'scored', 1, null, ['capacity_mismatch'])],
+                {
+                    missed_sek: 3,
+                    score: 0.8,
+                    days_scored: 2,
+                    days_total: 2,
+                    by_warning: { capacity_mismatch: 1 },
+                },
+            ),
+        )
+        await show30d()
+        expect(await screen.findByText('· 2/2 days')).toBeInTheDocument()
+        expect(screen.getByText('−3.00 kr')).toBeInTheDocument()
+        expect(screen.getByLabelText('Hindsight warnings')).toHaveClass('text-warn')
+        fireEvent.click(screen.getByRole('button', { name: 'Hindsight benchmark details' }))
+        const panel = screen.getByRole('dialog', { name: 'DS versus hindsight details' })
+        expect(panel).toHaveTextContent('Warnings')
+        expect(panel).toHaveTextContent(
+            '2026-10-06 battery capacity may not match recorded flows (recorded 19.0 kWh, configured 34.2 kWh)',
+        )
+        expect(panel).not.toHaveTextContent('Days not scored')
+    })
+
+    it('lists unverified-slot and clamped-stock warnings for scored days', async () => {
+        vi.mocked(Api.batteryBenchmark).mockResolvedValue(
+            benchmark(
+                [
+                    benchDay('2026-10-05', 'scored', 2, null, ['unverified_slots']),
+                    benchDay('2026-10-06', 'scored', 1, null, ['stock_clamped']),
+                ],
+                {
+                    missed_sek: 3,
+                    score: 0.8,
+                    days_scored: 2,
+                    days_total: 2,
+                    by_warning: { unverified_slots: 1, stock_clamped: 1 },
+                    stored_change_kwh: 0,
+                },
+            ),
+        )
+        await show30d()
+        expect(await screen.findByText('· 2/2 days')).toBeInTheDocument()
+        expect(screen.getByLabelText('Hindsight warnings')).toHaveClass('text-warn')
+        fireEvent.click(screen.getByRole('button', { name: 'Hindsight benchmark details' }))
+        const panel = screen.getByRole('dialog', { name: 'DS versus hindsight details' })
+        expect(panel).toHaveTextContent('2026-10-05 3 of 96 slots not verified')
+        expect(panel).toHaveTextContent('2026-10-06 stored energy outside battery capacity, clamped')
+        expect(panel).not.toHaveTextContent('Days not scored')
+    })
+
+    it('explains a missing score when the battery ended fuller', async () => {
+        vi.mocked(Api.batteryBenchmark).mockResolvedValue(
+            benchmark([benchDay('2026-10-05', 'scored', 1.5)], {
+                missed_sek: 1.5,
+                score: null,
+                days_scored: 1,
+                days_total: 1,
+                by_warning: {},
+                stored_change_kwh: 4.8,
+            }),
+        )
+        await show30d()
+        expect(await screen.findByText('−1.50 kr')).toBeInTheDocument()
+        expect(screen.queryByText(/%$/)).not.toBeInTheDocument()
+        const note = screen.getByRole('note')
+        expect(note).toHaveTextContent('Battery ended 4.8 kWh fuller than it started; that value shows up the next day')
+        expect(note).toHaveClass('text-muted')
+    })
+
+    it('shows no fuller note when the score is available', async () => {
+        vi.mocked(Api.batteryBenchmark).mockResolvedValue(
+            benchmark([benchDay('2026-10-05', 'scored', 1.5)], {
+                missed_sek: 1.5,
+                score: 0.5,
+                days_scored: 1,
+                days_total: 1,
+                by_warning: {},
+                stored_change_kwh: 4.8,
+            }),
+        )
+        await show30d()
+        expect(await screen.findByText('· 50%')).toBeInTheDocument()
+        expect(screen.queryByRole('note')).not.toBeInTheDocument()
     })
 
     it('shows a negative score as-is next to missed kr', async () => {
