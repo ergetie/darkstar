@@ -412,7 +412,7 @@ def test_failed_audit_durability_rolls_back_and_removes_partial_output(tmp_path,
 
 
 def test_real_wal_annotation_undo_preserves_history_calibration_eligibility(tmp_path):
-    from backend.battery_comparison import fit_calibration
+    from backend.observation_provenance import calibration_eligible
     from backend.comparison_history import _row_observation
 
     database = tmp_path / "history-wal.db"
@@ -435,26 +435,21 @@ def test_real_wal_annotation_undo_preserves_history_calibration_eligibility(tmp_
         ]
 
     rows = observations()
-    end = rows[-1].start + timedelta(minutes=15)
-    original = fit_calibration(rows, 10.0, end, "a" * 64)
-    assert original.history["eligible_count"] == 0
+    assert sum(calibration_eligible(row) for row in rows) == 0
     audit_path = tmp_path / "wal.audit.json"
     _report, _backup = apply_manifest(manifest, manifest_path, connection, database, audit_path)
     assert database.stat().st_mtime_ns == initial_stat.st_mtime_ns
     assert database.stat().st_size == initial_stat.st_size
     annotated_rows = observations()
-    annotated = fit_calibration(annotated_rows, 10.0, end, "a" * 64)
-    assert annotated.history["eligible_count"] == 2
+    assert sum(calibration_eligible(row) for row in annotated_rows) == 2
     undo_audit(json.loads(audit_path.read_text()), connection, database)
     assert database.stat().st_mtime_ns == initial_stat.st_mtime_ns
     restored_rows = observations()
-    restored = fit_calibration(restored_rows, 10.0, end, "a" * 64)
-    assert restored.history["eligible_count"] == 0
+    assert sum(calibration_eligible(row) for row in restored_rows) == 0
     connection.execute("UPDATE slot_observations SET pv_kwh=pv_kwh+.1")
     connection.commit()
     assert database.stat().st_mtime_ns == initial_stat.st_mtime_ns
     corrected_rows = observations()
-    corrected = fit_calibration(corrected_rows, 10.0, end, "a" * 64)
-    assert corrected.history["eligible_count"] == 0
+    assert sum(calibration_eligible(row) for row in corrected_rows) == 0
     assert corrected_rows[0].pv_kwh != restored_rows[0].pv_kwh
     connection.close()

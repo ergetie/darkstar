@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dry-run-first local annotation of historical battery-comparison provenance."""
+"""Dry-run-first local annotation of historical recorded-observation provenance."""
 
 from __future__ import annotations
 

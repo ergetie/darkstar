@@ -3,7 +3,9 @@
 ## Purpose
 
 API endpoints for retrieving recorded energy totals, actual metered cost series and matched-coverage DS versus grid-only bill comparisons from the database.
+
 ## Requirements
+
 ### Requirement: Energy endpoints query database for totals
 The `/api/energy/today` and `/api/energy/range` endpoints SHALL query the database (SlotObservation table) to calculate energy totals, instead of reading Home Assistant sensors. These endpoints are served from `backend/api/routers/energy.py`.
 
@@ -121,14 +123,12 @@ The `/api/energy/today` and `/api/energy/range` endpoints SHALL return a non-neg
 - **WHEN** `period=custom` with an end date before the start date
 - **THEN** the response has an empty `points` list and an `error` message
 
-### Requirement: Cost series endpoint returns the without-Darkstar baseline
-`GET /api/energy/cost-series` SHALL preserve its period/date/bucket/error contract and top-level actual metered points. It SHALL replace the legacy self-use `baseline`, per-point `baseline_*` fields and `battery_comparison` with a separate `grid_only_comparison` object defined by grid-only-comparison, with retired fields absent and never used as a fallback. The new object SHALL NOT fabricate amounts when data is unavailable.
+### Requirement: Cost series endpoint returns the grid-only comparison
+`GET /api/energy/cost-series` SHALL preserve its period/date/bucket/error contract and top-level actual metered points. It SHALL return a separate `grid_only_comparison` object defined by grid-only-comparison. The new object SHALL NOT fabricate amounts when data is unavailable.
 
 #### Scenario: Preserved actual points and retired fields
 - **WHEN** the endpoint responds
 - **THEN** the top-level actual metered points, including `import_cost_sek`, `export_revenue_sek`, `net_cost_sek` and `cumulative_net_cost_sek`, keep their existing contract
-- **AND** the legacy `baseline`, per-point `baseline_*` fields and `battery_comparison` are absent
-- **AND** consumers do not fall back to their values
 
 #### Scenario: Status, reason and coverage
 - **WHEN** `grid_only_comparison` is returned
@@ -167,7 +167,6 @@ The `/api/energy/today` and `/api/energy/range` endpoints SHALL return a non-neg
 #### Scenario: New comparison contract
 - **WHEN** the request has usable completed inputs
 - **THEN** it returns `grid_only_comparison` with bill summaries, coverage and comparison points
-- **AND** legacy `baseline`, `baseline_*` and `battery_comparison` fields are absent
 
 #### Scenario: Saving reconciles with summaries and points
 - **WHEN** grid-only cost is 40 kr, DS electricity cost is 30 kr and DS wear is 2 kr

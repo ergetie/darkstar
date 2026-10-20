@@ -122,12 +122,6 @@ describe('parseCostSeriesResponse', () => {
         expect(() => parseCostSeriesResponse(value)).toThrow('Invalid cost-series response')
     })
 
-    it('rejects retired baseline and battery-comparison fields instead of falling back', () => {
-        const value = validResponse() as ReturnType<typeof validResponse> & { battery_comparison?: unknown }
-        value.battery_comparison = { saving_sek: 500 }
-        expect(() => parseCostSeriesResponse(value)).toThrow('Invalid cost-series response')
-    })
-
     it('accepts valid daily totals when independent three-decimal bucket rounding accumulates', () => {
         const comparison = validResponse().grid_only_comparison
         const dailyPoints = []

@@ -79,9 +79,6 @@ async def test_metered_hourly_points_keep_actual_accounting_and_grid_comparison_
     assert comparison["grid_only_cost_sek"] == pytest.approx(13.0)
     assert comparison["ds_cost_sek"] == pytest.approx(4.0)
     assert comparison["saving_sek"] == pytest.approx(9.0)
-    assert "baseline" not in series
-    assert "battery_comparison" not in series
-    assert all("baseline_cumulative_net_cost_sek" not in point for point in series["points"])
 
 
 @pytest.mark.asyncio

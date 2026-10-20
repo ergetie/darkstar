@@ -11,7 +11,6 @@ from sqlalchemy import Integer, cast, desc, func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from backend.battery_comparison import RecordedObservation, trusted_row_provenance
 from backend.core.water_heating import parse_water_heater_energy_metadata, water_component_recording
 from backend.learning.models import (
     EvChargerObservation,
@@ -28,6 +27,7 @@ from backend.measurement_provenance import (
     parse_quality_flags,
     soc_metadata,
 )
+from backend.observation_provenance import RecordedObservation, trusted_row_provenance
 
 logger = logging.getLogger("darkstar.learning.store")
 

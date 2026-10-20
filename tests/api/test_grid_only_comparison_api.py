@@ -1,4 +1,4 @@
-"""Grid-only API tests replacing the retired battery-model comparison contract."""
+"""API tests for the grid-only cost comparison."""
 
 from datetime import UTC, datetime, timedelta
 import json
@@ -89,9 +89,7 @@ async def test_comparison_is_independent_of_battery_solar_pv_and_soc(store, conf
 
 
 @pytest.mark.asyncio
-async def test_request_reads_only_selected_period_and_does_not_simulate_calibrate_or_write(
-    store, monkeypatch
-):
+async def test_request_reads_only_selected_period_and_does_not_write(store):
     yesterday = datetime.now(TZ).date() - timedelta(days=1)
     start = TZ.localize(datetime.combine(yesterday, datetime.min.time()))
     await add_rows(store, [start], batt_charge_kwh=0.0, batt_discharge_kwh=0.0)
@@ -104,14 +102,6 @@ async def test_request_reads_only_selected_period_and_does_not_simulate_calibrat
     )
     statements.clear()
 
-    def fail(*_args, **_kwargs):
-        raise AssertionError("retired battery comparison work was invoked")
-
-    import backend.baseline as baseline
-    import backend.battery_comparison as battery_comparison
-
-    monkeypatch.setattr(baseline, "simulate_self_use_with_end_state", fail)
-    monkeypatch.setattr(battery_comparison, "fit_calibration", fail)
     with patch(
         "backend.api.routers.energy.load_yaml",
         return_value={"timezone": "Europe/Stockholm", "system": {"has_battery": True}},

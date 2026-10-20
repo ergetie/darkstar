@@ -786,11 +786,9 @@ export function parseCostSeriesResponse(value: unknown): CostSeriesResponse {
     if (!isRecord(value) || typeof value.period !== 'string' || !['hour', 'day'].includes(String(value.bucket))) {
         return invalidCostSeries()
     }
-    if ('baseline' in value || 'battery_comparison' in value) return invalidCostSeries()
     if (!Array.isArray(value.points)) return invalidCostSeries()
     const actualPoints: CostSeriesPoint[] = value.points.map((raw) => {
         if (!isRecord(raw) || zonedTimestamp(raw.start) === null) return invalidCostSeries()
-        if (Object.keys(raw).some((key) => key.startsWith('baseline_'))) return invalidCostSeries()
         if (
             !finite(raw.import_cost_sek) ||
             !finite(raw.export_revenue_sek) ||

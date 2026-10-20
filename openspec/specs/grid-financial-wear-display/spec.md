@@ -3,7 +3,9 @@
 ## Purpose
 
 UI presentation of actual electricity cost, estimated battery wear and matched-coverage DS versus grid-only bill comparisons in the Grid & Financial summary card.
+
 ## Requirements
+
 ### Requirement: Grid & Financial card shows net including battery wear
 The Grid & Financial card SHALL display a secondary line beneath the headline Net figure showing the net cost including battery wear, sourced from the endpoint's `net_cost_incl_wear_sek`. This secondary line SHALL be visually distinct (it "pops out") from the surrounding breakdown text so the user can read it at a glance. The headline Net figure SHALL continue to show `net_cost_sek` (real grid cash flow) and SHALL NOT change.
 
@@ -140,7 +142,7 @@ Below the breakdown the card SHALL show one chart from `/api/energy/cost-series`
 #### Scenario: Direct grid-only line
 - **WHEN** comparison amounts and points exist
 - **THEN** one chart shows solid DS, dotted Grid-only and eligible import/export bars
-- **AND** no Without Darkstar legend or view switch exists
+- **AND** no view switch exists
 
 #### Scenario: Excluded stretch
 - **WHEN** completed buckets contain no usable comparison slots

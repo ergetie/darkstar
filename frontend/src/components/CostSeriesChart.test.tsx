@@ -113,7 +113,6 @@ describe('CostSeriesChart', () => {
         expect(dottedPath(container)).not.toBeNull()
         expect(screen.getByText('DS')).toBeInTheDocument()
         expect(screen.getByText('Grid-only')).toBeInTheDocument()
-        expect(screen.queryByText('Without Darkstar')).not.toBeInTheDocument()
         expect(screen.queryByRole('tab')).not.toBeInTheDocument()
         expect(screen.queryByRole('button', { name: /comparison/i })).not.toBeInTheDocument()
     })

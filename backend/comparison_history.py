@@ -16,13 +16,13 @@ from datetime import UTC, datetime
 from itertools import pairwise
 from typing import TYPE_CHECKING, Any, cast
 
-from backend.battery_comparison import RecordedObservation, calibration_eligible
 from backend.measurement_provenance import (
     ENERGY_SEMANTICS,
     is_sha256,
     measurement_value_digest,
     metadata_object,
 )
+from backend.observation_provenance import RecordedObservation, calibration_eligible
 
 if TYPE_CHECKING:
     from pathlib import Path

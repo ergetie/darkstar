@@ -423,8 +423,7 @@ async def get_cost_series(
     )
     comparison_cutoff_utc = min(day_end_utc, minute_floor_utc)
 
-    # The cost-series route only needs the selected period. Wide historical scans and
-    # preceding-SoC reads belonged to the retired simulation/calibration path.
+    # The cost-series route only needs rows from the selected period.
     async with store.AsyncSession() as session:
         result = await session.execute(
             select(

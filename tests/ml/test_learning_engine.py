@@ -625,8 +625,8 @@ async def test_incoming_exclusion_overrides_old_false_and_price_change_invalidat
 async def test_water_actuals_accept_only_value_bound_legacy_attestation(learning_engine):
     from dataclasses import replace
 
-    from backend.battery_comparison import observation_value_digest
-    from tests.test_battery_comparison import recording
+    from backend.observation_provenance import observation_value_digest
+    from tests.test_observation_provenance import recording
 
     start = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
     observed = replace(recording()[0], start=start)

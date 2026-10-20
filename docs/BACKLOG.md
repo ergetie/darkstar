@@ -53,12 +53,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🔧 Improvements
 
-#### [Cleanup] Remove Retired Battery Efficiency Fitting
-
-**Goal:** Delete the unused efficiency-fitting code so nobody reuses its flawed method.
-
-**Notes:** Found 2026-10-20 (torleif hindsight investigation). `fit_calibration`, `_battery_pairs`, `_fit_battery` and `_fit_grid` in `backend/battery_comparison.py` have no live callers; the card moved to meter-based flows (`tests/api/test_battery_comparison_api.py` asserts `fit_calibration` is not called). The method fits efficiency from per-slot SoC deltas, which is unreliable with coarse SoC steps (~1.15 pp on a 64 kWh battery). Also check `build_comparison`/`build_estimated_comparison` (only tests use them) and remove their tests with them.
-
 #### [Settings] Warn About Out-Of-Range And Learning-Contradicted Settings
 
 **Goal:** Tell the user when a setting is outside the range Darkstar's own learning would ever choose, or contradicts what the recorded data shows, and what it is likely costing them.
