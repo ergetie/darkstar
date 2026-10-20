@@ -8,6 +8,7 @@ import pytest
 import pytz
 
 from backend.core.forecasts import _get_forecast_data_async
+from backend.exceptions import PVForecastError
 
 TZ_NAME = "Europe/Stockholm"
 LOCAL_TZ = pytz.timezone(TZ_NAME)
@@ -76,10 +77,39 @@ async def test_prod_shaped_series_matches_utc_instant_reference():
     assert [s["openmeteo_pv_forecast_kwh"] for s in result["slots"]] == expected
 
 
+@pytest.fixture(autouse=True)
+def forecast_db(tmp_path):
+    """Point stored-baseline lookups at an empty per-test DB, never data/ in the cwd."""
+    db_path = tmp_path / "planner_learning.db"
+    with patch("backend.core.forecasts.get_forecast_db_path", return_value=str(db_path)):
+        yield db_path
+
+
+async def _seed_openmeteo_baselines(db_path, rows: list[dict]) -> None:
+    from sqlalchemy import create_engine
+
+    from backend.learning.models import Base
+    from backend.learning.store import LearningStore
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    store = LearningStore(str(db_path), LOCAL_TZ)
+    try:
+        await store.store_forecasts(rows, "aurora")
+    finally:
+        await store.close()
+
+
 @pytest.mark.asyncio
-async def test_slot_without_matching_key_gets_zero():
+async def test_slot_without_matching_key_uses_stored_estimate(forecast_db):
     slots = _local_slots(2)
     series = {slots[0]["start_time"].astimezone(FIXED_OFFSET): 2000.0}
+    previous_day = slots[1]["start_time"] - timedelta(days=1)
+    await _seed_openmeteo_baselines(
+        forecast_db,
+        [{"slot_start": previous_day, "pv_forecast_kwh": 0.3, "openmeteo_pv_forecast_kwh": 0.3}],
+    )
     with (
         patch("backend.core.forecasts.OpenMeteoSolarForecast") as mock_cls,
         patch("backend.core.ha_client.get_load_profile_from_ha", return_value=[0.5] * 96),
@@ -87,7 +117,22 @@ async def test_slot_without_matching_key_gets_zero():
         _mock_forecast_class(mock_cls, [series])
         result = await _get_forecast_data_async(slots, _config([{"kwp": 10.0}]))
 
-    assert [s["pv_forecast_kwh"] for s in result["slots"]] == [0.5, 0.0]
+    assert [s["pv_forecast_kwh"] for s in result["slots"]] == [0.5, 0.3]
+
+
+@pytest.mark.asyncio
+async def test_slot_without_matching_key_and_no_stored_db_raises_pv_error(forecast_db):
+    """Fresh install: no slot_forecasts table yet must surface PVForecastError, not SQL errors."""
+    assert not forecast_db.exists()
+    slots = _local_slots(2)
+    series = {slots[0]["start_time"].astimezone(FIXED_OFFSET): 2000.0}
+    with (
+        patch("backend.core.forecasts.OpenMeteoSolarForecast") as mock_cls,
+        patch("backend.core.ha_client.get_load_profile_from_ha", return_value=[0.5] * 96),
+        pytest.raises(PVForecastError),
+    ):
+        _mock_forecast_class(mock_cls, [series])
+        await _get_forecast_data_async(slots, _config([{"kwp": 10.0}]))
 
 
 @pytest.mark.asyncio

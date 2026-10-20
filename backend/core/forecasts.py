@@ -6,6 +6,7 @@ from typing import Any, cast
 import pytz
 import yaml
 from open_meteo_solar_forecast import OpenMeteoSolarForecast
+from sqlalchemy.exc import OperationalError
 
 from backend.core import ha_client, prices
 from backend.exceptions import PVForecastError
@@ -78,6 +79,11 @@ async def _get_stored_openmeteo_pv_for_slots(
     store = LearningStore(get_forecast_db_path(), local_tz)
     try:
         rows = await store.get_openmeteo_pv_baselines_range(start, end, forecast_version)
+    except OperationalError as exc:
+        # A fresh install (or an unmigrated/unreadable DB) has no stored baselines;
+        # that means "no estimate", never a crash that masks the real forecast error.
+        logger.warning("Stored Open-Meteo PV baselines unavailable: %s", exc)
+        return None
     finally:
         await store.close()
 
