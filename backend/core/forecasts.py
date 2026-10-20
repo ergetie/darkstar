@@ -9,6 +9,7 @@ from open_meteo_solar_forecast import OpenMeteoSolarForecast
 from sqlalchemy.exc import OperationalError
 
 from backend.core import ha_client, prices
+from backend.core.open_meteo_retry import is_transient_pv_error, retry_async
 from backend.exceptions import PVForecastError
 from ml.api import get_forecast_slots
 
@@ -589,22 +590,33 @@ async def _get_forecast_data_async(
                     logger.warning("Filtered out %d solar array(s) with kwp <= 0.0", filtered_count)
 
             summed_watts: dict[datetime, float] = {}
-            for azimuth, tilt, kwp in zip(
-                azimuth_list_clean, tilt_list_clean, kwp_list_clean, strict=True
+            for array_no, (azimuth, tilt, kwp) in enumerate(
+                zip(azimuth_list_clean, tilt_list_clean, kwp_list_clean, strict=True), start=1
             ):
-                async with OpenMeteoSolarForecast(
-                    latitude=latitude,
-                    longitude=longitude,
-                    declination=tilt,
-                    azimuth=azimuth,
-                    dc_kwp=kwp,
-                    # Slots start at today 00:00 at the earliest; the library
-                    # default (92 days) only adds unused history.
-                    past_days=1,
-                ) as forecast:
-                    estimate = await forecast.estimate()
-                    for dt, watts in estimate.watts.items():
-                        summed_watts[dt] = summed_watts.get(dt, 0.0) + float(watts or 0.0)
+
+                async def _estimate_array(
+                    azimuth: float = azimuth, tilt: float = tilt, kwp: float = kwp
+                ) -> Any:
+                    # Fresh session per attempt; only this array is retried.
+                    async with OpenMeteoSolarForecast(
+                        latitude=latitude,
+                        longitude=longitude,
+                        declination=tilt,
+                        azimuth=azimuth,
+                        dc_kwp=kwp,
+                        # Slots start at today 00:00 at the earliest; the library
+                        # default (92 days) only adds unused history.
+                        past_days=1,
+                    ) as forecast:
+                        return await forecast.estimate()
+
+                estimate = await retry_async(
+                    _estimate_array,
+                    label=f"PV array {array_no}",
+                    is_transient=is_transient_pv_error,
+                )
+                for dt, watts in estimate.watts.items():
+                    summed_watts[dt] = summed_watts.get(dt, 0.0) + float(watts or 0.0)
 
             return summed_watts
 

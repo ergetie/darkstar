@@ -13,7 +13,7 @@ import pandas as pd
 import pytz
 
 from backend.learning import LearningEngine, get_learning_engine
-from ml.weather import calculate_physics_pv, get_weather_series
+from ml.weather import async_get_weather_series, calculate_physics_pv
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -88,7 +88,8 @@ async def get_forecast_slots(
     longitude = float(loc_cfg.get("longitude", 18.1) or 18.1)
 
     # Fetch weather for physics calculation
-    weather_df = get_weather_series(start_time, end_time, config=config)
+    # Threaded: the fetch may sleep between Open-Meteo retries.
+    weather_df = await async_get_weather_series(start_time, end_time, config=config)
 
     # Calculate physics for each slot
     physics_data: dict[str, dict[str, Any]] = {}
