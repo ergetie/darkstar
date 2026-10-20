@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Gauge, PauseCircle, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { BatteryCharging, Gauge, PauseCircle, ShieldAlert, ShieldCheck } from 'lucide-react'
 import Card from './Card'
 import { Api, type LoadBalancerStatusResponse } from '../lib/api'
 import { useSocket } from '../lib/hooks'
@@ -53,6 +53,21 @@ export function chargerSetpointText(ev: LoadBalancerStatusResponse['ev'][number]
         return `${ev.setpoint_a}A (planned ${ev.planned_target_a}A)${drawing}`
     }
     return `${ev.setpoint_a}A${drawing}`
+}
+
+/** battery-load-balancing: "7.0 kW (planned 10.0 kW)" for capped grid charging. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function batteryCapText(battery: NonNullable<LoadBalancerStatusResponse['battery']>): string {
+    if (battery.state === 'paused') return `Paused (planned ${(battery.planned_w / 1000).toFixed(1)} kW)`
+    const cap = `${(battery.cap_w / 1000).toFixed(1)} kW`
+    if (battery.cap_w < battery.planned_w) return `${cap} (planned ${(battery.planned_w / 1000).toFixed(1)} kW)`
+    return cap
+}
+
+/** Whether the battery row should show: grid charging is planned or capped. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function batteryRowVisible(battery: LoadBalancerStatusResponse['battery']): boolean {
+    return !!battery && (battery.planned_w > 0 || battery.state !== 'idle')
 }
 
 /** load-balancer-graceful-degradation 6.4: "1-phase on L1 — relieving L3". */
@@ -334,6 +349,42 @@ export default function LoadBalancerStatusCard() {
                             </div>
                         </div>
                     ))}
+                    {status.battery && batteryRowVisible(status.battery) && (
+                        <div
+                            data-testid="lb-battery"
+                            className="flex min-w-0 items-start justify-between gap-2 rounded-lg border border-line/20 bg-surface2/50 px-2 py-1.5 text-[11px]"
+                        >
+                            <div className="flex min-w-0 flex-1 items-start gap-2">
+                                <BatteryCharging
+                                    size={12}
+                                    aria-hidden="true"
+                                    className={`mt-0.5 shrink-0 ${
+                                        status.battery.state === 'paused'
+                                            ? 'text-bad'
+                                            : status.battery.state === 'throttling'
+                                              ? 'text-accent'
+                                              : 'text-good'
+                                    }`}
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <div className="break-words font-semibold text-text">
+                                        House battery (grid charging)
+                                    </div>
+                                    {status.battery.reason && (
+                                        <div className="mt-0.5 break-words text-[10px] text-muted">
+                                            {status.battery.reason}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="w-[42%] min-w-0 shrink-0 text-right">
+                                <div className="break-words font-mono text-text">{batteryCapText(status.battery)}</div>
+                                <div className="text-[10px] font-bold uppercase tracking-wide text-muted">
+                                    {EV_STATE_LABELS[status.battery.state] || status.battery.state}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     {shedLoads.map((load) => (
                         <div
                             key={load.load_id}
@@ -343,7 +394,7 @@ export default function LoadBalancerStatusCard() {
                             {load.reason && <div className="mt-0.5 break-words">{load.reason}</div>}
                         </div>
                     ))}
-                    {status.ev.length === 0 && shedLoads.length === 0 && (
+                    {status.ev.length === 0 && shedLoads.length === 0 && !batteryRowVisible(status.battery) && (
                         <p className="text-[11px] text-muted">No controlled loads.</p>
                     )}
                 </div>

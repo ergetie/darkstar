@@ -36,8 +36,8 @@ export const glossaryEntries: GlossaryEntry[] = [
     {
         id: 'give-way',
         term: 'Give-Way Order',
-        definition: `The ranked list of loads that load balancing is allowed to act on when a phase gets close to overloading your main fuse. The top entry gives way first (for example, the EV charger slows down before the water heater is shed), and loads come back in exact reverse order once the phase has headroom again.`,
-        aliases: ['load priority', 'shedding order'],
+        definition: `The ranked list of loads that load balancing is allowed to act on when a phase gets close to overloading your main fuse. The top entry gives way first (for example, the EV charger slows down before the water heater is shed), and loads come back in exact reverse order once the phase has headroom again. The house battery can be in the list too: it gives way by lowering its planned grid charging, then pausing it for the moment (solar charging and discharge are never touched).`,
+        aliases: ['load priority', 'shedding order', 'battery grid charging'],
         relatedFieldKeys: ['load_balancing.give_way_order'],
         relatedGuideIds: ['load-balancing'],
     },

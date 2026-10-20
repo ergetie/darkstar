@@ -17,6 +17,8 @@ const CONFIG = {
         { id: 'old_ev', name: 'Old EV', type: 'binary' },
     ],
     water_heaters: [{ id: 'main_tank', name: 'Main Tank' }],
+    // Battery give-way entry is covered separately below.
+    system: { has_battery: false },
 }
 
 function renderEditor({
@@ -66,6 +68,60 @@ describe('healOrderForDisplay', () => {
             { kind: 'charger', id: 'a' },
             { kind: 'shed', id: 'wh' },
         ])
+    })
+})
+
+describe('healOrderForDisplay battery', () => {
+    it('appends the battery at the end when available', () => {
+        expect(healOrderForDisplay([{ kind: 'charger', id: 'a' }], ['a'], ['wh'], true)).toEqual([
+            { kind: 'charger', id: 'a' },
+            { kind: 'shed', id: 'wh' },
+            { kind: 'battery', id: 'battery' },
+        ])
+    })
+
+    it('keeps one battery entry in place and normalises its id', () => {
+        expect(
+            healOrderForDisplay(
+                [
+                    { kind: 'battery', id: 'house' },
+                    { kind: 'charger', id: 'a' },
+                    { kind: 'battery', id: 'battery' },
+                ],
+                ['a'],
+                [],
+                true,
+            ),
+        ).toEqual([
+            { kind: 'battery', id: 'battery' },
+            { kind: 'charger', id: 'a' },
+        ])
+    })
+
+    it('drops the battery when no battery is available', () => {
+        expect(
+            healOrderForDisplay(
+                [
+                    { kind: 'battery', id: 'battery' },
+                    { kind: 'charger', id: 'a' },
+                ],
+                ['a'],
+                [],
+                false,
+            ),
+        ).toEqual([{ kind: 'charger', id: 'a' }])
+    })
+})
+
+describe('GiveWayListEditor battery entry', () => {
+    it('renders the house battery entry', () => {
+        renderEditor({ config: { ...CONFIG, system: { has_battery: true } } })
+        expect(screen.getByText('House battery (grid charging)')).toBeInTheDocument()
+    })
+
+    it('hides the battery entry when the system has no battery', () => {
+        renderEditor({ config: CONFIG })
+        expect(screen.queryByText('House battery (grid charging)')).not.toBeInTheDocument()
     })
 })
 
@@ -148,7 +204,7 @@ describe('GiveWayListEditor', () => {
         renderEditor({
             order: [],
             loads: [],
-            config: { ev_chargers: [], water_heaters: [] },
+            config: { ev_chargers: [], water_heaters: [], system: { has_battery: false } },
         })
         expect(screen.getByText(/water heater or custom entity/)).toBeInTheDocument()
     })
@@ -157,7 +213,11 @@ describe('GiveWayListEditor', () => {
         renderEditor({
             order: [{ kind: 'shed', id: 'main_tank' }],
             loads: [{ device_type: 'water_heater', device_id: 'main_tank', phases: [2] }],
-            config: { ev_chargers: [], water_heaters: [{ id: 'main_tank', name: 'Main Tank' }] },
+            config: {
+                ev_chargers: [],
+                water_heaters: [{ id: 'main_tank', name: 'Main Tank' }],
+                system: { has_battery: false },
+            },
         })
         expect(screen.queryByText(/Nothing to balance yet/)).not.toBeInTheDocument()
     })

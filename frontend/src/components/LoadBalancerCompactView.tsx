@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Gauge } from 'lucide-react'
 import type { LoadBalancerStatusResponse } from '../lib/api'
-import { phaseColor, reliefText, STATE_LABELS, EV_STATE_LABELS } from './LoadBalancerStatusCard'
+import { batteryCapText, phaseColor, reliefText, STATE_LABELS, EV_STATE_LABELS } from './LoadBalancerStatusCard'
 
 export default function LoadBalancerCompactView({ status }: { status: LoadBalancerStatusResponse | null }) {
     if (!status) {
@@ -12,6 +12,7 @@ export default function LoadBalancerCompactView({ status }: { status: LoadBalanc
     const margin = status.target_margin_percent ?? 85
     const activeEv = status.ev.filter((ev) => ev.state !== 'idle' || ev.relief_1p)
     const shedLoads = status.shed.filter((s) => s.shed)
+    const battery = status.battery && status.battery.state !== 'idle' ? status.battery : null
 
     return (
         <div className="w-full h-full flex flex-col gap-2.5 p-3 text-[11px] overflow-y-auto custom-scrollbar">
@@ -66,6 +67,21 @@ export default function LoadBalancerCompactView({ status }: { status: LoadBalanc
                             )}
                         </div>
                     ))}
+                </div>
+            )}
+
+            {battery && (
+                <div
+                    className="rounded bg-surface2/50 border border-line/20 px-2 py-1"
+                    data-testid="lb-compact-battery"
+                >
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-text font-medium">House battery</span>
+                        <span className="shrink-0 text-muted text-[10px]">
+                            {EV_STATE_LABELS[battery.state] || battery.state}
+                        </span>
+                    </div>
+                    <div className="text-muted text-[10px] font-mono">{batteryCapText(battery)}</div>
                 </div>
             )}
 

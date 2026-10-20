@@ -172,6 +172,44 @@ class ShedLoadOutput:
     reason: str = ""
 
 
+# The house battery's inverter is assumed to be 3-phase (battery-load-balancing D2).
+BATTERY_PHASES: tuple[int, ...] = (1, 2, 3)
+
+
+@dataclass
+class BatteryBalancerInput:
+    """Per-tick balancer input for the house battery's planned grid charging
+    (give_way_order entry kind="battery"). Powers are AC watts.
+
+    The battery draws evenly on all three phases (3-phase inverter, D2). Only
+    the grid-sourced part of the charge can be reduced (D4): the engine
+    passes it as reducible_w (min of the applied cap, grid import and the
+    battery's own measured charge power).
+    """
+
+    planned_w: float  # Charge power the controller decided this tick
+    applied_cap_w: float  # Cap dispatched last tick (planned_w when none)
+    reducible_w: float  # Grid-sourced charge that a cut can actually relieve
+    active: bool  # mode intent is "charge" (planned grid charging)
+    min_w: float  # Profile minimum charge value, in watts
+    phases: list[int] = field(default_factory=lambda: list(BATTERY_PHASES))
+
+
+@dataclass
+class BatteryBalancerOutput:
+    """Balancer decision for battery grid charging. cap_w is never above
+    planned_w; state "paused" means grid charging is held off this tick."""
+
+    planned_w: float
+    cap_w: float
+    state: str  # "idle" | "throttling" | "paused"
+    reason: str = ""
+    phases: list[int] = field(default_factory=lambda: list(BATTERY_PHASES))
+
+
+BalancerEntry = EVBalancerInput | ShedLoadInput | BatteryBalancerInput
+
+
 @dataclass
 class LoadBalancerStatus:
     """Full per-tick balancer result, suitable for logging/status surfaces."""
@@ -184,6 +222,7 @@ class LoadBalancerStatus:
     phase_headroom_a: dict[int, float]
     ev_outputs: list[EVBalancerOutput] = field(default_factory=lambda: [])
     shed_outputs: list[ShedLoadOutput] = field(default_factory=lambda: [])
+    battery_output: BatteryBalancerOutput | None = None
 
 
 class LoadBalancer:
@@ -242,6 +281,12 @@ class LoadBalancer:
         # ramp_up_window_s after it, so the averaged window first flushes
         # the pre-reduction samples. Cleared on plan end and pause.
         self._ev_reduced_at: dict[str, datetime] = {}
+        # Battery grid charging (battery-load-balancing): when the cap was
+        # last cut (ramp-up hold-off), when grid charging was paused, and
+        # since when its phases have fitted the minimum charge (resume).
+        self._battery_reduced_at: datetime | None = None
+        self._battery_paused_at: datetime | None = None
+        self._battery_fit_since: datetime | None = None
 
     # --- Quick re-fit (D17) -----------------------------------------------
 
@@ -897,12 +942,204 @@ class LoadBalancer:
             reason += f" (next resume after {self.refit_confirm_s(cid)}s within limits)"
         return EVBalancerOutput(ev.charger_id, None, "paused", reason), False, True, False
 
+    # --- Battery grid charging (battery-load-balancing) ------------------
+
+    def _reset_battery(self) -> None:
+        self._battery_reduced_at = None
+        self._battery_paused_at = None
+        self._battery_fit_since = None
+
+    def _resolve_battery(
+        self,
+        battery: BatteryBalancerInput,
+        now: datetime,
+        phase_current: dict[int, float],
+        updated_at: dict[int, datetime],
+        pool_headroom: dict[int, float],
+        main_fuse_a: int,
+        avg_ok: Callable[[list[int], float], bool],
+        resume_blocked: bool,
+        hold_for_relief: bool,
+    ) -> tuple[BatteryBalancerOutput, float]:
+        """Resolve the battery's grid-charge cap against the headroom pool.
+
+        Returns (output, relief_a): relief_a is the per-phase current the
+        decision frees on every battery phase (negative for a raise).
+
+        Cut (D3/D4): the remaining deficit on the tightest battery phase,
+        spread over the three inverter phases (deficit x V x 3), limited to
+        the grid-sourced charge and clamped to [0, planned]. Below the
+        profile minimum, grid charging is paused for the tick. Raise (D6):
+        no raise for ramp_up_window_s after a cut, then increase_step_a per
+        phase through the averaged target gate, never above the plan. A
+        paused battery resumes once its phases have fitted the minimum
+        charge for resume_confirm_s and nothing below it is still given way.
+        Stale phase (D7): hold the cap, no raise and no further cut.
+        """
+        phases = battery.phases or list(BATTERY_PHASES)
+        planned = max(0.0, battery.planned_w)
+        if not battery.active or planned <= 0:
+            self._reset_battery()
+            return BatteryBalancerOutput(planned, planned, "idle", "", phases), 0.0
+
+        volts = self.config.nominal_voltage_v
+        w_per_a = volts * len(phases)
+        cap = max(0.0, min(battery.applied_cap_w, planned))
+        if cap < battery.min_w and cap < planned and self._battery_paused_at is None:
+            # The dispatched cap fell below the profile minimum (rounding):
+            # grid charging was stopped, so treat the battery as paused.
+            self._battery_paused_at = now
+        if self._battery_paused_at is not None:
+            cap = 0.0
+
+        def output(new_cap: float, reason: str) -> BatteryBalancerOutput:
+            if self._battery_paused_at is not None:
+                state = "paused"
+            elif new_cap < planned:
+                state = "throttling"
+            else:
+                state = "idle"
+            return BatteryBalancerOutput(planned, new_cap, state, reason, phases)
+
+        stale_phases = [p for p in phases if self._is_stale(p, phase_current, updated_at, now)]
+        if stale_phases:
+            self._battery_fit_since = None
+            desc = self._describe_stale_phases(stale_phases, phase_current, updated_at, now)
+            if cap >= planned:
+                return output(cap, ""), 0.0
+            return (
+                output(
+                    cap, f"Battery: phase sensor(s) stale ({desc}) — holding {cap / 1000:.1f} kW"
+                ),
+                0.0,
+            )
+
+        binding = min(pool_headroom.get(p, main_fuse_a) for p in phases)
+        if binding < 0:
+            self._battery_fit_since = None
+            if self._battery_paused_at is not None:
+                return output(0.0, "Battery: grid charging paused — phases still overloaded"), 0.0
+            if hold_for_relief and not self._severe_phases(phases, phase_current, main_fuse_a):
+                return (
+                    output(cap, "Battery: holding grid charging — waiting for shed relief"),
+                    0.0,
+                )
+            reducible = max(0.0, min(battery.reducible_w, cap))
+            if reducible <= 0:
+                # PV covers the battery: cutting would relieve nothing.
+                return output(cap, ""), 0.0
+            cut = min(-binding * w_per_a, reducible)
+            new_cap = cap - cut
+            self._battery_reduced_at = now
+            if new_cap < battery.min_w:
+                # Below the profile minimum: stop grid charging for the tick.
+                # All of the grid-sourced charge is relieved.
+                self._battery_paused_at = now
+                return (
+                    output(
+                        0.0,
+                        f"Battery: grid charging paused — {cap / 1000:.1f} kW cut below the "
+                        f"{battery.min_w / 1000:.1f} kW minimum (headroom {binding:.1f}A)",
+                    ),
+                    reducible / w_per_a,
+                )
+            return (
+                output(
+                    new_cap,
+                    f"Battery: grid charge capped {cap / 1000:.1f} -> {new_cap / 1000:.1f} kW "
+                    f"(headroom {binding:.1f}A)",
+                ),
+                cut / w_per_a,
+            )
+
+        if self._battery_paused_at is not None:
+            min_a = battery.min_w / w_per_a
+            room_a = self._fit_amps(phases, pool_headroom, main_fuse_a)
+            if room_a + _AMPS_EPSILON >= min_a and room_a > 0:
+                if self._battery_fit_since is None:
+                    self._battery_fit_since = now
+            else:
+                self._battery_fit_since = None
+            fit_for = (
+                (now - self._battery_fit_since).total_seconds()
+                if self._battery_fit_since is not None
+                else None
+            )
+            confirm_s = self.config.resume_confirm_s
+            if fit_for is None or fit_for < confirm_s:
+                reason = (
+                    f"Battery: waiting to resume grid charging — room for "
+                    f"{battery.min_w / 1000:.1f} kW for {int(fit_for)}s of {confirm_s}s"
+                    if fit_for is not None
+                    else f"Battery: waiting to resume grid charging — no room for "
+                    f"{battery.min_w / 1000:.1f} kW within the "
+                    f"{self.config.target_margin_percent:g}% target"
+                )
+                return output(0.0, reason), 0.0
+            if resume_blocked:
+                return (
+                    output(
+                        0.0,
+                        "Battery: waiting to resume — a lower-listed give-way entry "
+                        "must restore first",
+                    ),
+                    0.0,
+                )
+            new_cap = min(planned, max(battery.min_w, room_a * w_per_a))
+            self._battery_paused_at = None
+            self._battery_fit_since = None
+            return (
+                output(new_cap, f"Battery: resuming grid charging at {new_cap / 1000:.1f} kW"),
+                -(new_cap / w_per_a),
+            )
+
+        if cap >= planned:
+            self._battery_reduced_at = None
+            return output(planned, ""), 0.0
+
+        reduced_at = self._battery_reduced_at
+        if reduced_at is not None:
+            since = (now - reduced_at).total_seconds()
+            if since < self.config.ramp_up_window_s:
+                return (
+                    output(
+                        cap,
+                        f"Battery: holding {cap / 1000:.1f} kW — capped {since:.0f}s ago, "
+                        f"waiting {self.config.ramp_up_window_s}s before ramping toward "
+                        f"{planned / 1000:.1f} kW",
+                    ),
+                    0.0,
+                )
+
+        step_a = min(float(self.config.increase_step_a), binding)
+        new_cap = min(cap + step_a * w_per_a, planned)
+        raise_a = (new_cap - cap) / w_per_a
+        if raise_a > 0 and avg_ok(phases, raise_a):
+            if new_cap >= planned:
+                self._battery_reduced_at = None
+            return (
+                output(
+                    new_cap,
+                    f"Battery: ramping {cap / 1000:.1f} -> {new_cap / 1000:.1f} kW toward "
+                    f"{planned / 1000:.1f} kW",
+                ),
+                -raise_a,
+            )
+        return (
+            output(
+                cap,
+                f"Battery: holding {cap / 1000:.1f} kW — averaged phase current near the "
+                f"{self.config.target_margin_percent:g}% target",
+            ),
+            0.0,
+        )
+
     def tick(
         self,
         now: datetime,
         grid_current_a: dict[int, float] | None,
         grid_current_updated_at: dict[int, datetime] | None,
-        entries: list[EVBalancerInput | ShedLoadInput],
+        entries: list[BalancerEntry],
     ) -> LoadBalancerStatus:
         """Run one balancer tick over the ordered give-way entries (top first)."""
         main_fuse_a = self.config.main_fuse_a
@@ -959,9 +1196,14 @@ class LoadBalancer:
                 self._shed_at.pop(shed_id, None)
                 self._shed_reason.pop(shed_id, None)
 
-        def has_given_way(entry: EVBalancerInput | ShedLoadInput) -> bool:
+        if not any(isinstance(e, BatteryBalancerInput) for e in entries):
+            self._reset_battery()
+
+        def has_given_way(entry: BalancerEntry) -> bool:
             if isinstance(entry, EVBalancerInput):
                 return entry.charger_id in self._ev_paused_at
+            if isinstance(entry, BatteryBalancerInput):
+                return entry.active and self._battery_paused_at is not None
             return entry.load_id in self._shed_at
 
         # --- Restore pass: exact reverse list order — the last entry to give
@@ -974,9 +1216,9 @@ class LoadBalancer:
         for entry in reversed(entries):
             if not has_given_way(entry):
                 continue
-            if isinstance(entry, EVBalancerInput):
-                # Charger resume is decided in the give-way pass (quick
-                # re-fit, D17); until it resumes it blocks restores
+            if isinstance(entry, EVBalancerInput | BatteryBalancerInput):
+                # Charger / battery resume is decided in the give-way pass
+                # (quick re-fit, D17); until it resumes it blocks restores
                 # of entries above it.
                 break
             if shed_restore_done:
@@ -996,12 +1238,40 @@ class LoadBalancer:
         # (known relief); a shed action marks its phases pending so entries
         # below hold one tick while its relief is measured.
         outputs_by_id: dict[str, EVBalancerOutput] = {}
+        battery_output: BatteryBalancerOutput | None = None
         pending_relief_phases: set[int] = set()
         any_stale_fallback = False
         any_paused = False
         any_throttling = False
 
         for idx, entry in enumerate(entries):
+            if isinstance(entry, BatteryBalancerInput):
+                battery_phases = entry.phases or list(BATTERY_PHASES)
+                battery_output, relief_a = self._resolve_battery(
+                    entry,
+                    now,
+                    phase_current,
+                    updated_at,
+                    pool_headroom,
+                    main_fuse_a,
+                    avg_ok,
+                    resume_blocked=any(has_given_way(e) for e in entries[idx + 1 :]),
+                    hold_for_relief=bool(set(battery_phases) & pending_relief_phases),
+                )
+                any_paused = any_paused or battery_output.state == "paused"
+                any_throttling = any_throttling or battery_output.state == "throttling"
+                if relief_a > 0:
+                    # Fold the relief into the pool (D3) and, since the
+                    # inverter reacts with a lag, hold entries below for one
+                    # tick on these phases (shed-style, see Risks).
+                    for p in battery_phases:
+                        pool_headroom[p] = pool_headroom.get(p, main_fuse_a) + relief_a
+                    pending_relief_phases |= set(battery_phases)
+                elif relief_a < 0:
+                    for p in battery_phases:
+                        granted_increase[p] = granted_increase.get(p, 0.0) - relief_a
+                        pool_headroom[p] = pool_headroom.get(p, main_fuse_a) + relief_a
+                continue
             if isinstance(entry, EVBalancerInput):
                 binding_phases = entry.phases or [1, 2, 3]
                 resume_blocked = any(has_given_way(e) for e in entries[idx + 1 :])
@@ -1089,6 +1359,9 @@ class LoadBalancer:
             for e in entries
             if isinstance(e, ShedLoadInput)
         ]
+        reasons = [o.reason for o in ev_outputs if o.reason]
+        if battery_output is not None and battery_output.reason:
+            reasons.append(battery_output.reason)
 
         if any_paused:
             state = "paused"
@@ -1104,10 +1377,11 @@ class LoadBalancer:
         return LoadBalancerStatus(
             enabled=True,
             state=state,
-            reason="; ".join(o.reason for o in ev_outputs if o.reason) or "Within limits",
+            reason="; ".join(reasons) or "Within limits",
             main_fuse_a=main_fuse_a,
             phase_current_a=dict(phase_current),
             phase_headroom_a=headroom,
             ev_outputs=ev_outputs,
             shed_outputs=shed_outputs,
+            battery_output=battery_output,
         )

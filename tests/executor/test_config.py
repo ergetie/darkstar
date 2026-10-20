@@ -664,11 +664,70 @@ class TestLoadBalancingConfig:
         assert custom_load.on_value == "1"
         assert custom_load.off_value == "0"
 
-        # User-specified order is preserved on load (no self-heal changes needed)
+        # User-specified order is preserved on load; the battery entry is
+        # self-healed onto the end (generic profile has a charge mode).
         assert [(e.kind, e.id) for e in lb.give_way_order] == [
             ("shed", "pool_pump"),
             ("shed", "main_tank"),
+            ("battery", "battery"),
         ]
+
+    def _load_order(self, tmp_path, give_way_order, system=None):
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "executor": {"enabled": True},
+            "system": system or {"inverter_profile": "deye"},
+            "ev_chargers": [{"id": "main_ev", "type": "current", "enabled": True}],
+            "load_balancing": {
+                "loads": [{"device_type": "water_heater", "device_id": "main_tank", "phases": [2]}],
+                "give_way_order": give_way_order,
+            },
+        }
+        with config_file.open("w") as f:
+            yaml.dump(config_data, f)
+        lb = load_executor_config(str(config_file)).load_balancing
+        return [(e.kind, e.id) for e in lb.give_way_order]
+
+    def test_battery_entry_parsed_at_position(self, tmp_path):
+        """battery-load-balancing 1.1: battery kept between a charger and a shed load."""
+        order = self._load_order(
+            tmp_path,
+            [
+                {"kind": "charger", "id": "main_ev"},
+                {"kind": "battery", "id": "battery"},
+                {"kind": "shed", "id": "main_tank"},
+            ],
+        )
+        assert order == [("charger", "main_ev"), ("battery", "battery"), ("shed", "main_tank")]
+
+    def test_battery_id_normalised_and_duplicates_dropped(self, tmp_path):
+        order = self._load_order(
+            tmp_path,
+            [
+                {"kind": "battery", "id": "house"},
+                {"kind": "charger", "id": "main_ev"},
+                {"kind": "battery"},
+                {"kind": "shed", "id": "main_tank"},
+            ],
+        )
+        assert order == [("battery", "battery"), ("charger", "main_ev"), ("shed", "main_tank")]
+
+    def test_battery_appended_at_end_for_existing_users(self, tmp_path):
+        """battery-load-balancing 1.2: upgrade with a Deye profile appends the battery last."""
+        order = self._load_order(
+            tmp_path,
+            [{"kind": "charger", "id": "main_ev"}, {"kind": "shed", "id": "main_tank"}],
+        )
+        assert order == [("charger", "main_ev"), ("shed", "main_tank"), ("battery", "battery")]
+
+    def test_battery_dropped_without_battery(self, tmp_path):
+        order = self._load_order(
+            tmp_path,
+            [{"kind": "battery", "id": "battery"}, {"kind": "charger", "id": "main_ev"}],
+            system={"inverter_profile": "deye", "has_battery": False},
+        )
+        assert order == [("charger", "main_ev"), ("shed", "main_tank")]
+
 
     def test_unknown_device_type_skipped(self, tmp_path):
         config_file = tmp_path / "config.yaml"
@@ -684,6 +743,64 @@ class TestLoadBalancingConfig:
         config = load_executor_config(str(config_file))
 
         assert config.load_balancing.loads == []
+
+
+class TestHealGiveWayOrderBattery:
+    """battery-load-balancing 1.2: heal_give_way_order battery rules."""
+
+    def _lb(self, entries):
+        from executor.config import GiveWayOrderEntry, LoadBalancingConfig
+
+        return LoadBalancingConfig(
+            give_way_order=[GiveWayOrderEntry(kind=k, id=i) for k, i in entries]
+        )
+
+    def test_dropped_when_no_controllable_battery(self):
+        from executor.config import heal_give_way_order
+
+        lb = self._lb([("battery", "battery"), ("charger", "ev")])
+        heal_give_way_order(lb, ["ev"], battery_available=False)
+        assert [(e.kind, e.id) for e in lb.give_way_order] == [("charger", "ev")]
+
+    def test_kept_in_place_and_deduplicated(self):
+        from executor.config import heal_give_way_order
+
+        lb = self._lb([("battery", "battery"), ("charger", "ev"), ("battery", "battery")])
+        heal_give_way_order(lb, ["ev"], battery_available=True)
+        assert [(e.kind, e.id) for e in lb.give_way_order] == [
+            ("battery", "battery"),
+            ("charger", "ev"),
+        ]
+
+    def test_appended_after_missing_chargers_and_loads(self):
+        from executor.config import (
+            BalancedLoadConfig,
+            heal_give_way_order,
+        )
+
+        lb = self._lb([])
+        lb.loads = [BalancedLoadConfig(device_id="tank", phases=[1])]
+        heal_give_way_order(lb, ["ev"], battery_available=True)
+        assert [(e.kind, e.id) for e in lb.give_way_order] == [
+            ("charger", "ev"),
+            ("shed", "tank"),
+            ("battery", "battery"),
+        ]
+
+    def test_battery_available_requires_charge_mode_profile(self):
+        from executor.config import battery_give_way_available
+
+        assert battery_give_way_available({"system": {"inverter_profile": "deye"}}) is True
+        assert battery_give_way_available({"system": {"has_battery": False}}) is False
+
+    def test_battery_available_false_when_profile_fails(self, monkeypatch):
+        import executor.config as cfg
+
+        def boom(_data):
+            raise RuntimeError("broken")
+
+        monkeypatch.setattr(cfg, "get_profile_from_config", boom)
+        assert cfg.battery_give_way_available({"system": {}}) is False
 
 
 def test_soc_deviation_replan_percent_default_and_override(tmp_path):

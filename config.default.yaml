@@ -345,11 +345,13 @@ load_balancing:
     #   entity: ""                          # custom_entity only: HA entity to write on/off values to
     #   on_value: "1"                       # custom_entity only
     #   off_value: "0"                      # custom_entity only
-  give_way_order: []                   # Unified give-way order — TOP GIVES WAY FIRST; restore happens in exact reverse order. Self-heals on startup (missing chargers/loads are appended, dangling entries dropped), e.g.:
+  give_way_order: []                   # Unified give-way order — TOP GIVES WAY FIRST; restore happens in exact reverse order. Self-heals on startup (missing chargers/loads/battery are appended, dangling entries dropped), e.g.:
     # - kind: charger                       # a type: current EV charger — throttles toward its floor, then pauses
     #   id: main_ev                         # matches an id in ev_chargers[]
     # - kind: shed                          # an on/off load from loads[] — switches off
     #   id: main_tank                       # matches a loads[].device_id
+    # - kind: battery                       # house battery grid charging (3-phase inverter) — caps the grid charge power, then stops grid charging for the tick; PV charging and discharge are never touched. Appended at the end automatically when the inverter profile has a charge mode
+    #   id: battery                         # always "battery" (one entry)
 
 # Kepler Solver (MILP optimizer settings)
 kepler:

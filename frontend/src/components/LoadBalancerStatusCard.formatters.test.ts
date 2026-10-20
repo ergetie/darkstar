@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chargerSetpointText, formatAge, phaseColor } from './LoadBalancerStatusCard'
+import { batteryCapText, batteryRowVisible, chargerSetpointText, formatAge, phaseColor } from './LoadBalancerStatusCard'
 import type { LoadBalancerEvStatus } from '../lib/api'
 
 function makeEv(overrides: Partial<LoadBalancerEvStatus> = {}): LoadBalancerEvStatus {
@@ -69,5 +69,30 @@ describe('formatAge', () => {
 
     it('flips to hours exactly at 3600s', () => {
         expect(formatAge(3600)).toBe('1h ago')
+    })
+})
+
+describe('batteryCapText', () => {
+    const base = { planned_w: 10000, cap_w: 10000, state: 'idle', reason: '', phases: [1, 2, 3] }
+    it('shows the plan alone when uncapped', () => {
+        expect(batteryCapText(base)).toBe('10.0 kW')
+    })
+    it('shows capped vs planned while throttling', () => {
+        expect(batteryCapText({ ...base, cap_w: 7000, state: 'throttling' })).toBe('7.0 kW (planned 10.0 kW)')
+    })
+    it('shows paused with the plan', () => {
+        expect(batteryCapText({ ...base, cap_w: 0, state: 'paused' })).toBe('Paused (planned 10.0 kW)')
+    })
+})
+
+describe('batteryRowVisible', () => {
+    it('hides a missing or inactive battery', () => {
+        expect(batteryRowVisible(null)).toBe(false)
+        expect(batteryRowVisible({ planned_w: 0, cap_w: 0, state: 'idle', reason: '', phases: [1, 2, 3] })).toBe(false)
+    })
+    it('shows planned grid charging', () => {
+        expect(batteryRowVisible({ planned_w: 5000, cap_w: 5000, state: 'idle', reason: '', phases: [1, 2, 3] })).toBe(
+            true,
+        )
     })
 })

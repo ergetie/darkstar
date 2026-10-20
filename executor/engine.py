@@ -21,6 +21,7 @@ import collections
 import contextlib
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -47,6 +48,7 @@ from backend.loads.service import LoadDisaggregator
 
 from .actions import ActionDispatcher, ActionResult, HAClient
 from .config import (
+    BATTERY_GIVE_WAY_ID,
     BalancedLoadType,
     EVChargerDeviceConfig,
     heal_give_way_order,
@@ -63,6 +65,8 @@ from .ev_surplus import (
 from .goal_risk import pause_puts_goal_at_risk
 from .history import ExecutionHistory, ExecutionRecord
 from .load_balancer import (
+    BalancerEntry,
+    BatteryBalancerInput,
     EVBalancerInput,
     EVBalancerOutput,
     LoadBalancer,
@@ -397,6 +401,9 @@ class ExecutorEngine:
         self._load_balancer = LoadBalancer(self.config.load_balancing)
         self._last_balancer_status: LoadBalancerStatus | None = None
         self._last_balancer_planned_targets: dict[str, int | None] = {}
+        # Battery grid-charge cap (AC W) dispatched last tick by the balancer,
+        # None when uncapped (battery-load-balancing D5).
+        self._battery_cap_w: float | None = None
 
         # Sustained-throttle early replan (load-balancing-completion 4.x):
         # per-charger start of the continuous balancer-constrained period,
@@ -1983,7 +1990,9 @@ class ExecutorEngine:
             # runs after the controller decision, before dispatch; a no-op
             # (enabled=False, empty outputs) unless load_balancing.enabled and
             # prerequisites are configured.
-            balancer_status = self._run_load_balancer(state, original_slot, now)
+            balancer_status = self._run_load_balancer(state, original_slot, now, decision)
+            self._apply_battery_cap(decision, balancer_status)
+            self.status.last_action = decision.reason
             self._last_balancer_status = balancer_status
             ev_surplus_phase_mode_results.extend(
                 await self._apply_balancer_relief(
@@ -2659,6 +2668,12 @@ class ExecutorEngine:
             if net_grid_entity:
                 reads.append(("grid_power", lambda e=net_grid_entity: ha.get_state_value(e)))
 
+        battery_power_entity: str | None = (
+            input_sensors.get("battery_power") if self.config.has_battery else None
+        )
+        if battery_power_entity:
+            reads.append(("battery_power", lambda e=battery_power_entity: ha.get_state_value(e)))
+
         if self.config.has_battery and work_mode_entity:
             reads.append(("work_mode", lambda e=work_mode_entity: ha.get_state_value(e)))
 
@@ -2736,6 +2751,13 @@ class ExecutorEngine:
                     grid_net_kw = -grid_net_kw
                 state.current_import_kw = max(0.0, grid_net_kw)
                 state.current_export_kw = max(0.0, -grid_net_kw)
+
+            batt_w = self._safe_float(battery_power_entity, results.get("battery_power"))
+            if batt_w is not None:
+                if input_sensors.get("battery_power_inverted", False):
+                    batt_w = -batt_w
+                # Positive = discharge; the charge share is the negative part.
+                state.current_battery_charge_kw = max(0.0, -batt_w) / 1000
 
             work_mode = results.get("work_mode")
             if work_mode:
@@ -3241,7 +3263,11 @@ class ExecutorEngine:
         )
 
     def _run_load_balancer(
-        self, state: SystemState, slot: "SlotPlan | None", now: datetime
+        self,
+        state: SystemState,
+        slot: "SlotPlan | None",
+        now: datetime,
+        decision: ControllerDecision | None = None,
     ) -> LoadBalancerStatus:
         """Build ordered balancer inputs from give_way_order and run one tick.
 
@@ -3254,7 +3280,11 @@ class ExecutorEngine:
         # Idempotent runtime self-heal: guarantees every current-type charger
         # and every loads[] entry has a position even if the config object was
         # built without give_way_order (tests, partial reloads).
-        heal_give_way_order(lb_cfg, [c.id for c in self.config.ev_chargers if c.type == "current"])
+        heal_give_way_order(
+            lb_cfg,
+            [c.id for c in self.config.ev_chargers if c.type == "current"],
+            self._battery_give_way_available(),
+        )
 
         ev_inputs_by_id: dict[str, EVBalancerInput] = {}
         for charger_cfg in self.config.ev_chargers:
@@ -3336,12 +3366,16 @@ class ExecutorEngine:
             for ld in lb_cfg.loads
         }
 
-        entries: list[EVBalancerInput | ShedLoadInput] = []
+        battery_input = self._battery_balancer_input(state, decision)
+
+        entries: list[BalancerEntry] = []
         for order_entry in lb_cfg.give_way_order:
             if order_entry.kind == "charger" and order_entry.id in ev_inputs_by_id:
                 entries.append(ev_inputs_by_id[order_entry.id])
             elif order_entry.kind == "shed" and order_entry.id in shed_inputs_by_id:
                 entries.append(shed_inputs_by_id[order_entry.id])
+            elif order_entry.kind == "battery" and battery_input is not None:
+                entries.append(battery_input)
 
         # Stashed for the status surface (6.1): planned target per charger,
         # to report "setpoint vs planned target" alongside the final decision.
@@ -3354,6 +3388,116 @@ class ExecutorEngine:
             state.grid_current_a,
             state.grid_current_updated_at,
             entries,
+        )
+
+    # --- Battery grid charging give-way (battery-load-balancing) ----------
+
+    def _battery_give_way_available(self) -> bool:
+        """A controllable battery: an inverter profile with a `charge` mode (D9)."""
+        profile = self.inverter_profile
+        return bool(self.config.has_battery and profile is not None and "charge" in profile.modes)
+
+    def _battery_control_unit(self) -> str:
+        profile = self.inverter_profile
+        if profile is not None and profile.behavior.control_unit:
+            return profile.behavior.control_unit
+        return self.config.inverter.control_unit
+
+    def _battery_charge_limits(self) -> tuple[str, float, float]:
+        """(control_unit, round step, minimum) in the profile's unit, matching
+        Controller._calculate_charge_limit for grid charging."""
+        unit = self._battery_control_unit()
+        profile = self.inverter_profile
+        ctrl = self.config.controller
+        if unit == "W":
+            step = profile.behavior.round_step_w if profile else ctrl.round_step_w
+            if profile and profile.behavior.grid_charge_round_step_w:
+                step = profile.behavior.grid_charge_round_step_w
+            minimum = profile.behavior.min_charge_w if profile else ctrl.min_charge_w
+        else:
+            step = profile.behavior.round_step_a if profile else ctrl.round_step_a
+            minimum = profile.behavior.min_charge_a if profile else ctrl.min_charge_a
+        return unit, step, minimum
+
+    def _charge_value_to_w(self, value: float, unit: str) -> float:
+        if unit == "W":
+            return value
+        return value * self.config.controller.nominal_voltage_v
+
+    def _battery_balancer_input(
+        self, state: SystemState, decision: ControllerDecision | None
+    ) -> BatteryBalancerInput | None:
+        """Battery entry input from this tick's decision (D3/D4); None when no
+        decision is available or no battery is controllable."""
+        if decision is None or not self._battery_give_way_available():
+            self._battery_cap_w = None
+            return None
+        unit, _step, minimum = self._battery_charge_limits()
+        active = decision.mode_intent == "charge" and decision.charge_value > 0
+        planned_w = self._charge_value_to_w(decision.charge_value, unit) if active else 0.0
+        if not active:
+            self._battery_cap_w = None
+        applied_w = (
+            min(planned_w, self._battery_cap_w) if self._battery_cap_w is not None else planned_w
+        )
+        reducible_w = min(applied_w, max(0.0, state.current_import_kw * 1000))
+        if state.current_battery_charge_kw is not None:
+            reducible_w = min(reducible_w, state.current_battery_charge_kw * 1000)
+        return BatteryBalancerInput(
+            planned_w=planned_w,
+            applied_cap_w=applied_w,
+            reducible_w=max(0.0, reducible_w),
+            active=active,
+            min_w=self._charge_value_to_w(minimum, unit),
+        )
+
+    def _apply_battery_cap(self, decision: ControllerDecision, status: LoadBalancerStatus) -> None:
+        """Apply the balancer's battery cap to the decision before dispatch (D5).
+
+        The cap is converted into charge_value in the profile's control_unit
+        and rounded down to the profile step; below the profile minimum the
+        tick dispatches `idle` (grid charging off, no discharge). The
+        controller's plan-state latch is untouched.
+        """
+        out = status.battery_output
+        if (
+            not status.enabled
+            or out is None
+            or decision.mode_intent != "charge"
+            or out.state == "idle"
+            or out.cap_w >= out.planned_w
+        ):
+            self._battery_cap_w = None
+            return
+        unit, step, minimum = self._battery_charge_limits()
+        cap_value = (
+            out.cap_w if unit == "W" else out.cap_w / self.config.controller.nominal_voltage_v
+        )
+        raw_value = cap_value
+        if step > 0:
+            cap_value = math.floor(cap_value / step + 1e-9) * step
+        if cap_value < minimum <= raw_value + 1e-9:
+            # The profile minimum need not be a multiple of the step: a cap
+            # at or above the minimum dispatches the minimum, not a pause.
+            cap_value = minimum
+        cap_value = min(cap_value, decision.charge_value)
+        if cap_value < minimum:
+            self._battery_cap_w = 0.0
+            # Report what is dispatched: grid charging is off this tick.
+            out.state = "paused"
+            out.cap_w = 0.0
+            decision.mode_intent = "idle"
+            decision.charge_value = 0.0
+            decision.reason = (
+                f"{decision.reason} | Load balancer: grid charging paused to protect the "
+                f"main fuse ({out.reason})"
+            )
+            return
+        self._battery_cap_w = self._charge_value_to_w(cap_value, unit)
+        decision.charge_value = cap_value
+        decision.reason = (
+            f"{decision.reason} | Load balancer: grid charge capped to "
+            f"{cap_value:g}{unit} ({out.reason})"
         )
 
     @staticmethod
@@ -3579,14 +3723,25 @@ class ExecutorEngine:
             if (now - since).total_seconds() >= threshold:
                 self._maybe_fire_balancer_replan(out.charger_id, now)
 
+        # Battery grid charging (battery-load-balancing D8): constrained while
+        # capped below the plan or paused during a charge intent.
+        battery = status.battery_output
+        if battery is None or battery.state not in ("throttling", "paused"):
+            self._balancer_throttled_since.pop(BATTERY_GIVE_WAY_ID, None)
+            return
+        since = self._balancer_throttled_since.setdefault(BATTERY_GIVE_WAY_ID, now)
+        if (now - since).total_seconds() >= threshold:
+            self._maybe_fire_balancer_replan(BATTERY_GIVE_WAY_ID, now)
+
     def _maybe_fire_balancer_replan(self, charger_id: str, now: datetime) -> None:
-        """Fire one balancer-triggered replan, at most one per planner interval."""
+        """Fire one balancer-triggered replan, at most one per planner interval.
+        charger_id is a charger id or BATTERY_GIVE_WAY_ID."""
         if not self._executor_replan_allowed(now):
             return  # rate limit: keep the tracker running, retry when rearmed
 
         self._balancer_throttled_since.pop(charger_id, None)  # reset on fire
         logger.info(
-            "Load balancer has constrained charger '%s' for over %ss — requesting one early replan",
+            "Load balancer has constrained '%s' for over %ss — requesting one early replan",
             charger_id,
             self.config.load_balancing.replan_after_throttled_s,
         )
@@ -3637,9 +3792,10 @@ class ExecutorEngine:
         stale-sensor fail-safe engages — with the same human-readable reason
         as the execution log. A charger pause notifies only when it puts an
         active EV goal at risk; other pauses are in the execution log only.
-        Routine throttle/ramp adjustments and 1-phase relief switches never
-        notify. State maps update even while the toggle is off, so enabling
-        it later doesn't fire for pre-existing states.
+        Routine throttle/ramp adjustments, 1-phase relief switches and battery
+        grid-charge throttle/pause (battery-load-balancing D11) never notify.
+        State maps update even while the toggle is off, so enabling it later
+        doesn't fire for pre-existing states.
         """
         if not status.enabled:
             self._notified_ev_states.clear()
@@ -3796,6 +3952,7 @@ class ExecutorEngine:
                 "measured_surplus_kw": self._last_measured_surplus_kw,
                 "ev": ev_list,
                 "shed": [],
+                "battery": None,
             }
 
         return {
@@ -3818,6 +3975,18 @@ class ExecutorEngine:
                 }
                 for o in status.shed_outputs
             ],
+            # battery-load-balancing D10 (additive)
+            "battery": (
+                {
+                    "planned_w": round(status.battery_output.planned_w),
+                    "cap_w": round(status.battery_output.cap_w),
+                    "state": status.battery_output.state,
+                    "reason": status.battery_output.reason,
+                    "phases": list(status.battery_output.phases),
+                }
+                if status.battery_output is not None
+                else None
+            ),
         }
 
     async def _check_ev_charge_failure(

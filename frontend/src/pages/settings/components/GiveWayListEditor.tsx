@@ -1,10 +1,10 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { ExternalLink, Plus, Trash2 } from 'lucide-react'
+import { BatteryCharging, ExternalLink, Plus, Trash2 } from 'lucide-react'
 import EntitySelect from '../../../components/EntitySelect'
 import OrderedListEditor from '../../../components/ui/OrderedListEditor'
 import { HaEntity } from '../types'
-import { healOrderForDisplay, type GiveWayEntry } from './giveWayOrder'
+import { batteryGiveWayAvailable, healOrderForDisplay, type GiveWayEntry } from './giveWayOrder'
 
 export type { GiveWayEntry } from './giveWayOrder'
 
@@ -104,6 +104,7 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
         rawOrder,
         chargers.map((c) => c.id),
         loads.map((l) => l.device_id),
+        batteryGiveWayAvailable(config),
     )
 
     const shedDeviceOptions = (type: ShedLoadDeviceType): { id: string; name: string }[] => {
@@ -179,6 +180,21 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
                 Configured in EV tab
                 <ExternalLink size={11} />
             </Link>
+        </div>
+    )
+
+    const renderBatteryRow = () => (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 pr-1">
+            <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                    <BatteryCharging size={14} className="shrink-0 text-accent" aria-hidden="true" />
+                    <span className="truncate text-sm font-semibold text-text">House battery (grid charging)</span>
+                    <PhaseBadges phases={[1, 2, 3]} />
+                </div>
+                <div className="text-[11px] text-muted">
+                    Lower grid charge power, then pause grid charging. Solar charging and discharge are not touched.
+                </div>
+            </div>
         </div>
     )
 
@@ -326,9 +342,10 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
                 <p className="text-[11px] leading-relaxed text-muted">
                     The list is processed top-down: when a phase overloads, the <b>top</b> entry gives way first, fully,
                     before the next one is touched. Chargers give way by throttling toward their minimum current, then
-                    pausing; other loads by switching off. Recovery happens in exact reverse order. Chargers with
-                    dynamic current control appear here automatically — phase assignment for on/off loads must match
-                    your home&apos;s physical wiring.
+                    pausing; the house battery by lowering its grid charge power, then pausing grid charging; other
+                    loads by switching off. Recovery happens in exact reverse order. Chargers with dynamic current
+                    control appear here automatically — phase assignment for on/off loads must match your home&apos;s
+                    physical wiring.
                 </p>
                 {!disabled && (
                     <button
@@ -358,6 +375,7 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
                 disabled={disabled}
                 itemLabel="give-way entry"
                 renderItem={(entry) => {
+                    if (entry.kind === 'battery') return renderBatteryRow()
                     if (entry.kind === 'charger') {
                         const charger = chargers.find((c) => c.id === entry.id)
                         return charger ? renderChargerRow(charger) : null

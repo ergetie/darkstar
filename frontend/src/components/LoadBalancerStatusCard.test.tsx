@@ -224,4 +224,32 @@ describe('LoadBalancerStatusCard freshness indicator (load-balancing-completion 
         expect(screen.getByTestId('lb-raw-l2')).toHaveTextContent('0.100A')
         expect(screen.getByText('0.2 / 20 A')).toHaveAttribute('title', 'Raw current: 0.237A')
     })
+
+    it('renders a throttled house battery row with planned and capped kW', async () => {
+        vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue({
+            enabled: true,
+            state: 'throttling',
+            reason: 'Battery: grid charge capped 10.0 -> 7.0 kW (headroom -4.0A)',
+            main_fuse_a: 20,
+            phase_current_a: { '1': 24, '2': 16, '3': 16 },
+            phase_headroom_a: { '1': -4, '2': 4, '3': 4 },
+            ev: [],
+            shed: [],
+            battery: {
+                planned_w: 10000,
+                cap_w: 7000,
+                state: 'throttling',
+                reason: 'Battery: grid charge capped 10.0 -> 7.0 kW (headroom -4.0A)',
+                phases: [1, 2, 3],
+            },
+        } as LoadBalancerStatusResponse)
+
+        renderCard()
+
+        const row = await screen.findByTestId('lb-battery')
+        expect(row).toHaveTextContent('House battery (grid charging)')
+        expect(row).toHaveTextContent('7.0 kW (planned 10.0 kW)')
+        expect(row).toHaveTextContent('Throttling')
+        expect(screen.queryByText('No controlled loads.')).not.toBeInTheDocument()
+    })
 })

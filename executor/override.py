@@ -63,6 +63,10 @@ class SystemState:
     current_load_kw: float = 0.0
     current_export_kw: float = 0.0
     current_import_kw: float = 0.0
+    # Battery charge power (kW, >= 0) from input_sensors.battery_power, after
+    # battery_power_inverted (positive = discharge). None when unconfigured
+    # or unreadable. battery-load-balancing D4
+    current_battery_charge_kw: float | None = None
 
     # Inverter state
     current_work_mode: str = ""

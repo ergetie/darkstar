@@ -145,4 +145,23 @@ describe('LoadBalancerCompactView', () => {
         expect(screen.queryByText(/main_tank/)).not.toBeInTheDocument()
         expect(screen.getByText(/pool_pump/)).toBeInTheDocument()
     })
+
+    it('shows a throttled house battery with planned vs capped kW', () => {
+        renderView(
+            baseStatus({
+                battery: { planned_w: 10000, cap_w: 7000, state: 'throttling', reason: 'capped', phases: [1, 2, 3] },
+            }),
+        )
+        expect(screen.getByTestId('lb-compact-battery')).toHaveTextContent('House battery')
+        expect(screen.getByText('7.0 kW (planned 10.0 kW)')).toBeInTheDocument()
+    })
+
+    it('hides an idle battery', () => {
+        renderView(
+            baseStatus({
+                battery: { planned_w: 10000, cap_w: 10000, state: 'idle', reason: '', phases: [1, 2, 3] },
+            }),
+        )
+        expect(screen.queryByTestId('lb-compact-battery')).not.toBeInTheDocument()
+    })
 })

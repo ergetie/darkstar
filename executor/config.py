@@ -20,6 +20,8 @@ from backend.core.load_balancing_margin import (
 )
 from backend.core.water_heating import infer_control_type
 
+from .profiles import get_profile_from_config
+
 logger = logging.getLogger(__name__)
 
 # Charging-goal fields live in data/ev_multi_day_state.json (dashboard/API), never
@@ -216,15 +218,22 @@ class BalancedLoadConfig:
     off_value: str = "0"
 
 
+# Fixed id of the single battery give-way entry (battery-load-balancing D1).
+BATTERY_GIVE_WAY_ID = "battery"
+
+
 @dataclass
 class GiveWayOrderEntry:
     """One entry in the unified give-way order (top gives way first).
 
     kind="charger" references a type="current" ev_chargers[].id (throttle to
-    floor, then pause); kind="shed" references a loads[].device_id (switch off).
+    floor, then pause); kind="shed" references a loads[].device_id (switch off);
+    kind="battery" (single entry, id always BATTERY_GIVE_WAY_ID) is the house
+    battery's planned grid charging (cap the charge power, then stop grid
+    charging for the tick).
     """
 
-    kind: str = "shed"  # "charger" | "shed"
+    kind: str = "shed"  # "charger" | "shed" | "battery"
     id: str = ""
 
 
@@ -498,6 +507,15 @@ def _parse_load_balancing_config(
             entry_item = cast("dict[str, Any]", item)
             kind = str(entry_item.get("kind", "")).lower()
             entry_id = str(entry_item.get("id", ""))
+            if kind == "battery":
+                if any(e.kind == "battery" for e in give_way_order):
+                    logger.warning(
+                        "load_balancing.give_way_order: duplicate battery entry %r, skipping",
+                        entry_item,
+                    )
+                    continue
+                give_way_order.append(GiveWayOrderEntry(kind="battery", id=BATTERY_GIVE_WAY_ID))
+                continue
             if kind not in ("charger", "shed") or not entry_id:
                 logger.warning(
                     "load_balancing.give_way_order: invalid entry %r, skipping", entry_item
@@ -559,7 +577,11 @@ def _parse_load_balancing_config(
     )
 
 
-def heal_give_way_order(lb: LoadBalancingConfig, current_type_charger_ids: list[str]) -> None:
+def heal_give_way_order(
+    lb: LoadBalancingConfig,
+    current_type_charger_ids: list[str],
+    battery_available: bool = False,
+) -> None:
     """Self-heal load_balancing.give_way_order on config load (in place).
 
     - Drops entries referencing devices that no longer exist, or chargers no
@@ -567,11 +589,26 @@ def heal_give_way_order(lb: LoadBalancingConfig, current_type_charger_ids: list[
     - Appends current-type chargers missing from the list after the last
       charger entry (at the top when there is none).
     - Appends loads[] entries missing from the list at the end.
+    - Keeps one battery entry while a controllable battery exists
+      (battery_available: an inverter profile with a `charge` mode is
+      loaded), drops it otherwise, and appends it at the very end when it is
+      missing (battery-load-balancing D9).
     """
     shed_ids = [ld.device_id for ld in lb.loads if ld.device_id]
 
     healed: list[GiveWayOrderEntry] = []
     for entry in lb.give_way_order:
+        if entry.kind == "battery":
+            if not battery_available:
+                logger.warning(
+                    "load_balancing.give_way_order: dropping battery entry — no inverter "
+                    "profile with a charge mode is loaded"
+                )
+            elif any(e.kind == "battery" for e in healed):
+                logger.warning("load_balancing.give_way_order: dropping duplicate battery entry")
+            else:
+                healed.append(GiveWayOrderEntry(kind="battery", id=BATTERY_GIVE_WAY_ID))
+            continue
         if (entry.kind == "charger" and entry.id in current_type_charger_ids) or (
             entry.kind == "shed" and entry.id in shed_ids
         ):
@@ -601,7 +638,29 @@ def heal_give_way_order(lb: LoadBalancingConfig, current_type_charger_ids: list[
             healed.append(GiveWayOrderEntry(kind="shed", id=shed_id))
             logger.info("load_balancing.give_way_order: appended missing shed load '%s'", shed_id)
 
+    if battery_available and not any(e.kind == "battery" for e in healed):
+        healed.append(GiveWayOrderEntry(kind="battery", id=BATTERY_GIVE_WAY_ID))
+        logger.info("load_balancing.give_way_order: appended missing battery entry")
+
     lb.give_way_order = healed
+
+
+def battery_give_way_available(data: dict[str, Any]) -> bool:
+    """Whether the battery give-way entry is controllable for this config:
+    the system has a battery and its inverter profile (falling back to
+    generic, like the executor) loads with a `charge` mode."""
+    system_raw: Any = data.get("system", {})
+    system_data: dict[str, Any] = (
+        cast("dict[str, Any]", system_raw) if isinstance(system_raw, dict) else {}
+    )
+    if not bool(system_data.get("has_battery", True)):
+        return False
+    try:
+        profile = get_profile_from_config(data)
+    except Exception as e:
+        logger.warning("Battery give-way: inverter profile could not be loaded: %s", e)
+        return False
+    return "charge" in profile.modes
 
 
 def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
@@ -653,7 +712,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
             if str(charger_item.get("type", "binary")).lower() != "current":
                 continue
             current_type_charger_ids.append(str(charger_item.get("id", f"ev_charger_{idx}")))
-    heal_give_way_order(load_balancing, current_type_charger_ids)
+    heal_give_way_order(load_balancing, current_type_charger_ids, battery_give_way_available(data))
 
     executor_data: dict[str, Any] = (
         data.get("executor", {}) if isinstance(data.get("executor"), dict) else {}

@@ -501,6 +501,17 @@ export type LoadBalancerShedStatus = {
     reason: string
 }
 
+/** battery-load-balancing: house battery grid charging as a give-way entry. */
+export type LoadBalancerBatteryStatus = {
+    /** Grid charge power the plan wants this tick (W) */
+    planned_w: number
+    /** Cap the balancer applies (W), never above planned_w */
+    cap_w: number
+    state: 'idle' | 'throttling' | 'paused' | string
+    reason: string
+    phases: number[]
+}
+
 export type LoadBalancerStatusResponse = {
     enabled: boolean
     state: 'disabled' | 'idle' | 'throttling' | 'shedding' | 'paused' | 'stale_fallback' | string
@@ -516,11 +527,13 @@ export type LoadBalancerStatusResponse = {
     measured_surplus_kw?: number | null
     ev: LoadBalancerEvStatus[]
     shed: LoadBalancerShedStatus[]
+    /** battery-load-balancing: null/absent when no battery entry is active */
+    battery?: LoadBalancerBatteryStatus | null
 }
 
 /** One entry in load_balancing.give_way_order (top gives way first). */
 export type GiveWayOrderEntry = {
-    kind: 'charger' | 'shed'
+    kind: 'charger' | 'shed' | 'battery'
     id: string
 }
 
