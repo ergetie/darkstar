@@ -173,3 +173,82 @@ async def test_long_series_maps_fast_and_matches_trimmed_series():
 
     assert results[0] == results[1]
     assert elapsed[0] < 1.0
+
+
+def _dst_slots(start_utc: datetime, end_utc: datetime) -> list[dict]:
+    from utils.time_utils import dst_safe_date_range
+
+    index = dst_safe_date_range(start_utc, end_utc, "15min", TZ_NAME, inclusive="left")
+    return [{"start_time": ts} for ts in index]
+
+
+async def _run_dst_case(slots: list[dict], offset: timezone) -> tuple[dict, MagicMock, MagicMock]:
+    series = {
+        slot["start_time"].to_pydatetime().astimezone(offset): 1000.0 + i
+        for i, slot in enumerate(slots)
+    }
+    with (
+        patch("backend.core.forecasts.OpenMeteoSolarForecast") as mock_cls,
+        patch("backend.core.ha_client.get_load_profile_from_ha", return_value=[0.5] * 96),
+        patch("backend.health.record_forecast_error") as record_error,
+        patch("backend.health.clear_forecast_errors") as clear_errors,
+    ):
+        _mock_forecast_class(mock_cls, [series])
+        result = await _get_forecast_data_async(slots, _config([{"kwp": 10.0}]))
+    return result, record_error, clear_errors
+
+
+@pytest.mark.asyncio
+async def test_autumn_fold_hour_slots_all_match_fixed_offset_keys():
+    start = datetime(2026, 10, 24, 22, 0, tzinfo=UTC)
+    slots = _dst_slots(start, start + timedelta(days=2))
+    assert any(getattr(s["start_time"], "fold", 0) == 1 for s in slots)
+
+    result, record_error, clear_errors = await _run_dst_case(slots, FIXED_OFFSET)
+
+    expected = [(1000.0 + i) * 0.25 / 1000.0 for i in range(len(slots))]
+    assert [s["pv_forecast_kwh"] for s in result["slots"]] == expected
+    assert not any(s.get("pv_estimated") for s in result["slots"])
+    record_error.assert_not_called()
+    clear_errors.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_spring_forward_slots_all_match_fixed_offset_keys():
+    start = datetime(2026, 3, 28, 23, 0, tzinfo=UTC)
+    slots = _dst_slots(start, start + timedelta(days=2))
+
+    result, record_error, clear_errors = await _run_dst_case(slots, timezone(timedelta(hours=1)))
+
+    expected = [(1000.0 + i) * 0.25 / 1000.0 for i in range(len(slots))]
+    assert [s["pv_forecast_kwh"] for s in result["slots"]] == expected
+    assert not any(s.get("pv_estimated") for s in result["slots"])
+    record_error.assert_not_called()
+    clear_errors.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stored_baseline_in_fold_hour_matches_fold_timestamp_exactly(forecast_db):
+    from backend.core.forecasts import _get_stored_openmeteo_pv_for_slots
+
+    start = datetime(2026, 10, 25, 0, 0, tzinfo=UTC)  # 02:00+02:00, then 02:00+01:00 at 01:00Z
+    slots = _dst_slots(start, start + timedelta(hours=2))
+    fold_idx = next(i for i, s in enumerate(slots) if s["start_time"].fold == 1)
+    await _seed_openmeteo_baselines(
+        forecast_db,
+        [
+            {
+                "slot_start": s["start_time"].to_pydatetime().astimezone(UTC),
+                "pv_forecast_kwh": 0.1 * i,
+                "openmeteo_pv_forecast_kwh": 0.1 * i,
+            }
+            for i, s in enumerate(slots)
+        ],
+    )
+
+    filled = await _get_stored_openmeteo_pv_for_slots(slots, _config([{"kwp": 10.0}]))
+
+    assert filled is not None
+    values, _daily, estimated = filled
+    assert estimated == []
+    assert values[fold_idx] == pytest.approx(0.1 * fold_idx)

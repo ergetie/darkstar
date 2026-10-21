@@ -32,6 +32,20 @@ def get_forecast_db_path() -> str:
 _PV_FALLBACK_LOOKBACK_DAYS = 14
 
 
+def _slot_key(ts: datetime) -> int:
+    """Canonical slot key: Unix seconds of the 15-minute-floored UTC instant.
+
+    Accepts python datetimes (fixed-offset or pytz) and pandas Timestamps; naive values
+    are treated as UTC. Integer keys avoid the hashing ambiguity of aware datetimes and
+    Timestamps in a DST fold. Flooring on the instant assumes zone offsets are whole
+    multiples of 15 minutes, which holds for all supported zones.
+    """
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=pytz.UTC)
+    seconds = int(ts.timestamp())
+    return seconds - seconds % 900
+
+
 def _estimate_from_same_time_of_day(
     ts: datetime,
     by_tod: dict[time, list[tuple[date, float]]],
@@ -88,7 +102,7 @@ async def _get_stored_openmeteo_pv_for_slots(
     finally:
         await store.close()
 
-    by_slot: dict[datetime, float] = {}
+    by_slot: dict[int, float] = {}
     by_tod: dict[time, list[tuple[date, float]]] = {}
     for row in rows:
         raw_value = row["openmeteo_pv_forecast_kwh"]
@@ -101,7 +115,7 @@ async def _get_stored_openmeteo_pv_for_slots(
             ts = pytz.UTC.localize(ts)
         local_ts = ts.astimezone(local_tz)
         value = float(raw_value)
-        by_slot[local_ts] = value
+        by_slot[_slot_key(ts)] = value
         by_tod.setdefault(local_ts.time(), []).append((local_ts.date(), value))
 
     values: list[float] = []
@@ -111,7 +125,7 @@ async def _get_stored_openmeteo_pv_for_slots(
         if known is not None and idx in known:
             value = known[idx]
         else:
-            exact = by_slot.get(ts)
+            exact = by_slot.get(_slot_key(ts))
             if known is None and exact is not None:
                 value = exact
             else:
@@ -639,16 +653,14 @@ async def _get_forecast_data_async(
             daily_pv_forecast[local_date] = daily_pv_forecast.get(local_date, 0.0) + energy_kwh
 
         # Map PV forecast to price slots (15 min resolution assumed)
+        # Match by canonical UTC instant: series keys are fixed-offset datetimes while
+        # slot starts may be pytz datetimes or pandas Timestamps (incl. DST fold).
+        watts_by_key = {_slot_key(dt): watts for dt, watts in solar_data_dict.items()}
         known_kwh: dict[int, float] = {}
         for slot_idx, slot in enumerate(price_slots):
-            slot_time = slot["start_time"]
-            rounded_time = slot_time.replace(
-                minute=(slot_time.minute // 15) * 15, second=0, microsecond=0
-            )
-            # Aware datetimes hash/compare by UTC instant, so a direct lookup
-            # matches keys across fixed-offset and pytz zones.
-            if rounded_time in solar_data_dict:
-                known_kwh[slot_idx] = solar_data_dict[rounded_time] * 0.25 / 1000.0
+            watts = watts_by_key.get(_slot_key(slot["start_time"]))
+            if watts is not None:
+                known_kwh[slot_idx] = watts * 0.25 / 1000.0
 
         if len(known_kwh) < len(price_slots):
             # Slots beyond the API horizon are estimated, never defaulted to zero.
@@ -917,8 +929,10 @@ async def build_db_forecast_for_slots(
     if not records:
         return []
 
-    # Index forecasts by localised slot_start for quick lookup
-    indexed: dict[datetime, dict[str, Any]] = {}
+    # Index forecasts by canonical UTC slot key for quick lookup; local times are kept
+    # for the ordered fallback search and time-of-day estimates.
+    indexed: dict[int, dict[str, Any]] = {}
+    local_by_key: dict[int, datetime] = {}
     pv_by_tod: dict[time, list[tuple[date, float]]] = {}
     for rec in records:
         ts = rec["slot_start"]
@@ -927,16 +941,18 @@ async def build_db_forecast_for_slots(
         if ts.tzinfo is None:
             ts = pytz.UTC.localize(ts)
         local_ts = ts.astimezone(local_tz)
-        indexed[local_ts] = rec
+        key = _slot_key(ts)
+        indexed[key] = rec
+        local_by_key[key] = local_ts
         pv_by_tod.setdefault(local_ts.time(), []).append(
             (local_ts.date(), float(rec["final"]["pv_kwh"]))
         )
-    sorted_stored = sorted(indexed.keys())
+    sorted_stored = sorted(local_by_key.items(), key=lambda item: item[1])
 
     result: list[dict[str, Any]] = []
     for slot in price_slots:
         ts = slot["start_time"].astimezone(local_tz)
-        rec = indexed.get(ts)
+        rec = indexed.get(_slot_key(ts))
         estimated = rec is None
 
         # Default values in case no forecast is found
@@ -950,14 +966,16 @@ async def build_db_forecast_for_slots(
         if rec is None:
             # Non-PV fields keep the closest stored forecast at or before the slot.
             fallback_ts = None
-            for forecast_ts in sorted_stored:
+            fallback_key = None
+            for forecast_key, forecast_ts in sorted_stored:
                 if forecast_ts <= ts:
                     fallback_ts = forecast_ts
+                    fallback_key = forecast_key
                 else:
                     break
 
-            if fallback_ts is not None:
-                fallback_rec = indexed[fallback_ts]
+            if fallback_key is not None:
+                fallback_rec = indexed[fallback_key]
                 logger.warning(
                     "No exact forecast match for %s, using fallback from %s", ts, fallback_ts
                 )

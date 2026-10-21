@@ -151,3 +151,22 @@ async def test_full_coverage_reports_nothing():
     _, record = await _run_aurora(db_slots, price_slots)
 
     record.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fold_hour_pandas_slot_matches_stored_record_exactly():
+    from utils.time_utils import dst_safe_date_range
+
+    config = {**CONFIG, "timezone": "Europe/Stockholm"}
+    start = datetime(2026, 10, 25, 0, 0, tzinfo=UTC)
+    index = dst_safe_date_range(start, start + timedelta(hours=2), "15min", "Europe/Stockholm", inclusive="left")
+    price_slots = [{"start_time": ts} for ts in index]
+    fold_idx = next(i for i, ts in enumerate(index) if ts.fold == 1)
+    records = [_record(ts.to_pydatetime().astimezone(UTC), 0.1 * i) for i, ts in enumerate(index)]
+
+    with patch("backend.core.forecasts.get_forecast_slots", new=AsyncMock(return_value=records)):
+        result = await build_db_forecast_for_slots(price_slots, config)
+
+    assert len(result) == len(price_slots)
+    assert not any(out["pv_estimated"] for out in result)
+    assert result[fold_idx]["pv_forecast_kwh"] == pytest.approx(0.1 * fold_idx)
