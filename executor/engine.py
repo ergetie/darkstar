@@ -398,7 +398,9 @@ class ExecutorEngine:
         self._last_measured_surplus_kw: float | None = None
 
         # Real-time per-phase load balancer (universal-load-balancing)
-        self._load_balancer = LoadBalancer(self.config.load_balancing)
+        self._load_balancer = LoadBalancer(
+            self.config.load_balancing, interval_seconds=self.config.interval_seconds
+        )
         self._last_balancer_status: LoadBalancerStatus | None = None
         self._last_balancer_planned_targets: dict[str, int | None] = {}
         self._pending_phase_returns: set[str] = set()
@@ -533,7 +535,7 @@ class ExecutorEngine:
             self._config_mtime = current_config_mtime
             self.status.enabled = self.config.enabled
             self.status.shadow_mode = self.config.shadow_mode
-            self._load_balancer.config = self.config.load_balancing
+            self._load_balancer.configure(self.config.load_balancing, self.config.interval_seconds)
             # The dispatcher is NOT updated here: reloads can come from API
             # threads mid-tick. The next tick applies the new config snapshot
             # (see _tick_unlocked) so a running tick never sees a swap.
@@ -2037,9 +2039,10 @@ class ExecutorEngine:
             shed_water_heater_ids: set[str] = set()
             shed_binary_charger_ids: set[str] = set()
             if balancer_status.enabled:
-                balancer_ev_targets = {
-                    out.charger_id: out.target_a for out in balancer_status.ev_outputs
-                }
+                balancer_ev_targets = dict(self._ev_surplus_targets)
+                balancer_ev_targets.update(
+                    {out.charger_id: out.target_a for out in balancer_status.ev_outputs}
+                )
                 for shed_out in balancer_status.shed_outputs:
                     if not shed_out.shed:
                         continue
@@ -2308,6 +2311,10 @@ class ExecutorEngine:
                         "state": balancer_status.state,
                         "phase_current_a": balancer_status.phase_current_a,
                         "phase_headroom_a": balancer_status.phase_headroom_a,
+                        "phase_heat_percent": balancer_status.phase_heat_percent,
+                        "phase_heat_state": balancer_status.phase_heat_state,
+                        "heat_sampled_at": balancer_status.heat_sampled_at,
+                        "fuse_safety_percent": balancer_status.fuse_safety_percent,
                         "skipped": False,
                         "error_details": None,
                     }
@@ -3251,6 +3258,15 @@ class ExecutorEngine:
         # load-balancer-graceful-degradation D4: while 1-phase is held for
         # overload relief, 3-phase must fit the averaged target margin too.
         three_phase_fits = True
+        selected_for_balancing = self.config.load_balancing.enabled and (
+            self.config.load_balancing.auto_include_devices
+            or any(
+                e.kind == "charger" and e.id == charger_cfg.id
+                for e in self.config.load_balancing.give_way_order
+            )
+        )
+        if not selected_for_balancing:
+            phase_ctrl.relief_hold = False
         if phase_ctrl.relief_hold:
             dev_state = self._ev_charger_states.get(charger_cfg.id)
             three_phase_fits = self._load_balancer.three_phase_fits(
@@ -3279,7 +3295,7 @@ class ExecutorEngine:
         if (
             decision.commanded_mode == 3
             and phase_ctrl.commanded_mode == 1
-            and self.config.load_balancing.enabled
+            and selected_for_balancing
         ):
             # The current phase samples and every competing grant are available
             # in the balancer's reverse-order pass later in this tick.
@@ -3742,7 +3758,10 @@ class ExecutorEngine:
     ) -> BatteryBalancerInput | None:
         """Battery entry input from this tick's decision (D3/D4); None when no
         decision is available or no battery is controllable."""
-        if decision is None or not self._battery_give_way_available():
+        battery_selected = self.config.load_balancing.auto_include_devices or any(
+            entry.kind == "battery" for entry in self.config.load_balancing.give_way_order
+        )
+        if decision is None or not self._battery_give_way_available() or not battery_selected:
             self._battery_cap_w = None
             return None
         unit, step, minimum = self._battery_charge_limits()
@@ -4167,6 +4186,12 @@ class ExecutorEngine:
 
         charger_ids: list[str] = list(balancer_outputs_by_id.keys())
         for charger_id in {**self._ev_surplus_status, **self._ev_phase_controllers}:
+            if (
+                not self.config.load_balancing.auto_include_devices
+                and charger_id not in balancer_outputs_by_id
+                and charger_id not in self._ev_surplus_status
+            ):
+                continue
             if charger_id not in charger_ids:
                 charger_ids.append(charger_id)
 
@@ -4247,6 +4272,10 @@ class ExecutorEngine:
             "tick_interval_s": self.config.interval_seconds,
             "phase_current_a": status.phase_current_a,
             "phase_headroom_a": status.phase_headroom_a,
+            "phase_heat_percent": status.phase_heat_percent,
+            "phase_heat_state": status.phase_heat_state,
+            "heat_sampled_at": status.heat_sampled_at,
+            "fuse_safety_percent": status.fuse_safety_percent,
             "measured_surplus_kw": self._last_measured_surplus_kw,
             "ev": ev_list,
             "shed": [

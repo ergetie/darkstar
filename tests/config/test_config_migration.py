@@ -1145,23 +1145,25 @@ class TestBindMountExdevPath:
                 raise OSError(_errno.EXDEV, "cross-device link")
             return real_replace(self, target)
 
-        copy2_calls: list = []
-        real_copy2 = _shutil.copy2
+        copyfile_calls: list = []
+        real_copyfile = _shutil.copyfile
 
-        def spy_copy2(src, dst, **kwargs):
-            copy2_calls.append((src, dst))
-            return real_copy2(src, dst, **kwargs)
+        def spy_copyfile(src, dst, **kwargs):
+            copyfile_calls.append((src, dst))
+            return real_copyfile(src, dst, **kwargs)
 
         import backend.config_migration as cm
 
         monkeypatch.setattr(cm.Path, "replace", patched_replace)
-        monkeypatch.setattr(cm.shutil, "copy2", spy_copy2)
+        monkeypatch.setattr(cm.shutil, "copyfile", spy_copyfile)
 
         _write_config(config_file, config_data, yaml_instance, strict_validation=False)
 
-        config_copy2_calls = [call for call in copy2_calls if str(call[1]) == str(config_file)]
+        config_copyfile_calls = [
+            call for call in copyfile_calls if str(call[1]) == str(config_file)
+        ]
         assert replace_call_count[0] == 1
-        assert len(config_copy2_calls) == 1
+        assert len(config_copyfile_calls) == 1
         assert config_file.with_suffix(".yaml.bak").exists()
 
 

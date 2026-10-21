@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Spec: Fuse Overload Timing
+
+## Purpose
+
+Defines per-phase thermal fuse protection, preset and custom time-current curves, cooling gates, configuration and settings for load balancing.
+
+## Requirements
 
 ### Requirement: Time-based fuse overload model
 The fuse heat model SHALL be the default implementation of the pluggable reduction trigger of `phase-load-balancing` ("Reduction triggering is pluggable"). It SHALL decide from per-phase accumulated heat against a fuse time-current curve when any controlled load must give way, and SHALL be the only place overload is detected (no instant trigger, pause delay or severe-overload threshold remains). Heat SHALL be measured against `main_fuse_a`.
@@ -240,3 +246,53 @@ The load-balancing settings UI SHALL follow `docs/design-system/AI_GUIDELINES.md
 #### Scenario: Removed fields gone
 - **WHEN** the section is displayed
 - **THEN** it SHALL NOT show a pause delay or an immediate-pause field
+
+
+### Requirement: Live fuse characteristic graph
+The Overload Handling section SHALL show a responsive, accessible live characteristic graph for every preset, with logarithmic axes and labelled fuse-trip and safety-scaled cold-start threshold curves matching the executor model. It SHALL explain approximation and response limits.
+
+#### Scenario: Curve axes and model agreement
+- **WHEN** any preset is selected
+- **THEN** logarithmic axes SHALL show current as a multiple of rated fuse current, and time in seconds
+- **AND** the labelled curves SHALL use the executor's anchors and log-log interpolation
+- **AND** the graph SHALL NOT imply guaranteed fuse protection
+
+#### Scenario: Unsaved curve edits
+- **WHEN** the user changes preset, safety percentage or custom points before saving
+- **THEN** the preview SHALL immediately reflect those inputs and the preset-dependent safety default when safety is unset
+- **AND** invalid or incomplete custom points or safety values SHALL show an explanation instead of an invalid curve
+
+#### Scenario: Approximation and thermal history
+- **WHEN** the graph is displayed
+- **THEN** the safety-scaled curve SHALL be labelled as a cold-start threshold at constant current
+- **AND** the UI SHALL explain that retained heat from repeated overloads can cause earlier intervention and that actual response depends on sensor updates, executor timing and equipment
+- **AND** preset curves SHALL disclose graph-derived approximately ±30% accuracy and the assumed first/instantaneous anchors and extension rules
+- **AND** no finite timed-heating curve SHALL be drawn below the first timed point
+
+### Requirement: Live estimated fuse heat
+The load-balancing status views SHALL show per-phase estimated fuse heat alongside phase current, the configured intervention threshold, model-reported heat state and a plain explanation of heat-related holds. Heat SHALL be labelled as estimated, not measured temperature. Settings SHALL distinguish the ramp-up target from the heat intervention threshold.
+
+#### Scenario: Independent phase trends
+- **WHEN** heat rises on L1, falls on L2 and stays constant on L3 during a model evaluation
+- **THEN** status SHALL report heating, cooling and holding (or cold at zero) respectively, and each phase SHALL show its own heat bar, percentage and intervention marker
+- **AND** an idle balancer accumulating heat SHALL say it is monitoring an overload rather than reporting within limits
+
+#### Scenario: Sensor and executor freshness
+- **WHEN** a phase reading is stale or the heat evaluation timestamp stops advancing beyond the status freshness window
+- **THEN** the UI SHALL retain the last heat percentage, mark the affected estimate stale and frozen, and SHALL NOT imply ongoing heating or cooling
+- **AND** missing telemetry SHALL be unavailable rather than fabricated as zero heat
+
+#### Scenario: Heat hold explanation
+- **WHEN** an EV, battery or shed restore is held by its heat cooling gate
+- **THEN** the status SHALL explain that increasing or restoring requires heat below 50%, without implying that other room, pacing or minimum-off conditions no longer apply
+
+#### Scenario: Clear settings and compact presentation
+- **WHEN** the user reviews load-balancing settings
+- **THEN** the percentage controls SHALL be labelled “Ramp-up target (% of fuse rating)” and “Intervene at (% of estimated fuse heat)”
+- **AND** the characteristic graph SHALL sit beside a concise explanation on wider screens and stack on small screens, with assumptions behind a collapsed technical-details disclosure
+
+#### Scenario: Integrated phase rows with optional explanation
+- **WHEN** either status view displays live heat telemetry
+- **THEN** each phase SHALL appear once, grouping its current bar and smaller heat bar with percentage and trend
+- **AND** redundant heat summaries SHALL be omitted and explanations SHALL be in a collapsed accessible disclosure
+- **AND** stale readings SHALL override the within-limits headline without marking other fresh phases stale

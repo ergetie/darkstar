@@ -46,37 +46,32 @@ function renderEditor({
 }
 
 describe('healOrderForDisplay', () => {
-    it('appends a missing charger after the last charger entry', () => {
+    it('does not insert configured devices absent from explicit selection', () => {
+        expect(healOrderForDisplay([], ['a', 'b'], ['wh'], true)).toEqual([])
+    })
+    it('drops stale and duplicate entries while preserving selected order', () => {
         expect(
             healOrderForDisplay(
                 [
-                    { kind: 'charger', id: 'a' },
+                    { kind: 'charger', id: 'gone' },
                     { kind: 'shed', id: 'wh' },
+                    { kind: 'charger', id: 'a' },
+                    { kind: 'charger', id: 'a' },
                 ],
-                ['a', 'b'],
+                ['a'],
                 ['wh'],
             ),
         ).toEqual([
-            { kind: 'charger', id: 'a' },
-            { kind: 'charger', id: 'b' },
             { kind: 'shed', id: 'wh' },
-        ])
-    })
-
-    it('drops dangling entries and appends missing sheds at the end', () => {
-        expect(healOrderForDisplay([{ kind: 'charger', id: 'gone' }], ['a'], ['wh'])).toEqual([
             { kind: 'charger', id: 'a' },
-            { kind: 'shed', id: 'wh' },
         ])
     })
 })
 
 describe('healOrderForDisplay battery', () => {
-    it('appends the battery at the end when available', () => {
+    it('does not insert an unselected battery even when available', () => {
         expect(healOrderForDisplay([{ kind: 'charger', id: 'a' }], ['a'], ['wh'], true)).toEqual([
             { kind: 'charger', id: 'a' },
-            { kind: 'shed', id: 'wh' },
-            { kind: 'battery', id: 'battery' },
         ])
     })
 
@@ -115,7 +110,10 @@ describe('healOrderForDisplay battery', () => {
 
 describe('GiveWayListEditor battery entry', () => {
     it('renders the house battery entry', () => {
-        renderEditor({ config: { ...CONFIG, system: { has_battery: true } } })
+        renderEditor({
+            config: { ...CONFIG, system: { has_battery: true } },
+            order: [{ kind: 'battery', id: 'battery' }],
+        })
         expect(screen.getByText('House battery (grid charging)')).toBeInTheDocument()
     })
 
@@ -126,18 +124,17 @@ describe('GiveWayListEditor battery entry', () => {
 })
 
 describe('GiveWayListEditor', () => {
-    it('auto-lists dynamic-current chargers with a capability line and EV-tab link', () => {
+    it('lists selected dynamic-current chargers with a capability line and EV-tab link', () => {
         renderEditor()
         expect(screen.getByText('Garage EV')).toBeInTheDocument()
         expect(screen.getByText('Throttle 16 → 6 A, then pause')).toBeInTheDocument()
         expect(screen.getByRole('link', { name: /Configured in EV tab/ })).toHaveAttribute('href', '/settings?tab=ev')
     })
 
-    it('charger rows are not removable; shed rows are', () => {
+    it('charger and shed rows are removable', () => {
         renderEditor()
-        // Only the shed row has a remove button
         expect(screen.getByLabelText('Remove Main Tank')).toBeInTheDocument()
-        expect(screen.queryByLabelText('Remove Garage EV')).not.toBeInTheDocument()
+        expect(screen.getByLabelText('Remove Garage EV')).toBeInTheDocument()
     })
 
     it('shed rows show the switch-off capability line', () => {
@@ -161,6 +158,8 @@ describe('GiveWayListEditor', () => {
             loads: [],
         })
         fireEvent.click(screen.getByRole('button', { name: /Add Load/ }))
+        fireEvent.change(screen.getByLabelText('Load to add'), { target: { value: 'on_off' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Add selected load' }))
         expect(onChangeLoads).toHaveBeenCalledWith([
             { device_type: 'water_heater', device_id: 'main_tank', phases: [] },
         ])
@@ -195,9 +194,9 @@ describe('GiveWayListEditor', () => {
         expect(optionValues).not.toContain('goe')
     })
 
-    it('shows a missing charger even when absent from the stored order (display self-heal)', () => {
+    it('keeps a configured charger excluded when absent from the stored order)', () => {
         renderEditor({ order: [{ kind: 'shed', id: 'main_tank' }] })
-        expect(screen.getByText('Garage EV')).toBeInTheDocument()
+        expect(screen.queryByText('Garage EV')).not.toBeInTheDocument()
     })
 
     it('shows an empty-state message naming water heater/custom entity when no charger or load exists', () => {

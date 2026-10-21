@@ -6,7 +6,8 @@
 export const fieldAliases: Record<string, string[]> = {
     'installation_stats.enabled': ['telemetry', 'heartbeat', 'privacy', 'installation reporting', 'usage statistics'],
     'installation_stats.endpoint': ['telemetry', 'receiver url', 'custom endpoint'],
-    'system.grid.main_fuse_a': ['breaker', 'circuit breaker', 'fuse size', 'amps'],
+    'system.grid.main_fuse_a': ['breaker', 'circuit breaker', 'fuse size', 'amps', 'main fuse rating'],
+    'load_balancing.protected_fuse_a': ['protected fuse', 'downstream fuse', 'breaker', 'fuse rating'],
     'system.grid.max_power_kw': ['import limit', 'grid limit'],
     'battery.min_soc_percent': ['battery floor', 'reserve', 'state of charge'],
     'battery.max_soc_percent': ['battery ceiling', 'state of charge'],

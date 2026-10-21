@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from tests.executor.fake_relief import InstantRelief
+
 from executor.config import LoadBalancingConfig
 from executor.load_balancer import (
     BatteryBalancerInput,
@@ -55,7 +57,8 @@ def _tick(lb: LoadBalancer, now: datetime, currents: dict[int, float], entries):
 class TestBatteryGiveWay:
     def test_reported_20a_fuse_24a_phase_cuts_4a_on_three_phases(self):
         """Washing machine pushes L1 to 24 A during 10 kW grid charging."""
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(lb, T0, {1: 24.0, 2: 16.0, 3: 16.0}, [_battery()])
         out = status.battery_output
         assert out is not None
@@ -65,7 +68,8 @@ class TestBatteryGiveWay:
         assert status.state == "throttling"
 
     def test_entries_below_see_no_remaining_deficit(self):
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(
             lb,
             T0,
@@ -76,17 +80,20 @@ class TestBatteryGiveWay:
         assert status.shed_outputs[0].shed is False
 
     def test_single_phase_overload_spread_over_three_phases(self):
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(lb, T0, {1: 10.0, 2: 23.0, 3: 10.0}, [_battery()])
         assert status.battery_output.cap_w == pytest.approx(10000 - 3 * V * 3)
 
     def test_cut_limited_to_reducible_grid_share(self):
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(lb, T0, {1: 24.0, 2: 16.0, 3: 16.0}, [_battery(reducible_w=1000.0)])
         assert status.battery_output.cap_w == pytest.approx(9000.0)
 
     def test_entry_above_absorbs_deficit(self):
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         ev = EVBalancerInput(
             charger_id="ev",
             phases=[1, 2, 3],
@@ -101,19 +108,22 @@ class TestBatteryGiveWay:
         assert status.battery_output.state == "idle"
 
     def test_non_charge_intent_ignored(self):
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(lb, T0, {1: 24.0, 2: 16.0, 3: 16.0}, [_battery(active=False)])
         assert status.battery_output.state == "idle"
         assert status.battery_output.cap_w == 10000
 
     def test_zero_import_not_reduced(self):
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(lb, T0, {1: 24.0, 2: 16.0, 3: 16.0}, [_battery(reducible_w=0.0)])
         assert status.battery_output.cap_w == 10000
         assert status.battery_output.state == "idle"
 
     def test_cut_below_minimum_pauses(self):
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(
             lb,
             T0,
@@ -125,7 +135,8 @@ class TestBatteryGiveWay:
         assert status.state == "paused"
 
     def test_shed_above_holds_battery_for_relief(self):
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(
             lb,
             T0,
@@ -137,7 +148,8 @@ class TestBatteryGiveWay:
 
     def test_battery_cut_holds_shed_below_for_one_tick(self):
         """Battery relief is folded and lower entries hold while it is measured."""
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(
             lb,
             T0,
@@ -156,7 +168,8 @@ class TestBatteryRampAndRestore:
         return status
 
     def test_ramp_back_after_hold_off_and_never_above_plan(self):
-        lb = LoadBalancer(_cfg(increase_step_a=5))
+        cfg = _cfg(increase_step_a=5)
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(lb, T0, {1: 24.0, 2: 16.0, 3: 16.0}, [_battery()])
         cap = status.battery_output.cap_w
         quiet = {1: 8.0, 2: 8.0, 3: 8.0}
@@ -175,7 +188,8 @@ class TestBatteryRampAndRestore:
         assert status.battery_output.state == "idle"
 
     def test_paused_battery_blocks_restore_of_shed_above(self):
-        lb = LoadBalancer(_cfg(resume_delay_s=0))
+        cfg = _cfg(resume_delay_s=0)
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         over = {1: 30.0, 2: 16.0, 3: 16.0}
 
         def entries(cap):
@@ -197,7 +211,8 @@ class TestBatteryRampAndRestore:
         assert status.shed_outputs[0].shed is True
 
     def test_paused_battery_resumes_after_confirm(self):
-        lb = LoadBalancer(_cfg(ramp_up_window_s=0))
+        cfg = _cfg(ramp_up_window_s=0)
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(
             lb, T0, {1: 24.0, 2: 16.0, 3: 16.0}, [_battery(planned_w=2000.0, min_w=2000.0)]
         )
@@ -224,7 +239,8 @@ class TestBatteryStale:
     def test_stale_phase_forces_minimum_charge(self):
         """Same ladder as the EV: the cap drops to the profile minimum at once,
         whatever the (untrusted) stale reading says."""
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         stale_at = {1: T0 - timedelta(seconds=120), 2: T0, 3: T0}
         status = lb.tick(
             T0, {1: 30.0, 2: 16.0, 3: 16.0}, stale_at, [_battery(applied_cap_w=6000.0)]
@@ -240,7 +256,8 @@ class TestBatteryStale:
 
 class TestBatteryOrdering:
     def test_battery_below_shed_and_charger(self):
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         ev = EVBalancerInput(
             charger_id="ev",
             phases=[1],
@@ -250,10 +267,12 @@ class TestBatteryOrdering:
             max_current_a=16,
         )
         status = _tick(lb, T0, {1: 24.0, 2: 16.0, 3: 16.0}, [ev, _battery()])
-        # Charger at its floor cannot absorb: battery cuts the deficit.
-        assert status.battery_output.cap_w == pytest.approx(10000 - 4 * V * 3)
+        # Charger at its floor pauses immediately; the battery waits for its relief.
+        assert status.ev_outputs[0].state == "paused"
+        assert status.battery_output.cap_w == 10000
 
     def test_no_battery_entry_no_output(self):
-        lb = LoadBalancer(_cfg())
+        cfg = _cfg()
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = _tick(lb, T0, {1: 10.0, 2: 10.0, 3: 10.0}, [])
         assert status.battery_output is None

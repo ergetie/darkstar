@@ -1,4 +1,5 @@
 import { BaseField } from './types'
+import { defaultFusePoints } from './fuseCurve'
 
 function displayScaledNumber(value: number, scale: number): number {
     return Number((value * scale).toPrecision(15))
@@ -79,6 +80,7 @@ export function parseFieldInput(field: BaseField, raw: string): unknown {
     if (
         field.type === 'solar_arrays' ||
         field.type === 'entity_array' ||
+        field.type === 'fuse_curve' ||
         field.type === 'balanced_loads' ||
         field.type === 'give_way_list' ||
         field.type === 'excess_pv_priority' ||
@@ -111,12 +113,17 @@ export function buildFormState(config: Record<string, unknown> | null, fields: B
         if (field.type === 'number' && field.displayScale && typeof value === 'number') {
             state[field.key] = String(displayScaledNumber(value, field.displayScale))
         } else if (field.type === 'boolean') {
-            state[field.key] = value === true ? 'true' : 'false'
+            state[field.key] = (field.key === 'load_balancing.auto_include_devices' ? value !== false : value === true)
+                ? 'true'
+                : 'false'
         } else if (field.type === 'array' && Array.isArray(value)) {
             state[field.key] = value.join(', ')
+        } else if (field.type === 'fuse_curve' && (value === undefined || value === null)) {
+            state[field.key] = JSON.stringify(defaultFusePoints)
         } else if (
             field.type === 'solar_arrays' ||
             field.type === 'entity_array' ||
+            field.type === 'fuse_curve' ||
             field.type === 'balanced_loads' ||
             field.type === 'give_way_list' ||
             field.type === 'excess_pv_priority' ||
@@ -142,6 +149,9 @@ export function buildFormState(config: Record<string, unknown> | null, fields: B
  * Checks if two values are equal for the purposes of configuration patching.
  */
 export function areEqual(a: unknown, b: unknown, type: string): boolean {
+    if (type === 'fuse_curve') {
+        return JSON.stringify(a ?? defaultFusePoints) === JSON.stringify(b ?? defaultFusePoints)
+    }
     // Null/Undefined equivalence (covers missing keys vs explicitly null/empty)
     if ((a === null || a === undefined) && (b === null || b === undefined)) return true
 
@@ -164,6 +174,7 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
         type !== 'array' &&
         type !== 'solar_arrays' &&
         type !== 'entity_array' &&
+        type !== 'fuse_curve' &&
         type !== 'balanced_loads' &&
         type !== 'give_way_list' &&
         type !== 'excess_pv_priority' &&
@@ -187,6 +198,7 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
     if (
         type === 'solar_arrays' ||
         type === 'entity_array' ||
+        type === 'fuse_curve' ||
         type === 'balanced_loads' ||
         type === 'give_way_list' ||
         type === 'excess_pv_priority' ||
@@ -257,6 +269,8 @@ export function listChangedFields(
         }
 
         const raw = form[field.key]
+        // This compatibility flag is changed only when the give-way editor chooses explicit selection.
+        if (field.key === 'load_balancing.auto_include_devices' && raw !== 'false') return
         if (raw === undefined) return
 
         const currentValue = getDeepValue<unknown>(original, field.path)
@@ -330,6 +344,8 @@ export function buildPatch(
         }
 
         const raw = form[field.key]
+        // This compatibility flag is changed only when the give-way editor chooses explicit selection.
+        if (field.key === 'load_balancing.auto_include_devices' && raw !== 'false') return
         if (raw === undefined) return
 
         const currentValue = getDeepValue<unknown>(original, field.path)
@@ -363,6 +379,9 @@ export function buildPatch(
         patch = setDeepValueCorrect(patch, field.path, parsed)
     })
 
+    if (getDeepValue<unknown>(patch, ['load_balancing', 'give_way_order']) !== undefined) {
+        patch = setDeepValueCorrect(patch, ['load_balancing', 'auto_include_devices'], false)
+    }
     return patch
 }
 

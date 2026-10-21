@@ -27,6 +27,7 @@ from executor.engine import ExecutorEngine
 from executor.load_balancer import BatteryBalancerOutput, LoadBalancerStatus
 from executor.override import SystemState
 from executor.profiles import load_profile
+from tests.executor.fake_relief import InstantRelief
 
 TZ = pytz.timezone("Europe/Stockholm")
 T0 = TZ.localize(datetime(2026, 6, 1, 12, 0, 0))
@@ -181,6 +182,7 @@ class TestCapApplication:
 class TestBalancerInput:
     def test_reported_scenario_end_to_end(self, engine):
         """Deye 185 A (8.88 kW) grid charge, L1 at 24 A on a 20 A fuse."""
+        engine._load_balancer._relief_trigger = InstantRelief(engine.config.load_balancing)
         engine._battery_cap_w = 8880.0
         decision = charge_decision(185.0)
         status = engine._run_load_balancer(_state(), None, T0, decision)
@@ -238,3 +240,17 @@ class TestStatusPayload:
     def test_battery_none_when_disabled(self, engine):
         engine._last_balancer_status = None
         assert engine.get_load_balancer_status()["battery"] is None
+
+
+def test_removed_battery_clears_cap_and_keeps_scheduled_charge(engine):
+    engine.config.load_balancing.auto_include_devices = False
+    engine.config.load_balancing.give_way_order = []
+    engine._battery_cap_w = 500.0
+    decision = charge_decision(100)
+    state = SystemState(current_import_kw=5.0, current_battery_charge_kw=5.0)
+    status = engine._run_load_balancer(state, None, T0, decision)
+    assert status.battery_output is None
+    assert engine._battery_cap_w is None
+    engine._apply_battery_cap(decision, status)
+    assert decision.charge_value == 100
+    assert engine.config.load_balancing.give_way_order == []

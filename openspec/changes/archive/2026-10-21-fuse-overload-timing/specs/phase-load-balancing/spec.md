@@ -1,7 +1,12 @@
 ## MODIFIED Requirements
 
 ### Requirement: Per-phase headroom computation
-When load balancing is enabled, the executor SHALL compute per-phase headroom on every tick as `main_fuse_a − measured_grid_current_a` for each of L1, L2, L3, after applying `load_balancing.phase_sign` and clamping export to 0 A (see "Phase readings follow a sign convention"). The binding headroom for a load SHALL be the minimum headroom across the phases that load draws on.
+When load balancing is enabled, the executor SHALL compute per-phase headroom on every tick as `main_fuse_a − measured_grid_current_a` for each of L1, L2, L3, after applying `load_balancing.phase_sign` and clamping export to 0 A (see "Phase readings follow a sign convention"). The binding headroom for a selected load SHALL be the minimum headroom across the phases it draws on.
+
+#### Scenario: Protected-fuse measurement boundary
+- **WHEN** the user configures phase sensors
+- **THEN** legacy measurement key names SHALL represent current through the selected protected fuse, which may be a grid connection or house supply
+- **AND** selected give-way loads SHALL be loads whose reduction lowers current through that fuse
 
 #### Scenario: Unbalanced house load limits one phase
 - **WHEN** `main_fuse_a` is 20 and measured grid currents are L1=18 A, L2=5 A, L3=5 A
@@ -226,7 +231,11 @@ When a charger is at its minimum current (`min_current_a`, default 6 A, the IEC 
 - **AND** `resume_delay_s` SHALL NOT gate the re-fit
 
 ### Requirement: 1-phase relief step in the degradation ladder
-This requirement applies to a `type: current` charger with phase switching enabled, a configured `phase_mode_entity` and a non-failed phase controller. When a phase it draws on needs relief (see "Reduction triggering is pluggable"), the balancer SHALL degrade in this order: first reduce the ampere setpoint immediately (the existing throttle); second request 1-phase mode from the phase controller, but only if all eligibility conditions in the scenarios below hold; third pause (see "Pause below minimum current with anti-flap resume").
+The balancer SHALL apply the degradation ladder below when a charger phase needs relief (see "Reduction triggering is pluggable").
+
+#### Scenario: Ladder applicability and order
+- **WHEN** the balancer evaluates this behavior
+- **THEN** This requirement applies to a `type: current` charger with phase switching enabled, a configured `phase_mode_entity` and a non-failed phase controller. When a phase it draws on needs relief (see "Reduction triggering is pluggable"), the balancer SHALL degrade in this order: first reduce the ampere setpoint immediately (the existing throttle); second request 1-phase mode from the phase controller, but only if all eligibility conditions in the scenarios below hold; third pause (see "Pause below minimum current with anti-flap resume").
 
 #### Scenario: Floor heating on L3 moves the car to L1 when the goal is at risk
 - **WHEN** the charger runs 3-phase at 6 A with `phase_1_line: 1`
@@ -327,8 +336,11 @@ A shed entry in `give_way_order` SHALL give way by switching its load off once e
 - **AND** a paused charger SHALL resume per the quick re-fit rules of "Pause below minimum current with anti-flap resume"
 
 ### Requirement: Ramp-up hold-off after a setpoint reduction
+After a setpoint reduction, EV increases SHALL wait for the worst charger phase to cool below 50% fuse heat (see `fuse-overload-timing` "Restore after cooling") and pass the shared room gate and adaptive step pacing.
 
-After the balancer reduces an EV charger's setpoint for any reason (throttle, floor degrade, 1-phase relief), it SHALL NOT increase that charger's setpoint until the worst phase the charger draws on has cooled below 50% fuse heat (see `fuse-overload-timing` "Restore after cooling"). This is an additional condition: the increase SHALL also pass adaptive step pacing and the shared room gate (see "Coordinated increases with a pending-increase ledger"), and all three SHALL hold. `ramp_up_window_s` remains only the averaging window for increases and SHALL NOT delay an increase by itself. Reductions SHALL NOT be delayed by the hold-off. The hold-off SHALL be cleared when the charger's plan ends or it is paused.
+#### Scenario: Cooling hold-off scope and lifecycle
+- **WHEN** the balancer evaluates this behavior
+- **THEN** After the balancer reduces an EV charger's setpoint for any reason (throttle, floor degrade, 1-phase relief), it SHALL NOT increase that charger's setpoint until the worst phase the charger draws on has cooled below 50% fuse heat (see `fuse-overload-timing` "Restore after cooling"). This is an additional condition: the increase SHALL also pass adaptive step pacing and the shared room gate (see "Coordinated increases with a pending-increase ledger"), and all three SHALL hold. `ramp_up_window_s` remains only the averaging window for increases and SHALL NOT delay an increase by itself. Reductions SHALL NOT be delayed by the hold-off. The hold-off SHALL be cleared when the charger's plan ends or it is paused.
 
 #### Scenario: New house load does not cause a sawtooth
 - **WHEN** a water heater starts on L3 and the balancer reduces the charger from 10 A to 8 A at 12:39:20
@@ -368,7 +380,11 @@ When `give_way_order` contains a `battery` entry, the balancer SHALL treat batte
 - **THEN** the battery cap SHALL stay unchanged
 
 ### Requirement: Battery charge ramps back after relief
-After a reduction, battery raises SHALL wait until the worst battery phase has cooled below 50% fuse heat (see `fuse-overload-timing` "Restore after cooling"). This is an additional condition to the shared room gate and adaptive step pacing, not a replacement: all raises, including plan step-ups, SHALL use the shared room gate, at most `increase_step_a` per phase per granted step, within the averaged `target_margin_percent` and never above plan. `ramp_up_window_s` remains only the averaging window. A paused battery SHALL restore in reverse list order under "Battery resume uses escalating back-off and a target margin".
+After a reduction, battery raises SHALL wait for the worst battery phase to cool below 50% fuse heat, pass the shared room gate and adaptive step pacing, and stay within plan and the averaged target margin.
+
+#### Scenario: Battery increase and restore conditions
+- **WHEN** the balancer evaluates this behavior
+- **THEN** After a reduction, battery raises SHALL wait until the worst battery phase has cooled below 50% fuse heat (see `fuse-overload-timing` "Restore after cooling"). This is an additional condition to the shared room gate and adaptive step pacing, not a replacement: all raises, including plan step-ups, SHALL use the shared room gate, at most `increase_step_a` per phase per granted step, within the averaged `target_margin_percent` and never above plan. `ramp_up_window_s` remains only the averaging window. A paused battery SHALL restore in reverse list order under "Battery resume uses escalating back-off and a target margin".
 
 #### Scenario: Relief after the washing machine stops
 - **WHEN** the battery was throttled, the averaged L1 current has dropped well below the target margin and the worst battery phase has cooled below 50% heat
@@ -420,7 +436,11 @@ The balancer SHALL steer every phase a balanced load draws on toward `target_mar
 - **AND** reductions SHALL continue to be triggered only by the reduction trigger (see "Reduction triggering is pluggable"), which is measured against `main_fuse_a` and not the target margin; the target margin is only the level a triggered reduction brings the phase down to
 
 ### Requirement: Reduction triggering is pluggable
-The decision that a phase needs relief (overload detection) SHALL be isolated behind a single trigger consumed by all reduction paths: EV throttle, floor degrade, 1-phase relief request, pause, battery cut, shed and the urgent bypass of the hold for unmeasured relief. It SHALL be evaluated once per phase per tick from the momentary reading, its freshness and the tick time, and SHALL return the amount of relief in amperes and whether it is urgent. No other code path SHALL compare readings with the fuse rating or apply an overload delay. The trigger MAY keep per-phase state and SHALL expose whether a set of phases has cooled enough to allow increases and restores. The default trigger is the time-based fuse model of `fuse-overload-timing`. Replacing it SHALL NOT change the ledger, the room gate, step pacing, the fresh-sample guard or the give-way ladder.
+A single stateful reduction trigger SHALL govern all overload reductions and expose whether phases have cooled enough for increases and restores. The default SHALL be the time-based fuse model of `fuse-overload-timing`.
+
+#### Scenario: Shared trigger contract
+- **WHEN** the balancer evaluates this behavior
+- **THEN** The decision that a phase needs relief (overload detection) SHALL be isolated behind a single trigger consumed by all reduction paths: EV throttle, floor degrade, 1-phase relief request, pause, battery cut, shed and the urgent bypass of the hold for unmeasured relief. It SHALL be evaluated once per phase per tick from the momentary reading, its freshness and the tick time, and SHALL return the amount of relief in amperes and whether it is urgent. No other code path SHALL compare readings with the fuse rating or apply an overload delay. The trigger MAY keep per-phase state and SHALL expose whether a set of phases has cooled enough to allow increases and restores. The default trigger is the time-based fuse model of `fuse-overload-timing`. Replacing it SHALL NOT change the ledger, the room gate, step pacing, the fresh-sample guard or the give-way ladder.
 
 #### Scenario: Trigger swapped
 - **WHEN** a different trigger is supplied

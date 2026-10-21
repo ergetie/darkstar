@@ -10,14 +10,17 @@ import logging
 import math
 import statistics
 from collections import deque
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from backend.core.ev_power import DEFAULT_NOMINAL_VOLTAGE_V
 
 from .config import LoadBalancingConfig
+from .fuse_model import FuseHeatModel, FuseHeatState, Relief
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -86,31 +89,11 @@ BATTERY_FLAP_KEY = "__battery__"
 BALANCER_TRACE_TICKS = 600
 
 
-@dataclass(frozen=True)
-class Relief:
-    """Relief one phase needs this tick: amperes to shed and whether the
-    reduction must not wait (severe overload)."""
-
-    amount_a: float = 0.0
-    urgent: bool = False
-
-
-def relief_needed(momentary_a: float, main_fuse_a: float, severe_percent: float) -> Relief:
-    """Default overload trigger (coordinated-ramping D15): instant threshold.
-
-    A phase needs relief as soon as its momentary reading exceeds the fuse
-    rating; it is urgent above severe_overload_percent. This is the only
-    place overload is detected — a proportional timing model can replace it
-    (see `LoadBalancer(relief_trigger=...)`) without touching the ledger, the
-    room gate or the give-way ladder.
-    """
-    excess = momentary_a - main_fuse_a
-    if excess <= 0:
-        return Relief()
-    return Relief(excess, momentary_a > main_fuse_a * severe_percent / 100.0)
-
-
-ReliefTrigger = Callable[[float, float, float], Relief]
+class ReliefTrigger(Protocol):
+    def relief_needed(
+        self, phase: int, momentary_a: float, now: datetime, stale: bool
+    ) -> Relief: ...
+    def cooled(self, phases: list[int]) -> bool: ...
 
 
 @dataclass
@@ -381,6 +364,10 @@ class LoadBalancerStatus:
     ev_outputs: list[EVBalancerOutput] = field(default_factory=lambda: [])
     shed_outputs: list[ShedLoadOutput] = field(default_factory=lambda: [])
     battery_output: BatteryBalancerOutput | None = None
+    phase_heat_percent: dict[int, float] = field(default_factory=lambda: {})
+    fuse_safety_percent: float | None = None
+    phase_heat_state: dict[int, FuseHeatState] = field(default_factory=lambda: {})
+    heat_sampled_at: str | None = None
 
 
 class LoadBalancer:
@@ -417,10 +404,17 @@ class LoadBalancer:
     `relief_needed` trigger.
     """
 
-    def __init__(self, config: LoadBalancingConfig, relief_trigger: ReliefTrigger | None = None):
-        self.config = config
-        # The single place overload is detected (D15); see relief_needed().
-        self._relief_trigger: ReliefTrigger = relief_trigger or relief_needed
+    def __init__(
+        self,
+        config: LoadBalancingConfig,
+        relief_trigger: ReliefTrigger | None = None,
+        interval_seconds: float = 300,
+    ):
+        self._config = config
+        self._selection_signature = tuple((e.kind, e.id) for e in config.give_way_order)
+        self._interval_seconds = interval_seconds
+        self._fuse_model = FuseHeatModel(config, interval_seconds)
+        self._relief_trigger: ReliefTrigger = relief_trigger or self._fuse_model
         self._ev_paused_at: dict[str, datetime] = {}
         self._ev_stale_since: dict[str, datetime] = {}
         # Currently-shed loads: load_id -> shed timestamp (+ human reason).
@@ -429,8 +423,6 @@ class LoadBalancer:
         self._shed_reason: dict[str, str] = {}
         self._switch_on_at: dict[str, datetime] = {}
         self._plan_switch_seen: set[str] = set()
-        # Charger at its floor with negative headroom since (pause debounce).
-        self._ev_overload_since: dict[str, datetime] = {}
         # Phases each charger drew on last tick (detects a phase-set expansion,
         # e.g. the return from 1-phase to 3-phase).
         self._ev_last_phases: dict[str, frozenset[int]] = {}
@@ -446,10 +438,9 @@ class LoadBalancer:
         self._ev_fit_1p_since: dict[str, datetime] = {}
         self._ev_last_refit_at: dict[str, datetime] = {}
         self._ev_refit_level: dict[str, int] = {}
-        # Ramp-up hold-off: when each charger's setpoint was last reduced
-        # (throttle, floor degrade, 1-phase relief). No raise for
-        # ramp_up_window_s after it, so the averaged window first flushes
-        # the pre-reduction samples. Cleared on plan end and pause.
+        # Reduction markers: after throttle, floor degrade or 1-phase relief,
+        # raises additionally wait for the affected fuse phases to cool.
+        # Cleared on plan end and pause.
         self._ev_reduced_at: dict[str, datetime] = {}
         # Battery grid charging (battery-load-balancing): when the cap was
         # last cut (ramp-up hold-off), when grid charging was paused, and
@@ -475,13 +466,67 @@ class LoadBalancer:
         self._tick_s = DEFAULT_TICK_S
         self._last_decisions: dict[str, tuple[str, str]] = {}
         # Tick-scoped state (reset every tick): this tick's relief per phase,
-        # the headroom pool, deferred ramp requests, charger debounce phases,
+        # the headroom pool, deferred ramp requests,
         # measured phase voltage.
         self._relief: dict[int, Relief] = {}
         self._pool: dict[int, float] = {}
         self._ramp_requests: dict[str, Callable[[], None]] = {}
-        self._debounce_phases: set[int] = set()
         self._voltage: dict[int, float] = {}
+
+    @property
+    def config(self) -> LoadBalancingConfig:
+        return self._config
+
+    @config.setter
+    def config(self, value: LoadBalancingConfig) -> None:
+        self._config = value
+        self._fuse_model.configure(value, self._interval_seconds)
+
+    def configure(self, config: LoadBalancingConfig, interval_seconds: float) -> None:
+        self._interval_seconds = interval_seconds
+        if not config.auto_include_devices:
+            signature = tuple((e.kind, e.id) for e in config.give_way_order)
+            if signature != self._selection_signature:
+                self._awaiting.clear()
+                self._awaiting_targets.clear()
+                self._awaiting_baseline.clear()
+                self._blocked_cut_phases.clear()
+            self._selection_signature = signature
+            selected = {(e.kind, e.id) for e in config.give_way_order}
+            for key in list(self._ledger.snapshot()):
+                kind, _, device_id = key.partition(":")
+                if (kind, device_id) not in selected and not (
+                    kind == "battery" and any(e.kind == "battery" for e in config.give_way_order)
+                ):
+                    self._ledger.clear(key)
+            selected_chargers = {e.id for e in config.give_way_order if e.kind == "charger"}
+            for attribute in (
+                "_ev_paused_at",
+                "_ev_stale_since",
+                "_ev_last_phases",
+                "_ev_fit_since",
+                "_ev_fit_1p_since",
+                "_ev_last_refit_at",
+                "_ev_refit_level",
+                "_ev_reduced_at",
+            ):
+                state = getattr(self, attribute)
+                for charger_id in list(state):
+                    if charger_id not in selected_chargers:
+                        state.pop(charger_id, None)
+            selected_sheds = {e.id for e in config.give_way_order if e.kind == "shed"}
+            for load_id in list(self._shed_at):
+                if load_id not in selected_sheds:
+                    self._shed_at.pop(load_id, None)
+                    self._shed_reason.pop(load_id, None)
+                    self._switch_on_at.pop(load_id, None)
+                    self._plan_switch_seen.discard(load_id)
+            if not any(e.kind == "battery" for e in config.give_way_order):
+                self._battery_reduced_at = None
+                self._battery_paused_at = None
+                self._battery_fit_since = None
+                self._battery_stale_since = None
+        self.config = config
 
     # --- Quick re-fit (D17) -----------------------------------------------
 
@@ -655,7 +700,7 @@ class LoadBalancer:
         return wanted_a if room + _AMPS_EPSILON >= wanted_a else 0.0
 
     def _urgent_phases(self, phases: list[int]) -> list[int]:
-        """Phases where the trigger demands an immediate, undebounced reduction."""
+        """Phases where the trigger demands an immediate reduction."""
         return [p for p in phases if (r := self._relief.get(p)) is not None and r.urgent]
 
     def three_phase_fits(
@@ -790,7 +835,7 @@ class LoadBalancer:
         still unmeasured (an entry above gave way this tick, or a cut on the
         phase is awaiting its response / already acted on this sample), so
         hold the current setpoint instead of reducing or pausing — unless the
-        trigger flags a binding phase urgent (above severe_overload_percent),
+        trigger flags a binding phase urgent (by the fuse heat model),
         which always pauses immediately (D16).
 
         Returns (output, is_stale, is_paused, is_throttling) — the three
@@ -802,7 +847,6 @@ class LoadBalancer:
         ]
 
         if stale_phases:
-            self._ev_overload_since.pop(ev.charger_id, None)
             # A re-fit needs an unbroken run of fresh readings (D17).
             self._clear_fit_timers(ev.charger_id)
             stale_since = self._ev_stale_since.setdefault(ev.charger_id, now)
@@ -844,10 +888,6 @@ class LoadBalancer:
         self._ev_stale_since.pop(ev.charger_id, None)
         binding_headroom = min(pool_headroom.get(p, main_fuse_a) for p in binding_phases)
 
-        if ev.current_setpoint_a is None or binding_headroom >= 0:
-            # Not drawing, or no longer overloaded: the pause debounce resets.
-            self._ev_overload_since.pop(ev.charger_id, None)
-
         if ev.current_setpoint_a is None:
             if ev.planner_target_a is None:
                 self._ev_paused_at.pop(ev.charger_id, None)
@@ -863,9 +903,7 @@ class LoadBalancer:
             start_headroom = self._room_a(binding_phases, now)
             start_headroom = 0.0 if start_headroom is None else start_headroom
             if start_headroom < ev.min_current_a:
-                if hold_for_relief and not self._severe_phases(
-                    binding_phases, phase_current, main_fuse_a
-                ):
+                if hold_for_relief and not self._urgent_phases(binding_phases):
                     # A higher-listed shed entry gave way this tick; don't
                     # start the pause clock before its relief is measured.
                     return (
@@ -917,20 +955,15 @@ class LoadBalancer:
             draw = min(
                 setpoint, ev.effective_draw_a if ev.effective_draw_a is not None else setpoint
             )
-            severe = (
-                self._severe_phases(binding_phases, phase_current, main_fuse_a)
-                if hold_for_relief
-                else []
-            )
-            if severe and not (set(binding_phases) & self._blocked_cut_phases):
-                # A severe overload outranks the hold for unmeasured shed
+            urgent = self._urgent_phases(binding_phases) if hold_for_relief else []
+            if urgent and not (set(binding_phases) & self._blocked_cut_phases):
+                # Urgent fuse relief outranks the hold for unmeasured shed
                 # relief: pause at once (D16). Without a hold, the normal
                 # reduce/degrade ladder below applies unchanged.
                 return self._pause_charging(
                     ev,
                     now,
-                    f"Phase(s) {severe} above {self.config.severe_overload_percent:g}% of the "
-                    f"{main_fuse_a}A fuse — pausing immediately",
+                    f"Phase(s) {urgent} require urgent fuse relief — pausing immediately",
                 )
             if (
                 hold_for_relief or set(binding_phases) & self._blocked_cut_phases
@@ -962,8 +995,7 @@ class LoadBalancer:
                 return self._degrade_at_floor(
                     ev, binding_phases, now, phase_current, pool_headroom, main_fuse_a
                 )
-            # Still above the floor: not a floor overload, no debounce running.
-            self._ev_overload_since.pop(ev.charger_id, None)
+            # A reduction above the floor keeps charging.
             return (
                 EVBalancerOutput(
                     ev.charger_id,
@@ -996,22 +1028,15 @@ class LoadBalancer:
                 False,
             )
 
-        reduced_at = self._ev_reduced_at.get(ev.charger_id)
-        if (
-            reduced_at is not None
-            and (now - reduced_at).total_seconds() < self.config.ramp_up_window_s
+        if self._ev_reduced_at.get(ev.charger_id) is not None and not self._relief_trigger.cooled(
+            binding_phases
         ):
-            # Ramp-up hold-off: the averaged window still holds samples from
-            # before the reduction, so it would under-read the new load.
             return (
                 EVBalancerOutput(
                     ev.charger_id,
                     setpoint,
                     "throttling",
-                    f"Holding {setpoint}A — reduced "
-                    f"{(now - reduced_at).total_seconds():.0f}s ago, waiting "
-                    f"{self.config.ramp_up_window_s}s before ramping toward "
-                    f"{ev.planner_target_a}A",
+                    f"Holding {setpoint}A — fuse heat must cool below 50%",
                 ),
                 False,
                 False,
@@ -1190,21 +1215,11 @@ class LoadBalancer:
         pool_headroom: dict[int, float],
         main_fuse_a: int,
     ) -> tuple[EVBalancerOutput, bool, bool, bool]:
-        """The overload cannot be absorbed above min_current_a.
-
-        Ladder: severe overload pauses at once; otherwise hold the floor for
-        pause_debounce_s; then request 1-phase relief where it helps, is
-        available and the EV goal is at risk or the slot is
-        solar-surplus charging; otherwise pause.
-        """
+        """At the floor, request eligible 1-phase relief or pause immediately."""
         floor = ev.min_current_a
-        severe = self._severe_phases(binding_phases, phase_current, main_fuse_a)
-        if severe:
+        if self._urgent_phases(binding_phases):
             return self._pause_charging(
-                ev,
-                now,
-                f"Phase(s) {severe} above {self.config.severe_overload_percent:g}% of the "
-                f"{main_fuse_a}A fuse — pausing immediately",
+                ev, now, "Urgent fuse relief at the minimum current — pausing"
             )
 
         if ev.current_setpoint_a is not None and ev.current_setpoint_a < floor:
@@ -1213,25 +1228,6 @@ class LoadBalancer:
                 ev,
                 now,
                 f"Overload with setpoint {ev.current_setpoint_a}A below the {floor}A floor — pausing",
-            )
-
-        overload_since = self._ev_overload_since.setdefault(ev.charger_id, now)
-        elapsed = (now - overload_since).total_seconds()
-        if elapsed < self.config.pause_debounce_s:
-            # Entries below must not give way for this overload before the
-            # debounce has run out (D5).
-            self._debounce_phases |= set(binding_phases)
-            return (
-                EVBalancerOutput(
-                    ev.charger_id,
-                    floor,
-                    "throttling",
-                    f"Holding {floor}A floor — overload for {elapsed:.0f}s, pausing after "
-                    f"{self.config.pause_debounce_s}s",
-                ),
-                False,
-                False,
-                True,
             )
 
         overloaded = [p for p in binding_phases if pool_headroom.get(p, main_fuse_a) < 0]
@@ -1261,21 +1257,13 @@ class LoadBalancer:
             ev,
             now,
             f"Overload on {', '.join(f'L{p}' for p in overloaded) or 'charger phases'} "
-            f"lasted {elapsed:.0f}s at the {floor}A floor — pausing",
+            f"at the {floor}A floor — pausing",
         )
-
-    def _severe_phases(
-        self, binding_phases: list[int], phase_current: dict[int, float], main_fuse_a: int
-    ) -> list[int]:
-        """Phases the trigger flags urgent (default: momentary reading above
-        severe_overload_percent of the fuse)."""
-        return self._urgent_phases(binding_phases)
 
     def _pause_charging(
         self, ev: EVBalancerInput, now: datetime, reason: str
     ) -> tuple[EVBalancerOutput, bool, bool, bool]:
         cid = ev.charger_id
-        self._ev_overload_since.pop(cid, None)
         self._ev_paused_at[cid] = now
         self._clear_fit_timers(cid)
         # Anti-flap back-off (D17): pausing again soon after a re-fit makes
@@ -1394,7 +1382,7 @@ class LoadBalancer:
             if self._battery_paused_at is not None:
                 return output(0.0, "Battery: grid charging paused — phases still overloaded"), 0.0
             if set(phases) & self._blocked_cut_phases or (
-                hold_for_relief and not self._severe_phases(phases, phase_current, main_fuse_a)
+                hold_for_relief and not self._urgent_phases(phases)
             ):
                 return (
                     output(cap, "Battery: holding grid charging — waiting for relief to show"),
@@ -1495,19 +1483,10 @@ class LoadBalancer:
             self._battery_reduced_at = None
             return output(planned, ""), 0.0
 
-        reduced_at = self._battery_reduced_at
-        if reduced_at is not None:
-            since = (now - reduced_at).total_seconds()
-            if since < self.config.ramp_up_window_s:
-                return (
-                    output(
-                        cap,
-                        f"Battery: holding {cap / 1000:.1f} kW — capped {since:.0f}s ago, "
-                        f"waiting {self.config.ramp_up_window_s}s before ramping toward "
-                        f"{planned / 1000:.1f} kW",
-                    ),
-                    0.0,
-                )
+        if self._battery_reduced_at is not None and not self._relief_trigger.cooled(phases):
+            return output(
+                cap, f"Battery: holding {cap / 1000:.1f} kW — fuse heat must cool below 50%"
+            ), 0.0
 
         step_a = float(self.config.increase_step_a)
         new_cap = min(cap + step_a * w_per_a, planned)
@@ -1589,15 +1568,14 @@ class LoadBalancer:
                 self._tick_s = dt
         self._last_tick_at = now
         self._ramp_requests = {}
-        self._debounce_phases = set()
 
         # Overload detection is isolated in the trigger (D15). A phase needs
         # relief when the trigger says so; the pool is negative exactly then.
         self._relief = {
-            p: self._relief_trigger(
-                phase_current[p], float(main_fuse_a), self.config.severe_overload_percent
+            p: self._relief_trigger.relief_needed(
+                p, phase_current.get(p, 0.0), now, self._is_stale(p, phase_current, updated_at, now)
             )
-            for p in phase_current
+            for p in (1, 2, 3)
         }
         headroom = {p: main_fuse_a - phase_current[p] for p in phase_current}
         # Running headroom pool consumed/replenished as each charger is
@@ -1605,7 +1583,7 @@ class LoadBalancer:
         # `headroom` (raw, used for restore checks) so single-charger
         # behavior is unaffected by this bookkeeping.
         pool_headroom = {
-            p: (-r.amount_a if r.amount_a > 0 else max(0.0, headroom[p]))
+            p: (-r.amount_a if r.amount_a > 0 else max(0.0, headroom.get(p, float(main_fuse_a))))
             for p, r in self._relief.items()
         }
         self._pool = pool_headroom
@@ -1735,6 +1713,11 @@ class LoadBalancer:
             elapsed = (now - shed_at).total_seconds()
             healthy = all(headroom.get(p, main_fuse_a) >= 0 for p in entry.phases)
             if elapsed < max(self.config.resume_delay_s, entry.min_off_s) or not healthy:
+                return
+            if not self._relief_trigger.cooled(entry.phases):
+                restore_notes[entry.load_id] = (
+                    "restore waits: fuse heat must cool below 50% on every load phase"
+                )
                 return
             need_a, whole_phase = self._restore_need(entry)
             room = self._room_a(entry.phases, now, whole_phase)
@@ -1915,10 +1898,6 @@ class LoadBalancer:
                 continue  # already given way (exhausted) / not actionable
             overloaded = [p for p in entry.phases if pool_headroom.get(p, main_fuse_a) < 0]
             if overloaded and not ((set(entry.phases) & pending_relief_phases) - carried_gate):
-                if set(overloaded) & self._debounce_phases and not self._urgent_phases(overloaded):
-                    # A charger above is still within its pause debounce on a
-                    # shared phase: it gets its chance first (D5).
-                    continue
                 self._shed_at[entry.load_id] = now
                 self._shed_reason[entry.load_id] = (
                     f"Shed: phase(s) {overloaded} overloaded, every higher give-way entry exhausted"
@@ -1986,6 +1965,8 @@ class LoadBalancer:
         else:
             state = "idle"
 
+        heat_note = ", ".join(f"L{p} {self._fuse_model.heat(p) * 100:.0f}%" for p in (1, 2, 3))
+        reasons.append(f"Fuse heat: {heat_note}; safety {self._fuse_model.safety_percent:g}%")
         status = LoadBalancerStatus(
             enabled=True,
             state=state,
@@ -1996,6 +1977,15 @@ class LoadBalancer:
             ev_outputs=ev_outputs,
             shed_outputs=shed_outputs,
             battery_output=battery_output,
+            phase_heat_percent={p: self._fuse_model.heat(p) * 100 for p in (1, 2, 3)},
+            fuse_safety_percent=self._fuse_model.safety_percent,
+            phase_heat_state={
+                p: self._fuse_model.heat_state(p)
+                if self._relief_trigger is self._fuse_model
+                else "unavailable"
+                for p in (1, 2, 3)
+            },
+            heat_sampled_at=now.isoformat() if self._relief_trigger is self._fuse_model else None,
         )
         self._record(now, entries, status, phase_current, updated_at, pending_relief_phases)
         return status
@@ -2073,6 +2063,10 @@ class LoadBalancer:
             {
                 "t": now.isoformat(),
                 "state": status.state,
+                "heat_percent": status.phase_heat_percent,
+                "heat_state": status.phase_heat_state,
+                "heat_sampled_at": status.heat_sampled_at,
+                "safety_percent": status.fuse_safety_percent,
                 "raw_a": {str(p): round(v, 2) for p, v in phase_current.items()},
                 "avg_a": {
                     str(p): None

@@ -16,7 +16,7 @@ The load balancer reacts to an overloaded phase as soon as a reading is over the
 - New config keys `fuse_preset`, `fuse_safety_percent`, `fuse_custom_points`; safety % valid range 50-100.
 - Increases and restores (EV ramp-up, battery cap raise after a reduction, shed-load restore including water heater) additionally wait until the worst phase has cooled below 50% heat; room gate, pacing, `resume_delay_s` and `min_off_s` still apply. `ramp_up_window_s` stays only as the averaging window; `increase_step_a` is kept.
 - `load_balancing.pause_debounce_s` and `load_balancing.severe_overload_percent` are removed and added to the deprecated-key list in `backend/config_migration.py` (`remove_deprecated_keys`), so existing configs are cleaned on startup without errors. Release note line (for the release author, `docs/RELEASE_NOTES.md` is not touched by this change): "Load balancer: the pause delay and immediate-pause settings are replaced by a fuse model (Typ C / Diazed gG / Custom) with a safety % setting."
-- Settings UI: preset select, safety %, and the two custom points when Custom is selected. The existing slow-tick warning is kept.
+- Settings UI: preset select, safety %, and the two custom points when Custom is selected. Include a live characteristic graph in Overload Handling for every preset: logarithmic current-multiple and time axes, estimated fuse trip time and the safety-scaled cold-start Darkstar threshold, updating on unsaved edits. Explain retained heat, tick timing, graph-derived ±30% accuracy and anchor assumptions. The existing slow-tick warning is kept.
 
 ## Capabilities
 
@@ -34,3 +34,9 @@ The load balancer reacts to an overloaded phase as soon as a reading is over the
 - Tests: `tests/executor/test_load_balancer*.py`, `tests/config/test_graceful_degradation_config.py`, `tests/config/test_coordinated_ramping_config.py`, `tests/executor/test_config.py`, `tests/executor/test_ev_measured_draw.py`, `tests/executor/test_ev_surplus_engine.py`, frontend settings tests.
 - Specs: `openspec/specs/phase-load-balancing/spec.md`, `openspec/specs/load-balancing-settings/spec.md`, `openspec/specs/config-migration/spec.md`.
 - Docs: none required by this change (`docs/USER_MANUAL.md` may need the new keys; ask first, per AGENTS.md). No database change, no new dependency.
+
+## Review follow-up
+Expose live estimated per-phase heat, truthful heating/cooling/holding and stale state, sample freshness and heat-hold explanations in full and compact status cards. Clarify the current-target and heat-threshold setting labels and use a compact responsive graph with optional technical detail.
+
+## Protected-fuse follow-up
+Use general protected-fuse terminology and make EV/battery give-way membership optional. Preserve existing participation on upgrade, then respect explicit selections across reload/restart while retaining normal scheduling for excluded devices. Keep physical-boundary guidance brief with optional detail.

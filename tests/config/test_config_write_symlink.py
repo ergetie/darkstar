@@ -83,7 +83,7 @@ def test_interrupted_temp_write_preserves_live_config(linked_config):
 def test_bind_mount_fallback_single_replace_and_backup_first(linked_config, monkeypatch, error):
     link, target = linked_config
     calls = []
-    real_copy = shutil.copy2
+    real_copy = shutil.copyfile
 
     def replace(source, destination):
         calls.append((source, destination))
@@ -96,7 +96,7 @@ def test_bind_mount_fallback_single_replace_and_backup_first(linked_config, monk
         return real_copy(source, destination, **kwargs)
 
     monkeypatch.setattr(Path, "replace", replace)
-    monkeypatch.setattr(shutil, "copy2", copy)
+    monkeypatch.setattr(shutil, "copyfile", copy)
     assert cm.update_config(link, lambda data: data["learning"].update(reflex_enabled=True))
     assert len(calls) == 1
     assert link.is_symlink()
@@ -171,7 +171,17 @@ async def test_save_guard_returns_clear_error(linked_config, monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "writer",
-    ["save", "reset", "reflex", "executor", "entities", "notifications", "theme", "learning"],
+    [
+        "save",
+        "empty_selection",
+        "reset",
+        "reflex",
+        "executor",
+        "entities",
+        "notifications",
+        "theme",
+        "learning",
+    ],
 )
 async def test_every_runtime_writer_preserves_symlink(linked_config, monkeypatch, writer):
     from backend.api.routers import config, executor, forecast, theme
@@ -189,6 +199,12 @@ async def test_every_runtime_writer_preserves_symlink(linked_config, monkeypatch
     if writer == "save":
         await config.save_config({"system": {"inverter_profile": "deye"}})
         expected_path, expected = ("system", "inverter_profile"), "deye"
+    elif writer == "empty_selection":
+        await config.save_config(
+            {"load_balancing": {"auto_include_devices": False, "give_way_order": []}}
+        )
+        expected_path, expected = ("load_balancing", "give_way_order"), []
+        assert YAML().load(target.read_text())["load_balancing"]["auto_include_devices"] is False
     elif writer == "reset":
         await config.reset_config()
         assert YAML().load(target.read_text()) == YAML().load(
@@ -232,3 +248,72 @@ async def test_every_runtime_writer_preserves_symlink(linked_config, monkeypatch
         for key in expected_path:
             value = value[key]
         assert value == expected
+
+
+@pytest.mark.parametrize("bind_mount", [False, True])
+def test_shared_config_does_not_require_metadata_permissions(
+    linked_config, monkeypatch, bind_mount
+):
+    """A writable shared file need not permit chmod/utime by the app user."""
+    link, target = linked_config
+    before = target.read_bytes()
+    legacy_backup = target.with_suffix(".yaml.bak")
+    legacy_backup.write_text("previous backup")
+    copystat = shutil.copystat
+
+    def shared_metadata(source, destination, **kwargs):
+        if Path(destination) in (target, legacy_backup):
+            raise PermissionError(errno.EPERM, "shared file metadata owned by another user")
+        return copystat(source, destination, **kwargs)
+
+    monkeypatch.setattr(shutil, "copystat", shared_metadata)
+    if bind_mount:
+
+        def busy_replace(*_):
+            raise OSError(errno.EBUSY, "bind mount")
+
+        monkeypatch.setattr(Path, "replace", busy_replace)
+    assert cm.update_config(link, lambda data: data["system"].update(inverter_profile="deye"))
+    assert legacy_backup.read_bytes() == before
+    assert YAML().load(target.read_text())["system"]["inverter_profile"] == "deye"
+
+
+def test_legacy_backup_content_write_failure_aborts_save(linked_config, monkeypatch):
+    link, target = linked_config
+    before = target.read_bytes()
+    copyfile = shutil.copyfile
+
+    def denied_copy(source, destination, **kwargs):
+        if Path(destination) == target.with_suffix(".yaml.bak"):
+            raise PermissionError(errno.EACCES, "backup contents not writable")
+        return copyfile(source, destination, **kwargs)
+
+    monkeypatch.setattr(shutil, "copyfile", denied_copy)
+    assert not cm.update_config(link, lambda data: data["system"].update(inverter_profile="deye"))
+    assert target.read_bytes() == before
+    assert not target.with_suffix(".yaml.tmp").exists()
+
+
+def test_shared_config_rollback_restores_contents_without_metadata(linked_config, monkeypatch):
+    link, target = linked_config
+    before = target.read_bytes()
+    target.with_suffix(".yaml.bak").write_text("previous backup")
+    copystat = shutil.copystat
+
+    def shared_metadata(source, destination, **kwargs):
+        if Path(destination) in (target, target.with_suffix(".yaml.bak")):
+            raise PermissionError(errno.EPERM, "shared metadata")
+        return copystat(source, destination, **kwargs)
+
+    monkeypatch.setattr(shutil, "copystat", shared_metadata)
+    monkeypatch.setattr(cm, "_verify_written_config", lambda *_args, **_kwargs: False)
+    assert not cm.update_config(link, lambda data: data["system"].update(inverter_profile="deye"))
+    assert target.read_bytes() == before
+    assert link.is_symlink()
+
+
+def test_new_legacy_backup_preserves_restrictive_permissions(linked_config):
+    link, target = linked_config
+    target.chmod(0o600)
+    assert cm.update_config(link, lambda data: data["system"].update(inverter_profile="deye"))
+    assert target.with_suffix(".yaml.bak").stat().st_mode & 0o777 == 0o600

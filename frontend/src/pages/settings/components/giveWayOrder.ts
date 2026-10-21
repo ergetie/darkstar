@@ -16,48 +16,25 @@ export function batteryGiveWayAvailable(config?: Record<string, unknown>): boole
     return system?.has_battery !== false
 }
 
-/**
- * Mirror of the backend's give_way_order self-healing, for display: drop
- * dangling entries, insert missing chargers after the last charger entry
- * (or at the top), append missing shed loads at the end, and keep one
- * battery entry while a battery is available (appended last when missing).
- */
+/** Filter stale/duplicate entries without adding devices the user has not selected. */
 export function healOrderForDisplay(
     entries: GiveWayEntry[],
     chargerIds: string[],
     shedIds: string[],
     batteryAvailable = false,
 ): GiveWayEntry[] {
-    let batterySeen = false
-    const healed = entries
-        .filter((e) => {
-            if (e.kind !== 'battery') return true
-            if (!batteryAvailable || batterySeen) return false
-            batterySeen = true
-            return true
-        })
-        .map((e): GiveWayEntry => (e.kind === 'battery' ? { kind: 'battery', id: BATTERY_GIVE_WAY_ID } : e))
-        .filter(
-            (e) =>
-                e.kind === 'battery' ||
-                (e.kind === 'charger' && chargerIds.includes(e.id)) ||
-                (e.kind === 'shed' && shedIds.includes(e.id)),
-        )
-    const listedChargers = new Set(healed.filter((e) => e.kind === 'charger').map((e) => e.id))
-    const missingChargers = chargerIds.filter((id) => !listedChargers.has(id))
-    if (missingChargers.length > 0) {
-        let lastChargerIdx = -1
-        healed.forEach((e, i) => {
-            if (e.kind === 'charger') lastChargerIdx = i
-        })
-        healed.splice(lastChargerIdx + 1, 0, ...missingChargers.map((id): GiveWayEntry => ({ kind: 'charger', id })))
-    }
-    const listedSheds = new Set(healed.filter((e) => e.kind === 'shed').map((e) => e.id))
-    shedIds.forEach((id) => {
-        if (!listedSheds.has(id)) healed.push({ kind: 'shed', id })
+    const seen = new Set<string>()
+    return entries.flatMap((entry): GiveWayEntry[] => {
+        const normalized: GiveWayEntry = entry.kind === 'battery' ? { kind: 'battery', id: BATTERY_GIVE_WAY_ID } : entry
+        const valid =
+            normalized.kind === 'battery'
+                ? batteryAvailable
+                : normalized.kind === 'charger'
+                  ? chargerIds.includes(normalized.id)
+                  : normalized.kind === 'shed' && shedIds.includes(normalized.id)
+        const key = `${normalized.kind}:${normalized.id}`
+        if (!valid || seen.has(key)) return []
+        seen.add(key)
+        return [normalized]
     })
-    if (batteryAvailable && !healed.some((e) => e.kind === 'battery')) {
-        healed.push({ kind: 'battery', id: BATTERY_GIVE_WAY_ID })
-    }
-    return healed
 }

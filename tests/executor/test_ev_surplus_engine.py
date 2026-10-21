@@ -15,6 +15,8 @@ import pytz
 from sqlalchemy import create_engine
 
 from backend.learning.models import Base
+from tests.executor.fake_relief import InstantRelief
+
 from executor.actions import ActionDispatcher, HAClient
 from executor.config import (
     ControllerConfig,
@@ -108,7 +110,7 @@ def make_engine(
         resume_delay_s=120,
         target_margin_percent=90,
         # Legacy momentary semantics (immediate pause, no averaging window)
-        pause_debounce_s=0,
+
         ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
@@ -149,6 +151,7 @@ def make_engine(
         with patch("executor.engine.load_yaml", return_value=full_config):
             with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                 engine = ExecutorEngine("config.yaml")
+                engine._load_balancer._relief_trigger = InstantRelief(config.load_balancing)
 
     engine._has_ev_charger = True
 
@@ -455,6 +458,7 @@ async def test_gather_system_state_net_meter_grid_power(temp_schedule, temp_db):
         with patch("executor.engine.load_yaml", return_value=full_config):
             with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                 engine = ExecutorEngine("config.yaml")
+                engine._load_balancer._relief_trigger = InstantRelief(config.load_balancing)
 
     mock_ha = MagicMock(spec=HAClient)
 

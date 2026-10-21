@@ -523,6 +523,11 @@ export type LoadBalancerStatusResponse = {
     main_fuse_a: number | null
     phase_current_a: Record<string, number>
     phase_headroom_a: Record<string, number>
+    /** Estimated heat as a percentage of trip heat; can exceed 100. */
+    phase_heat_percent?: Record<string, number>
+    phase_heat_state?: Record<string, 'heating' | 'cooling' | 'holding' | 'cold' | 'stale' | 'unavailable'>
+    heat_sampled_at?: string | null
+    fuse_safety_percent?: number | null
     /** Balancer ramps up only while each phase stays at or below this share of the fuse */
     target_margin_percent?: number
     /** Executor tick interval (s) — the balancer reacts and reports once per tick. */
@@ -1492,7 +1497,13 @@ export const Api = {
                       : 'Configuration error'
                 throw new ApiError(message, r.status, detail)
             }
-            throw new ApiError(`/api/config/save -> ${r.status}`, r.status, detail)
+            const message =
+                typeof detail === 'string'
+                    ? detail
+                    : typeof detail?.message === 'string'
+                      ? detail.message
+                      : `/api/config/save -> ${r.status}`
+            throw new ApiError(message, r.status, detail)
         }
         return data as ConfigSaveResponse
     },

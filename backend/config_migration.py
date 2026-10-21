@@ -170,6 +170,9 @@ DEPRECATED_NESTED_KEYS = {
         # load-balancer-coordinated-ramping: the balancer-triggered replan was
         # removed (plans respect the fuse limits instead); the key has no consumer.
         "replan_after_throttled_s",
+        # fuse-overload-timing: timing belongs to the fuse model.
+        "pause_debounce_s",
+        "severe_overload_percent",
     ],
 }
 
@@ -1400,6 +1403,19 @@ def _migrate_config(config_path: str, default_path: str, strict_validation: bool
     if give_way_changes:
         pre_merge_changes = True
 
+    # Preserve legacy automatic participation once, then respect explicit selection.
+    lb_raw: Any = user_config.get("load_balancing")
+    if (
+        isinstance(lb_raw, dict)
+        and cast("dict[str, Any]", lb_raw).get("auto_include_devices") is not False
+    ):
+        from executor.config import effective_load_balancing_selection
+
+        user_config["load_balancing"] = effective_load_balancing_selection(
+            user_config, resolve_protected_fuse=False
+        )
+        pre_merge_changes = True
+
     # 2.2 Sweep deprecated keys from user config
     user_config, deprecated_changes = remove_deprecated_keys(user_config)
     if deprecated_changes:
@@ -1614,7 +1630,12 @@ def _write_config(
         if path.exists():
             if create_timestamped_backup(path) is None:
                 raise OSError("Unable to create config backup")
-            shutil.copy2(path, legacy_backup_path)
+            # Existing shared backups may allow content writes without metadata
+            # changes. New backups retain the source's restrictive permissions.
+            if legacy_backup_path.exists():
+                shutil.copyfile(path, legacy_backup_path)
+            else:
+                shutil.copy2(path, legacy_backup_path)
             backup_created = True
 
         logger.info(f"{log_prefix} Writing updated config to {temp_path}")
@@ -1643,7 +1664,7 @@ def _write_config(
                     "%s Atomic replace unavailable; using guarded direct copy", log_prefix
                 )
                 target_modified = True
-                shutil.copy2(temp_path, path)
+                shutil.copyfile(temp_path, path)
                 with path.open("rb") as handle:
                     os.fsync(handle.fileno())
                 success = _verify_written_config(
@@ -1661,7 +1682,7 @@ def _write_config(
         if target_modified and backup_created:
             try:
                 logger.warning(f"Restoring {path} from legacy backup...")
-                shutil.copy2(legacy_backup_path, path)
+                shutil.copyfile(legacy_backup_path, path)
                 with path.open("rb") as handle:
                     os.fsync(handle.fileno())
                 _fsync_directory(path.parent)

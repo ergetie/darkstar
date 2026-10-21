@@ -170,12 +170,12 @@ class TestReplanKeyMigration:
             "load_balancing": {
                 "enabled": True,
                 "replan_after_throttled_s": 600,
-                "pause_debounce_s": 5,
+                "fuse_safety_percent": 80,
             }
         }
         out, changed = remove_deprecated_keys(cfg)
         assert changed is True
-        assert out["load_balancing"] == {"enabled": True, "pause_debounce_s": 5}
+        assert out["load_balancing"] == {"enabled": True, "fuse_safety_percent": 80}
 
     def test_migrated_config_is_untouched(self):
         cfg = {"load_balancing": {"enabled": True}}
@@ -240,3 +240,27 @@ def test_fuse_rating_does_not_change_planner_import_budget(tmp_path):
     path.write_text(yaml.safe_dump(config))
     assert load_executor_config(str(path)).load_balancing.main_fuse_a == 20
     assert config_to_kepler_config(config).max_import_power_kw == 8
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "configured", [{}, {"max_step_interval_s": 12, "phase_sign": "import_negative"}]
+)
+async def test_config_read_exposes_coordination_defaults_without_writes(
+    tmp_path, monkeypatch, configured
+):
+    from backend.api.routers import config as config_api
+
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump({"load_balancing": configured}))
+    before = path.read_bytes()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config_api, "load_home_assistant_config", lambda: {})
+    monkeypatch.setattr(config_api, "load_notifications_config", lambda: {})
+
+    response = await config_api.get_config()
+    defaults = LoadBalancingConfig()
+    for key in ("max_step_interval_s", "write_deadband_percent", "pending_timeout_s", "phase_sign"):
+        assert response["load_balancing"][key] == configured.get(key, getattr(defaults, key))
+    assert path.read_bytes() == before
+    assert sorted(item.name for item in tmp_path.iterdir()) == ["config.yaml"]

@@ -28,6 +28,26 @@ function renderView(status: LoadBalancerStatusResponse | null) {
 }
 
 describe('LoadBalancerCompactView', () => {
+    it('groups heat with current, hides the raw summary and overrides idle when stale', () => {
+        renderView(
+            baseStatus({
+                phase_heat_percent: { 1: 0, 2: 10, 3: 0 },
+                phase_heat_state: { 1: 'stale', 2: 'cooling', 3: 'cold' },
+                fuse_safety_percent: 80,
+                reason: 'Fuse heat: L1 0%, L2 10%, L3 0%; safety 80%',
+            }),
+        )
+        expect(screen.getByText('Readings Stale')).toBeInTheDocument()
+        expect(screen.queryByText('Within Limits')).not.toBeInTheDocument()
+        expect(screen.queryByText(/^Fuse heat:/)).not.toBeInTheDocument()
+        expect(screen.getAllByText('L1')).toHaveLength(1)
+        expect(screen.getByRole('meter', { name: 'L2 estimated fuse heat' })).toHaveAttribute(
+            'aria-valuetext',
+            expect.stringContaining('Cooling down'),
+        )
+        expect(screen.getByText('About fuse protection').closest('details')).not.toHaveAttribute('open')
+    })
+
     it('shows a loading placeholder while status is null', () => {
         renderView(null)
         expect(screen.getByText(/Loading load balancer status/)).toBeInTheDocument()
@@ -49,9 +69,9 @@ describe('LoadBalancerCompactView', () => {
             }),
         )
 
-        expect(screen.getByText('26.0A / 20A')).toBeInTheDocument()
-        expect(screen.getByText('5.0A / 20A')).toBeInTheDocument()
-        expect(screen.getByText('19.0A / 20A')).toBeInTheDocument()
+        expect(screen.getByText('26.0 / 20 A')).toBeInTheDocument()
+        expect(screen.getByText('5.0 / 20 A')).toBeInTheDocument()
+        expect(screen.getByText('19.0 / 20 A')).toBeInTheDocument()
 
         // Only L1 (26A) is over the 20A fuse rating -> exactly one bar colored "bad"
         expect(container.querySelectorAll('.rounded-full.bg-bad')).toHaveLength(1)

@@ -618,8 +618,6 @@ class TestLoadBalancingConfig:
         assert lb.main_fuse_a is None
         assert lb.resume_delay_s == 120
         assert lb.target_margin_percent == 85.0
-        assert lb.pause_debounce_s == 5
-        assert lb.severe_overload_percent == 125.0
         assert lb.ramp_up_window_s == 60
         assert lb.increase_step_a == 1
         assert lb.sensor_stale_after_s == 30

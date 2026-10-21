@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BatteryCharging, Gauge, PauseCircle, ShieldAlert, ShieldCheck } from 'lucide-react'
 import Card from './Card'
+import { useFuseStale, fuseStatusLabel } from './useFuseStatus'
+import FuseHeatStatus from './FuseHeatStatus'
 import { Api, type LoadBalancerStatusResponse } from '../lib/api'
 import { useSocket } from '../lib/hooks'
 
@@ -129,6 +131,7 @@ export function formatAge(ageSeconds: number): string {
 
 export default function LoadBalancerStatusCard() {
     const [status, setStatus] = useState<LoadBalancerStatusResponse | null>(null)
+    const heatStale = useFuseStale(status)
     // Timestamp (ms epoch) of the latest received payload, for "updated Xs ago"
     const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null)
     const [nowMs, setNowMs] = useState<number>(() => Date.now())
@@ -186,7 +189,7 @@ export default function LoadBalancerStatusCard() {
                         <div className="min-w-0 flex-1">
                             <div className="text-sm font-semibold text-text">Load Balancing is disabled</div>
                             <p className="text-[11px] text-muted mt-0.5">
-                                Enable it in Settings once your main fuse rating and per-phase current sensors are
+                                Enable it in Settings once your protected fuse rating and per-phase current sensors are
                                 configured to protect your fuse in real time.
                             </p>
                         </div>
@@ -222,17 +225,24 @@ export default function LoadBalancerStatusCard() {
         )
     }
 
-    const fuseA = status.main_fuse_a ?? 0
-    const margin = status.target_margin_percent ?? 85
     const shedLoads = status.shed.filter((s) => s.shed)
-    const stateColor = STATE_COLORS[status.state] || 'text-muted'
-    const StateIcon = status.state === 'idle' ? ShieldCheck : status.state === 'paused' ? PauseCircle : ShieldAlert
-
-    // Freshness: quiet near-zero bars must stay distinguishable from a dead
-    // feed. Stale once the payload age materially exceeds the tick interval.
     const tickIntervalS = status.tick_interval_s ?? 300
     const ageSeconds = lastUpdatedAt !== null ? (nowMs - lastUpdatedAt) / 1000 : null
-    const isStale = ageSeconds !== null && ageSeconds > Math.max(3 * tickIntervalS, 15)
+    const feedStale = ageSeconds !== null && ageSeconds > Math.max(3 * tickIntervalS, 15)
+    const isStale = heatStale || feedStale
+    const label = fuseStatusLabel(status, isStale) ?? STATE_LABELS[status.state] ?? status.state
+    const stateColor = isStale
+        ? 'text-muted'
+        : label === 'Monitoring Overload' || label === 'Cooling Hold'
+          ? 'text-accent'
+          : STATE_COLORS[status.state] || 'text-muted'
+    const StateIcon = isStale
+        ? ShieldAlert
+        : status.state === 'idle' && label === STATE_LABELS.idle
+          ? ShieldCheck
+          : status.state === 'paused'
+            ? PauseCircle
+            : ShieldAlert
 
     return (
         <div className="grid shrink-0 grid-cols-1 gap-3 lg:grid-cols-3">
@@ -245,10 +255,10 @@ export default function LoadBalancerStatusCard() {
                             <span
                                 data-testid="lb-freshness"
                                 className={`text-[10px] font-medium ${
-                                    isStale ? 'rounded bg-bad/10 px-1.5 py-0.5 font-bold text-bad' : 'text-muted'
+                                    feedStale ? 'rounded bg-bad/10 px-1.5 py-0.5 font-bold text-bad' : 'text-muted'
                                 }`}
                             >
-                                {isStale
+                                {feedStale
                                     ? `stale — last update ${formatAge(ageSeconds)}`
                                     : `updated ${formatAge(ageSeconds)}`}
                             </span>
@@ -258,43 +268,11 @@ export default function LoadBalancerStatusCard() {
                         className={`flex shrink-0 items-center gap-1.5 text-xs font-bold uppercase tracking-wide ${stateColor}`}
                     >
                         <StateIcon size={14} />
-                        {STATE_LABELS[status.state] || status.state}
+                        {label}
                     </div>
                 </div>
 
-                <div className="grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3">
-                    {[1, 2, 3].map((phase) => {
-                        const currentA = status.phase_current_a[String(phase)] ?? status.phase_current_a[phase] ?? 0
-                        const pct = fuseA > 0 ? Math.min(100, (currentA / fuseA) * 100) : 0
-                        return (
-                            <div key={phase} className="min-w-0">
-                                <div className="mb-1 flex min-w-0 flex-wrap items-center justify-between gap-x-1 text-[10px] text-muted">
-                                    <span className="font-bold">L{phase}</span>
-                                    <span
-                                        className="whitespace-nowrap font-mono text-right"
-                                        title={`Raw current: ${currentA.toFixed(3)}A`}
-                                    >
-                                        {currentA.toFixed(1)} / {fuseA} A
-                                    </span>
-                                    <span className="sr-only" data-testid={`lb-raw-l${phase}`}>
-                                        {currentA.toFixed(3)}A
-                                    </span>
-                                </div>
-                                <div className="relative h-2 overflow-hidden rounded-full bg-surface2">
-                                    <div
-                                        className={`h-full rounded-full transition-all duration-500 ${phaseColor(currentA, fuseA, margin)}`}
-                                        style={{ width: `${pct}%` }}
-                                    />
-                                    <div
-                                        className="absolute top-0 h-full w-px bg-line/60"
-                                        style={{ left: `${margin}%` }}
-                                        title={`Target safety margin (${margin}%)`}
-                                    />
-                                </div>
-                            </div>
-                        )
-                    })}
-                </div>
+                <FuseHeatStatus status={status} stale={feedStale} />
             </Card>
 
             <Card className="min-w-0 p-3 md:p-4">

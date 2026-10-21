@@ -4,6 +4,7 @@ import { useToast } from '../../../lib/useToast'
 import { BaseField, HaEntity, InverterProfile, standardInverterKeys } from '../types'
 import { buildFormState, buildPatch, evChargerArrayError, getDeepValue } from '../utils'
 import { rulesError } from '../transferFees'
+import { fuseCurveError } from '../fuseCurve'
 import {
     HEATER_ERROR_PREFIX,
     getPendingHeaterErrors,
@@ -200,6 +201,13 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                 return errors
             }
 
+            if (field.type === 'fuse_curve') {
+                const curveError =
+                    currentForm['load_balancing.fuse_preset'] === 'custom' ? fuseCurveError(value) : undefined
+                if (curveError) errors[key] = curveError
+                return errors
+            }
+
             if (field.type === 'transfer_fee_rules') {
                 let parsed: unknown
                 try {
@@ -270,6 +278,12 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                 setFieldErrors((errs) => {
                     const updated = { ...errs, ...newErrors }
                     if (!newErrors[key]) delete updated[key]
+                    if (key === 'load_balancing.fuse_preset') {
+                        const curveKey = 'load_balancing.fuse_custom_points'
+                        const curveErrors = validateField(curveKey, next[curveKey] ?? '', next)
+                        delete updated[curveKey]
+                        Object.assign(updated, curveErrors)
+                    }
                     if (key === 'water_heaters') {
                         // Heater edits invalidate earlier server-side heater errors.
                         for (const k of Object.keys(updated)) {
@@ -350,6 +364,9 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
             // Blocking EV charger checks run on save too, not only when the field was edited
             const evArrayErrors: Record<string, string> = {}
             fields.forEach((field) => {
+                if (field.type === 'fuse_curve') {
+                    Object.assign(evArrayErrors, validateField(field.key, form[field.key] ?? '', form))
+                }
                 if (field.type === 'entity_array' && field.entityType === 'ev_charger') {
                     const evError = evChargerArrayError(form[field.key] ?? '')
                     if (evError) evArrayErrors[field.key] = evError

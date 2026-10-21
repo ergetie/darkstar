@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+from tests.executor.fake_relief import InstantRelief
+
 from executor.config import LoadBalancingConfig
 from executor.load_balancer import (
     EVBalancerInput,
@@ -102,14 +104,14 @@ def make_lb(**overrides) -> LoadBalancer:
         resume_delay_s=120,
         target_margin_percent=90,
         # Legacy momentary semantics (immediate pause, no averaging window)
-        pause_debounce_s=0,
+
         ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
     )
     for k, v in overrides.items():
         setattr(cfg, k, v)
-    return LoadBalancer(cfg)
+    return LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
 
 
 def fresh_ts(*phases, at=BASE) -> dict:
@@ -358,7 +360,7 @@ class TestFeatureGating:
 
     def test_disabled_returns_disabled_state(self):
         cfg = LoadBalancingConfig(enabled=False)
-        lb = LoadBalancer(cfg)
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         ev = EVBalancerInput("goe", [1], 16, 16, min_current_a=6, max_current_a=16)
         status = lb.tick(BASE, {1: 100.0}, fresh_ts(1), [ev])
 
@@ -436,13 +438,13 @@ class TestPositionOrderedAllocation:
 
     def test_missing_main_fuse_a_returns_disabled(self):
         cfg = LoadBalancingConfig(enabled=True, main_fuse_a=None)
-        lb = LoadBalancer(cfg)
+        lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
         status = lb.tick(BASE, {}, {}, [])
         assert status.state == "disabled"
 
 
 class TestSevereOverloadDuringShedHold:
-    """D16: a severe overload (above severe_overload_percent of main_fuse_a)
+    """D16: a severe overload (flagged urgent by the trigger)
     pauses the charger immediately even while a higher-listed shed entry
     gave way this tick; below it the one-tick hold is unchanged."""
 
@@ -452,7 +454,7 @@ class TestSevereOverloadDuringShedHold:
         return wh, ev
 
     def test_severe_overload_waits_for_existing_shed_response(self):
-        lb = make_lb(pause_debounce_s=5)  # debounce must not delay a severe pause
+        lb = make_lb()  # debounce must not delay a severe pause
         wh, ev = self._entries()
         grid = {1: 5.0, 2: 26.0, 3: 5.0}  # 26 A > 125 % of 20 A
         status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev])
@@ -464,7 +466,7 @@ class TestSevereOverloadDuringShedHold:
         assert "waiting for relief" in out.reason
 
     def test_non_severe_overload_during_shed_hold_keeps_hold(self):
-        lb = make_lb(pause_debounce_s=5)
+        lb = make_lb()
         wh, ev = self._entries()
         grid = {1: 5.0, 2: 25.0, 3: 5.0}  # exactly 125 %: not above the severe line
         status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev])
@@ -495,7 +497,7 @@ class TestSevereOverloadDuringShedHold:
         assert "Waiting to resume" in status1.ev_outputs[0].reason
 
     def test_recovery_after_severe_pause_follows_confirm_window_and_margin(self):
-        lb = make_lb(pause_debounce_s=5, ramp_up_window_s=0)
+        lb = make_lb(ramp_up_window_s=0)
         wh, ev = self._entries()
         grid = {1: 5.0, 2: 26.0, 3: 5.0}
         assert lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev]).ev_outputs[0].target_a == 16
@@ -690,7 +692,7 @@ class TestRampUpHoldOffAfterReduction:
 
     @staticmethod
     def _lb() -> LoadBalancer:
-        return make_lb(ramp_up_window_s=60, pause_debounce_s=30)
+        return make_lb(ramp_up_window_s=60)
 
     @staticmethod
     def _tick(lb, t, setpoint, house_l3, target=16):
@@ -707,6 +709,7 @@ class TestRampUpHoldOffAfterReduction:
         out = self._tick(lb, self.REDUCED_AT, 10, 12.0)
         assert out.target_a == 8
         assert out.reason.startswith("Reduced 10A -> 8A")
+        lb._relief_trigger.hot = {3}
 
     def test_new_house_load_does_not_cause_sawtooth(self):
         lb = self._lb()
@@ -728,6 +731,7 @@ class TestRampUpHoldOffAfterReduction:
         for sec in range(5, 60, 5):
             out = self._tick(lb, self.REDUCED_AT + timedelta(seconds=sec), 8, 2.0)
             assert out.target_a == 8
+        lb._relief_trigger.hot.clear()
         out = self._tick(lb, self.REDUCED_AT + timedelta(seconds=60), 8, 2.0)
         assert out.target_a == 9  # at most increase_step_a per tick
         assert out.reason.startswith("Ramping 8A -> 9A")
@@ -741,6 +745,7 @@ class TestRampUpHoldOffAfterReduction:
         for sec in range(35, 90, 5):
             out = self._tick(lb, self.REDUCED_AT + timedelta(seconds=sec), 6, 2.0)
             assert out.target_a == 6, sec
+        lb._relief_trigger.hot.clear()
         out = self._tick(lb, second + timedelta(seconds=60), 6, 2.0)
         assert out.target_a == 7
 

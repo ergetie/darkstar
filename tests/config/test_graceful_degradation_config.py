@@ -41,10 +41,8 @@ class TestExecutorConfigParsing:
     def test_upgrade_picks_safe_defaults(self, tmp_path):
         lb = _load(tmp_path, {"enabled": True}).load_balancing
         assert lb.target_margin_percent == 85.0
-        assert lb.pause_debounce_s == 5
         assert lb.resume_confirm_s == 10
         assert lb.resume_delay_s == 120
-        assert lb.severe_overload_percent == 125.0
         assert lb.ramp_up_window_s == 60
 
     def test_tuned_legacy_resume_margin_is_used(self, tmp_path):
@@ -65,10 +63,7 @@ class TestExecutorConfigParsing:
         ("key", "bad", "default"),
         [
             ("target_margin_percent", 120, 85.0),
-            ("pause_debounce_s", 120, 5),
-            ("severe_overload_percent", 100, 125.0),
             ("ramp_up_window_s", 5, 60),
-            ("pause_debounce_s", "soon", 5),
             ("resume_confirm_s", 2, 10),
             ("resume_confirm_s", 301, 10),
         ],
@@ -122,12 +117,12 @@ class TestTargetMarginMigration:
 
 
 class TestSaveValidation:
-    def test_invalid_debounce_names_key_and_range(self):
-        issues = _validate_graceful_degradation_ranges({"pause_debounce_s": 120})
+    def test_invalid_safety_names_key_and_range(self):
+        issues = _validate_graceful_degradation_ranges({"fuse_safety_percent": 120})
         assert len(issues) == 1
         assert issues[0]["severity"] == "error"
-        assert "load_balancing.pause_debounce_s" in issues[0]["message"]
-        assert "0-60" in issues[0]["message"]
+        assert "load_balancing.fuse_safety_percent" in issues[0]["message"]
+        assert "50-100" in issues[0]["message"]
 
     def test_invalid_resume_confirm_names_key_and_range(self):
         issues = _validate_graceful_degradation_ranges({"resume_confirm_s": 2})
@@ -139,10 +134,8 @@ class TestSaveValidation:
         ("key", "value"),
         [
             ("target_margin_percent", 49),
-            ("severe_overload_percent", 201),
             ("ramp_up_window_s", 601),
             ("ramp_up_window_s", 30.5),
-            ("pause_debounce_s", True),
             ("resume_confirm_s", 4),
             ("resume_confirm_s", 301),
             ("resume_confirm_s", 7.5),
@@ -158,9 +151,9 @@ class TestSaveValidation:
             _validate_graceful_degradation_ranges(
                 {
                     "target_margin_percent": 85,
-                    "pause_debounce_s": 0,
+                    "fuse_safety_percent": 80,
                     "resume_confirm_s": 10,
-                    "severe_overload_percent": 125,
+                    "fuse_preset": "typ_c",
                     "ramp_up_window_s": 60,
                 }
             )

@@ -75,9 +75,7 @@ class TestEnabledPayload:
                 main_fuse_a=20,
                 phase_current_a={1: 18.0, 2: 5.0, 3: 5.0},
                 phase_headroom_a={1: 2.0, 2: 15.0, 3: 15.0},
-                ev_outputs=[
-                    EVBalancerOutput("goe", target_a=10, state=state, reason="ev reason")
-                ],
+                ev_outputs=[EVBalancerOutput("goe", target_a=10, state=state, reason="ev reason")],
                 shed_outputs=[
                     ShedLoadOutput("wh", "water_heater", shed=(state == "shedding"), reason="")
                 ],
@@ -198,3 +196,36 @@ class TestSurplusModeFields:
         assert ev["state"] == "throttling"
         assert ev["surplus_mode"] is True
         assert ev["surplus_state"] == "charging"
+
+
+def test_fuse_heat_state_and_sample_timestamp_serialize(engine):
+    import json
+
+    timestamp = "2026-10-21T20:00:00+00:00"
+    engine.config.interval_seconds = 15
+    engine._last_balancer_status = LoadBalancerStatus(
+        enabled=True,
+        state="idle",
+        reason="Within limits",
+        main_fuse_a=20,
+        phase_current_a={1: 5, 2: 5, 3: 5},
+        phase_headroom_a={1: 15, 2: 15, 3: 15},
+        phase_heat_percent={1: 60, 2: 0, 3: 40},
+        phase_heat_state={1: "cooling", 2: "cold", 3: "stale"},
+        heat_sampled_at=timestamp,
+        fuse_safety_percent=80,
+    )
+    payload = json.loads(json.dumps(engine.get_load_balancer_status()))
+    assert payload["phase_heat_state"] == {"1": "cooling", "2": "cold", "3": "stale"}
+    assert payload["heat_sampled_at"] == timestamp
+    assert payload["phase_heat_percent"]["1"] == 60
+
+
+def test_excluded_phase_only_charger_is_hidden_but_surplus_remains_visible(engine):
+    from executor.ev_surplus import PhaseModeController
+
+    engine.config.load_balancing.auto_include_devices = False
+    engine._ev_phase_controllers["car"] = PhaseModeController()
+    assert engine.get_load_balancer_status()["ev"] == []
+    engine._ev_surplus_status["car"] = {"state": "charging", "reason": "surplus"}
+    assert engine.get_load_balancer_status()["ev"][0]["charger_id"] == "car"

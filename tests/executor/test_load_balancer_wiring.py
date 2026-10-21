@@ -27,6 +27,7 @@ from executor.config import (
     WaterHeaterConfig,
 )
 from executor.engine import ExecutorEngine
+from tests.executor.fake_relief import InstantRelief
 
 
 @pytest.fixture
@@ -98,7 +99,6 @@ def make_engine(
         resume_delay_s=120,
         target_margin_percent=90,
         # Legacy momentary semantics (immediate pause, no averaging window)
-        pause_debounce_s=0,
         ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
@@ -127,9 +127,12 @@ def make_engine(
                 "grid_current_l3": "sensor.grid_l3",
             }
         input_sensors.update(extra_input_sensors or {})
-        with patch("executor.engine.load_yaml", return_value={"input_sensors": input_sensors}):
-            with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
-                engine = ExecutorEngine("config.yaml")
+        with (
+            patch("executor.engine.load_yaml", return_value={"input_sensors": input_sensors}),
+            patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db),
+        ):
+            engine = ExecutorEngine("config.yaml")
+            engine._load_balancer._relief_trigger = InstantRelief(config.load_balancing)
 
     engine._has_ev_charger = True
 
@@ -217,14 +220,16 @@ async def test_enabled_balancer_caps_setpoint_below_planned(temp_schedule, temp_
         json.dump(schedule, f)
 
     # Charger already mid-session at 16A when the stove spike hits
-    engine._ev_charger_states["goe"] = EVChargerState(
-        charging_active=True, current_setpoint_a=16
-    )
+    engine._ev_charger_states["goe"] = EVChargerState(charging_active=True, current_setpoint_a=16)
 
     await engine.run_once()
 
     assert engine._last_balancer_status.state != "disabled"
-    calls = [c.args for c in engine.ha_client.set_number.call_args_list if c.args[0] == "number.goe_current"]
+    calls = [
+        c.args
+        for c in engine.ha_client.set_number.call_args_list
+        if c.args[0] == "number.goe_current"
+    ]
     assert calls, "expected a write to number.goe_current"
     commanded = calls[-1][1]
     assert commanded <= 10.0  # 16A + (-6A headroom) = 10A per the decrease-side formula
@@ -252,9 +257,7 @@ async def test_balancer_intervention_is_logged_with_reason_and_phase_currents(
     with Path(temp_schedule).open("w", encoding="utf-8") as f:
         json.dump(schedule, f)
 
-    engine._ev_charger_states["goe"] = EVChargerState(
-        charging_active=True, current_setpoint_a=16
-    )
+    engine._ev_charger_states["goe"] = EVChargerState(charging_active=True, current_setpoint_a=16)
 
     await engine.run_once()
 
@@ -288,9 +291,7 @@ async def _run_charging_tick(engine) -> None:
     schedule = make_schedule([make_ev_slot(now - timedelta(minutes=5), "goe", 11.0)])
     with Path(engine.config.schedule_path).open("w", encoding="utf-8") as f:
         json.dump(schedule, f)
-    engine._ev_charger_states["goe"] = EVChargerState(
-        charging_active=True, current_setpoint_a=16
-    )
+    engine._ev_charger_states["goe"] = EVChargerState(charging_active=True, current_setpoint_a=16)
     engine.dispatcher.notify_balancer_intervention = AsyncMock()
     await engine.run_once()
 
@@ -324,7 +325,10 @@ async def test_old_last_reported_is_stale(temp_schedule, temp_db):
         grid_currents={},
         state_overrides={
             "sensor.grid_l3": _current_state(
-                5.0, last_updated=_iso_ago(45), last_changed=_iso_ago(45), last_reported=_iso_ago(45)
+                5.0,
+                last_updated=_iso_ago(45),
+                last_changed=_iso_ago(45),
+                last_reported=_iso_ago(45),
             )
         },
     )
@@ -375,3 +379,20 @@ async def test_stale_voltage_by_last_reported_marks_phase_stale(temp_schedule, t
     await _run_charging_tick(engine)
 
     assert engine._last_balancer_status.state == "stale_fallback"
+
+
+@pytest.mark.asyncio
+async def test_excluded_ev_uses_normal_schedule_despite_fuse_overload(temp_schedule, temp_db):
+    engine = make_engine(
+        temp_schedule, temp_db, load_balancing_enabled=True, grid_currents={1: 26.0, 2: 5.0, 3: 5.0}
+    )
+    engine.config.load_balancing.auto_include_devices = False
+    engine.config.load_balancing.give_way_order = []
+    await _run_charging_tick(engine)
+    assert engine._last_balancer_status.ev_outputs == []
+    calls = [
+        c.args
+        for c in engine.ha_client.set_number.call_args_list
+        if c.args[0] == "number.goe_current"
+    ]
+    assert calls and calls[-1][1] == 16

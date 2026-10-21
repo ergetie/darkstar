@@ -117,7 +117,7 @@ const SEGMENT_LABELS: Record<string, string> = {
     has_battery: 'Battery enabled',
     has_water_heater: 'Water heater enabled',
     has_ev_charger: 'EV charger enabled',
-    main_fuse_a: 'Main fuse rating',
+    main_fuse_a: 'Grid connection fuse rating',
     vat_percent: 'VAT',
     energy_tax_sek: 'Energy tax',
     grid_transfer_fee_sek: 'Grid transfer fee',

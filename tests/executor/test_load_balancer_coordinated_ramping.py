@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from tests.executor.fake_relief import InstantRelief
+
 from executor.config import LoadBalancingConfig
 from executor.load_balancer import (
     BALANCER_TRACE_TICKS,
@@ -18,7 +20,6 @@ from executor.load_balancer import (
     PendingLedger,
     Relief,
     ShedLoadInput,
-    relief_needed,
 )
 
 T0 = datetime(2026, 10, 21, 12, 0, 0)
@@ -35,7 +36,7 @@ def make_lb(**overrides) -> LoadBalancer:
         main_fuse_a=20,
         resume_delay_s=120,
         target_margin_percent=90,
-        pause_debounce_s=0,
+
         ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
@@ -43,7 +44,7 @@ def make_lb(**overrides) -> LoadBalancer:
     )
     for key, value in overrides.items():
         setattr(cfg, key, value)
-    return LoadBalancer(cfg)
+    return LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
 
 
 def fresh(at: datetime, *phases: int) -> dict[int, datetime]:
@@ -119,20 +120,12 @@ class TestPendingLedger:
 
 
 class TestReliefTrigger:
-    def test_default_trigger_is_instant_threshold(self):
-        assert relief_needed(20.0, 20.0, 125.0) == Relief(0.0, False)
-        assert relief_needed(23.0, 20.0, 125.0) == Relief(3.0, False)
-        assert relief_needed(26.0, 20.0, 125.0) == Relief(6.0, True)
-
     def test_swapped_trigger_changes_only_when_a_reduction_starts(self):
         """A trigger that tolerates a 3 A overload: the same ladder reduces
         only once the trigger asks for relief."""
 
-        def tolerant(momentary: float, fuse: float, severe: float) -> Relief:
-            return relief_needed(momentary - 3.0, fuse, severe)
-
         lb = make_lb()
-        lb._relief_trigger = tolerant
+        lb._relief_trigger = InstantRelief(lb.config, tolerance_a=3)
         out = lb.tick(T0, grid(22.0), fresh(T0), [ev(16)]).ev_outputs[0]
         assert out.target_a == 16  # 22 A is within the tolerated 3 A
         t1 = T0 + timedelta(seconds=TICK_S)
@@ -312,23 +305,20 @@ class TestRestoreByPower:
 
 
 class TestShedRespectsEntriesAbove:
-    def test_shed_waits_for_charger_pause_debounce(self):
-        lb = make_lb(pause_debounce_s=5)
+    def test_shed_waits_only_for_pending_charger_relief(self):
+        lb = make_lb()
         charger = EVBalancerInput("goe", [1], 6, 16, min_current_a=6, max_current_a=16)
         heater = ShedLoadInput("wh", "water_heater", [1], power_w=3000.0, power_source="configured")
-        entries = [charger, heater]
-        status = lb.tick(T0, grid(22.0, 5.0, 5.0), fresh(T0), entries)
-        assert status.ev_outputs[0].target_a == 6
-        assert not status.shed_outputs[0].shed
-        t1 = T0 + timedelta(seconds=3)
-        status = lb.tick(t1, grid(22.0, 5.0, 5.0), fresh(t1), entries)
-        assert not status.shed_outputs[0].shed
-        t2 = T0 + timedelta(seconds=6)
-        status = lb.tick(t2, grid(22.0, 5.0, 5.0), fresh(t2), entries)
+        status = lb.tick(T0, grid(22.0, 5.0, 5.0), fresh(T0), [charger, heater])
         assert status.ev_outputs[0].state == "paused"
+        assert not status.shed_outputs[0].shed
+        t1 = T0 + timedelta(seconds=15)
+        charger.current_setpoint_a = None
+        status = lb.tick(t1, grid(22.0, 5.0, 5.0), fresh(t1), [charger, heater])
+        assert status.shed_outputs[0].shed
 
     def test_severe_overload_does_not_wait_for_debounce(self):
-        lb = make_lb(pause_debounce_s=30)
+        lb = make_lb()
         charger = EVBalancerInput("goe", [1], 6, 16, min_current_a=6, max_current_a=16)
         heater = ShedLoadInput("wh", "water_heater", [1], power_w=3000.0, power_source="configured")
         status = lb.tick(T0, grid(32.0, 5.0, 5.0), fresh(T0), [charger, heater])
@@ -442,7 +432,7 @@ class TestFreshSampleRule:
         assert lb._response_timeout_s(1) == pytest.approx(6.0)
 
     def test_urgent_overload_still_waits_for_prior_response(self):
-        lb = make_lb(pause_debounce_s=5)
+        lb = make_lb()
         charger = EVBalancerInput("goe", [1], 8, 16, min_current_a=6, max_current_a=16)
         lb.tick(T0, grid(22.0, 5.0, 5.0), fresh(T0), [charger])
         t1 = T0 + timedelta(seconds=5)
@@ -633,7 +623,7 @@ class TestSimulation:
         its minimum off time and no phase stays over the fuse for longer than
         a sensor interval."""
         lb = make_lb(
-            ramp_up_window_s=60, max_step_interval_s=30, pause_debounce_s=5, main_fuse_a=16
+            ramp_up_window_s=60, max_step_interval_s=30, main_fuse_a=16
         )
         fuse = 16.0
         heater_a = 3100.0 / V

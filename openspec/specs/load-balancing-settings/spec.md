@@ -7,7 +7,7 @@ Defines the configuration schema, startup validation, settings UI, and live stat
 ## Requirements
 
 ### Requirement: Load balancing configuration schema
-The config SHALL support: `system.grid.main_fuse_a` (positive integer, per-phase fuse rating in ampere); `input_sensors.grid_current_l1/l2/l3` (HA entity IDs for per-phase grid current or power at the connection point — the value SHALL be auto-detected as a current or power sensor per the `phase-load-balancing` capability). The key naming, voltage sensors, the `load_balancing` section keys, `loads[]` and `give_way_order[]` are specified in the scenarios below.
+The config SHALL support: `system.grid.main_fuse_a` (positive integer, per-phase fuse rating in ampere); `input_sensors.grid_current_l1/l2/l3` (HA entity IDs for per-phase current or power through the protected fuse — the value SHALL be auto-detected as a current or power sensor per the `phase-load-balancing` capability). The key naming, voltage sensors, the `load_balancing` section keys, `loads[]` and `give_way_order[]` are specified in the scenarios below.
 
 #### Scenario: grid_current key names kept for power sensors
 - **WHEN** a power sensor is configured under `input_sensors.grid_current_l1/l2/l3`
@@ -29,9 +29,9 @@ The config SHALL support: `system.grid.main_fuse_a` (positive integer, per-phase
 - **THEN** they are replaced by `give_way_order` and SHALL be migrated automatically at startup: chargers ordered by their old `charger_priority` (falling back to `ev_chargers[]` position), followed by `loads[]` entries ordered by their old `priority` ascending; the old keys are then dropped
 - **AND** the migration SHALL be idempotent and logged
 
-#### Scenario: give_way_order self-healing on config load
+#### Scenario: Explicit participation survives config load
 - **WHEN** the config is loaded
-- **THEN** `give_way_order` SHALL be self-healed: current-type chargers absent from the list are appended after the last charger entry (or at the top if none), and `loads[]` entries absent from the list are appended at the end
+- **THEN** `give_way_order` SHALL retain only valid selected entries when `auto_include_devices` is false; missing devices SHALL NOT be added, and an empty list SHALL remain empty
 - **AND** entries referencing missing devices (or chargers no longer `type: current`) are dropped with a logged warning
 - **AND** `system.grid.max_power_kw` SHALL remain unchanged in meaning and use
 
@@ -62,16 +62,16 @@ The config SHALL support: `system.grid.main_fuse_a` (positive integer, per-phase
 - **AND** `charger_priority` and every `loads[].priority` SHALL be removed
 - **AND** balancer behavior SHALL be identical to the previous two-tier system
 
-#### Scenario: Newly added charger self-heals into the order
+#### Scenario: New chargers require selection
 - **WHEN** a new `type: current` charger is added to `ev_chargers[]` without touching `give_way_order`
-- **THEN** the next config load SHALL append it after the last charger entry in `give_way_order` and log the addition
+- **THEN** it SHALL remain outside balancing until selected in the give-way editor when `auto_include_devices` is false
 
 #### Scenario: Charger switched back to binary drops out of the order
 - **WHEN** a charger referenced in `give_way_order` is changed to `type: binary`
 - **THEN** the next config load SHALL drop that entry with a logged warning
 
 ### Requirement: Startup validation with actionable errors
-When `load_balancing.enabled` is true, startup validation SHALL verify that `main_fuse_a` is set and positive, all three per-phase sensors are configured, and `loads[]` contains at least one entry referencing an existing device with a non-empty `phases` list, OR at least one `type: current` EV charger is configured (which is automatically balanced without needing a `loads[]` entry). Each violation SHALL produce an error naming the missing key and how to fix it.
+When load balancing is enabled, validation SHALL require a positive effective protected-fuse rating and three configured phase sensors. Selected entries SHALL reference valid devices. An explicit empty give-way list SHALL be allowed and leave balancing inactive while normal scheduling continues. Errors SHALL name the relevant key and fix.
 
 #### Scenario: Implausible fuse values rejected
 - **WHEN** `main_fuse_a` is greater than 125 or less than or equal to 0
@@ -85,7 +85,7 @@ When `load_balancing.enabled` is true, startup validation SHALL verify that `mai
 
 #### Scenario: Current-type charger in loads[] fails validation
 - **WHEN** a `loads[]` entry references an EV charger whose `type` is `current`
-- **THEN** validation SHALL fail with a message directing the user to the give-way list instead (the charger appears there automatically)
+- **THEN** validation SHALL fail with a message directing the user to the give-way list instead (the charger can be selected there)
 
 #### Scenario: Non-blocking validation warnings
 - **WHEN** validation runs
@@ -107,7 +107,7 @@ When `load_balancing.enabled` is true, startup validation SHALL verify that `mai
 
 #### Scenario: loads[] references a type: current charger
 - **WHEN** a `loads[]` entry's `device_id` matches an `ev_chargers[]` entry with `type: current`
-- **THEN** validation SHALL fail, naming the charger and explaining it is already in the give-way list automatically and must not be listed in `loads[]`
+- **THEN** validation SHALL fail, naming the charger and explaining it belongs in the give-way list as a selectable charger entry and must not be listed in `loads[]`
 
 #### Scenario: Sensor with unrecognized unit
 - **WHEN** `input_sensors.grid_current_l1` points to an entity whose `unit_of_measurement` is not a recognized current or power unit
@@ -134,7 +134,7 @@ The frontend SHALL provide a load-balancing settings section with a global enabl
 
 #### Scenario: Current-type chargers in the give-way list
 - **WHEN** a `type: current` EV charger exists
-- **THEN** it SHALL appear in the list automatically (never user-added or user-removed)
+- **THEN** it SHALL be available to add to the list and remove without deleting its charger configuration
 - **AND** its row SHALL show name and configured phases read-only, a plain-language capability line derived from its configuration (e.g. "Throttle 16 → 6 A, then pause"), and a link to the EV tab where its settings live
 - **AND** only its position SHALL be editable here
 
@@ -162,7 +162,7 @@ The frontend SHALL provide a load-balancing settings section with a global enabl
 #### Scenario: EV tab Dynamic load type
 - **WHEN** the EV chargers settings tab shows the current-control load type option
 - **THEN** it SHALL be labeled "Dynamic" (config value unchanged)
-- **AND** while selected, the UI SHALL display its consequences in plain language: the planner sets the charge current per slot, the charger is automatically included in the load-balancing give-way list (with a link to that tab), and it becomes eligible for future PV-surplus charging
+- **AND** while selected, the UI SHALL display its consequences in plain language: the planner sets the charge current per slot, the charger can be selected in the load-balancing give-way list (with a link to that tab), and it becomes eligible for future PV-surplus charging
 - **AND** when a `type: current` charger has no SoC sensor configured, the EV tab SHALL show an inline warning that Darkstar cannot track its charging progress
 
 #### Scenario: User enables the feature from the UI
@@ -181,12 +181,12 @@ The frontend SHALL provide a load-balancing settings section with a global enabl
 
 #### Scenario: Charger rows are managed from the EV tab
 - **WHEN** the user changes a charger's type from "Dynamic current (adjustable amps)" to "Binary (On/Off)" in the EV tab
-- **THEN** the charger SHALL disappear from the give-way list's automatic entries
+- **THEN** the charger SHALL disappear from the give-way list's available charger entries
 - **AND** it SHALL become offerable as a shed entry
 
 #### Scenario: Choosing dynamic current explains its consequences
 - **WHEN** the user selects "Dynamic current (adjustable amps)" for a charger in the EV tab
-- **THEN** the UI SHALL display the consequence list (planner-controlled amps, automatic load balancing membership, PV-surplus eligibility) at the point of choice
+- **THEN** the UI SHALL display the consequence list (planner-controlled amps, optional load balancing membership, PV-surplus eligibility) at the point of choice
 
 #### Scenario: Slow tick shows a persistent warning in the section
 - **WHEN** `load_balancing.enabled` is true and `executor.interval_seconds` is 60
@@ -254,10 +254,10 @@ The `load_balancing` config section SHALL additionally support the graceful-degr
 #### Scenario: Graceful degradation config keys
 - **WHEN** the `load_balancing` config section is read
 - **THEN** it SHALL support `target_margin_percent`: number, default 85, valid range 50–100
-- **AND** `pause_debounce_s`: integer, default 5, valid range 0–60
 - **AND** `resume_confirm_s`: integer, default 10, valid range 5–300, which is how long a balancer-paused charger's phases must fit before it re-fits (see `phase-load-balancing` "Pause below minimum current with anti-flap resume")
-- **AND** `severe_overload_percent`: number, default 125, valid range 101–200
-- **AND** `ramp_up_window_s`: integer, default 60, valid range 10–600
+- **AND** `ramp_up_window_s`: integer, default 60, valid range 10–600, used only as the averaging window for increases and restores (not as a hold-off)
+- **AND** `fuse_preset`, `fuse_safety_percent` and `fuse_custom_points` as specified in `fuse-overload-timing` "Fuse configuration keys"
+- **AND** `pause_debounce_s` and `severe_overload_percent` are no longer supported
 
 #### Scenario: phase_1_line and range validation
 - **WHEN** an `ev_chargers[]` entry or one of the new keys is validated
@@ -281,12 +281,12 @@ The `load_balancing` config section SHALL additionally support the graceful-degr
 
 #### Scenario: Settings section exposes global fields
 - **WHEN** the load-balancing settings section is displayed
-- **THEN** it SHALL expose the five global fields, with plain-language help, e.g. "Aim to keep each phase at or below this share of your fuse", "Only pause if the overload lasts this long" and "A paused charger starts again once its phases have had room for the minimum current for this long"
+- **THEN** it SHALL expose the global fields, with plain-language help, e.g. "Aim to keep each phase at or below this share of your fuse" and "A paused charger starts again once its phases have had room for the minimum current for this long"
 - **AND** it SHALL expose `phase_1_line`, shown in the EV charger's phase-switching block only when phase switching is enabled
 
 #### Scenario: Upgrade picks safe defaults
 - **WHEN** a user with load balancing enabled upgrades without touching config
-- **THEN** the balancer SHALL use an 85 % target, 5 s pause debounce, 10 s resume confirm time, 125 % severe threshold and 60 s ramp-up window
+- **THEN** the balancer SHALL use an 85 % target, 10 s resume confirm time, the Typ C fuse curve with 80 % safety and a 60 s ramp-up averaging window
 
 #### Scenario: Tuned legacy resume margin is migrated
 - **WHEN** a config has `resume_margin_percent: 80` and no `target_margin_percent`
@@ -297,8 +297,9 @@ The `load_balancing` config section SHALL additionally support the graceful-degr
 - **THEN** after load, `resume_margin_percent` SHALL be absent and the balancer SHALL use the 85 % default
 
 #### Scenario: Invalid debounce is rejected
-- **WHEN** a user saves `pause_debounce_s: 120`
-- **THEN** validation SHALL fail naming `load_balancing.pause_debounce_s` and its 0–60 range
+- **WHEN** a config contains `pause_debounce_s: 120` or `severe_overload_percent: 300`
+- **THEN** it SHALL load without a validation error and the keys SHALL be removed by the deprecated-key sweep (see `config-migration` "Remove balancer pause-delay and severe-overload settings")
+
 
 #### Scenario: Invalid resume confirm time is rejected
 - **WHEN** a user saves `resume_confirm_s: 2`
@@ -324,11 +325,11 @@ In the EV charger settings, the phase-mode entity picker SHALL list only Home As
 - **THEN** the parsed order SHALL keep the battery at that position
 
 ### Requirement: Battery entry self-heal
-`heal_give_way_order` SHALL keep a battery entry only while a controllable battery exists, meaning a loaded inverter profile with a `charge` mode. Otherwise it SHALL drop the entry with a warning. When a controllable battery exists and no battery entry is listed, it SHALL append one at the end of the list. The frontend display heal SHALL mirror this rule.
+`heal_give_way_order` SHALL keep a battery entry only while a controllable battery exists, meaning a loaded inverter profile with a `charge` mode. Otherwise it SHALL drop the entry with a warning. Only legacy automatic inclusion SHALL append a missing battery entry. With `auto_include_devices: false`, the battery SHALL remain absent until selected; frontend display healing SHALL never reinsert it.
 
 #### Scenario: Existing user upgrades
-- **WHEN** a config with only charger and shed entries is loaded and a Deye profile is active
-- **THEN** a battery entry SHALL be appended after the last entry
+- **WHEN** a legacy config without `auto_include_devices` is loaded and a Deye profile is active
+- **THEN** migration SHALL append the previously automatic battery entry after the last entry once and set `auto_include_devices: false`
 
 #### Scenario: No inverter profile
 - **WHEN** no inverter profile is loaded
@@ -354,3 +355,27 @@ The settings UI SHALL expose `max_step_interval_s`, `write_deadband_percent`, `p
 #### Scenario: Defaults documented
 - **WHEN** a user opens a fresh config
 - **THEN** each new key has a commented default in `config.default.yaml` and a help text in the settings UI
+
+### Requirement: Explicit protected-fuse participation
+The give-way list SHALL select which devices participate in protecting the configured fuse. Settings and dashboard SHALL use “Protected fuse” and neutral phase-sensor labels. Configuration key names SHALL remain backward compatible. `auto_include_devices: false` SHALL make the order authoritative, including an empty list.
+
+#### Scenario: Existing participation preserved on upgrade
+- **WHEN** an existing installation lacks the explicit-participation setting
+- **THEN** migration SHALL materialize its legacy effective order and set `auto_include_devices` false once, without changing the previous participating devices
+- **AND** config GET SHALL provide the same effective view without writing to disk if migration has not completed
+
+#### Scenario: Optional charger and battery membership
+- **WHEN** a user removes or re-adds a charger or battery grid-charging entry
+- **THEN** only the selected valid entries SHALL participate after save, reload and restart
+- **AND** removing an entry SHALL preserve its normal scheduling and clear any previous balancing restriction
+
+#### Scenario: Explain the physical boundary briefly
+- **WHEN** a user configures give-way loads
+- **THEN** the UI SHALL state “Only include loads whose reduction lowers current through the protected fuse.”
+- **AND** further explanation SHALL be in a collapsed disclosure
+
+#### Scenario: Protected rating independent of grid planning
+- **WHEN** `load_balancing.protected_fuse_a` differs from `system.grid.main_fuse_a`
+- **THEN** the balancer SHALL use the protected rating while the planner retains the grid connection rating
+- **AND** old configs without a protected rating SHALL keep the previous grid-rating fallback
+- **AND** settings SHALL expose both values under their respective protected-fuse and grid-planning labels

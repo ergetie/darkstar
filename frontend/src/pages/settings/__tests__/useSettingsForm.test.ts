@@ -179,12 +179,12 @@ describe('useSettingsForm Hook', () => {
     describe('declared min/max take precedence over key-name heuristics', () => {
         const rangedFields: BaseField[] = [
             {
-                key: 'load_balancing.severe_overload_percent',
-                label: 'Immediate pause above (% of fuse)',
-                path: ['load_balancing', 'severe_overload_percent'],
+                key: 'load_balancing.fuse_safety_percent',
+                label: 'Fuse safety (%)',
+                path: ['load_balancing', 'fuse_safety_percent'],
                 type: 'number',
-                min: 101,
-                max: 200,
+                min: 50,
+                max: 100,
             },
             {
                 key: 'ev_planning.deferral_risk_margin_max_percent',
@@ -198,25 +198,23 @@ describe('useSettingsForm Hook', () => {
 
         beforeEach(() => {
             vi.mocked(Api.config).mockResolvedValue({
-                load_balancing: { severe_overload_percent: 125 },
+                load_balancing: { fuse_safety_percent: 80 },
                 ev_planning: { deferral_risk_margin_max_percent: 50 },
             })
         })
 
-        it('accepts severe_overload_percent within its declared 101-200 range', async () => {
+        it('accepts fuse_safety_percent within its declared 50-100 range', async () => {
             const { result } = renderHook(() => useSettingsForm(rangedFields))
             await waitFor(() => expect(result.current.loading).toBe(false))
-            act(() => result.current.handleChange('load_balancing.severe_overload_percent', '125'))
-            expect(result.current.fieldErrors['load_balancing.severe_overload_percent']).toBeUndefined()
+            act(() => result.current.handleChange('load_balancing.fuse_safety_percent', '80'))
+            expect(result.current.fieldErrors['load_balancing.fuse_safety_percent']).toBeUndefined()
         })
 
-        it.each(['25', '250'])('rejects severe_overload_percent %s with the declared range', async (value) => {
+        it.each(['25', '250'])('rejects fuse_safety_percent %s with the declared range', async (value) => {
             const { result } = renderHook(() => useSettingsForm(rangedFields))
             await waitFor(() => expect(result.current.loading).toBe(false))
-            act(() => result.current.handleChange('load_balancing.severe_overload_percent', value))
-            expect(result.current.fieldErrors['load_balancing.severe_overload_percent']).toBe(
-                'Must be between 101 and 200',
-            )
+            act(() => result.current.handleChange('load_balancing.fuse_safety_percent', value))
+            expect(result.current.fieldErrors['load_balancing.fuse_safety_percent']).toBe('Must be between 50 and 100')
         })
 
         it('accepts deferral_risk_margin_max_percent above 100', async () => {

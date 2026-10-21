@@ -1,4 +1,5 @@
 import React from 'react'
+import { FuseCharacteristicGraph } from './components/FuseCharacteristicGraph'
 import { useNavigate } from 'react-router-dom'
 import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
@@ -107,8 +108,21 @@ export const LoadBalancingTab: React.FC<{ advancedMode?: boolean }> = ({ advance
                                         return (
                                             <SettingsField
                                                 key={field.key}
-                                                field={field}
-                                                value={form[field.key]}
+                                                field={
+                                                    field.key === 'load_balancing.fuse_safety_percent'
+                                                        ? {
+                                                              ...field,
+                                                              placeholder:
+                                                                  form['load_balancing.fuse_preset'] === 'diazed_gg'
+                                                                      ? '65'
+                                                                      : '80',
+                                                          }
+                                                        : field
+                                                }
+                                                value={
+                                                    form[field.key] ||
+                                                    (field.key === 'load_balancing.fuse_preset' ? 'typ_c' : '')
+                                                }
                                                 onChange={handleChange}
                                                 error={fieldErrors[field.key]}
                                                 haEntities={haEntities}
@@ -119,6 +133,7 @@ export const LoadBalancingTab: React.FC<{ advancedMode?: boolean }> = ({ advance
                                         )
                                     })}
                                 </div>
+                                {section.title === 'Overload Handling' && <FuseCharacteristicGraph form={form} />}
                             </Card>
                         </motion.div>
                     </AnimatePresence>

@@ -4,6 +4,7 @@ Executor Configuration
 Loads and validates the executor configuration from config.yaml.
 """
 
+import copy
 import logging
 import math
 from dataclasses import dataclass, field
@@ -249,6 +250,12 @@ class GiveWayOrderEntry:
     id: str = ""
 
 
+@dataclass(frozen=True)
+class FuseCustomPoint:
+    overload_percent: float
+    time_s: float
+
+
 @dataclass
 class LoadBalancingConfig:
     """Real-time per-phase load balancing (fuse protection) configuration."""
@@ -270,11 +277,11 @@ class LoadBalancingConfig:
     # averaged current at or below this share of main_fuse_a (supersedes the
     # legacy resume_margin_percent). Never triggers a reduction by itself.
     target_margin_percent: float = 85.0
-    # A charger held at its floor pauses only once the overload has lasted
-    # this long (0 = pause immediately)...
-    pause_debounce_s: int = 5
-    # ...unless a phase it draws on reads above this share of main_fuse_a.
-    severe_overload_percent: float = 125.0
+    fuse_preset: str = "typ_c"
+    fuse_safety_percent: float | None = None
+    fuse_custom_points: list[FuseCustomPoint] = field(
+        default_factory=lambda: [FuseCustomPoint(130, 1200), FuseCustomPoint(300, 4)]
+    )
     # Rolling-average window for increases/resume/restore/return to 3-phase.
     ramp_up_window_s: int = 60
     increase_step_a: int = 1
@@ -288,6 +295,8 @@ class LoadBalancingConfig:
     # Unified give-way order across chargers and shed loads; the top entry
     # gives way first. Self-healed on load (see heal_give_way_order).
     give_way_order: list[GiveWayOrderEntry] = field(default_factory=lambda: [])
+    # Missing in old configs: retain legacy auto-inclusion until migrated.
+    auto_include_devices: bool = True
     # Notify (HA notify / Discord fallback) on shed, pause, and stale-fallback
     # transitions. Routine throttle/ramp adjustments never notify.
     notify_interventions: bool = False
@@ -404,15 +413,82 @@ def load_yaml(path: str) -> dict[str, Any]:
 # backend/api/routers/config.py validation. The target-margin range, legacy
 # default and resolver live in backend.core.load_balancing_margin (shared with
 # the planner).
-PAUSE_DEBOUNCE_RANGE: tuple[float, float] = (0.0, 60.0)
+FUSE_SAFETY_RANGE: tuple[float, float] = (50.0, 100.0)
+FUSE_PRESETS = ("typ_c", "diazed_gg", "custom")
 RESUME_CONFIRM_RANGE: tuple[float, float] = (5.0, 300.0)
-SEVERE_OVERLOAD_RANGE: tuple[float, float] = (101.0, 200.0)
 RAMP_UP_WINDOW_RANGE: tuple[float, float] = (10.0, 600.0)
 MAX_STEP_INTERVAL_RANGE: tuple[float, float] = (5.0, 300.0)
 WRITE_DEADBAND_RANGE: tuple[float, float] = (0.0, 20.0)
 PENDING_TIMEOUT_RANGE: tuple[float, float] = (10.0, 600.0)
 MIN_ON_OFF_RANGE: tuple[float, float] = (0.0, 3600.0)
 PHASE_SIGN_VALUES: tuple[str, ...] = ("import_positive", "import_negative")
+
+
+def validate_fuse_settings(lb: dict[str, Any]) -> list[str]:
+    """Shared loader/API validation; inactive custom points are ignored."""
+    errors: list[str] = []
+    preset = lb.get("fuse_preset", "typ_c")
+    if preset not in FUSE_PRESETS:
+        errors.append("load_balancing.fuse_preset must be typ_c, diazed_gg or custom")
+    safety = lb.get("fuse_safety_percent")
+    if safety is not None and (
+        isinstance(safety, bool) or not isinstance(safety, int | float) or not 50 <= safety <= 100
+    ):
+        errors.append("load_balancing.fuse_safety_percent must be a number in range 50-100")
+    if preset == "custom":
+        raw_points: Any = lb.get(
+            "fuse_custom_points",
+            [{"overload_percent": 130, "time_s": 1200}, {"overload_percent": 300, "time_s": 4}],
+        )
+        points: list[dict[str, Any]] = []
+        valid = isinstance(raw_points, list) and len(cast("list[Any]", raw_points)) == 2
+        if valid:
+            for raw_point in cast("list[Any]", raw_points):
+                if not isinstance(raw_point, dict):
+                    valid = False
+                    break
+                point = cast("dict[str, Any]", raw_point)
+                points.append(point)
+                for key, low, high in (("overload_percent", 101, 1000), ("time_s", 0.5, 86400)):
+                    value: Any = point.get(key)
+                    if (
+                        isinstance(value, bool)
+                        or not isinstance(value, int | float)
+                        or not low <= value <= high
+                    ):
+                        valid = False
+        if not valid:
+            errors.append(
+                "load_balancing.fuse_custom_points must contain exactly two points: overload_percent 101-1000, time_s 0.5-86400"
+            )
+        else:
+            first, second = sorted(points, key=lambda p: p["overload_percent"])
+            if (
+                first["overload_percent"] == second["overload_percent"]
+                or first["time_s"] <= second["time_s"]
+            ):
+                errors.append(
+                    "load_balancing.fuse_custom_points: higher overload_percent must have strictly shorter time_s"
+                )
+    return errors
+
+
+def _load_fuse_settings(lb: dict[str, Any]) -> dict[str, Any]:
+    errors = validate_fuse_settings(lb)
+    if errors:
+        for error in errors:
+            logger.warning("%s — using default fuse settings", error)
+        return {}
+    settings: dict[str, Any] = {
+        "fuse_preset": lb.get("fuse_preset", "typ_c"),
+        "fuse_safety_percent": lb.get("fuse_safety_percent"),
+    }
+    if settings["fuse_preset"] == "custom" and "fuse_custom_points" in lb:
+        settings["fuse_custom_points"] = [
+            FuseCustomPoint(float(p["overload_percent"]), float(p["time_s"]))
+            for p in sorted(lb["fuse_custom_points"], key=lambda p: p["overload_percent"])
+        ]
+    return settings
 
 
 def _ranged_number(raw: Any, key: str, valid: tuple[float, float], default: float) -> float:
@@ -524,6 +600,23 @@ def _parse_load_balancing_config(
         data.get("load_balancing", {}) if isinstance(data.get("load_balancing"), dict) else {}
     )
 
+    protected_raw = lb_data.get("protected_fuse_a")
+    if protected_raw is not None:
+        if (
+            isinstance(protected_raw, int | float)
+            and not isinstance(protected_raw, bool)
+            and math.isfinite(protected_raw)
+            and 1 <= protected_raw <= 125
+            and float(protected_raw).is_integer()
+        ):
+            main_fuse_a = int(protected_raw)
+        else:
+            logger.warning(
+                "Invalid load_balancing.protected_fuse_a: %r; protection unconfigured",
+                protected_raw,
+            )
+            main_fuse_a = None
+
     loads_raw = lb_data.get("loads", [])
     loads: list[BalancedLoadConfig] = []
     if isinstance(loads_raw, list):
@@ -609,14 +702,6 @@ def _parse_load_balancing_config(
             TARGET_MARGIN_RANGE,
             LoadBalancingConfig.target_margin_percent,
         ),
-        pause_debounce_s=int(
-            _ranged_number(
-                lb_data.get("pause_debounce_s", LoadBalancingConfig.pause_debounce_s),
-                "load_balancing.pause_debounce_s",
-                PAUSE_DEBOUNCE_RANGE,
-                LoadBalancingConfig.pause_debounce_s,
-            )
-        ),
         resume_confirm_s=int(
             _ranged_number(
                 lb_data.get("resume_confirm_s", LoadBalancingConfig.resume_confirm_s),
@@ -625,12 +710,7 @@ def _parse_load_balancing_config(
                 LoadBalancingConfig.resume_confirm_s,
             )
         ),
-        severe_overload_percent=_ranged_number(
-            lb_data.get("severe_overload_percent", LoadBalancingConfig.severe_overload_percent),
-            "load_balancing.severe_overload_percent",
-            SEVERE_OVERLOAD_RANGE,
-            LoadBalancingConfig.severe_overload_percent,
-        ),
+        **_load_fuse_settings(lb_data),
         ramp_up_window_s=int(
             _ranged_number(
                 lb_data.get("ramp_up_window_s", LoadBalancingConfig.ramp_up_window_s),
@@ -646,6 +726,7 @@ def _parse_load_balancing_config(
         nominal_voltage_v=nominal_voltage_v(data),
         loads=loads,
         give_way_order=give_way_order,
+        auto_include_devices=lb_data.get("auto_include_devices", True) is not False,
         notify_interventions=bool(lb_data.get("notify_interventions", False)),
         max_step_interval_s=int(
             _ranged_number(
@@ -718,6 +799,10 @@ def heal_give_way_order(
                 "type: current EV charger" if entry.kind == "charger" else "loads[] entry",
             )
 
+    if not lb.auto_include_devices:
+        lb.give_way_order = healed
+        return
+
     listed_chargers = {e.id for e in healed if e.kind == "charger"}
     missing_chargers = [c for c in current_type_charger_ids if c not in listed_chargers]
     if missing_chargers:
@@ -757,6 +842,47 @@ def battery_give_way_available(data: dict[str, Any]) -> bool:
         logger.warning("Battery give-way: inverter profile could not be loaded: %s", e)
         return False
     return "charge" in profile.modes
+
+
+def effective_load_balancing_selection(
+    data: dict[str, Any], *, resolve_protected_fuse: bool = True
+) -> dict[str, Any]:
+    """Materialize legacy automatic participation without mutating input or disk."""
+    raw = data.get("load_balancing", {})
+    result: dict[str, Any] = (
+        copy.deepcopy(cast("dict[str, Any]", raw)) if isinstance(raw, dict) else {}
+    )
+    if resolve_protected_fuse and result.get("protected_fuse_a") is None:
+        system_data = data.get("system", {})
+        grid: Any = (
+            cast("dict[str, Any]", system_data).get("grid", {})
+            if isinstance(system_data, dict)
+            else {}
+        )
+        result["protected_fuse_a"] = (
+            cast("dict[str, Any]", grid).get("main_fuse_a") if isinstance(grid, dict) else None
+        )
+    if result.get("auto_include_devices") is False:
+        return result
+    system = data.get("system", {})
+    parsed = _parse_load_balancing_config(
+        data, cast("dict[str, Any]", system) if isinstance(system, dict) else {}
+    )
+    raw_chargers = data.get("ev_chargers", [])
+    charger_ids: list[str] = []
+    if isinstance(raw_chargers, list):
+        for idx, item in enumerate(cast("list[Any]", raw_chargers)):
+            if not isinstance(item, dict):
+                continue
+            charger = cast("dict[str, Any]", item)
+            if charger.get("enabled", True) and charger.get("type", "binary") == "current":
+                charger_ids.append(str(charger.get("id", f"ev_charger_{idx}")))
+    heal_give_way_order(parsed, charger_ids, battery_give_way_available(data))
+    result["give_way_order"] = [
+        {"kind": entry.kind, "id": entry.id} for entry in parsed.give_way_order
+    ]
+    result["auto_include_devices"] = False
+    return result
 
 
 def _parse_min_soc_percent(battery_data: dict[str, Any]) -> float:

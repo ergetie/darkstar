@@ -1,3 +1,4 @@
+import { FuseCurveEditor } from './FuseCurveEditor'
 import React from 'react'
 import { BaseField, HaEntity } from '../types'
 import { shouldRenderField } from '../logic'
@@ -71,6 +72,10 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
 
     const renderInput = () => {
         switch (field.type) {
+            case 'fuse_curve':
+                return (
+                    <FuseCurveEditor value={value} onChange={(val) => onChange(field.key, val)} disabled={isDisabled} />
+                )
             case 'boolean':
                 return (
                     <div className="flex items-center gap-3 pt-2">
@@ -236,7 +241,10 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                     <GiveWayListEditor
                         orderValue={value}
                         loadsValue={String(fullForm['load_balancing.loads'] ?? '[]')}
-                        onChangeOrder={(entries: GiveWayEntry[]) => onChange(field.key, JSON.stringify(entries))}
+                        onChangeOrder={(entries: GiveWayEntry[]) => {
+                            onChange(field.key, JSON.stringify(entries))
+                            onChange('load_balancing.auto_include_devices', 'false')
+                        }}
                         onChangeLoads={(loads: ShedLoad[]) => onChange('load_balancing.loads', JSON.stringify(loads))}
                         disabled={isDisabled}
                         config={config}
@@ -327,6 +335,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                     return (
                         <NumberInput
                             aria-label={field.label}
+                            placeholder={field.placeholder}
                             value={value}
                             onChange={(val) => onChange(field.key, val)}
                             disabled={isDisabled}

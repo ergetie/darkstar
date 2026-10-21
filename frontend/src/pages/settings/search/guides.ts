@@ -13,31 +13,41 @@ export const guides: Guide[] = [
         id: 'load-balancing',
         title: 'Guide: Load Balancing',
         summary:
-            'Keeps your main fuse from tripping by throttling the EV charger, and sheds other loads as a last resort.',
-        body: `Load balancing watches how much current is flowing on each of your three grid phases and steps in before your main fuse trips. If a phase gets close to its limit, it first slows down EV charging on that phase. If that's not enough, it starts shedding other loads in an order you control, and brings them back on in reverse order once things settle down.
+            'Keeps your protected fuse from tripping by throttling the EV charger, and sheds other loads as a last resort.',
+        body: `Load balancing watches how much current is flowing on each of your three measured phases and steps in before your protected fuse trips. If a phase gets close to its limit, it first slows down EV charging on that phase. If that's not enough, it starts shedding other loads in an order you control, and brings them back on in reverse order once things settle down.
 
-It stays completely switched off until three things are configured: the main fuse rating, a current or power sensor for all three phases, and at least one load in the give-way order. Until all of those are set, the feature does nothing — it's designed to fail safe.
+It stays completely switched off until three things are configured: the protected fuse rating, a current or power sensor for all three phases, and at least one load in the give-way order. Until all of those are set, the feature does nothing — it's designed to fail safe.
 
-The main fuse rating is the physical amp rating of your fuse (e.g. 20A per phase) — this is different from your overall grid import limit, because a balanced total power draw can still overload a single phase.
+The protected fuse can be the main fuse or a downstream fuse. Its separate protected-fuse setting defaults to the grid connection fuse from System; changing it does not change the planner’s grid connection limit. Set its physical rating (e.g. 20 A per phase) and select sensors measuring through that same fuse. Only include loads whose reduction lowers current through the protected fuse. Removing a device from the give-way list leaves its normal configuration intact.
 
-The give-way order is the list of things the balancer is allowed to act on, ranked by your preference. The top entry gives way first when a phase overloads (e.g. slow down the EV charger before shedding the water heater), and things come back in the exact reverse order once the phase has headroom again. The house battery's grid charging appears in the list too (at the bottom by default): when the entries above it can't free enough current, the balancer lowers the planned grid charge power evenly over all three phases, and pauses grid charging for the moment if it would drop below the inverter's minimum. Solar charging and discharge are never touched, and the charge power ramps back up toward the plan once the phases have room again.
+The give-way order is the list of things the balancer is allowed to act on, ranked by your preference. The top entry gives way first when a phase overloads (e.g. slow down the EV charger before shedding the water heater), and things come back in the exact reverse order once the phase has headroom again. Use Add Load to include or remove individual EV chargers and the house battery's grid charging: when the entries above it can't free enough current, the balancer lowers the planned grid charge power evenly over all three phases, and pauses grid charging for the moment if it would drop below the inverter's minimum. Solar charging and discharge are never touched, and the charge power ramps back up toward the plan once the phases have room again.
 
-The overload settings decide how much room the balancer keeps below your fuse (target safety margin, 85% by default) and how patiently it reacts: a charger at its minimum current only pauses if the overload lasts longer than the pause delay (5 s by default), unless a phase goes far over the fuse. A charger that can switch phases first moves to 1-phase on a line with room before it pauses. A paused charger resumes once its phases have had room for the minimum current for the resume confirm time (10 s by default), at the highest current that fits, switching to 1-phase if only that line has room; if it keeps pausing again right after resuming, the wait grows automatically.
+The fuse preset (Typ C, Diazed gG or Custom) estimates heat from a time-current curve. Loads give way at the safety percentage (80% for Typ C and Custom, 65% for Diazed gG by default); a very large overload needs immediate relief. Heat builds against the actual fuse rating, and reductions bring current down to the target margin (85% by default), so the fuse cools. Increases and shed-load restores wait until every affected phase has cooled below 50%. Custom lets you enter two overload/time points. A charger at minimum current pauses or requests eligible 1-phase relief as soon as relief is needed. A paused charger resumes after its minimum has fitted within the target margin for the resume confirm time; repeated pauses lengthen that window.
 
 The anti-flap settings (resume delay for shed loads, ramp-up step, stale-sensor timeout) control how cautiously the balancer restores loads or ramps back up — they exist so a noisy sensor reading doesn't cause the system to flicker loads on and off.
 
-Increases (EV current, battery grid charging, restoring a shed load) share one budget under your fuse: a step that was just granted counts until it shows in the measurement, so the car and the battery never ramp up together on a lagging average. The coordination settings control how long a step may wait (max time between ramp-up steps), how small a battery change is not worth writing (write deadband), how long a granted step counts if it is never measured, and which sign of your phase sensors means import. A shed load is only switched back on when there is room for its power: set its power (or a live power sensor) on the load; without either it is restored only when its whole phase is free. Water heaters and custom loads also keep a minimum on and off time so they do not toggle too often.
+Increases (EV current, battery grid charging, restoring a shed load) share one budget under your fuse: a step that was just granted counts until it shows in the measurement, so the car and the battery never ramp up together on a lagging average. The coordination settings control how long a step may wait (max time between ramp-up steps), how small a battery change is not worth writing (write deadband), how long a granted step counts if it is never measured, and which sign of your phase sensors means flow toward the protected loads. A shed load is only switched back on when there is room for its power: set its power (or a live power sensor) on the load; without either it is restored only when its whole phase is free. Water heaters and custom loads also keep a minimum on and off time so they do not toggle too often.
 
 This is a software safety net, not a certified protection device. If your EV charger has its own built-in load-management setting, keep that enabled too as a backup.`,
-        aliases: ['breaker', 'circuit breaker', 'overload protection', 'phases'],
+        aliases: [
+            'breaker',
+            'circuit breaker',
+            'overload protection',
+            'phases',
+            'fuse heat',
+            'Diazed',
+            'Typ C',
+            'safety percentage',
+        ],
         relatedFieldKeys: [
             'load_balancing.enabled',
-            'system.grid.main_fuse_a',
+            'load_balancing.protected_fuse_a',
             'input_sensors.grid_current_l1',
             'load_balancing.give_way_order',
             'load_balancing.resume_delay_s',
             'load_balancing.target_margin_percent',
-            'load_balancing.pause_debounce_s',
+            'load_balancing.fuse_preset',
+            'load_balancing.fuse_safety_percent',
             'load_balancing.resume_confirm_s',
             'load_balancing.sensor_stale_after_s',
             'load_balancing.max_step_interval_s',
@@ -51,7 +61,7 @@ This is a software safety net, not a certified protection device. If your EV cha
         title: 'Guide: EV Charging',
         summary:
             'Set up your chargers, set charging goals, and see how Darkstar picks the cheapest time to charge and keeps your fuse safe.',
-        body: `Darkstar plans EV charging around electricity prices and solar power. You tell it how full the car should be and by when; it picks the cheapest hours that get there and keeps your main fuse safe while charging.
+        body: `Darkstar plans EV charging around electricity prices and solar power. You tell it how full the car should be and by when; it picks the cheapest hours that get there and keeps your protected fuse safe while charging.
 
 1. Setting up a charger (EV tab)
 - Current chargers (type "current") let Darkstar set the charging amps. Give the minimum and maximum current (6 A minimum by default) and the phases the charger is wired to. Power is worked out for you: amps × number of phases × grid voltage (System → Grid, 230 V by default).
@@ -93,7 +103,7 @@ This is a software safety net, not a certified protection device. If your EV cha
 - On the dashboard's Grid & Financial card, "↳ of which EV" under Grid Import shows the grid cost and energy of EV charging for the selected period. It is part of Grid Import, not added on top. Solar energy used by the car has no price.
 
 8. Load balancing (Load Balancing tab)
-- Darkstar keeps each phase at or below the target safety margin (85% of the main fuse) when raising charging current.
+- Darkstar keeps each phase at or below the target safety margin (85% of the protected fuse) when raising charging current.
 - If a phase goes over the fuse, charging amps drop at once, down to the minimum current.
 - If the overload still lasts 5 seconds at the minimum, the charger pauses. Only when the charging goal is at risk does a charger that can switch phases move to 1-phase on a line with room instead ("1-phase on L1 — relieving L3"), because slow 1-phase charging loses a lot of energy.
 - Above 125% of the fuse it pauses immediately, without waiting.
@@ -132,7 +142,8 @@ This is a software safety net, not a certified protection device. If your EV cha
             'executor.notifications.on_ev_plug_in_reminder',
             'executor.notifications.on_ev_soc_stale',
             'load_balancing.target_margin_percent',
-            'load_balancing.pause_debounce_s',
+            'load_balancing.fuse_preset',
+            'load_balancing.fuse_safety_percent',
             'load_balancing.resume_confirm_s',
         ],
     },
@@ -386,7 +397,7 @@ The connection is the Home Assistant URL and a long-lived access token. On a fre
 
 Sensors are how Darkstar sees your home: at minimum, load power and grid power (either one net meter, or separate import/export sensors — the Grid Meter Type setting picks which). Energy statistics are built from the power sensors' history. Control entities are how it acts: the inverter's charge/discharge limits, work mode, SoC target, and grid charging switch.
 
-A core principle: features fail safe by staying off until fully configured. The system profile toggles (solar, battery, water heater, EV) hide whole tabs and features you don't have. Load balancing stays inert until the main fuse, all three phase sensors, and a give-way order are set. If you search for a setting and it's marked hidden or disabled, the hint tells you what's missing — that's the fastest way to find out why a feature is greyed out.`,
+A core principle: features fail safe by staying off until fully configured. The system profile toggles (solar, battery, water heater, EV) hide whole tabs and features you don't have. Load balancing stays inert until the protected fuse, all three phase sensors, and a give-way order are set. If you search for a setting and it's marked hidden or disabled, the hint tells you what's missing — that's the fastest way to find out why a feature is greyed out.`,
         aliases: ['setup', 'installation', 'wizard', 'onboarding', 'connect', 'greyed out', 'entities'],
         relatedFieldKeys: [
             'home_assistant.url',

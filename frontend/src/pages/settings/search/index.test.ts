@@ -57,7 +57,7 @@ describe('searchFields', () => {
         expect(lower.map((r) => r.entry.fieldKey)).toEqual(upper.map((r) => r.entry.fieldKey))
         const fuseResult = lower.find((r) => r.entry.fieldKey === 'system.grid.main_fuse_a')
         expect(fuseResult).toBeDefined()
-        expect(fuseResult?.entry.tabId).toBe('load-balancing')
+        expect(fuseResult?.entry.tabId).toBe('system')
     })
 
     it('matches on partial word position ("main fu")', () => {
@@ -66,7 +66,7 @@ describe('searchFields', () => {
     })
 
     it('ranks label matches above key-only and help-text-only matches', () => {
-        const results = searchFields('main fuse rating')
+        const results = searchFields('grid connection fuse rating')
         const labelMatch = results.find((r) => r.entry.fieldKey === 'system.grid.main_fuse_a')
         expect(labelMatch).toBeDefined()
         // A field whose label contains the whole phrase should score at or above one that only matches partially

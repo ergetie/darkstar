@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.executor.fake_relief import InstantRelief
+
 from executor.config import EVChargerDeviceConfig, LoadBalancingConfig
 from executor.engine import PHASE_SWITCH_SETTLE_S, EVChargerState, ExecutorEngine
 from executor.ev_surplus import PhaseModeController
@@ -23,7 +25,7 @@ def make_lb(**overrides) -> LoadBalancer:
     cfg = LoadBalancingConfig(enabled=True, main_fuse_a=16)
     for key, value in overrides.items():
         setattr(cfg, key, value)
-    return LoadBalancer(cfg)
+    return LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
 
 
 def fresh(at: datetime) -> dict[int, datetime]:
@@ -157,28 +159,19 @@ class TestTargetMarginAndPause:
         assert out.target_a == 8
 
     def test_one_second_spike_does_not_pause(self):
-        lb = make_lb()
+        lb = LoadBalancer(LoadBalancingConfig(enabled=True, main_fuse_a=16), interval_seconds=15)
         now = warm_up(lb, {1: 10.0, 2: 10.0, 3: 10.0}, ev(6))
         now += timedelta(seconds=1)
         out = lb.tick(now, {1: 10.0, 2: 10.0, 3: 19.0}, fresh(now), [ev(6)]).ev_outputs[0]
-        assert out.target_a == 6 and out.state == "throttling"
+        assert out.target_a is not None and out.state != "paused"
         now += timedelta(seconds=1)
         out = lb.tick(now, {1: 10.0, 2: 10.0, 3: 11.0}, fresh(now), [ev(6)]).ev_outputs[0]
         assert out.target_a is not None and out.target_a >= 6
         assert out.state != "paused"
 
-    def test_overload_lasting_the_debounce_pauses(self):
-        lb = make_lb()
-        now = warm_up(lb, {1: 10.0, 2: 10.0, 3: 10.0}, ev(6))
-        overloaded = {1: 10.0, 2: 10.0, 3: 19.0}
-        now += timedelta(seconds=TICK_S)
-        assert lb.tick(now, overloaded, fresh(now), [ev(6)]).ev_outputs[0].target_a == 6
-        now += timedelta(seconds=TICK_S)
-        out = lb.tick(now, overloaded, fresh(now), [ev(6)]).ev_outputs[0]
-        assert out.target_a is None and out.state == "paused"
 
-    def test_zero_debounce_pauses_immediately(self):
-        lb = make_lb(pause_debounce_s=0)
+    def test_floor_pauses_immediately_when_trigger_requests_relief(self):
+        lb = make_lb()
         now = BASE
         out = lb.tick(now, {1: 10.0, 2: 10.0, 3: 19.0}, fresh(now), [ev(6)]).ev_outputs[0]
         assert out.state == "paused"
@@ -262,11 +255,6 @@ class TestSafetyInvariants:
         out = lb.tick(now, {1: 10.0, 2: 10.0, 3: 18.0}, fresh(now), [entry]).ev_outputs[0]
         assert out.target_a is None and out.state == "paused"
 
-    def test_debounce_hold_is_exactly_the_floor(self):
-        lb = make_lb()
-        now = BASE
-        out = lb.tick(now, {1: 10.0, 2: 10.0, 3: 19.0}, fresh(now), [ev(8, draw=7)]).ev_outputs[0]
-        assert out.target_a == 6 and out.state == "throttling"
 
     def test_shed_relief_hold_never_below_floor(self):
         """Holding for unmeasured shed relief uses the measured draw, but never
@@ -279,25 +267,7 @@ class TestSafetyInvariants:
         out = status.ev_outputs[0]
         assert out.target_a is not None and 6 <= out.target_a <= 10
 
-    def test_severe_overload_during_debounce_pauses_at_once(self):
-        lb = make_lb(pause_debounce_s=30)
-        now = BASE
-        out = lb.tick(now, {1: 10.0, 2: 10.0, 3: 18.0}, fresh(now), [ev(6)]).ev_outputs[0]
-        assert out.target_a == 6
-        now += timedelta(seconds=TICK_S)
-        out = lb.tick(now, {1: 10.0, 2: 10.0, 3: 20.5}, fresh(now), [ev(6)]).ev_outputs[0]
-        assert out.target_a is None and out.state == "paused"
 
-    def test_debounce_timer_resets_on_recovery(self):
-        lb = make_lb(pause_debounce_s=10)
-        overloaded = {1: 10.0, 2: 10.0, 3: 18.0}
-        t = BASE
-        lb.tick(t, overloaded, fresh(t), [ev(6)])
-        t += timedelta(seconds=TICK_S)
-        lb.tick(t, {1: 10.0, 2: 10.0, 3: 12.0}, fresh(t), [ev(6)])  # headroom >= 0
-        t += timedelta(seconds=TICK_S)
-        out = lb.tick(t, overloaded, fresh(t), [ev(6)]).ev_outputs[0]
-        assert out.target_a == 6 and out.state == "throttling"  # timer restarted
 
     def test_stale_sensor_forces_floor_then_pauses_after_resume_delay(self):
         lb = make_lb()
@@ -315,7 +285,7 @@ class TestSafetyInvariants:
 
 
 class TestReliefLadder:
-    def _sustain(self, lb, grid, entry, ticks=2):
+    def _sustain(self, lb, grid, entry, ticks=1):
         now = BASE
         out = None
         for i in range(ticks):
@@ -331,10 +301,6 @@ class TestReliefLadder:
         assert out.target_a == 6 and out.state == "throttling"
         assert "L1" in out.reason and "L3" in out.reason
 
-    def test_relief_waits_for_the_debounce(self):
-        lb = make_lb()
-        out = self._sustain(lb, {1: 8.0, 2: 8.0, 3: 20.0}, ev(6, relief=True), ticks=1)
-        assert not out.relief_1p_requested and out.target_a == 6
 
     def test_overload_on_the_1_phase_line_pauses(self):
         lb = make_lb()
@@ -377,7 +343,7 @@ class TestReliefLadder:
 class TestReliefOnlyWhenGoalAtRisk:
     """ev-charging-losses 6.3: lossy 1-phase relief only when the goal is at risk."""
 
-    def _sustain(self, lb, grid, entry, ticks=2):
+    def _sustain(self, lb, grid, entry, ticks=1):
         return TestReliefLadder._sustain(self, lb, grid, entry, ticks)  # type: ignore[arg-type]
 
     def test_goal_on_track_pauses_instead_of_1_phase(self):

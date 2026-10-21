@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BatteryCharging, ExternalLink, Plus, Trash2 } from 'lucide-react'
 import EntitySelect from '../../../components/EntitySelect'
@@ -82,6 +82,8 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
     haEntities = [],
     haLoading = false,
 }) => {
+    const [adding, setAdding] = useState(false)
+    const [selectedLoad, setSelectedLoad] = useState('')
     const loads = parseJsonArray<ShedLoad>(loadsValue)
     const rawOrder = parseJsonArray<GiveWayEntry>(orderValue)
 
@@ -121,30 +123,52 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
         }
         if (type === 'ev_charger') {
             const all = (config?.ev_chargers as { id: string; name?: string; type?: string }[] | undefined) || []
-            // Dynamic-current chargers are charger entries automatically —
-            // only binary on/off chargers can be shed.
+            // Dynamic-current chargers use throttling entries; binary chargers are shed.
             return all.filter((c) => c.type !== 'current').map((c) => ({ id: c.id, name: c.name || c.id }))
         }
         return []
     }
 
     const shedDisplayName = (load: ShedLoad): string => {
-        const options = shedDeviceOptions(load.device_type)
+        const options = shedDeviceOptions(load.device_type).filter(
+            (device) => device.id === load.device_id || !loads.some((other) => other.device_id === device.id),
+        )
         return options.find((o) => o.id === load.device_id)?.name || load.device_id || '(no device)'
     }
 
-    const addShedLoad = () => {
-        const heaters = shedDeviceOptions('water_heater')
-        const newLoad: ShedLoad = {
-            device_type: 'water_heater',
-            device_id: heaters[0]?.id || '',
-            phases: [],
-        }
-        onChangeLoads([...loads, newLoad])
-        if (newLoad.device_id) {
+    const availableChargers = chargers.filter(
+        (charger) => !entries.some((entry) => entry.kind === 'charger' && entry.id === charger.id),
+    )
+    const batteryAvailable = batteryGiveWayAvailable(config) && !entries.some((entry) => entry.kind === 'battery')
+    const addLoad = () => {
+        if (!selectedLoad) return
+        if (selectedLoad === 'battery') {
+            if (batteryAvailable) onChangeOrder([...entries, { kind: 'battery', id: 'battery' }])
+        } else if (selectedLoad.startsWith('charger:')) {
+            const id = selectedLoad.slice('charger:'.length)
+            if (availableChargers.some((charger) => charger.id === id))
+                onChangeOrder([...entries, { kind: 'charger', id }])
+        } else {
+            const available = (type: ShedLoadDeviceType) =>
+                shedDeviceOptions(type).filter((device) => !loads.some((load) => load.device_id === device.id))
+            const heater = available('water_heater')[0]
+            const binaryCharger = available('ev_charger')[0]
+            let customId = 'custom_load'
+            for (let suffix = 2; loads.some((load) => load.device_id === customId); suffix++)
+                customId = `custom_load_${suffix}`
+            const newLoad: ShedLoad = {
+                device_type: heater ? 'water_heater' : binaryCharger ? 'ev_charger' : 'custom_entity',
+                device_id: heater?.id || binaryCharger?.id || customId,
+                phases: [],
+            }
+            onChangeLoads([...loads, newLoad])
             onChangeOrder([...entries, { kind: 'shed', id: newLoad.device_id }])
         }
+        setAdding(false)
+        setSelectedLoad('')
     }
+    const removeEntry = (kind: 'charger' | 'battery', id: string) =>
+        onChangeOrder(entries.filter((entry) => !(entry.kind === kind && entry.id === id)))
 
     const removeShedLoad = (deviceId: string) => {
         onChangeLoads(loads.filter((l) => l.device_id !== deviceId))
@@ -152,6 +176,12 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
     }
 
     const updateShedLoad = (deviceId: string, updates: Partial<ShedLoad>) => {
+        if (
+            updates.device_id !== undefined &&
+            updates.device_id !== deviceId &&
+            loads.some((load) => load.device_id === updates.device_id)
+        )
+            return
         onChangeLoads(loads.map((l) => (l.device_id === deviceId ? { ...l, ...updates } : l)))
         if (updates.device_id !== undefined && updates.device_id !== deviceId) {
             // Keep the order entry pointing at the renamed device, same position.
@@ -187,6 +217,16 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
                 Configured in EV tab
                 <ExternalLink size={11} />
             </Link>
+            {!disabled && (
+                <button
+                    type="button"
+                    onClick={() => removeEntry('charger', charger.id)}
+                    className="btn btn-ghost"
+                    aria-label={`Remove ${charger.name}`}
+                >
+                    <Trash2 size={14} />
+                </button>
+            )}
         </div>
     )
 
@@ -202,11 +242,23 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
                     Lower grid charge power, then pause grid charging. Solar charging and discharge are not touched.
                 </div>
             </div>
+            {!disabled && (
+                <button
+                    type="button"
+                    onClick={() => removeEntry('battery', 'battery')}
+                    className="btn btn-ghost ml-auto"
+                    aria-label="Remove House battery (grid charging)"
+                >
+                    <Trash2 size={14} />
+                </button>
+            )}
         </div>
     )
 
     const renderShedRow = (load: ShedLoad) => {
-        const options = shedDeviceOptions(load.device_type)
+        const options = shedDeviceOptions(load.device_type).filter(
+            (device) => device.id === load.device_id || !loads.some((other) => other.device_id === device.id),
+        )
         return (
             <div className="space-y-2 py-2 pr-1">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -416,18 +468,22 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
     return (
         <div className="col-span-2 space-y-3">
             <div className="flex items-start justify-between gap-4 rounded-xl border border-line/20 bg-surface2/30 p-3">
-                <p className="text-[11px] leading-relaxed text-muted">
-                    The list is processed top-down: when a phase overloads, the <b>top</b> entry gives way first, fully,
-                    before the next one is touched. Chargers give way by throttling toward their minimum current, then
-                    pausing; the house battery by lowering its grid charge power, then pausing grid charging; other
-                    loads by switching off. Recovery happens in exact reverse order. Chargers with dynamic current
-                    control appear here automatically — phase assignment for on/off loads must match your home&apos;s
-                    physical wiring.
-                </p>
+                <div className="space-y-ds-2 text-sm text-muted">
+                    <p>Only include loads whose reduction lowers current through the protected fuse.</p>
+                    <details>
+                        <summary className="cursor-pointer">How the give-way order works</summary>
+                        <p className="mt-ds-2">
+                            The top entry gives way first; recovery follows the reverse order. EV chargers throttle then
+                            pause; the battery lowers grid charging then pauses; on/off loads switch off. Removing an
+                            entry only excludes it from load balancing. Its normal device configuration stays in place.
+                            Phase assignments must match physical wiring.
+                        </p>
+                    </details>
+                </div>
                 {!disabled && (
                     <button
                         type="button"
-                        onClick={addShedLoad}
+                        onClick={() => setAdding((open) => !open)}
                         className="flex shrink-0 items-center gap-1.5 rounded-lg border border-line/50 bg-surface2 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-good/20 hover:text-good"
                     >
                         <Plus size={14} />
@@ -436,11 +492,34 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
                 )}
             </div>
 
+            {adding && !disabled && (
+                <div className="flex flex-wrap items-center gap-ds-2">
+                    <select
+                        className="input"
+                        aria-label="Load to add"
+                        value={selectedLoad}
+                        onChange={(event) => setSelectedLoad(event.target.value)}
+                    >
+                        <option value="">Select a load…</option>
+                        {batteryAvailable && <option value="battery">House battery (grid charging)</option>}
+                        {availableChargers.map((charger) => (
+                            <option key={charger.id} value={`charger:${charger.id}`}>
+                                {charger.name} (dynamic current)
+                            </option>
+                        ))}
+                        <option value="on_off">Water heater, on/off charger or custom entity</option>
+                    </select>
+                    <button type="button" className="btn btn-secondary" disabled={!selectedLoad} onClick={addLoad}>
+                        Add selected load
+                    </button>
+                </div>
+            )}
+
             {entries.length === 0 && (
                 <div className="rounded-xl border border-dashed border-line/20 bg-surface-elevated px-4 py-6 text-center">
                     <div className="text-sm text-muted">
-                        Nothing to balance yet. Add an EV charger with dynamic current control in the EV tab, or add a
-                        water heater or custom entity here with the &quot;Add Load&quot; button above.
+                        Nothing to balance yet. Use Add Load to select a battery, EV charger, water heater or custom
+                        entity.
                     </div>
                 </div>
             )}

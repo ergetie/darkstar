@@ -337,7 +337,7 @@ const PhaseOneLineSelector: React.FC<{
         <div data-testid="ev-phase-1-line">
             <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
                 <span>1-Phase Line</span>
-                <Tooltip text="The grid phase this charger uses when it runs in 1-phase mode. The load balancer switches to 1-phase to take load off the other phases when one is overloaded. Most chargers (including go-e) use L1, but wiring varies." />
+                <Tooltip text="The phase this charger uses when it runs in 1-phase mode. The load balancer switches to 1-phase to take load off the other phases when one is overloaded. Most chargers (including go-e) use L1, but wiring varies." />
             </label>
             <div className="flex gap-2">
                 {[1, 2, 3].map((line) => {

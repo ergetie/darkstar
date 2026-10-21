@@ -7,7 +7,7 @@ import {
     buildPatch,
     listChangedFields,
 } from '../utils'
-import { BaseField, batteryFieldList } from '../types'
+import { BaseField, batteryFieldList, loadBalancingFieldList } from '../types'
 
 describe('Settings Utilities', () => {
     describe('battery efficiency percentages', () => {
@@ -206,5 +206,46 @@ describe('Settings Utilities', () => {
                 newValue: 'on',
             })
         })
+    })
+})
+
+describe('explicit give-way selection patches', () => {
+    const fields = loadBalancingFieldList.filter((field) =>
+        [
+            'load_balancing.enabled',
+            'load_balancing.give_way_order',
+            'load_balancing.loads',
+            'load_balancing.auto_include_devices',
+        ].includes(field.key),
+    )
+    it.each([undefined, true, false])(
+        'does not add the compatibility flag for unrelated edits (original=%s)',
+        (flag) => {
+            const original = {
+                load_balancing: {
+                    enabled: false,
+                    give_way_order: [],
+                    loads: [],
+                    ...(flag === undefined ? {} : { auto_include_devices: flag }),
+                },
+            }
+            const form = buildFormState(original, fields)
+            form['load_balancing.enabled'] = 'true'
+            expect(buildPatch(original, form, fields)).toEqual({ load_balancing: { enabled: true } })
+        },
+    )
+    it('attaches explicit selection to order patches and preserves the original', () => {
+        const original = {
+            load_balancing: { enabled: false, give_way_order: [{ kind: 'battery', id: 'battery' }], loads: [] },
+        }
+        const snapshot = structuredClone(original)
+        const form = buildFormState(original, fields)
+        form['load_balancing.give_way_order'] = '[]'
+        form['load_balancing.auto_include_devices'] = 'false'
+        const patch = buildPatch(original, form, fields)
+        expect(patch).toEqual({ load_balancing: { give_way_order: [], auto_include_devices: false } })
+        expect(original).toEqual(snapshot)
+        const loaded = { load_balancing: { ...original.load_balancing, ...(patch.load_balancing as object) } }
+        expect(buildPatch(loaded, buildFormState(loaded, fields), fields)).toEqual({})
     })
 })

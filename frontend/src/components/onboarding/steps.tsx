@@ -354,7 +354,7 @@ function SystemStep(props: StepProps) {
                     config={props.config}
                     update={props.update}
                     path="system.grid.main_fuse_a"
-                    label="Main fuse"
+                    label="Grid connection fuse"
                     type="number"
                     min={1}
                     step={1}

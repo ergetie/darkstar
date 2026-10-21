@@ -35,14 +35,15 @@ from executor.config import (
     EV_PLUG_IN_REMINDER_MINUTES_RANGE,
     MAX_STEP_INTERVAL_RANGE,
     MIN_ON_OFF_RANGE,
-    PAUSE_DEBOUNCE_RANGE,
     PENDING_TIMEOUT_RANGE,
     PHASE_SIGN_VALUES,
     RAMP_UP_WINDOW_RANGE,
     RESUME_CONFIRM_RANGE,
-    SEVERE_OVERLOAD_RANGE,
     TARGET_MARGIN_RANGE,
     WRITE_DEADBAND_RANGE,
+    LoadBalancingConfig,
+    effective_load_balancing_selection,
+    validate_fuse_settings,
 )
 from executor.load_balancer import classify_phase_sensor_unit
 from executor.profiles import get_profile_from_config
@@ -65,6 +66,15 @@ async def get_config() -> dict[str, Any]:
         # Old configs may be read before startup migration completes. Keep the
         # UI's effective defaults aligned with the shipped configuration.
         conf["installation_stats"] = effective_installation_stats(conf)
+        conf["load_balancing"] = effective_load_balancing_selection(conf)
+        lb_config = conf["load_balancing"]
+        for key in (
+            "max_step_interval_s",
+            "write_deadband_percent",
+            "pending_timeout_s",
+            "phase_sign",
+        ):
+            lb_config.setdefault(key, getattr(LoadBalancingConfig, key))
 
         # Merge Home Assistant secrets
         ha_secrets = load_home_assistant_config()
@@ -681,21 +691,30 @@ def _validate_graceful_degradation_ranges(lb_cfg: Any) -> list[dict[str, str]]:
         return []
     lb = cast("dict[str, Any]", lb_cfg)
     specs: list[tuple[str, tuple[float, float], bool, str]] = [
+        ("protected_fuse_a", (1, 125), True, " A"),
         ("target_margin_percent", TARGET_MARGIN_RANGE, False, "%"),
-        ("pause_debounce_s", PAUSE_DEBOUNCE_RANGE, True, " s"),
         ("resume_confirm_s", RESUME_CONFIRM_RANGE, True, " s"),
-        ("severe_overload_percent", SEVERE_OVERLOAD_RANGE, False, "%"),
         ("ramp_up_window_s", RAMP_UP_WINDOW_RANGE, True, " s"),
         ("max_step_interval_s", MAX_STEP_INTERVAL_RANGE, True, " s"),
         ("write_deadband_percent", WRITE_DEADBAND_RANGE, False, "%"),
         ("pending_timeout_s", PENDING_TIMEOUT_RANGE, True, " s"),
     ]
     issues: list[dict[str, str]] = []
+    if "auto_include_devices" in lb and not isinstance(lb["auto_include_devices"], bool):
+        issues.append(
+            {
+                "severity": "error",
+                "message": "load_balancing.auto_include_devices must be a boolean",
+                "guidance": "Use false for explicit give-way selection.",
+            }
+        )
     for key, (low, high), integer, unit in specs:
         if key not in lb or lb[key] is None:
             continue
         value = lb[key]
-        valid_type = isinstance(value, int | float) and not isinstance(value, bool)
+        valid_type = (
+            isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+        )
         if valid_type and integer and float(value) != int(value):
             valid_type = False
         if not valid_type or not low <= float(value) <= high:
@@ -709,6 +728,14 @@ def _validate_graceful_degradation_ranges(lb_cfg: Any) -> list[dict[str, str]]:
                     "guidance": f"Set load_balancing.{key} to a value between {low:g} and {high:g}.",
                 }
             )
+    issues.extend(
+        {
+            "severity": "error",
+            "message": error,
+            "guidance": "Check the fuse preset, safety percentage and custom curve points.",
+        }
+        for error in validate_fuse_settings(lb)
+    )
     phase_sign = lb.get("phase_sign")
     if phase_sign is not None and phase_sign not in PHASE_SIGN_VALUES:
         issues.append(
@@ -1622,21 +1649,25 @@ def _validate_config_for_save(
     issues.extend(_validate_plug_in_reminder(config))
     if lb_cfg.get("enabled", False):
         grid_cfg = system_cfg.get("grid", {})
-        main_fuse_a = grid_cfg.get("main_fuse_a")
+        main_fuse_a = lb_cfg.get("protected_fuse_a")
+        fuse_path = "load_balancing.protected_fuse_a"
+        if main_fuse_a is None:
+            main_fuse_a = grid_cfg.get("main_fuse_a")
+            fuse_path = "system.grid.main_fuse_a"
         if main_fuse_a is None or not isinstance(main_fuse_a, int | float) or main_fuse_a <= 0:
             issues.append(
                 {
                     "severity": "error",
-                    "message": f"load_balancing.enabled but system.grid.main_fuse_a is missing or invalid: {main_fuse_a}",
-                    "guidance": "Set system.grid.main_fuse_a to your per-phase main fuse rating in ampere (e.g., 20).",
+                    "message": f"load_balancing.enabled but {fuse_path} is missing or invalid: {main_fuse_a}",
+                    "guidance": "Set load_balancing.protected_fuse_a to the protected fuse rating, or configure system.grid.main_fuse_a for the default.",
                 }
             )
         elif main_fuse_a > 125:
             issues.append(
                 {
                     "severity": "error",
-                    "message": f"system.grid.main_fuse_a is implausibly large: {main_fuse_a}",
-                    "guidance": "system.grid.main_fuse_a must be 125 A or less.",
+                    "message": f"{fuse_path} is implausibly large: {main_fuse_a}",
+                    "guidance": f"{fuse_path} must be 125 A or less.",
                 }
             )
 
@@ -1679,7 +1710,7 @@ def _validate_config_for_save(
         }
 
         lb_loads = lb_cfg.get("loads", [])
-        if not lb_loads and not current_type_ev_ids:
+        if not lb_loads and not current_type_ev_ids and lb_cfg.get("auto_include_devices", True):
             issues.append(
                 {
                     "severity": "error",
@@ -1702,7 +1733,7 @@ def _validate_config_for_save(
                             ),
                             "guidance": (
                                 "type: current chargers appear in the give-way list "
-                                "(load_balancing.give_way_order) automatically and must not "
+                                "(load_balancing.give_way_order) when selected and must not "
                                 "be listed in load_balancing.loads — remove this entry."
                             ),
                         }

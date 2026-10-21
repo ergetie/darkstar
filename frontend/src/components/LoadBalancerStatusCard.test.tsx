@@ -25,6 +25,27 @@ function renderCard() {
 }
 
 describe('LoadBalancerStatusCard', () => {
+    it('keeps current visible alongside live heat and explains a tolerated overload', async () => {
+        vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue({
+            enabled: true,
+            state: 'idle',
+            reason: '',
+            main_fuse_a: 20,
+            phase_current_a: { 1: 24, 2: 18, 3: 19 },
+            phase_headroom_a: {},
+            phase_heat_percent: { 1: 32, 2: 10, 3: 0 },
+            phase_heat_state: { 1: 'heating', 2: 'cooling', 3: 'cold' },
+            fuse_safety_percent: 80,
+            ev: [],
+            shed: [],
+        })
+        renderCard()
+        expect(await screen.findByText('Monitoring Overload')).toBeInTheDocument()
+        expect(screen.getByText('24.0 / 20 A')).toBeInTheDocument()
+        expect(screen.getByRole('meter', { name: 'L1 estimated fuse heat' })).toHaveAttribute('aria-valuenow', '32')
+        expect(screen.getByText(/↓ Cooling down/)).toBeInTheDocument()
+    })
+
     it('explains the feature is off and links to settings when disabled', async () => {
         vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue({
             enabled: false,

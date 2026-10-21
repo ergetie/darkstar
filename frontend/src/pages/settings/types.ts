@@ -10,6 +10,7 @@ export type FieldType =
     | 'tilt'
     | 'solar_arrays'
     | 'entity_array'
+    | 'fuse_curve'
     | 'balanced_loads'
     | 'give_way_list'
     | 'excess_pv_priority'
@@ -28,6 +29,7 @@ export interface HaEntity {
 export interface BaseField {
     key: string
     label: string
+    placeholder?: string
     helper?: string
     path: string[]
     type: FieldType
@@ -193,6 +195,13 @@ export const systemSections: SettingsSection[] = [
                     { label: 'Dual Meter (Separate Import/Export)', value: 'dual' },
                 ],
                 helper: 'Select "Net" if you have one sensor (+/-). Select "Dual" if you have separate import/export sensors.',
+            },
+            {
+                key: 'system.grid.main_fuse_a',
+                label: 'Grid connection fuse rating (A)',
+                path: ['system', 'grid', 'main_fuse_a'],
+                type: 'number',
+                helper: 'Actual grid connection fuse per phase. The planner uses this for single-phase EV charging limits. Set a separate protected fuse in Load Balancing if you monitor a downstream circuit.',
             },
             {
                 key: 'system.grid.max_power_kw',
@@ -1280,7 +1289,7 @@ export const loadBalancingSections: SettingsSection[] = [
     {
         title: 'Real-Time Load Balancing',
         description:
-            'Protects your main fuse in real time by throttling EV charging — and, as a last resort, shedding other loads — based on live per-phase grid current. Stays completely inactive until the fuse rating, all three phase sensors, and at least one balanced load are configured below. This is a best-effort software control loop, not a certified protection device — if your charger has its own load-management/fallback setting, keep that configured too.',
+            'Protects the selected fuse using live phase measurements. Configure its rating and phase sensors, then choose which loads may give way.',
         fields: [
             {
                 key: 'load_balancing.enabled',
@@ -1290,22 +1299,22 @@ export const loadBalancingSections: SettingsSection[] = [
                 helper: 'Master switch. No-op until the fuse rating, phase sensors, and at least one balanced load are set.',
             },
             {
-                key: 'system.grid.main_fuse_a',
-                label: 'Main fuse rating (A)',
-                path: ['system', 'grid', 'main_fuse_a'],
+                key: 'load_balancing.protected_fuse_a',
+                label: 'Protected fuse (A)',
+                path: ['load_balancing', 'protected_fuse_a'],
                 type: 'number',
-                helper: 'Per-phase physical fuse rating in amps (e.g. 20). Independent of the total grid import limit — a balanced total can still overload a single phase.',
+                helper: 'Physical rating per phase of the fuse you want to protect. Phase sensors must measure through that same fuse. Leave blank to use the grid connection fuse rating from System.',
             },
             {
                 key: 'input_sensors.grid_current_l1',
-                label: 'Grid Current/Power sensor — L1',
+                label: 'Phase current/power sensor — L1',
                 path: ['input_sensors', 'grid_current_l1'],
                 type: 'entity',
-                helper: 'Home Assistant sensor reporting phase L1 current (A) or power (W/kW) at the grid connection point — the kind is auto-detected from the entity’s unit.',
+                helper: 'Home Assistant sensor reporting phase L1 current (A) or power (W/kW) through the protected fuse — the kind is auto-detected from the entity’s unit.',
             },
             {
                 key: 'input_sensors.grid_voltage_l1',
-                label: 'Grid voltage sensor — L1',
+                label: 'Phase voltage sensor — L1',
                 path: ['input_sensors', 'grid_voltage_l1'],
                 type: 'entity',
                 showIf: { configKey: '_computed.any_phase_power_mode', value: true },
@@ -1313,14 +1322,14 @@ export const loadBalancingSections: SettingsSection[] = [
             },
             {
                 key: 'input_sensors.grid_current_l2',
-                label: 'Grid Current/Power sensor — L2',
+                label: 'Phase current/power sensor — L2',
                 path: ['input_sensors', 'grid_current_l2'],
                 type: 'entity',
-                helper: 'Home Assistant sensor reporting phase L2 current (A) or power (W/kW) at the grid connection point — the kind is auto-detected from the entity’s unit.',
+                helper: 'Home Assistant sensor reporting phase L2 current (A) or power (W/kW) through the protected fuse — the kind is auto-detected from the entity’s unit.',
             },
             {
                 key: 'input_sensors.grid_voltage_l2',
-                label: 'Grid voltage sensor — L2',
+                label: 'Phase voltage sensor — L2',
                 path: ['input_sensors', 'grid_voltage_l2'],
                 type: 'entity',
                 showIf: { configKey: '_computed.any_phase_power_mode', value: true },
@@ -1328,14 +1337,14 @@ export const loadBalancingSections: SettingsSection[] = [
             },
             {
                 key: 'input_sensors.grid_current_l3',
-                label: 'Grid Current/Power sensor — L3',
+                label: 'Phase current/power sensor — L3',
                 path: ['input_sensors', 'grid_current_l3'],
                 type: 'entity',
-                helper: 'Home Assistant sensor reporting phase L3 current (A) or power (W/kW) at the grid connection point — the kind is auto-detected from the entity’s unit.',
+                helper: 'Home Assistant sensor reporting phase L3 current (A) or power (W/kW) through the protected fuse — the kind is auto-detected from the entity’s unit.',
             },
             {
                 key: 'input_sensors.grid_voltage_l3',
-                label: 'Grid voltage sensor — L3',
+                label: 'Phase voltage sensor — L3',
                 path: ['input_sensors', 'grid_voltage_l3'],
                 type: 'entity',
                 showIf: { configKey: '_computed.any_phase_power_mode', value: true },
@@ -1346,7 +1355,7 @@ export const loadBalancingSections: SettingsSection[] = [
     {
         title: 'Give-Way Order',
         description:
-            'Everything the balancer can act on, in one ordered list — the top entry gives way first when a phase overloads, and entries recover in exact reverse order. Drag rows (or use the arrow buttons) to match your household preference, e.g. shed the water heater before slowing the car.',
+            'Choose the loads allowed to give way. The first entry reduces first; recovery follows the reverse order.',
         fields: [
             {
                 key: 'load_balancing.give_way_order',
@@ -1360,11 +1369,11 @@ export const loadBalancingSections: SettingsSection[] = [
     {
         title: 'Overload Handling',
         description:
-            'How much room the balancer keeps below your fuse and how patiently it reacts. Reductions when a phase goes over the fuse are always instant.',
+            'Fuse heat determines when loads give way. The target margin leaves room below the fuse; increases and restores wait for heat below 50%.',
         fields: [
             {
                 key: 'load_balancing.target_margin_percent',
-                label: 'Target safety margin (%)',
+                label: 'Ramp-up target (% of fuse rating)',
                 path: ['load_balancing', 'target_margin_percent'],
                 type: 'number',
                 min: 50,
@@ -1372,13 +1381,33 @@ export const loadBalancingSections: SettingsSection[] = [
                 helper: 'Aim to keep each phase at or below this share of your fuse. The balancer only ramps up, resumes or switches back to 3-phase while the phase stays under it; it never slows charging just for being above it.',
             },
             {
-                key: 'load_balancing.pause_debounce_s',
-                label: 'Pause delay (seconds)',
-                path: ['load_balancing', 'pause_debounce_s'],
+                key: 'load_balancing.fuse_preset',
+                label: 'Fuse preset',
+                path: ['load_balancing', 'fuse_preset'],
+                type: 'select',
+                options: [
+                    { label: 'Typ C', value: 'typ_c' },
+                    { label: 'Diazed gG', value: 'diazed_gg' },
+                    { label: 'Custom', value: 'custom' },
+                ],
+                helper: 'Time-current curve used to estimate fuse heat. Graph-derived values have about ±30% accuracy.',
+            },
+            {
+                key: 'load_balancing.fuse_safety_percent',
+                label: 'Intervene at (% of estimated fuse heat)',
+                path: ['load_balancing', 'fuse_safety_percent'],
                 type: 'number',
-                min: 0,
-                max: 60,
-                helper: 'Only pause if the overload lasts this long; the charger is held at its minimum current meanwhile. Set 0 for fast-acting fuses to pause at once.',
+                min: 50,
+                max: 100,
+                helper: 'Act when fuse heat reaches this percentage. Leave blank for the preset default: Typ C 80%, Diazed gG 65%, Custom 80%.',
+            },
+            {
+                key: 'load_balancing.fuse_custom_points',
+                label: 'Custom fuse curve',
+                path: ['load_balancing', 'fuse_custom_points'],
+                type: 'fuse_curve',
+                showIf: { configKey: 'load_balancing.fuse_preset', value: 'custom' },
+                helper: 'Two points define a log-log curve. The higher overload must have a strictly shorter trip time.',
             },
             {
                 key: 'load_balancing.resume_confirm_s',
@@ -1388,16 +1417,6 @@ export const loadBalancingSections: SettingsSection[] = [
                 min: 5,
                 max: 300,
                 helper: 'A paused charger starts again once its phases have had room for the minimum current for this long, at the highest current that fits (switching to 1-phase if only that line has room). Grows to 30 s and then 2 min if it keeps pausing again soon after resuming.',
-            },
-            {
-                key: 'load_balancing.severe_overload_percent',
-                label: 'Immediate pause above (% of fuse)',
-                path: ['load_balancing', 'severe_overload_percent'],
-                type: 'number',
-                min: 101,
-                max: 200,
-                isAdvanced: true,
-                helper: 'A phase above this share of your fuse pauses charging at once, without waiting for the pause delay.',
             },
             {
                 key: 'load_balancing.ramp_up_window_s',
@@ -1482,11 +1501,11 @@ export const loadBalancingSections: SettingsSection[] = [
                 path: ['load_balancing', 'phase_sign'],
                 type: 'select',
                 options: [
-                    { label: 'Import is positive', value: 'import_positive' },
-                    { label: 'Import is negative', value: 'import_negative' },
+                    { label: 'Toward protected loads is positive', value: 'import_positive' },
+                    { label: 'Toward protected loads is negative', value: 'import_negative' },
                 ],
                 isAdvanced: true,
-                helper: 'Which sign of your grid phase sensors means import. The other sign (export) counts as 0 A of load. Change it if your sensors report import as negative.',
+                helper: 'Which sign of the phase sensors means current flowing toward the protected loads. The opposite direction counts as 0 A of load.',
             },
         ],
     },
@@ -1689,6 +1708,12 @@ export const advancedFieldList = advancedSections.flatMap((section) => section.f
 // load_balancing.loads holds the shed-load definitions; it has no section of
 // its own — the give-way list editor renders and edits it alongside the order.
 const loadBalancingHiddenFields: BaseField[] = [
+    {
+        key: 'load_balancing.auto_include_devices',
+        label: 'Explicit load selection',
+        path: ['load_balancing', 'auto_include_devices'],
+        type: 'boolean',
+    },
     {
         key: 'load_balancing.loads',
         label: 'Balanced loads',

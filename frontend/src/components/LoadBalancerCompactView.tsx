@@ -1,15 +1,16 @@
+import { useFuseStale, fuseStatusLabel } from './useFuseStatus'
+import FuseHeatStatus from './FuseHeatStatus'
 import { Link } from 'react-router-dom'
 import { Gauge } from 'lucide-react'
 import type { LoadBalancerStatusResponse } from '../lib/api'
-import { batteryCapText, phaseColor, reliefText, STATE_LABELS, EV_STATE_LABELS } from './LoadBalancerStatusCard'
+import { batteryCapText, reliefText, STATE_LABELS, EV_STATE_LABELS } from './LoadBalancerStatusCard'
 
 export default function LoadBalancerCompactView({ status }: { status: LoadBalancerStatusResponse | null }) {
+    const stale = useFuseStale(status)
     if (!status) {
         return <div className="p-4 text-xs text-muted animate-pulse">Loading load balancer status…</div>
     }
 
-    const fuseA = status.main_fuse_a ?? 0
-    const margin = status.target_margin_percent ?? 85
     const activeEv = status.ev.filter((ev) => ev.state !== 'idle' || ev.relief_1p)
     const shedLoads = status.shed.filter((s) => s.shed)
     const battery = status.battery && status.battery.state !== 'idle' ? status.battery : null
@@ -19,36 +20,15 @@ export default function LoadBalancerCompactView({ status }: { status: LoadBalanc
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                     <Gauge size={13} className="text-muted" />
-                    <span className="font-semibold text-text">{STATE_LABELS[status.state] || status.state}</span>
+                    <span className="font-semibold text-text">
+                        {fuseStatusLabel(status, stale) ?? STATE_LABELS[status.state] ?? status.state}
+                    </span>
                 </div>
                 <Link to="/executor" className="text-[10px] font-semibold text-accent hover:underline">
                     Details →
                 </Link>
             </div>
-            {status.reason && <p className="text-muted text-[10px] -mt-1.5">{status.reason}</p>}
-
-            <div className="space-y-2">
-                {[1, 2, 3].map((phase) => {
-                    const currentA = status.phase_current_a[String(phase)] ?? status.phase_current_a[phase] ?? 0
-                    const pct = fuseA > 0 ? Math.min(100, (currentA / fuseA) * 100) : 0
-                    return (
-                        <div key={phase}>
-                            <div className="flex items-center justify-between text-[10px] text-muted mb-0.5">
-                                <span className="font-bold">L{phase}</span>
-                                <span className="font-mono">
-                                    {currentA.toFixed(1)}A / {fuseA}A
-                                </span>
-                            </div>
-                            <div className="h-1.5 rounded-full bg-surface2 overflow-hidden">
-                                <div
-                                    className={`h-full rounded-full transition-all duration-500 ${phaseColor(currentA, fuseA, margin)}`}
-                                    style={{ width: `${pct}%` }}
-                                />
-                            </div>
-                        </div>
-                    )
-                })}
-            </div>
+            <FuseHeatStatus status={status} showReason />
 
             {activeEv.length > 0 && (
                 <div className="space-y-1">

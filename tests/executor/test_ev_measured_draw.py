@@ -11,6 +11,8 @@ import pytest
 from sqlalchemy import create_engine
 
 from backend.learning.models import Base
+from tests.executor.fake_relief import InstantRelief
+
 from executor.config import EVChargerDeviceConfig, ExecutorConfig, LoadBalancingConfig
 from executor.engine import EV_DRAW_SETTLE_S, EVChargerState, ExecutorEngine
 from executor.ev_surplus import EVSurplusController, PhaseModeController
@@ -240,19 +242,18 @@ class TestSurplusUsesBaseline:
 
 
 def make_lb() -> LoadBalancer:
-    return LoadBalancer(
-        LoadBalancingConfig(
+    cfg = LoadBalancingConfig(
             enabled=True,
             main_fuse_a=20,
             resume_delay_s=120,
             target_margin_percent=90,
             # Legacy momentary semantics (immediate pause, no averaging window)
-            pause_debounce_s=0,
+
             ramp_up_window_s=0,
             increase_step_a=1,
             sensor_stale_after_s=30,
         )
-    )
+    return LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
 
 
 class TestBalancerUsesBaseline:

@@ -327,13 +327,19 @@ grid:
 # protection; Darkstar's balancer keeps day-to-day charging fast without needing it,
 # it does not replace it.
 load_balancing:
+  protected_fuse_a: null             # Optional protected-feed rating (1-125 A); null uses system.grid.main_fuse_a. Does not change planner grid limits.
   enabled: false                       # Master switch — feature is opt-in and a no-op until true
   resume_delay_s: 120                  # Seconds a recovered phase must stay healthy before a shed load is restored or paused solar-surplus charging resumes, and how long a stale phase sensor holds a charger at its minimum current before pausing it (anti-flap). Balancer-paused chargers use resume_confirm_s instead.
   resume_confirm_s: 10                 # A charger paused by the balancer resumes once its phases have had room for the minimum current (within target_margin_percent) for this long (5-300 s). Grows automatically (to 30 s, then 120 s) if it keeps pausing again soon after resuming; resets after 10 min of stable charging.
-  target_margin_percent: 85            # Aim to keep each phase at or below this % of main_fuse_a: increases, shed-load restore and the return to 3-phase use the ~ramp_up_window_s average against it; a paused charger resumes when the live reading fits within it (50-100). Never reduces by itself — only a phase over main_fuse_a triggers a reduction. Replaces resume_margin_percent.
-  pause_debounce_s: 5                  # Only pause a charger held at its minimum current if the overload lasts this long (0-60 s; 0 = pause immediately). Lower it for fast-acting fuses.
-  severe_overload_percent: 125         # Pause immediately, without the debounce, when a phase reads above this % of main_fuse_a (101-200)
-  ramp_up_window_s: 60                 # Rolling-average window (s) for increases/shed-load restore/return to 3-phase (paused chargers resume on the live reading, see resume_confirm_s); decreases always use the momentary reading (10-600)
+  target_margin_percent: 85            # Aim to keep each phase at or below this % of main_fuse_a: increases, shed-load restore and the return to 3-phase use the ~ramp_up_window_s average against it; a paused charger resumes when the live reading fits within it (50-100). Never reduces by itself — fuse heat triggers reductions down to this target. Replaces resume_margin_percent.
+  fuse_preset: typ_c                  # typ_c | diazed_gg | custom; graph-derived curves (+/-30%)
+  fuse_safety_percent: null            # Action threshold (50-100% heat); unset: Typ C 80, Diazed gG 65, Custom 80
+  fuse_custom_points:                  # Custom only: higher overload must have strictly shorter time
+    - overload_percent: 130            # 101-1000% of main_fuse_a
+      time_s: 1200                     # 0.5-86400 seconds
+    - overload_percent: 300
+      time_s: 4
+  ramp_up_window_s: 60                 # Rolling-average window (s) for increases/shed-load restore/return to 3-phase (paused chargers resume on the live reading, see resume_confirm_s); averaging only, not a hold-off; increases also wait for heat below 50% (10-600)
   increase_step_a: 1                   # Max ampere increase per tick when ramping EV charging back up
   sensor_stale_after_s: 30             # Treat phase current sensors as stale after this many seconds without an update
   notify_interventions: false          # Send a notification (HA notify, Discord fallback) when a load is shed, a charger is paused, or the stale-sensor fail-safe engages. Routine throttle adjustments never notify.
@@ -342,7 +348,7 @@ load_balancing:
   pending_timeout_s: 60                # A granted increase counts against the free room until it is measured or this long, so a lagging average cannot hide it (10-600)
   phase_sign: import_positive          # Sign of the grid phase readings meaning import: import_positive or import_negative. The other sign (export) counts as 0 A.
   loads: []                            # On/off shed load definitions (ordering lives in give_way_order), e.g.:
-    # - device_type: water_heater          # water_heater | custom_entity | ev_charger (type: binary only — type: current chargers are never listed here, they join give_way_order automatically)
+    # - device_type: water_heater          # water_heater | custom_entity | ev_charger (type: binary only — type: current chargers are never listed here, select them in give_way_order instead)
     #   device_id: main_tank                # matches an id in water_heaters[]/ev_chargers[], or a free-form label for custom_entity
     #   phases: [2]                         # phase(s) this load is physically wired to
     #   entity: ""                          # custom_entity only: HA entity to write on/off values to
@@ -352,12 +358,13 @@ load_balancing:
     #   power_sensor: ""                    # custom_entity only, optional: live power sensor of the load (W or kW), preferred over power_kw while it reads above ~50 W
     #   min_on_s: 300                       # Minimum seconds on before the plan may switch a water heater off (an overload shed is always immediate)
     #   min_off_s: 300                      # Minimum seconds off before the load is restored after a shed (any load) or switched on by the plan (water heater)
-  give_way_order: []                   # Unified give-way order — TOP GIVES WAY FIRST; restore happens in exact reverse order. Self-heals on startup (missing chargers/loads/battery are appended, dangling entries dropped), e.g.:
+  auto_include_devices: false         # Only selected entries participate; legacy installations migrate their existing automatic selection once.
+  give_way_order: []                   # Selected loads only — TOP GIVES WAY FIRST; restore happens in reverse order. Empty means no give-way loads, e.g.:
     # - kind: charger                       # a type: current EV charger — throttles toward its floor, then pauses
     #   id: main_ev                         # matches an id in ev_chargers[]
     # - kind: shed                          # an on/off load from loads[] — switches off
     #   id: main_tank                       # matches a loads[].device_id
-    # - kind: battery                       # house battery grid charging (3-phase inverter) — caps the grid charge power, then stops grid charging for the tick; PV charging and discharge are never touched. Appended at the end automatically when the inverter profile has a charge mode
+    # - kind: battery                       # house battery grid charging (3-phase inverter) — caps the grid charge power, then stops grid charging for the tick; PV charging and discharge are never touched. Optional: select only when battery grid charging affects the protected feed
     #   id: battery                         # always "battery" (one entry)
 
 # Kepler Solver (MILP optimizer settings)
