@@ -107,12 +107,6 @@ Update 2026-10-15 (Discord triage, Kristofer and youask report too-high forecast
 
 **Notes:** `ev-single-phase-grid-limit` added a per-phase limit (main fuse × load-balancing margin) for fixed 1-/2-phase EV chargers, assuming non-EV load spreads evenly over 3 phases. On 2026-09-27 the planner had planned 6.9 kW EV (10 A × 3) while the water heater and microwave sat on L3 (~10 A), forcing throttle to 6 A and then 1-phase relief on L1. Still missing: a per-phase house-load forecast, and single-phase non-EV loads (e.g. a 1-phase water heater, perhaps via a per-device phase setting). Controlling the water heater will reduce, but not remove, the clash.
 
-#### [Load Balancer] Proportional Overload Timing
-
-**Goal:** Make the load balancer's reaction time depend on how far a phase is over its limit, like a fuse's time-current curve: a small overshoot (e.g. 1–5% over) is tolerated for a while (e.g. ~30 s), while larger overshoots trigger throttling or 1-phase relief progressively faster. Short 10–20 s peaks slightly above the limit (microwave, kettle) should not cut EV charging immediately.
-
-**Notes:** Raised 2026-09-27 during `ev-planned-phase-switching`. Applies to house-load overload handling, not planned phase-mode targets (those are stable per slot). First step: check how the balancer currently times overload reduction and relief, then define the curve and safe upper bounds relative to the main fuse rating.
-
 #### [UI] User-Arranged Dashboard
 
 **Goal:** Let users choose which cards the dashboard shows and where, so optional features (load balancer, EV, water) get their own card only for users who have them.
