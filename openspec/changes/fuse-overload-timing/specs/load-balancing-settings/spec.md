@@ -8,6 +8,8 @@ The `load_balancing` config section SHALL additionally support the graceful-degr
 - **THEN** it SHALL support `target_margin_percent`: number, default 85, valid range 50–100
 - **AND** `resume_confirm_s`: integer, default 10, valid range 5–300, which is how long a balancer-paused charger's phases must fit before it re-fits (see `phase-load-balancing` "Pause below minimum current with anti-flap resume")
 - **AND** `ramp_up_window_s`: integer, default 60, valid range 10–600, used only as the averaging window for increases and restores (not as a hold-off)
+- **AND** `fuse_preset`, `fuse_safety_percent` and `fuse_custom_points` as specified in `fuse-overload-timing` "Fuse configuration keys"
+- **AND** `pause_debounce_s` and `severe_overload_percent` are no longer supported
 
 #### Scenario: phase_1_line and range validation
 - **WHEN** an `ev_chargers[]` entry or one of the new keys is validated
@@ -47,8 +49,10 @@ The `load_balancing` config section SHALL additionally support the graceful-degr
 - **THEN** after load, `resume_margin_percent` SHALL be absent and the balancer SHALL use the 85 % default
 
 #### Scenario: Invalid debounce is rejected
-- **WHEN** a config contains the removed key `pause_debounce_s: 120`
-- **THEN** it SHALL load without a validation error and the key SHALL be removed by the deprecated-key sweep (see `fuse-overload-timing` "Removed settings are migrated away")
+- **WHEN** a config contains `pause_debounce_s: 120` or `severe_overload_percent: 300`
+- **THEN** it SHALL load without a validation error and the keys SHALL be removed by the deprecated-key sweep (see `config-migration` "Remove balancer pause-delay and severe-overload settings")
+
+
 #### Scenario: Invalid resume confirm time is rejected
 - **WHEN** a user saves `resume_confirm_s: 2`
 - **THEN** validation SHALL fail naming `load_balancing.resume_confirm_s` and its 5–300 range

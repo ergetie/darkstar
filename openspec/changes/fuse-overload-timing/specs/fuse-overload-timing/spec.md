@@ -1,16 +1,31 @@
 ## ADDED Requirements
 
 ### Requirement: Time-based fuse overload model
-The load balancer SHALL decide when to reduce, shed or pause any controlled load (battery grid charging, EV chargers, shed loads) from a per-phase accumulated heat value computed against a fuse time-current curve, replacing the instant battery cut and the separate EV pause delay. The give-way order SHALL be unchanged. Heat SHALL be measured against the real fuse rating `main_fuse_a`.
+The fuse heat model SHALL be the default implementation of the pluggable reduction trigger of `phase-load-balancing` ("Reduction triggering is pluggable"). It SHALL decide from per-phase accumulated heat against a fuse time-current curve when any controlled load must give way, and SHALL be the only place overload is detected (no instant trigger, pause delay or severe-overload threshold remains). Heat SHALL be measured against `main_fuse_a`.
+
+#### Scenario: Other balancer mechanisms are unchanged
+- **WHEN** the heat model replaces the instant trigger
+- **THEN** the give-way order, the pending-increase ledger, the shared room gate, step pacing and the fresh-sample guard SHALL behave as before
 
 #### Scenario: One model for all loads
 - **WHEN** a phase's accumulated heat reaches the action threshold
-- **THEN** the balancer SHALL give way using the existing `give_way_order` (battery, EV, water heater by default), identically for every load kind
-- **AND** the reduction SHALL bring the phase down to the target margin limit (`main_fuse_a` x `target_margin_percent`), not merely to `main_fuse_a`, so the phase drops below 1.0x and cools
+- **THEN** the trigger SHALL report relief for that phase and the balancer SHALL give way using the existing `give_way_order` (battery, EV, water heater by default), identically for every load kind
+- **AND** the relief amount SHALL be the momentary reading minus the target margin limit (`main_fuse_a` x `target_margin_percent`), not merely the excess over `main_fuse_a`, so the phase drops below 1.0x and cools
 
 #### Scenario: Over the rating but below the action condition
 - **WHEN** a phase is over `main_fuse_a`, its heat is below the action threshold and the immediate-cut condition does not hold
 - **THEN** no load SHALL be reduced, shed or paused for that phase
+
+#### Scenario: Trigger output
+- **WHEN** the action condition or the immediate-cut condition holds on a phase
+- **THEN** the trigger SHALL return relief equal to the momentary reading minus the target margin limit (0 when the reading is already at or below it), flagged urgent only when the immediate-cut condition holds
+- **AND** the urgent flag SHALL bypass the hold for unmeasured relief (for example a shed entry above gave way this tick) but SHALL NOT bypass the one-cut-per-fresh-sample and bounded response guards
+- **AND** no other code path SHALL decide, delay or escalate a reduction by comparing readings with the fuse rating
+
+#### Scenario: Heat is evaluated once per tick
+- **WHEN** a tick runs
+- **THEN** the model SHALL update each fresh phase with the real time since that phase's previous update, before the relief for that tick is computed
+- **AND** a gap longer than `max(120 s, 2 x executor.interval_seconds)` SHALL NOT be integrated (heat holds), so a paused or restarted executor does not add or remove heat
 
 #### Scenario: Margin is the target, not the fuse
 - **WHEN** heat triggers a reduction
@@ -96,49 +111,79 @@ The balancer SHALL act when accumulated heat reaches safety% of the trip time. `
 - **THEN** the balancer SHALL give way
 
 ### Requirement: Immediate cut without a fixed multiple
-The balancer SHALL cut immediately when the safety-scaled trip time at the current overload multiple (trip time times safety%) is shorter than one reading interval, where the reading interval is `executor.interval_seconds`. No fixed overload multiple SHALL be used.
+The trigger SHALL flag relief urgent and call for relief in the same tick when the safety-scaled trip time at the current overload multiple (trip time times safety%) is shorter than one reading interval, where the reading interval is `executor.interval_seconds`. No fixed overload multiple SHALL be used.
 
 #### Scenario: Large overload
 - **WHEN** `executor.interval_seconds` is 15 and the safety-scaled trip time at the current reading is 10 s
-- **THEN** the balancer SHALL give way in that tick without waiting for heat to accumulate
+- **THEN** the trigger SHALL call for urgent relief in that tick without waiting for heat to accumulate
 
 #### Scenario: Interval guidance
 - **WHEN** `config.default.yaml` documents `load_balancing`
 - **THEN** it SHALL keep advising `executor.interval_seconds` of 15 s or less when load balancing is enabled, because the immediate-cut rule and heat integration use that interval
 
-### Requirement: Stale or missing readings keep today's behaviour
-When a phase reading is missing or stale per `sensor_stale_after_s`, the balancer SHALL fall back to the current behaviour: an immediate cut on a reading over the limit, and the existing stale-sensor handling otherwise. Heat for that phase SHALL be frozen, neither built nor cooled.
+### Requirement: Stale or missing readings bypass the model
+When a phase reading is missing or stale per `sensor_stale_after_s`, the model SHALL freeze its heat, SHALL NOT call for relief on it, and SHALL NOT delay or replace the existing stale-sensor fail-safes (EV charger and battery to minimum at once, pause after `resume_delay_s`).
 
 #### Scenario: Stale phase
-- **WHEN** a phase sensor is stale
-- **THEN** the heat model SHALL NOT delay any cut that the existing stale-sensor rules or an over-limit reading would trigger
+- **WHEN** a phase sensor is stale while its last reading was over `main_fuse_a`
+- **THEN** its heat SHALL stay frozen and the charger and the battery SHALL follow their stale fail-safe (minimum at once, pause after `resume_delay_s`), without waiting for heat
+
+#### Scenario: Heat resumes with fresh readings
+- **WHEN** the phase reading becomes fresh again
+- **THEN** heat SHALL continue from the frozen value with the first fresh reading, without integrating the stale period
 
 ### Requirement: Restore after cooling
-After a cut, a load SHALL be restored only once the worst relevant phase has cooled below 50% heat, replacing the fixed ramp-back timing. `increase_step_a` SHALL be kept as the ramp step. `ramp_up_window_s` SHALL remain only as the averaging window for increases, and `resume_delay_s` and `resume_confirm_s` SHALL remain as additional anti-flap gates.
+After a cut, EV ramp-up, battery cap raises and shed-load restores SHALL wait until the worst phase the load draws on has cooled below 50% heat, replacing the `ramp_up_window_s` hold-off. This is an additional condition: the room gate, step pacing, `increase_step_a`, `resume_delay_s` and `min_off_s` still apply and all SHALL hold. `ramp_up_window_s` remains only the averaging window.
 
 #### Scenario: Cut, cool, restore
 - **WHEN** `main_fuse_a` is 16 A, `target_margin_percent` is 85, Typ C safety is 80, and L1 reads 24 A (1.5x) until heat reaches 80% (about 240 s)
 - **THEN** the balancer SHALL reduce loads on L1 until L1 is at or below 13.6 A (0.85x), below 1.0x
-- **AND** L1 heat SHALL then fall at the rate it built, so a load SHALL be restored only after heat is below 50% (about 90 s later), and then only within the existing target-margin, `resume_delay_s` and `resume_confirm_s` conditions
+- **AND** L1 heat SHALL then fall at the rate it built, so a load SHALL be ramped back or restored only after heat is below 50% (about 90 s later), and then only within the existing room-gate, pacing, target-margin and `resume_delay_s` conditions
 
 #### Scenario: Hot phase blocks restore
 - **WHEN** a load was cut and its worst phase still has 60% heat
 - **THEN** the load SHALL NOT be restored
 
-#### Scenario: Cooled phase allows restore
-- **WHEN** the worst phase has cooled below 50% heat and the existing target-margin, `resume_delay_s` and `resume_confirm_s` conditions hold
-- **THEN** the balancer MAY ramp back by at most `increase_step_a` per tick
+#### Scenario: Cooled phase allows a ramp step
+- **WHEN** the worst phase has cooled below 50% heat and the room gate and step pacing allow the step
+- **THEN** the balancer MAY ramp back by at most `increase_step_a` per granted step
+
+#### Scenario: Water heater restore needs room, minimum off time and cooling
+- **WHEN** a water heater was shed and its `min_off_s` and `resume_delay_s` have elapsed and the shared room gate has room for its power
+- **THEN** it SHALL NOT be restored while any phase it draws on still has 50% or more heat
+- **AND** when its phases have cooled below 50% but `min_off_s` has not elapsed, or the room gate has no room for its power, it SHALL NOT be restored either
+- **AND** only when all three hold (room for its power, `min_off_s` elapsed, heat below 50%) SHALL it be restored
+
+#### Scenario: Re-fit of a paused charger is not heat-gated
+- **WHEN** a paused charger or battery has fitted its minimum within the target margin for the confirm window
+- **THEN** it SHALL re-fit at its minimum without waiting for heat to drop below 50%, since it cannot push the phase back over the rating
+
+### Requirement: Heat floor while relief is needed
+While the trigger calls for relief on a phase, that phase's heat SHALL be held at no less than the safety percentage, so the cooled gate after a cut always lasts a real cooling time from the action threshold.
+
+#### Scenario: Urgent cut does not skip cooling
+- **WHEN** a large overload causes an urgent cut while L1 heat is only 20%
+- **THEN** L1 heat SHALL be raised to the safety percentage at that tick
+- **AND** loads on L1 SHALL NOT ramp back or restore until L1 has cooled below 50% from there
 
 ### Requirement: Battery uses the same trigger
-The house battery's grid-charge cut SHALL use the same heat trigger as the other loads, including while it is holding for shed relief (`hold_for_relief`).
+The house battery's grid-charge cut SHALL use the same trigger as the other loads, including while it holds for unmeasured relief. The cut size SHALL come from the relief amount and the reducible grid charge, never from a lagging measured charge. Stale phases follow the battery stale fail-safe.
 
-#### Scenario: Battery waits for the action condition
-- **WHEN** a battery phase is over `main_fuse_a`, heat is below the action threshold and the immediate-cut condition does not hold
+#### Scenario: Battery waits for the trigger
+- **WHEN** a battery phase is over `main_fuse_a` and the trigger does not call for relief
 - **THEN** the battery grid-charge cap SHALL NOT be cut
 
-#### Scenario: Battery holding for shed relief
-- **WHEN** a shed entry above the battery gave way this tick and the immediate-cut condition does not hold on the battery's phases
-- **THEN** the battery SHALL hold its cap; if the immediate-cut condition holds it SHALL be cut in the same tick
+#### Scenario: Battery cut ignores lagging measured charge
+- **WHEN** the trigger calls for relief while the measured battery charge still lags the cap
+- **THEN** the cap SHALL be cut by the relief amount limited to the reducible grid charge, and the measured charge SHALL only limit the relief credited to the pool
+
+#### Scenario: Battery holding for unmeasured relief
+- **WHEN** a shed entry above the battery gave way this tick, or a cut on the phase still awaits its response, and the trigger does not flag the battery's phases urgent
+- **THEN** the battery SHALL hold its cap; if the trigger flags a phase urgent and no response is awaited on it, the battery SHALL be cut in the same tick
+
+#### Scenario: Stale battery phase
+- **WHEN** a battery phase is stale
+- **THEN** the cap SHALL drop to the profile minimum charge value at once and grid charging SHALL pause after `resume_delay_s`, whatever the heat on that phase
 
 ### Requirement: Heat state lifecycle
 Heat state SHALL be kept in memory only. After an executor restart heat SHALL start at 0 on every phase. A change to `fuse_preset`, `fuse_custom_points` while Custom is selected, or `main_fuse_a` at runtime SHALL reset heat to 0 on every phase.
@@ -174,27 +219,12 @@ The `load_balancing` config SHALL support `fuse_preset` (`typ_c` | `diazed_gg` |
 - **WHEN** a point has `overload_percent: 100` or `time_s: 100000`
 - **THEN** validation SHALL fail naming the key and its valid range
 
-### Requirement: Removed settings are migrated away
-`load_balancing.pause_debounce_s` and `load_balancing.severe_overload_percent` SHALL be removed from `config.default.yaml`, the config loader, the API validator, the settings UI and the tests, and SHALL be added to the deprecated-key list used by `remove_deprecated_keys` in `backend/config_migration.py`.
+### Requirement: Removed settings
+`load_balancing.pause_debounce_s` and `load_balancing.severe_overload_percent` SHALL be removed from `config.default.yaml`, the config loader, the API validator, the settings UI and the tests. Existing configs are cleaned by the startup sweep specified in `config-migration` "Remove balancer pause-delay and severe-overload settings".
 
-#### Scenario: Old keys load without error
-- **WHEN** a config still contains `pause_debounce_s` or `severe_overload_percent`
-- **THEN** it SHALL load without validation errors or user-facing warnings
-
-#### Scenario: Old keys are removed by migration
-- **WHEN** the startup deprecated-key sweep runs on such a config
-- **THEN** both keys SHALL be removed, the removal logged like other deprecated keys, and the result written through the existing atomic write with backup path
-
-### Requirement: Slow executor interval warning
-The settings UI SHALL show a warning, styled per `docs/design-system/AI_GUIDELINES.md`, when load balancing is enabled and `executor.interval_seconds` is greater than 15. The warning SHALL explain that slower ticks make overload timing coarse and cut sooner.
-
-#### Scenario: Warning shown
-- **WHEN** `load_balancing.enabled` is true and `executor.interval_seconds` is 60
-- **THEN** the load-balancing section SHALL show the warning
-
-#### Scenario: Warning hidden
-- **WHEN** load balancing is disabled, or `executor.interval_seconds` is 15 or less
-- **THEN** the warning SHALL NOT be shown
+#### Scenario: Old keys are ignored
+- **WHEN** a config still contains either key
+- **THEN** the loader and the validator SHALL ignore it without error or warning until the sweep removes it
 
 ### Requirement: Fuse settings UI
 The load-balancing settings UI SHALL follow `docs/design-system/AI_GUIDELINES.md` and SHALL show a preset select, the safety % and, only when Custom is selected, the two custom points (overload % and time).
