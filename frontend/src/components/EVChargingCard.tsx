@@ -689,7 +689,7 @@ export default function EVChargingCard({
             {/* Action footer: never shrinks, always visible */}
             <div className="shrink-0 pt-2" data-testid="ev-card-footer">
                 {isEditing ? (
-                    <div className="flex gap-2">
+                    <div key="footer-edit" className="flex gap-2">
                         {hasGoal && (
                             <button
                                 type="button"
@@ -716,8 +716,9 @@ export default function EVChargingCard({
                         </button>
                     </div>
                 ) : (
-                    <div className="flex gap-2">
+                    <div key="footer-view" className="flex gap-2">
                         <button
+                            type="button"
                             onClick={handleClear}
                             disabled={submitting}
                             className="flex-1 bg-surface-elevated hover:bg-surface border border-line/20 text-bad py-1 px-3 rounded-lg text-xs transition font-semibold flex items-center justify-center gap-1"
@@ -726,6 +727,7 @@ export default function EVChargingCard({
                             Clear Goal
                         </button>
                         <button
+                            type="button"
                             onClick={() => setManualEdit(true)}
                             className="flex-1 bg-accent hover:bg-accent2 text-on-accent py-1 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
                         >

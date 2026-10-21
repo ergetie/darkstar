@@ -361,4 +361,18 @@ describe('EVChargingCard action footer (ev-car-away)', () => {
         expect(body).not.toContainElement(screen.getByText('Save Goal'))
         expect(body).toContainElement(screen.getByText('Target SoC'))
     })
+
+    it('opens the edit form on Configure Goal without submitting it (no save)', async () => {
+        vi.mocked(Api.ev.setSchedule).mockClear()
+        renderCard(baseCharger())
+        const configure = screen.getByText('Configure Goal').closest('button')!
+        expect(configure).toHaveAttribute('type', 'button')
+        expect(screen.getByText('Clear Goal').closest('button')).toHaveAttribute('type', 'button')
+        fireEvent.click(configure)
+        expect(screen.getByText('Save Goal')).toBeInTheDocument()
+        // The Configure node must not be recycled as the submit button.
+        expect(configure).not.toBeInTheDocument()
+        await Promise.resolve()
+        expect(Api.ev.setSchedule).not.toHaveBeenCalled()
+    })
 })
