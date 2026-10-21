@@ -16,11 +16,11 @@ The config SHALL support: `system.grid.main_fuse_a` (positive integer, per-phase
 #### Scenario: Grid voltage sensors and load_balancing section keys
 - **WHEN** the load-balancing configuration is read
 - **THEN** `input_sensors.grid_voltage_l1/l2/l3` SHALL be supported as optional HA entity IDs for per-phase grid voltage, used only to convert a power-mode phase to current
-- **AND** a `load_balancing` section SHALL support `enabled` (bool, default false), `resume_delay_s` (default 120), `resume_margin_percent` (default 90), `increase_step_a` (default 1), `sensor_stale_after_s` (default 30), `nominal_voltage_v` (default 220, used to convert a power-mode phase to current when that phase has no configured voltage entity), `notify_interventions` (bool, default false) and `replan_after_throttled_s` (default 600)
+- **AND** a `load_balancing` section SHALL support `enabled` (bool, default false), `resume_delay_s` (default 120), `resume_margin_percent` (default 90), `increase_step_a` (default 1), `sensor_stale_after_s` (default 30), `nominal_voltage_v` (default 220, used to convert a power-mode phase to current when that phase has no configured voltage entity), `notify_interventions` (bool, default false), `max_step_interval_s` (default 30), `write_deadband_percent` (default 2), `pending_timeout_s` (default 60) and `phase_sign` (`import_positive` default or `import_negative`); `replan_after_throttled_s` is no longer supported
 
 #### Scenario: Load entries and give-way order list
 - **WHEN** `load_balancing.loads[]` and `give_way_order[]` are configured
-- **THEN** each `loads[]` entry SHALL be a device reference to a water heater, custom entity, or `type: binary` EV charger, plus a `phases` list
+- **THEN** each `loads[]` entry SHALL be a device reference to a water heater, custom entity, or `type: binary` EV charger, plus a `phases` list; a custom entity MAY carry an optional `power_kw` and an optional `power_sensor` entity, and any entry MAY carry `min_on_s` and `min_off_s` (default 300 each)
 - **AND** `type: current` EV chargers SHALL NOT be referenced in `loads[]`, and entries SHALL NOT carry a priority field
 - **AND** `give_way_order[]` SHALL be an ordered list of references (`{kind: charger, id}` for a `type: current` EV charger, `{kind: shed, id}` for a `loads[]` entry) where the top entry gives way first
 
@@ -340,3 +340,17 @@ The load-balancing settings give-way editor SHALL show the battery entry as "Hou
 #### Scenario: Throttled battery visible
 - **WHEN** the balancer caps battery grid charging from 10 kW to 7 kW
 - **THEN** the status API and card SHALL show the battery as throttling with 10 kW planned and 7 kW capped
+
+### Requirement: Custom load power fields
+A `custom_entity` load in `load_balancing.loads[]` SHALL accept optional `power_kw` (positive number) and `power_sensor` (HA entity ID). Both default to unset, so existing configs load unchanged without migration. The settings UI SHALL show both fields on the custom load row with help text that explains how they are used for restore decisions (live sensor, then configured power, then worst-case fallback). Validation SHALL reject non-positive `power_kw` with an actionable error.
+
+#### Scenario: Existing custom load
+- **WHEN** a config has a custom load without the new fields
+- **THEN** it SHALL load without error and use the worst-case restore fallback
+
+### Requirement: Coordination and anti-wear settings
+The settings UI SHALL expose `max_step_interval_s`, `write_deadband_percent`, `pending_timeout_s`, `phase_sign` and per-load `min_on_s`/`min_off_s` in the load balancing section using the design-system components, with help text. `config.default.yaml` SHALL document each with a comment and its default. The UI SHALL NOT show `replan_after_throttled_s`.
+
+#### Scenario: Defaults documented
+- **WHEN** a user opens a fresh config
+- **THEN** each new key has a commented default in `config.default.yaml` and a help text in the settings UI

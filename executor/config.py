@@ -183,6 +183,9 @@ class EVChargerDeviceConfig:
     # Grid phase (1-3) the charger draws on in 1-phase mode
     # (load-balancer-graceful-degradation D6). Must be one of `phases`.
     phase_1_line: int = 1
+    # type == "binary": charging power when on (kW); the restore power of a
+    # shed binary charger. None = unknown (worst-case restore).
+    rated_power_kw: float | None = None
 
     # Charging-loss model (ev-charging-losses D1/D6)
     charge_overhead_kw: float = 0.25
@@ -216,6 +219,15 @@ class BalancedLoadConfig:
     entity: str | None = None
     on_value: str = "1"
     off_value: str = "0"
+    # custom_entity only: estimated power draw (kW) and an optional live power
+    # sensor, used to decide whether a shed load fits back in (restore). Unset
+    # = worst case (a full main fuse on its phases).
+    power_kw: float | None = None
+    power_sensor: str | None = None
+    # Minimum seconds the load stays on / off (anti-wear): plan switching and
+    # restores respect them; an overload shed stays immediate.
+    min_on_s: int = 300
+    min_off_s: int = 300
 
 
 # Fixed id of the single battery give-way entry (battery-load-balancing D1).
@@ -279,9 +291,17 @@ class LoadBalancingConfig:
     # Notify (HA notify / Discord fallback) on shed, pause, and stale-fallback
     # transitions. Routine throttle/ramp adjustments never notify.
     notify_interventions: bool = False
-    # Trigger one replan (via the plug/unplug replan path) after a charger has
-    # been held below its planner target (or paused) this long, continuously.
-    replan_after_throttled_s: int = 600
+    # Anti-wear / coordination (coordinated ramping): an actuator's next
+    # increase step waits for the previous one to settle, at most this long
+    # (D10); changes below the deadband (never below one profile step) are not
+    # written; a granted increase counts against the room until measured or
+    # this long (D1).
+    max_step_interval_s: int = 30
+    write_deadband_percent: float = 2.0
+    pending_timeout_s: int = 60
+    # Which sign of the per-phase readings means import ("import_positive" or
+    # "import_negative"); the other sign (export) counts as 0 A (D11).
+    phase_sign: str = "import_positive"
 
 
 @dataclass
@@ -388,6 +408,11 @@ PAUSE_DEBOUNCE_RANGE: tuple[float, float] = (0.0, 60.0)
 RESUME_CONFIRM_RANGE: tuple[float, float] = (5.0, 300.0)
 SEVERE_OVERLOAD_RANGE: tuple[float, float] = (101.0, 200.0)
 RAMP_UP_WINDOW_RANGE: tuple[float, float] = (10.0, 600.0)
+MAX_STEP_INTERVAL_RANGE: tuple[float, float] = (5.0, 300.0)
+WRITE_DEADBAND_RANGE: tuple[float, float] = (0.0, 20.0)
+PENDING_TIMEOUT_RANGE: tuple[float, float] = (10.0, 600.0)
+MIN_ON_OFF_RANGE: tuple[float, float] = (0.0, 3600.0)
+PHASE_SIGN_VALUES: tuple[str, ...] = ("import_positive", "import_negative")
 
 
 def _ranged_number(raw: Any, key: str, valid: tuple[float, float], default: float) -> float:
@@ -450,6 +475,36 @@ def _parse_phase_1_line(charger: dict[str, Any], charger_id: str, phases: list[i
     return line
 
 
+def _positive_float_or_none(raw: Any, key: str) -> float | None:
+    """Optional positive number (e.g. loads[].power_kw); invalid -> None (logged)."""
+    if raw is None or raw == "":
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = math.nan
+    if isinstance(raw, bool) or not math.isfinite(value) or value <= 0:
+        logger.warning("load_balancing.loads[].%s=%r must be a positive number — ignored", key, raw)
+        return None
+    return value
+
+
+def _phase_sign(raw: Any) -> str:
+    """load_balancing.phase_sign: invalid -> the import_positive default (logged)."""
+    if raw is None:
+        return LoadBalancingConfig.phase_sign
+    value = str(raw).strip().lower()
+    if value in PHASE_SIGN_VALUES:
+        return value
+    logger.warning(
+        "load_balancing.phase_sign=%r must be one of %s — using %s",
+        raw,
+        ", ".join(PHASE_SIGN_VALUES),
+        LoadBalancingConfig.phase_sign,
+    )
+    return LoadBalancingConfig.phase_sign
+
+
 def _parse_load_balancing_config(
     data: dict[str, Any], system_data: dict[str, Any]
 ) -> LoadBalancingConfig:
@@ -498,6 +553,24 @@ def _parse_load_balancing_config(
                     entity=_str_or_none(load_item.get("entity")),
                     on_value=str(load_item.get("on_value", "1")),
                     off_value=str(load_item.get("off_value", "0")),
+                    power_kw=_positive_float_or_none(load_item.get("power_kw"), "power_kw"),
+                    power_sensor=_str_or_none(load_item.get("power_sensor")),
+                    min_on_s=int(
+                        _ranged_number(
+                            load_item.get("min_on_s", BalancedLoadConfig.min_on_s),
+                            "load_balancing.loads[].min_on_s",
+                            MIN_ON_OFF_RANGE,
+                            BalancedLoadConfig.min_on_s,
+                        )
+                    ),
+                    min_off_s=int(
+                        _ranged_number(
+                            load_item.get("min_off_s", BalancedLoadConfig.min_off_s),
+                            "load_balancing.loads[].min_off_s",
+                            MIN_ON_OFF_RANGE,
+                            BalancedLoadConfig.min_off_s,
+                        )
+                    ),
                 )
             )
 
@@ -574,9 +647,29 @@ def _parse_load_balancing_config(
         loads=loads,
         give_way_order=give_way_order,
         notify_interventions=bool(lb_data.get("notify_interventions", False)),
-        replan_after_throttled_s=int(
-            lb_data.get("replan_after_throttled_s", LoadBalancingConfig.replan_after_throttled_s)
+        max_step_interval_s=int(
+            _ranged_number(
+                lb_data.get("max_step_interval_s", LoadBalancingConfig.max_step_interval_s),
+                "load_balancing.max_step_interval_s",
+                MAX_STEP_INTERVAL_RANGE,
+                LoadBalancingConfig.max_step_interval_s,
+            )
         ),
+        write_deadband_percent=_ranged_number(
+            lb_data.get("write_deadband_percent", LoadBalancingConfig.write_deadband_percent),
+            "load_balancing.write_deadband_percent",
+            WRITE_DEADBAND_RANGE,
+            LoadBalancingConfig.write_deadband_percent,
+        ),
+        pending_timeout_s=int(
+            _ranged_number(
+                lb_data.get("pending_timeout_s", LoadBalancingConfig.pending_timeout_s),
+                "load_balancing.pending_timeout_s",
+                PENDING_TIMEOUT_RANGE,
+                LoadBalancingConfig.pending_timeout_s,
+            )
+        ),
+        phase_sign=_phase_sign(lb_data.get("phase_sign")),
     )
 
 
@@ -966,6 +1059,9 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                     else None
                 ),
                 phases=charger_phases,
+                rated_power_kw=_positive_float_or_none(
+                    charger.get("rated_power_kw"), "rated_power_kw"
+                ),
                 phase_sensor_l1=_str_or_none(charger.get("phase_sensor_l1")),
                 phase_sensor_l2=_str_or_none(charger.get("phase_sensor_l2")),
                 phase_sensor_l3=_str_or_none(charger.get("phase_sensor_l3")),

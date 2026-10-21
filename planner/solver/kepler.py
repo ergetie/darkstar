@@ -17,6 +17,7 @@ from backend.core.water_heating import water_quota_window
 from planner.errors import PlannerError, PlannerErrorCode
 
 from .types import (
+    MIN_FIRST_SLOT_H,
     EVChargerInput,
     KeplerConfig,
     KeplerInput,
@@ -126,11 +127,17 @@ class KeplerSolver:
             duration = (s.end_time - s.start_time).total_seconds() / 3600.0
             slot_hours.append(duration)
 
-        # EV-only slot durations: the in-progress slot 0 only has the time left
-        # in it for EV charging. Other flows keep the full slot duration.
-        ev_slot_hours: list[float] = list(slot_hours)
+        # In-progress slot 0 only has the time left in it: every flow, limit and
+        # cost of that slot (energy balance, battery/grid/fuse limits, surplus
+        # sink, EV) uses this one remaining duration, so the reported kW is
+        # energy / remaining time. The adapter scales the slot-0 forecast
+        # energy to the same basis. Floored so the model stays well-posed in
+        # the last seconds of a slot.
         if input_data.first_slot_remaining_h is not None:
-            ev_slot_hours[0] = min(slot_hours[0], max(0.0, input_data.first_slot_remaining_h))
+            slot_hours[0] = min(
+                slot_hours[0], max(MIN_FIRST_SLOT_H, input_data.first_slot_remaining_h)
+            )
+        ev_slot_hours: list[float] = slot_hours
 
         # Problem Definition
         prob: Any = pulp.LpProblem("KeplerSchedule", pulp.LpMinimize)
@@ -1207,6 +1214,7 @@ class KeplerSolver:
                         ev_charge_kw=ev_kw,
                         ev_charger_results=ev_charger_results,
                         ev_surplus_kw=ev_surplus_result,
+                        duration_h=h,
                         is_optimal=True,
                     )
                 )

@@ -247,7 +247,7 @@ The goal-based charging behaviour SHALL function using only the day-ahead Nordpo
 - **AND** `deferral_price_source` SHALL reflect the fallback used
 
 ### Requirement: In-progress slot uses remaining time for EV energy
-When planning starts inside a slot, the solver SHALL bound that slot's EV energy by the remaining duration (`slot_end − now`), not the full slot duration.
+When planning starts inside a slot, the solver SHALL bound that slot's EV energy by the remaining duration (`slot_end − now`), not the full slot duration. All other flows and limits of that slot SHALL use the same remaining duration (see the `planner` capability, "In-progress slot uses one remaining-time basis").
 
 #### Scenario: Replan 7 minutes into a slot
 - **WHEN** a replan runs at 10:22 for the 10:15–10:30 slot and the goal needs 1.2 kWh by 10:30
@@ -269,7 +269,7 @@ When planning starts inside a slot, the solver SHALL bound that slot's EV energy
 #### Scenario: Planned kW and other flows for the partial slot
 - **WHEN** planning starts inside a slot
 - **THEN** the planned EV kW for that slot SHALL be reported as energy divided by the remaining duration
-- **AND** other energy flows in the slot SHALL be unchanged
+- **AND** all other flows and limits in the slot SHALL use the same remaining duration, so every reported kW is energy divided by the remaining duration
 
 ### Requirement: Post-deadline charging allowed during grace window
 The solver's rule forcing zero EV energy after a charger's deadline SHALL use the effective deadline, which during a missed-goal grace window (see `ev-missed-goal-recovery`) is the extended grace deadline.

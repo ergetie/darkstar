@@ -337,7 +337,10 @@ load_balancing:
   increase_step_a: 1                   # Max ampere increase per tick when ramping EV charging back up
   sensor_stale_after_s: 30             # Treat phase current sensors as stale after this many seconds without an update
   notify_interventions: false          # Send a notification (HA notify, Discord fallback) when a load is shed, a charger is paused, or the stale-sensor fail-safe engages. Routine throttle adjustments never notify.
-  replan_after_throttled_s: 600        # Trigger one early replan after a charger has been held below its planner target (or paused) this long, continuously; at most one balancer-triggered replan per planner interval
+  max_step_interval_s: 30              # Anti-wear: an EV charger or the battery takes its next increase step once the previous step has shown up in the measurement, or after this many seconds at the latest (5-300). Reductions are never delayed.
+  write_deadband_percent: 2            # Anti-wear: battery charge changes smaller than this % (never less than one inverter step) are not written; overload cuts always are (0-20)
+  pending_timeout_s: 60                # A granted increase counts against the free room until it is measured or this long, so a lagging average cannot hide it (10-600)
+  phase_sign: import_positive          # Sign of the grid phase readings meaning import: import_positive or import_negative. The other sign (export) counts as 0 A.
   loads: []                            # On/off shed load definitions (ordering lives in give_way_order), e.g.:
     # - device_type: water_heater          # water_heater | custom_entity | ev_charger (type: binary only — type: current chargers are never listed here, they join give_way_order automatically)
     #   device_id: main_tank                # matches an id in water_heaters[]/ev_chargers[], or a free-form label for custom_entity
@@ -345,6 +348,10 @@ load_balancing:
     #   entity: ""                          # custom_entity only: HA entity to write on/off values to
     #   on_value: "1"                       # custom_entity only
     #   off_value: "0"                      # custom_entity only
+    #   power_kw: 2.0                       # custom_entity only, optional: the load's power (kW), used to decide when it fits back in after a shed. Unset = restored only when its whole phase is free.
+    #   power_sensor: ""                    # custom_entity only, optional: live power sensor of the load (W or kW), preferred over power_kw while it reads above ~50 W
+    #   min_on_s: 300                       # Minimum seconds on before the plan may switch a water heater off (an overload shed is always immediate)
+    #   min_off_s: 300                      # Minimum seconds off before the load is restored after a shed (any load) or switched on by the plan (water heater)
   give_way_order: []                   # Unified give-way order — TOP GIVES WAY FIRST; restore happens in exact reverse order. Self-heals on startup (missing chargers/loads/battery are appended, dangling entries dropped), e.g.:
     # - kind: charger                       # a type: current EV charger — throttles toward its floor, then pauses
     #   id: main_ev                         # matches an id in ev_chargers[]

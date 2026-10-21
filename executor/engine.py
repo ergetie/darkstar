@@ -48,7 +48,7 @@ from backend.loads.service import LoadDisaggregator
 
 from .actions import ActionDispatcher, ActionResult, HAClient
 from .config import (
-    BATTERY_GIVE_WAY_ID,
+    BalancedLoadConfig,
     BalancedLoadType,
     EVChargerDeviceConfig,
     heal_give_way_order,
@@ -401,14 +401,21 @@ class ExecutorEngine:
         self._load_balancer = LoadBalancer(self.config.load_balancing)
         self._last_balancer_status: LoadBalancerStatus | None = None
         self._last_balancer_planned_targets: dict[str, int | None] = {}
+        self._pending_phase_returns: set[str] = set()
         # Battery grid-charge cap (AC W) dispatched last tick by the balancer,
         # None when uncapped (battery-load-balancing D5).
         self._battery_cap_w: float | None = None
+        # Water heater on/off state since (min on/off, anti-wear) and the last
+        # temperature written while on (held when a plan switch-off is too soon).
+        self._water_heater_switch: dict[str, tuple[bool, datetime]] = {}
+        self._water_heater_on_temp: dict[str, int] = {}
+        # Phases that have read negative (export) while a load charges, and
+        # those already warned about (phase_sign hint).
+        self._phase_export_since: dict[int, datetime] = {}
+        self._phase_export_warned: set[int] = set()
 
-        # Sustained-throttle early replan (load-balancing-completion 4.x):
-        # per-charger start of the continuous balancer-constrained period,
-        # and the last balancer-triggered replan (global rate limit).
-        self._balancer_throttled_since: dict[str, datetime] = {}
+        # Last executor-requested replan (rate limit shared by the manual-charge
+        # end replan; the balancer itself never requests a replan).
         self._last_balancer_replan_at: datetime | None = None
         # battery-plan-tracking: per-block charge latch / hold margin state, and
         # SoC-deviation replan tracking (own limiter, separate from the balancer's).
@@ -1974,6 +1981,7 @@ class ExecutorEngine:
             # proposes amps -> phase-mode may adjust mode/conversion -> balancer
             # cap clamps -> dispatch; the balancer clamp is authoritative).
             ev_surplus_phase_mode_results: list[ActionResult] = []
+            self._pending_phase_returns.clear()
             if not skip_writes:
                 ev_surplus_phase_mode_results = await self._update_ev_surplus_and_phase_mode(
                     state, original_slot, now
@@ -2000,9 +2008,7 @@ class ExecutorEngine:
                 )
             )
 
-            # Sustained-throttle early replan + intervention notifications
-            # (load-balancing-completion 4.x/5.x)
-            self._track_balancer_throttling(balancer_status, now)
+            # Intervention notifications (load-balancing-completion 5.x)
             await self._notify_balancer_interventions(balancer_status, original_slot, now)
 
             self._track_soc_deviation(state, original_slot, now, override.override_needed)
@@ -2060,6 +2066,15 @@ class ExecutorEngine:
                     balancer_ev_targets=balancer_ev_targets,
                     shed_binary_charger_ids=shed_binary_charger_ids,
                 )
+                for out in balancer_status.ev_outputs:
+                    written_state = self._ev_charger_states.get(out.charger_id)
+                    if written_state is not None:
+                        self._load_balancer.trace.note_written(
+                            f"charger:{out.charger_id}",
+                            written_state.current_setpoint_a
+                            if written_state.charging_active
+                            else None,
+                        )
 
                 # EV charge failure detection (5.1): based on the commanded
                 # level (post-balancer), not the raw scheduled kW.
@@ -2098,6 +2113,11 @@ class ExecutorEngine:
                                     if device.id in shed_water_heater_ids:
                                         # Load-balancer shed takes precedence over the schedule
                                         temp = config.water_heater.temp_off
+                                        self._note_water_heater_switch(device.id, False, now)
+                                    else:
+                                        temp = self._apply_water_heater_min_times(
+                                            device.id, temp, now
+                                        )
                                     if device.control_type == "switch":
                                         water_result = await self.dispatcher.set_water_switch(
                                             device.target_entity,
@@ -2108,6 +2128,10 @@ class ExecutorEngine:
                                             temp, device.target_entity
                                         )
                                     action_results.append(water_result)
+                                    if water_result.success and not self.dispatcher.shadow_mode:
+                                        self._load_balancer.trace.note_written(
+                                            f"shed:{device.id}", temp
+                                        )
                                 except Exception as exc:
                                     logger.exception(
                                         "Water heater '%s' dispatch failed; continuing with other heaters: %s",
@@ -2139,6 +2163,10 @@ class ExecutorEngine:
                                 load_cfg.entity, value
                             )
                             action_results.append(shed_result)
+                            if shed_result.success and not self.dispatcher.shadow_mode:
+                                self._load_balancer.trace.note_written(
+                                    f"shed:{load_cfg.device_id}", value
+                                )
 
                     # Control Excess PV Custom Entity sinks (7.2-7.4, generalized to
                     # the priority list — excess-pv-priority-dispatch 3.7). Keyed by
@@ -2150,6 +2178,14 @@ class ExecutorEngine:
                     )
                     for rank, entry in enumerate(config.excess_pv.priority):
                         if entry.type != "custom_entity" or not entry.entity:
+                            continue
+                        if balancer_status.enabled and any(
+                            ld.device_type == BalancedLoadType.CUSTOM_ENTITY
+                            and ld.entity == entry.entity
+                            for ld in config.load_balancing.loads
+                        ):
+                            # Already dispatched above with the balancer's authoritative
+                            # room grant and plan-switching minimum times.
                             continue
                         rank_key = str(rank)
                         if is_fallback:
@@ -2168,6 +2204,16 @@ class ExecutorEngine:
                     # Fix Issue 0: Await expected coroutine properly
                     profile_results = await self.dispatcher.execute(decision)
                     action_results.extend(profile_results)
+                    if (
+                        balancer_status.battery_output is not None
+                        and profile_results
+                        and all(result.success for result in profile_results)
+                        and not self.dispatcher.shadow_mode
+                    ):
+                        self._load_balancer.trace.note_written(
+                            "battery",
+                            decision.charge_value if decision.mode_intent == "charge" else 0.0,
+                        )
                 except Exception as e:
                     logger.error("Failed to execute async actions: %s", e)
                     # Append a failed result for the log (do not replace existing results)
@@ -2719,6 +2765,62 @@ class ExecutorEngine:
                 voltage_entities[phase] = entity
                 reads.append((f"grid_voltage_l{phase}", lambda e=entity: ha.get_state(e)))
 
+        # Read each balanced heater's actual target. A single legacy/default
+        # temperature cannot establish whether several independent heaters are on.
+        balanced_heaters = {
+            heater.id: heater
+            for heater in self.config.water_heater_devices
+            if any(
+                load.device_type == BalancedLoadType.WATER_HEATER and load.device_id == heater.id
+                for load in self.config.load_balancing.loads
+            )
+        }
+        for heater in balanced_heaters.values():
+            if heater.target_entity and heater.target_entity != water_entity:
+                reads.append(
+                    (
+                        f"shed_state_{heater.id}",
+                        lambda e=heater.target_entity: ha.get_state_value(e),
+                    )
+                )
+
+        balanced_binary_chargers = {
+            charger.id: charger
+            for charger in self.config.ev_chargers
+            if charger.type == "binary"
+            and any(
+                load.device_type == BalancedLoadType.EV_CHARGER and load.device_id == charger.id
+                for load in self.config.load_balancing.loads
+            )
+        }
+        for charger in balanced_binary_chargers.values():
+            if charger.switch_entity:
+                reads.append(
+                    (
+                        f"shed_state_{charger.id}",
+                        lambda e=charger.switch_entity: ha.get_state_value(e),
+                    )
+                )
+
+        # Live power sensors of custom shed loads (restore power, D4).
+        shed_power_entities: dict[str, str] = {}
+        for load_cfg in self.config.load_balancing.loads:
+            if load_cfg.device_type == BalancedLoadType.CUSTOM_ENTITY and load_cfg.entity:
+                reads.append(
+                    (
+                        f"shed_state_{load_cfg.device_id}",
+                        lambda e=load_cfg.entity: ha.get_state_value(e),
+                    )
+                )
+            if load_cfg.power_sensor and load_cfg.device_id:
+                shed_power_entities[load_cfg.device_id] = load_cfg.power_sensor
+                reads.append(
+                    (
+                        f"shed_power_{load_cfg.device_id}",
+                        lambda e=load_cfg.power_sensor: ha.get_state(e),
+                    )
+                )
+
         results: dict[str, Any] = {}
         try:
             results = await gather_sensor_reads(reads, context="executor_state")
@@ -2785,8 +2887,12 @@ class ExecutorEngine:
         try:
             if phase_entities:
                 nominal_voltage_v = self.config.load_balancing.nominal_voltage_v
+                import_sign = (
+                    -1.0 if self.config.load_balancing.phase_sign == "import_negative" else 1.0
+                )
                 grid_current_a: dict[int, float] = {}
                 grid_current_updated_at: dict[int, datetime] = {}
+                export_phases: list[int] = []
                 for phase in phase_entities:
                     phase_state = results.get(f"grid_current_l{phase}")
                     if not isinstance(phase_state, dict):
@@ -2795,7 +2901,9 @@ class ExecutorEngine:
                     raw_value = self._safe_float(phase_entities[phase], phase_state.get("state"))
                     if raw_value is None:
                         continue
-                    raw_value = abs(raw_value)
+                    # Import sign convention (phase_sign); no abs(): export
+                    # (negative after the sign) counts as 0 A below.
+                    raw_value *= import_sign
 
                     attributes = cast("dict[str, Any]", phase_state.get("attributes") or {})
                     unit_of_measurement = cast("str | None", attributes.get("unit_of_measurement"))
@@ -2804,7 +2912,9 @@ class ExecutorEngine:
                     power_updated_at = reading_timestamp(phase_state)
 
                     if kind == "current":
-                        grid_current_a[phase] = raw_value
+                        grid_current_a[phase] = max(0.0, raw_value)
+                        if raw_value < 0:
+                            export_phases.append(phase)
                         if power_updated_at is not None:
                             grid_current_updated_at[phase] = power_updated_at
                         continue
@@ -2848,15 +2958,107 @@ class ExecutorEngine:
                     if voltage_v <= 0:
                         continue
 
-                    grid_current_a[phase] = power_to_current_a(power_w, voltage_v)
+                    amps = power_to_current_a(power_w, voltage_v)
+                    grid_current_a[phase] = max(0.0, amps)
+                    if amps < 0:
+                        export_phases.append(phase)
                     if reading_updated_at is not None:
                         grid_current_updated_at[phase] = reading_updated_at
 
                 state.grid_current_a = grid_current_a or None
                 state.grid_current_updated_at = grid_current_updated_at or None
+                state.grid_export_phases = sorted(export_phases) or None
+
+                # Fresh measured voltage for the battery's W/A conversion (D11);
+                # a stale or unreadable voltage falls back to the nominal one.
+                fresh_after_s = self.config.load_balancing.sensor_stale_after_s
+                voltage_now = datetime.now(UTC)
+                grid_voltage_v: dict[int, float] = {}
+                for phase in voltage_entities:
+                    voltage_state = results.get(f"grid_voltage_l{phase}")
+                    if not isinstance(voltage_state, dict):
+                        continue
+                    voltage_state = cast("dict[str, Any]", voltage_state)
+                    measured_v = self._safe_float(
+                        voltage_entities[phase], voltage_state.get("state")
+                    )
+                    measured_at = reading_timestamp(voltage_state)
+                    if (
+                        measured_v is not None
+                        and measured_v > 0
+                        and measured_at is not None
+                        and (voltage_now - measured_at).total_seconds() <= fresh_after_s
+                    ):
+                        grid_voltage_v[phase] = measured_v
+                state.grid_voltage_v = grid_voltage_v or None
 
         except Exception as e:
             logger.warning("Failed to parse phase current sensors: %s", e)
+
+        shed_power_w: dict[str, float] = {}
+        for load_id, power_entity in shed_power_entities.items():
+            power_state = results.get(f"shed_power_{load_id}")
+            if not isinstance(power_state, dict):
+                continue
+            power_state = cast("dict[str, Any]", power_state)
+            power_at = reading_timestamp(power_state)
+            if (
+                power_at is None
+                or (datetime.now(UTC) - power_at).total_seconds()
+                > self.config.load_balancing.sensor_stale_after_s
+            ):
+                continue
+            power_value = self._safe_float(power_entity, power_state.get("state"))
+            if power_value is None:
+                continue
+            attrs = cast("dict[str, Any]", power_state.get("attributes") or {})
+            unit_kind = classify_phase_sensor_unit(
+                cast("str | None", attrs.get("unit_of_measurement")),
+                cast("str | None", attrs.get("device_class")),
+            )
+            if unit_kind == "power_kw":
+                power_value *= 1000
+            elif unit_kind != "power_w":
+                continue
+            shed_power_w[load_id] = abs(power_value)
+        state.shed_load_power_w = shed_power_w or None
+        shed_on: dict[str, bool] = {}
+        for load_cfg in self.config.load_balancing.loads:
+            if load_cfg.device_type != BalancedLoadType.CUSTOM_ENTITY:
+                continue
+            value = results.get(f"shed_state_{load_cfg.device_id}")
+            if (
+                value is not None
+                and str(value).lower() not in ("unknown", "unavailable")
+                and self.dispatcher
+            ):
+                shed_on[load_cfg.device_id] = self.dispatcher._values_match(  # type: ignore[protected-access]
+                    str(value), load_cfg.on_value
+                )
+        for charger in balanced_binary_chargers.values():
+            value = results.get(f"shed_state_{charger.id}")
+            if (
+                value is not None
+                and str(value).lower() not in ("unknown", "unavailable")
+                and self.dispatcher
+            ):
+                shed_on[charger.id] = self.dispatcher._values_match(  # type: ignore[protected-access]
+                    str(value), charger.charge_enabled_value
+                )
+        for heater in balanced_heaters.values():
+            value = results.get(
+                "water_temp" if heater.target_entity == water_entity else f"shed_state_{heater.id}"
+            )
+            if value is None or str(value).lower() in ("unknown", "unavailable"):
+                continue
+            if heater.control_type == "switch":
+                if str(value).lower() in ("on", "true", "1", "off", "false", "0"):
+                    shed_on[heater.id] = str(value).lower() in ("on", "true", "1")
+            else:
+                target = self._safe_float(heater.target_entity or heater.id, value)
+                if target is not None:
+                    shed_on[heater.id] = target > self.config.water_heater.temp_off
+        state.shed_load_on = shed_on or None
 
         return state
 
@@ -3074,6 +3276,15 @@ class ExecutorEngine:
         )
         if not decision.should_switch or decision.commanded_mode is None:
             return None
+        if (
+            decision.commanded_mode == 3
+            and phase_ctrl.commanded_mode == 1
+            and self.config.load_balancing.enabled
+        ):
+            # The current phase samples and every competing grant are available
+            # in the balancer's reverse-order pass later in this tick.
+            self._pending_phase_returns.add(charger_cfg.id)
+            return None
         return await self._write_phase_mode(charger_cfg, phase_ctrl, decision.commanded_mode, now)
 
     async def _write_phase_mode(
@@ -3119,6 +3330,7 @@ class ExecutorEngine:
         """
         self._ev_surplus_targets = {}
         self._ev_surplus_status = {}
+        self._pending_phase_returns.clear()
         action_results: list[ActionResult] = []
         if not self.config.ev_chargers:
             return action_results
@@ -3355,16 +3567,47 @@ class ExecutorEngine:
                 surplus_slot=bool(
                     slot and slot.ev_surplus_kw.get(charger_id, 0.0) > _EV_SURPLUS_ACTIVE_KW
                 ),
+                measured_a=dev_state.measured_draw_a if dev_state else None,
+                return_to_phases=(
+                    list(charger_cfg.phases or [1, 2, 3])
+                    if charger_id in self._pending_phase_returns
+                    else None
+                ),
             )
 
-        shed_inputs_by_id = {
-            ld.device_id: ShedLoadInput(
+        shed_inputs_by_id: dict[str, ShedLoadInput] = {}
+        for ld in lb_cfg.loads:
+            power_w, power_source = self._resolve_shed_load_power(ld, state)
+            requested_on: bool | None = None
+            if ld.device_type == BalancedLoadType.CUSTOM_ENTITY:
+                requested_on = True
+                for rank, sink in enumerate(self.config.excess_pv.priority):
+                    if sink.type == "custom_entity" and sink.entity == ld.entity:
+                        requested_on = bool(
+                            slot and slot.custom_entity_active.get(str(rank), False)
+                        )
+                        break
+            elif ld.device_type == BalancedLoadType.EV_CHARGER:
+                requested_on = self._charger_should_be_on(slot, ld.device_id)
+            elif (
+                ld.device_type == BalancedLoadType.WATER_HEATER
+                and decision is not None
+                and ld.device_id in decision.water_temps
+            ):
+                requested_on = (
+                    decision.water_temps[ld.device_id] > self.config.water_heater.temp_off
+                )
+            shed_inputs_by_id[ld.device_id] = ShedLoadInput(
                 load_id=ld.device_id,
                 device_type=ld.device_type.value,
                 phases=ld.phases,
+                power_w=power_w,
+                power_source=power_source,
+                min_off_s=ld.min_off_s,
+                min_on_s=ld.min_on_s,
+                requested_on=requested_on,
+                current_on=((state.shed_load_on or {}).get(ld.device_id)),
             )
-            for ld in lb_cfg.loads
-        }
 
         battery_input = self._battery_balancer_input(state, decision)
 
@@ -3383,12 +3626,82 @@ class ExecutorEngine:
             ev.charger_id: ev.planner_target_a for ev in ev_inputs_by_id.values()
         }
 
+        self._warn_persistent_export_phase(
+            state,
+            now,
+            charging=any(e.current_setpoint_a is not None for e in ev_inputs_by_id.values())
+            or bool(battery_input and battery_input.active),
+        )
         return self._load_balancer.tick(
             now,
             state.grid_current_a,
             state.grid_current_updated_at,
             entries,
+            phase_voltage_v=state.grid_voltage_v,
         )
+
+    # Live power below this is "off" for a shed load: not a usable restore power.
+    _SHED_LIVE_POWER_MIN_W = 50.0
+    # A phase reading negative this long while a load charges suggests the
+    # sensor sign is inverted (load_balancing.phase_sign).
+    _PHASE_EXPORT_WARN_S = 120.0
+
+    def _resolve_shed_load_power(
+        self, load: BalancedLoadConfig, state: SystemState
+    ) -> tuple[float | None, str]:
+        """Restore power of a shed load and its source (D4): the live power
+        sensor (while it reads a real draw), else the configured power, else
+        (None, "worst_case") — the balancer then counts a full main fuse."""
+        live_w: float | None = None
+        if load.device_type == BalancedLoadType.CUSTOM_ENTITY:
+            live_w = (state.shed_load_power_w or {}).get(load.device_id)
+        else:
+            live = self._load_disaggregator.get_load_by_id(load.device_id)
+            if live is not None and live.is_healthy:
+                live_w = abs(live.current_power_kw) * 1000
+        if live_w is not None and live_w >= self._SHED_LIVE_POWER_MIN_W:
+            return live_w, "sensor"
+
+        configured_kw: float | None = None
+        if load.device_type == BalancedLoadType.CUSTOM_ENTITY:
+            configured_kw = load.power_kw
+        elif load.device_type == BalancedLoadType.WATER_HEATER:
+            heater = next(
+                (h for h in self.config.water_heater_devices if h.id == load.device_id), None
+            )
+            configured_kw = heater.power_kw if heater is not None else None
+        else:
+            charger = next((c for c in self.config.ev_chargers if c.id == load.device_id), None)
+            configured_kw = charger.rated_power_kw if charger is not None else None
+        if configured_kw is not None and configured_kw > 0:
+            return configured_kw * 1000, "configured"
+        return None, "worst_case"
+
+    def _warn_persistent_export_phase(
+        self, state: SystemState, now: datetime, charging: bool
+    ) -> None:
+        """Warn (once per episode) when a phase reads negative for minutes while
+        a load charges: the sensor may report import as negative, which
+        load_balancing.phase_sign corrects (D11)."""
+        negative: set[int] = set(state.grid_export_phases or []) if charging else set()
+        for phase in list(self._phase_export_since):
+            if phase not in negative:
+                del self._phase_export_since[phase]
+                self._phase_export_warned.discard(phase)
+        for phase in negative:
+            since = self._phase_export_since.setdefault(phase, now)
+            if (
+                (now - since).total_seconds() >= self._PHASE_EXPORT_WARN_S
+                and phase not in self._phase_export_warned
+            ):
+                self._phase_export_warned.add(phase)
+                logger.warning(
+                    "Load balancer: phase L%d has read as export (negative, counted as 0 A) "
+                    "for %ds while a load charges. If your grid sensors report import as a "
+                    "negative value, set load_balancing.phase_sign: import_negative.",
+                    phase,
+                    int((now - since).total_seconds()),
+                )
 
     # --- Battery grid charging give-way (battery-load-balancing) ----------
 
@@ -3432,23 +3745,33 @@ class ExecutorEngine:
         if decision is None or not self._battery_give_way_available():
             self._battery_cap_w = None
             return None
-        unit, _step, minimum = self._battery_charge_limits()
+        unit, step, minimum = self._battery_charge_limits()
         active = decision.mode_intent == "charge" and decision.charge_value > 0
         planned_w = self._charge_value_to_w(decision.charge_value, unit) if active else 0.0
         if not active:
             self._battery_cap_w = None
-        applied_w = (
-            min(planned_w, self._battery_cap_w) if self._battery_cap_w is not None else planned_w
-        )
+        # After startup the measured charge is the existing draw, not a new
+        # grant. With no observed draw, start from zero through the room gate.
+        baseline_w = self._battery_cap_w
+        if baseline_w is None:
+            baseline_w = max(0.0, (state.current_battery_charge_kw or 0.0) * 1000)
+        applied_w = min(planned_w, baseline_w)
+        # Derived from the cap and the grid import only: a measured charge that
+        # still lags the cap must not block a cut (it is passed separately to
+        # detect the response).
         reducible_w = min(applied_w, max(0.0, state.current_import_kw * 1000))
-        if state.current_battery_charge_kw is not None:
-            reducible_w = min(reducible_w, state.current_battery_charge_kw * 1000)
         return BatteryBalancerInput(
             planned_w=planned_w,
             applied_cap_w=applied_w,
             reducible_w=max(0.0, reducible_w),
             active=active,
             min_w=self._charge_value_to_w(minimum, unit),
+            measured_w=(
+                state.current_battery_charge_kw * 1000
+                if state.current_battery_charge_kw is not None
+                else None
+            ),
+            step_w=self._charge_value_to_w(step, unit),
         )
 
     def _apply_battery_cap(self, decision: ControllerDecision, status: LoadBalancerStatus) -> None:
@@ -3457,18 +3780,19 @@ class ExecutorEngine:
         The cap is converted into charge_value in the profile's control_unit
         and rounded down to the profile step; below the profile minimum the
         tick dispatches `idle` (grid charging off, no discharge). The
-        controller's plan-state latch is untouched.
+        controller's plan-state latch is untouched. A cut this tick is flagged
+        urgent so the write layer bypasses pacing and deadband.
         """
         out = status.battery_output
-        if (
-            not status.enabled
-            or out is None
-            or decision.mode_intent != "charge"
-            or out.state == "idle"
-            or out.cap_w >= out.planned_w
-        ):
+        if not status.enabled or out is None or decision.mode_intent != "charge":
             self._battery_cap_w = None
             return
+        if out.state != "paused" and out.cap_w >= out.planned_w:
+            # At the plan: keep the level as the cap, so a later plan rise
+            # ramps through the room gate instead of jumping (D3).
+            self._battery_cap_w = out.cap_w
+            return
+        decision.urgent_reduction = out.urgent
         unit, step, minimum = self._battery_charge_limits()
         cap_value = (
             out.cap_w if unit == "W" else out.cap_w / self.config.controller.nominal_voltage_v
@@ -3555,6 +3879,14 @@ class ExecutorEngine:
             return results
         cfg_by_id = {c.id: c for c in self.config.ev_chargers}
         for idx, out in enumerate(status.ev_outputs):
+            if out.return_3p_requested:
+                charger_cfg = cfg_by_id.get(out.charger_id)
+                if writes_allowed and charger_cfg is not None and self.dispatcher:
+                    phase_ctrl = self._ev_phase_controllers.setdefault(
+                        out.charger_id, PhaseModeController()
+                    )
+                    results.append(await self._write_phase_mode(charger_cfg, phase_ctrl, 3, now))
+                continue
             if not out.relief_1p_requested:
                 continue
             applied = False
@@ -3693,63 +4025,9 @@ class ExecutorEngine:
         fraction = min(max((now - slot.slot_start).total_seconds() / total, 0.0), 1.0)
         return slot.soc_entry + (slot.soc_projected - slot.soc_entry) * fraction
 
-    def _track_balancer_throttling(self, status: LoadBalancerStatus, now: datetime) -> None:
-        """Sustained-throttle early replan (load-balancing-completion 4.1/4.2).
-
-        Tracks, per charger, the continuous duration the balancer holds the
-        setpoint below the planner target (or paused) while the slot plans
-        charging. Planner-intended low targets never count: the comparison is
-        against the planner-derived target itself. Fires one replan when the
-        duration exceeds replan_after_throttled_s, rate-limited to one
-        balancer-triggered replan per planner interval.
-        """
-        if not status.enabled:
-            self._balancer_throttled_since.clear()
-            return
-
-        threshold = self.config.load_balancing.replan_after_throttled_s
-        for out in status.ev_outputs:
-            planner_target = self._last_balancer_planned_targets.get(out.charger_id)
-            if planner_target is None:
-                # Slot doesn't plan charging for this charger — reset.
-                self._balancer_throttled_since.pop(out.charger_id, None)
-                continue
-            constrained = out.target_a is None or out.target_a < planner_target
-            if not constrained:
-                # Target reached — reset.
-                self._balancer_throttled_since.pop(out.charger_id, None)
-                continue
-            since = self._balancer_throttled_since.setdefault(out.charger_id, now)
-            if (now - since).total_seconds() >= threshold:
-                self._maybe_fire_balancer_replan(out.charger_id, now)
-
-        # Battery grid charging (battery-load-balancing D8): constrained while
-        # capped below the plan or paused during a charge intent.
-        battery = status.battery_output
-        if battery is None or battery.state not in ("throttling", "paused"):
-            self._balancer_throttled_since.pop(BATTERY_GIVE_WAY_ID, None)
-            return
-        since = self._balancer_throttled_since.setdefault(BATTERY_GIVE_WAY_ID, now)
-        if (now - since).total_seconds() >= threshold:
-            self._maybe_fire_balancer_replan(BATTERY_GIVE_WAY_ID, now)
-
-    def _maybe_fire_balancer_replan(self, charger_id: str, now: datetime) -> None:
-        """Fire one balancer-triggered replan, at most one per planner interval.
-        charger_id is a charger id or BATTERY_GIVE_WAY_ID."""
-        if not self._executor_replan_allowed(now):
-            return  # rate limit: keep the tracker running, retry when rearmed
-
-        self._balancer_throttled_since.pop(charger_id, None)  # reset on fire
-        logger.info(
-            "Load balancer has constrained '%s' for over %ss — requesting one early replan",
-            charger_id,
-            self.config.load_balancing.replan_after_throttled_s,
-        )
-        self._request_balancer_replan()
-
     def _executor_replan_allowed(self, now: datetime) -> bool:
-        """Rate limit for balancer-triggered replans: at most one per planner
-        interval. Consumes the slot when it returns True."""
+        """Rate limit for executor-requested replans (a manual charge ending):
+        at most one per planner interval. Consumes the slot when it returns True."""
         automation_raw: Any = self._full_config.get("automation", {})
         automation_cfg: dict[str, Any] = (
             cast("dict[str, Any]", automation_raw) if isinstance(automation_raw, dict) else {}
@@ -3771,13 +4049,14 @@ class ExecutorEngine:
         return True
 
     def _request_balancer_replan(self) -> None:
-        """Request a planner run via the shared replan dispatch helper."""
+        """Request a planner run via the shared replan dispatch helper (manual
+        charge end, EV charge failure/recovery)."""
         try:
             from backend.services.scheduler_service import ReplanReason, request_replan
 
             request_replan(ReplanReason.LOAD_BALANCER)
         except Exception as e:
-            logger.error("Failed to request balancer-triggered replan: %s", e)
+            logger.error("Failed to request replan: %s", e)
 
     async def _notify_balancer_interventions(
         self,
@@ -3867,6 +4146,10 @@ class ExecutorEngine:
         except Exception as e:
             logger.warning("Could not evaluate EV goal risk for %s: %s", charger_id, e)
             return True, "goal status unknown"
+
+    def get_balancer_trace(self) -> list[dict[str, Any]]:
+        """Snapshot of the load balancer's bounded decision trace (diagnostics)."""
+        return self._load_balancer.trace.snapshot()
 
     def get_load_balancer_status(self) -> dict[str, Any]:
         """Serialize the latest balancer tick for the status surface (6.1/6.2),
@@ -3972,6 +4255,10 @@ class ExecutorEngine:
                     "device_type": o.device_type,
                     "shed": o.shed,
                     "reason": o.reason,
+                    # coordinated-ramping D4: restore power used and its source
+                    # ("sensor" | "configured" | "worst_case")
+                    "power_w": round(o.power_w) if o.power_w is not None else None,
+                    "power_source": o.power_source,
                 }
                 for o in status.shed_outputs
             ],
@@ -4072,6 +4359,52 @@ class ExecutorEngine:
             ):
                 return True
         return False
+
+    def _balanced_water_heater(self, device_id: str) -> BalancedLoadConfig | None:
+        """The load_balancing.loads[] entry of a water heater, when the balancer
+        is enabled (min on/off times only apply to balanced heaters)."""
+        lb = self.config.load_balancing
+        if not lb.enabled:
+            return None
+        return next(
+            (
+                ld
+                for ld in lb.loads
+                if ld.device_id == device_id and ld.device_type == BalancedLoadType.WATER_HEATER
+            ),
+            None,
+        )
+
+    def _note_water_heater_switch(self, device_id: str, on: bool, now: datetime) -> None:
+        """Record a heater's on/off state, restarting its min on/off clock on a change."""
+        current = self._water_heater_switch.get(device_id)
+        if current is None or current[0] != on:
+            self._water_heater_switch[device_id] = (on, now)
+
+    def _apply_water_heater_min_times(self, device_id: str, temp: int, now: datetime) -> int:
+        """Plan switching respects min_on_s / min_off_s of a balanced heater
+        (anti-wear): a plan change of on/off state is held until the heater has
+        been in its current state long enough. An overload shed bypasses this
+        (it never reaches here). Returns the temperature to write."""
+        load = self._balanced_water_heater(device_id)
+        temp_off = self.config.water_heater.temp_off
+        want_on = temp > temp_off
+        if want_on:
+            self._water_heater_on_temp[device_id] = temp
+        if load is None:
+            self._note_water_heater_switch(device_id, want_on, now)
+            return temp
+        current = self._water_heater_switch.get(device_id)
+        if current is None or current[0] == want_on:
+            self._note_water_heater_switch(device_id, want_on, now)
+            return temp
+        is_on, since = current
+        hold_s = load.min_on_s if is_on else load.min_off_s
+        if (now - since).total_seconds() < hold_s:
+            # Too soon to switch: keep the current state.
+            return self._water_heater_on_temp.get(device_id, temp) if is_on else temp_off
+        self._note_water_heater_switch(device_id, want_on, now)
+        return temp
 
     def _request_ev_failure_replan(self, now: datetime, reason: str) -> bool:
         """Request a replan for an EV charge failure/recovery, unless one was
@@ -4758,7 +5091,14 @@ class ExecutorEngine:
             # Always go through the dispatcher: it compares against the live HA
             # state and skips the write when the charger already holds target_a,
             # so an external change (e.g. the go-e app) is corrected every tick.
-            result = await self.dispatcher.set_ev_charger_current(current_entity, target_a)
+            # A reduction below the commanded setpoint is never held back by
+            # the write layer's deadband.
+            urgent = dev_state.current_setpoint_a is not None and target_a < (
+                dev_state.current_setpoint_a
+            )
+            result = await self.dispatcher.set_ev_charger_current(
+                current_entity, target_a, **({"urgent": True} if urgent else {})
+            )
             self._log_ev_action(charger_id, result, "ev_charge_current", now)
             self._ev_record_write_outcome(charger_id, desired_key, result, now)
             if not result.success:

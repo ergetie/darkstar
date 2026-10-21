@@ -8,6 +8,9 @@ Migrated from backend/kepler/types.py for the new planner package.
 from dataclasses import dataclass, field
 from datetime import datetime
 
+# Numerical floor only for an exactly elapsed slot (one microsecond).
+MIN_FIRST_SLOT_H = 1.0 / 3_600_000_000.0
+
 
 @dataclass
 class WaterHeaterInput:
@@ -194,8 +197,8 @@ class KeplerInput:
 
     slots: list[KeplerInputSlot]
     initial_soc_kwh: float
-    # Hours left in slot 0 when planning starts mid-slot. Bounds EV energy in
-    # that slot only; None means the full slot duration is available.
+    # Hours left in slot 0 when planning starts mid-slot. Every flow and limit
+    # of that slot uses it; None means the full slot duration is available.
     first_slot_remaining_h: float | None = None
     # Set only by the daily battery benchmark; live planning leaves it None.
     benchmark: KeplerBenchmark | None = None
@@ -235,6 +238,9 @@ class KeplerResultSlot:
     ev_keep_on: dict[str, bool] = field(
         default_factory=lambda: {}
     )  # Per-charger: charger_id -> switch held on past target (no planned energy)
+    # Hours the solver planned this slot over: the time left for an in-progress
+    # slot 0, else the slot length. kW = kWh / duration_h. None = slot length.
+    duration_h: float | None = None
     is_optimal: bool = True
 
 

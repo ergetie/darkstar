@@ -82,7 +82,8 @@ def make_slot(start: datetime, ev_kw: float) -> dict:
         "battery_charge_kw": 0,
         "battery_discharge_kw": 0,
         "export_kwh": 0,
-        "water_heating_kw": 0,
+        "water_heating_kw": 2.0,
+        "water_heaters": {"main_tank": {"heating_kw": 2.0}},
         "soc_target_percent": 50,
         "projected_soc_percent": 50,
         "ev_chargers": {"goe": ev_kw},
@@ -100,8 +101,12 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         max_current_a=16,
         phases=[1, 2, 3],
     )
+    # 2 kW: the restore needs room for the heater's power (about 8.7 A).
     water_heater = WaterHeaterDeviceConfig(
-        id="main_tank", name="Main Tank", target_entity="input_number.water_heater_target"
+        id="main_tank",
+        name="Main Tank",
+        target_entity="input_number.water_heater_target",
+        power_kw=2.0,
     )
     load_balancing = LoadBalancingConfig(
         enabled=True,
@@ -239,9 +244,12 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         assert goe_calls(), "expected an EV setpoint write on the spike tick"
         assert goe_calls()[-1] <= 10.0
         assert engine._last_balancer_status.state == "throttling"
+        written = engine.get_balancer_trace()[-1]["written"]
+        assert written["charger:goe"] == engine._ev_charger_states["goe"].current_setpoint_a
+        assert "shed:main_tank" in written
 
         # --- Stage 2: sustained overload beyond the EV floor -> pause + shed ---
-        _FakeDateTime._current = t0 + timedelta(seconds=5)
+        _FakeDateTime._current = t0 + timedelta(seconds=15)
         grid["2"] = 40.0  # water heater's phase, deeply over fuse
         mock_ha.set_number.reset_mock()
         mock_ha.set_input_number.reset_mock()
@@ -251,13 +259,14 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         assert engine._last_balancer_status.state in ("paused", "shedding")
         assert goe_calls() == []  # pause never writes amps (no 0 A)
         assert goe_switch_off_calls() == 1  # commanded stop via the switch
-        assert water_heater_writes() == [40.0]  # config.water_heater.temp_off default
+        assert not any(o.shed for o in engine._last_balancer_status.shed_outputs)
+        # The next fresh sample can shed once the EV response wait expires.
 
         # A couple more overloaded ticks confirm the shed holds (EV is fully
         # paused here too, so the summary state reports "paused" — shedding
         # is still active underneath, per shed_outputs)
         for i in range(2):
-            _FakeDateTime._current = t0 + timedelta(seconds=10 + i * 5)
+            _FakeDateTime._current = t0 + timedelta(seconds=30 + i * 5)
             mock_ha.set_input_number.reset_mock()
             await engine.run_once()
             assert engine._last_balancer_status.state in ("paused", "shedding")
@@ -266,18 +275,21 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         # --- Stage 3: recovery — grid healthy again, wait out resume_delay_s ---
         grid["1"] = 5.0
         grid["2"] = 5.0
-        _FakeDateTime._current = t0 + timedelta(seconds=30)
+        _FakeDateTime._current = t0 + timedelta(seconds=45)
         mock_ha.set_number.reset_mock()
         mock_ha.set_input_number.reset_mock()
         await engine.run_once()
         # Too soon: still shed/paused
         assert engine._last_balancer_status.state in ("paused", "shedding")
 
-        _FakeDateTime._current = t0 + timedelta(seconds=30 + 125)
+        # Past resume_delay_s and the heater's default 300 s minimum off time.
+        _FakeDateTime._current = t0 + timedelta(seconds=30 + 305)
         mock_ha.set_number.reset_mock()
         mock_ha.set_input_number.reset_mock()
         await engine.run_once()
-        assert engine._last_balancer_status.state not in ("paused", "shedding")
+        # The charger (above the heater in the order) now waits for the restored
+        # heater's draw to be measured before it takes room again.
+        assert engine._last_balancer_status.state != "shedding"
         # Water heater restored — the balancer no longer reports it as shed
         # (its temperature happens to still be temp_off here too, since this
         # test's slot has no real water-heating demand configured)
@@ -431,6 +443,8 @@ async def test_power_sensor_phase_end_to_end(temp_schedule, temp_db):
         assert goe_calls(), "expected an EV setpoint write on the power-sensor-derived overload"
         assert goe_calls()[-1] <= 10.0
         assert engine._last_balancer_status.state == "throttling"
+        written = engine.get_balancer_trace()[-1]["written"]
+        assert written["charger:goe"] == engine._ev_charger_states["goe"].current_setpoint_a
 
         # --- Stage 2: voltage entity goes stale, power reading stays fresh ---
         # Must trigger the stale fail-safe, NOT silently substitute

@@ -17,6 +17,13 @@ export interface ShedLoad {
     entity?: string
     on_value?: string
     off_value?: string
+    /** custom_entity only: the load's power (kW), used to decide when it fits back in. */
+    power_kw?: number
+    /** custom_entity only: live power sensor, preferred over power_kw. */
+    power_sensor?: string
+    /** Minimum seconds on / off before the load may switch again (default 300). */
+    min_on_s?: number
+    min_off_s?: number
 }
 
 interface ChargerInfo {
@@ -330,8 +337,78 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
                                 className="w-full rounded-lg border border-line/50 bg-surface2 px-2 py-1.5 text-xs text-text focus:border-accent focus:outline-none disabled:opacity-50"
                             />
                         </div>
+                        <div>
+                            <label className="mb-1 block text-[10px] font-bold uppercase text-muted">Power (kW)</label>
+                            <input
+                                type="number"
+                                min={0}
+                                step={0.1}
+                                value={load.power_kw ?? ''}
+                                onChange={(e) =>
+                                    updateShedLoad(load.device_id, {
+                                        power_kw: e.target.value === '' ? undefined : Number(e.target.value),
+                                    })
+                                }
+                                disabled={disabled}
+                                placeholder="Unknown"
+                                className="w-full rounded-lg border border-line/50 bg-surface2 px-2 py-1.5 text-xs text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                            />
+                        </div>
+                        <div className="sm:col-span-2">
+                            <label className="mb-1 block text-[10px] font-bold uppercase text-muted">
+                                Power sensor (optional)
+                            </label>
+                            <EntitySelect
+                                entities={haEntities}
+                                value={load.power_sensor || ''}
+                                onChange={(val) => updateShedLoad(load.device_id, { power_sensor: val || undefined })}
+                                loading={haLoading}
+                                placeholder="Select live power sensor..."
+                                disabled={disabled}
+                            />
+                        </div>
+                        <p className="text-[10px] leading-relaxed text-muted sm:col-span-3">
+                            After this load is switched off to protect the fuse, it is only switched back on when there
+                            is room for its power: the live power sensor (while it reads a real draw), else the power
+                            above. With neither, it is only restored when its whole phase is free.
+                        </p>
                     </div>
                 )}
+                <div className="grid grid-cols-1 gap-3 border-t border-line/10 pt-2 sm:grid-cols-2">
+                    <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase text-muted">
+                            Minimum on time (s)
+                        </label>
+                        <input
+                            type="number"
+                            min={0}
+                            max={3600}
+                            value={load.min_on_s ?? 300}
+                            onChange={(e) => updateShedLoad(load.device_id, { min_on_s: Number(e.target.value) })}
+                            disabled={disabled}
+                            className="w-full rounded-lg border border-line/50 bg-surface2 px-2 py-1.5 text-xs text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                        />
+                    </div>
+                    <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase text-muted">
+                            Minimum off time (s)
+                        </label>
+                        <input
+                            type="number"
+                            min={0}
+                            max={3600}
+                            value={load.min_off_s ?? 300}
+                            onChange={(e) => updateShedLoad(load.device_id, { min_off_s: Number(e.target.value) })}
+                            disabled={disabled}
+                            className="w-full rounded-lg border border-line/50 bg-surface2 px-2 py-1.5 text-xs text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                        />
+                    </div>
+                    <p className="text-[10px] leading-relaxed text-muted sm:col-span-2">
+                        Keeps the load from switching too often: the plan cannot switch it (water heaters) or the
+                        balancer restore it before these times have passed. Switching off to protect the fuse is always
+                        immediate.
+                    </p>
+                </div>
             </div>
         )
     }

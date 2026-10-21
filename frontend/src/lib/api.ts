@@ -499,6 +499,10 @@ export type LoadBalancerShedStatus = {
     device_type: string
     shed: boolean
     reason: string
+    /** Restore power used to decide when the load fits back in (W); null = unknown */
+    power_w?: number | null
+    /** Where it came from: live sensor, configured power or the worst-case fallback */
+    power_source?: 'sensor' | 'configured' | 'worst_case' | string
 }
 
 /** battery-load-balancing: house battery grid charging as a give-way entry. */

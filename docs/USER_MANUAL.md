@@ -121,6 +121,17 @@ Use **EV Charge** in the dashboard command bar when you want the car charged *no
 *   The request is refused if the car isn't connected, its SoC is unknown, or it is already at the target. Requires `soc_sensor` (and ideally `plug_sensor`) on the charger.
 *   The car's SoC sensor often updates only every few minutes, so the car may end a few percent above the target.
 
+### Load balancer: coordinated ramping and anti-wear
+When load balancing is enabled, increases (EV current, battery grid charging, restoring a shed load) share one budget under your fuse limit: a step that was just granted counts until it shows in the measurement, so the car and the battery never ramp up together on a lagging average. These `load_balancing` settings tune it (defaults in `config.default.yaml`):
+
+*   `max_step_interval_s` (default 30): an EV charger or the battery takes its next increase once the previous step has shown up in the measurement, or after this many seconds at the latest. Reductions are never delayed.
+*   `write_deadband_percent` (default 2): battery charge changes smaller than this (and never smaller than one inverter step) are not written. Overload cuts always are.
+*   `pending_timeout_s` (default 60): how long a granted increase counts against the free room if it is never measured.
+*   `phase_sign` (`import_positive` or `import_negative`): which sign of your phase sensors means import. The other sign (export) counts as 0 A.
+*   Per load in `loads[]`: `min_on_s` / `min_off_s` (default 300) keep a water heater or switch from toggling too often (an overload shed is always immediate), and custom loads accept `power_kw` and `power_sensor` so Darkstar knows how much room a shed load needs before it is restored. Without either, a custom load is only restored when its whole phase is free.
+
+The balancer no longer asks the planner for an early replan when it is throttling (the old `replan_after_throttled_s` setting was removed and is dropped from your config automatically).
+
 ### Dashboard Indicators
 *   **Gold Bars**: EV charging power is shown on the Dashboard and Horizon chart.
 *   **EV SoC**: Your car's current charge level is displayed in the Charging Status card. An active manual charge shows as "Manual charge → 80% · Stop".

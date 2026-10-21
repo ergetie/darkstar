@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Any, cast
@@ -32,11 +33,16 @@ from backend.services.installation_stats_contract import (
 )
 from executor.config import (
     EV_PLUG_IN_REMINDER_MINUTES_RANGE,
+    MAX_STEP_INTERVAL_RANGE,
+    MIN_ON_OFF_RANGE,
     PAUSE_DEBOUNCE_RANGE,
+    PENDING_TIMEOUT_RANGE,
+    PHASE_SIGN_VALUES,
     RAMP_UP_WINDOW_RANGE,
     RESUME_CONFIRM_RANGE,
     SEVERE_OVERLOAD_RANGE,
     TARGET_MARGIN_RANGE,
+    WRITE_DEADBAND_RANGE,
 )
 from executor.load_balancer import classify_phase_sensor_unit
 from executor.profiles import get_profile_from_config
@@ -627,6 +633,48 @@ def _validate_ev_planning(config: dict[str, Any]) -> list[dict[str, str]]:
     return issues
 
 
+def _validate_balanced_load_fields(
+    load: dict[str, Any], index: int, device_id: Any
+) -> list[dict[str, str]]:
+    """Checks for loads[].power_kw and the per-load min_on_s / min_off_s."""
+    issues: list[dict[str, str]] = []
+    power = load.get("power_kw")
+    if power is not None and (
+        isinstance(power, bool)
+        or not isinstance(power, int | float)
+        or not math.isfinite(power)
+        or power <= 0
+    ):
+        issues.append(
+            {
+                "severity": "error",
+                "message": f"load_balancing.loads[{index}] ('{device_id}') has an invalid "
+                f"power_kw: {power}",
+                "guidance": "Set power_kw to the load's power in kW (a positive number), or "
+                "remove it to restore the load only when its whole phase is free.",
+            }
+        )
+    low, high = MIN_ON_OFF_RANGE
+    for key in ("min_on_s", "min_off_s"):
+        value = load.get(key)
+        if value is None:
+            continue
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not low <= value <= high
+        ):
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"load_balancing.loads[{index}] ('{device_id}') {key} must be "
+                    f"a number in the range {low:g}-{high:g} s: {value}",
+                    "guidance": f"Set load_balancing.loads[].{key} between {low:g} and {high:g}.",
+                }
+            )
+    return issues
+
+
 def _validate_graceful_degradation_ranges(lb_cfg: Any) -> list[dict[str, str]]:
     """Range checks for the load-balancer graceful-degradation settings."""
     if not isinstance(lb_cfg, dict):
@@ -638,6 +686,9 @@ def _validate_graceful_degradation_ranges(lb_cfg: Any) -> list[dict[str, str]]:
         ("resume_confirm_s", RESUME_CONFIRM_RANGE, True, " s"),
         ("severe_overload_percent", SEVERE_OVERLOAD_RANGE, False, "%"),
         ("ramp_up_window_s", RAMP_UP_WINDOW_RANGE, True, " s"),
+        ("max_step_interval_s", MAX_STEP_INTERVAL_RANGE, True, " s"),
+        ("write_deadband_percent", WRITE_DEADBAND_RANGE, False, "%"),
+        ("pending_timeout_s", PENDING_TIMEOUT_RANGE, True, " s"),
     ]
     issues: list[dict[str, str]] = []
     for key, (low, high), integer, unit in specs:
@@ -658,6 +709,17 @@ def _validate_graceful_degradation_ranges(lb_cfg: Any) -> list[dict[str, str]]:
                     "guidance": f"Set load_balancing.{key} to a value between {low:g} and {high:g}.",
                 }
             )
+    phase_sign = lb.get("phase_sign")
+    if phase_sign is not None and phase_sign not in PHASE_SIGN_VALUES:
+        issues.append(
+            {
+                "severity": "error",
+                "message": f"load_balancing.phase_sign must be one of "
+                f"{', '.join(PHASE_SIGN_VALUES)}: {phase_sign}",
+                "guidance": "Use import_positive when your grid sensors report import as a "
+                "positive value, import_negative when they report import as negative.",
+            }
+        )
     if "resume_margin_percent" in lb and "target_margin_percent" not in lb:
         issues.append(
             {
@@ -1661,6 +1723,7 @@ def _validate_config_for_save(
                             "guidance": "device_id must match an id in water_heaters[].",
                         }
                     )
+                issues.extend(_validate_balanced_load_fields(load, i, device_id))
                 if not load.get("phases"):
                     issues.append(
                         {

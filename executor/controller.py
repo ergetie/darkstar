@@ -99,6 +99,9 @@ class ControllerDecision:
     control_unit: str = "A"  # "A" or "W"
     source: str = "plan"  # "plan" or "override"
     reason: str = ""
+    # The load balancer cut the charge to protect the main fuse this tick: the
+    # write layer must not delay or skip it (no deadband / pacing).
+    urgent_reduction: bool = False
 
 
 class Controller:

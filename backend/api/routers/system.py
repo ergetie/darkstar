@@ -27,6 +27,7 @@ from backend.core.ha_client import get_ha_bool, get_ha_sensor_float, get_ha_sens
 from backend.core.secrets import load_yaml
 from backend.core.version import get_version as _get_git_version
 from backend.learning.store import LearningStore
+from executor.load_balancer import BALANCER_TRACE_TICKS
 
 logger = logging.getLogger("darkstar.api.system")
 router = APIRouter(tags=["system"])
@@ -428,6 +429,17 @@ async def download_db_snapshot(
     )
 
 
+async def _get_balancer_trace() -> dict[str, Any]:
+    """The load balancer's bounded in-memory decision trace (newest last)."""
+    from backend.api.routers.executor import get_executor_instance
+
+    executor = get_executor_instance()
+    if executor is None:
+        raise RuntimeError("executor unavailable")
+    ticks = executor.get_balancer_trace()
+    return {"max_ticks": BALANCER_TRACE_TICKS, "ticks": ticks}
+
+
 def _json_bytes(data: Any) -> bytes:
     if hasattr(data, "model_dump"):
         data = data.model_dump(mode="json")
@@ -472,7 +484,7 @@ def _write_bundle_sync(
     summary="Export Diagnostics Bundle",
     description=(
         "Returns one zip with a consistent database snapshot, config.yaml as stored on disk, "
-        "the log, schedule.json, version/status/health/monitors output and a manifest. "
+        "the log, schedule.json, version/status/health/monitors output, the load balancer trace and a manifest. "
         "Never includes secrets.yaml."
     ),
 )
@@ -501,6 +513,7 @@ async def export_diagnostics(
                 "status.json": get_system_status,
                 "health.json": get_system_health,
                 "monitors.json": get_invariant_monitors,
+                "balancer_trace.json": _get_balancer_trace,
             }
             for name, handler in sources.items():
                 try:

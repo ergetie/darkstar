@@ -58,3 +58,23 @@ Config migration drops `replan_after_throttled_s` (idempotent, logged). New keys
 3. Learning shed-load power from observed draw is deferred; the worst-case fallback is safe.
 4. Balancer trace: 600 ticks, in memory only.
 5. Docs in `docs/` may be updated, limited to the removed and new settings.
+
+## Implementation Notes (apply, 2026-10-21)
+
+Clarifications and the few places where the implementation refines the text above.
+
+- **Settle tolerance (D1).** "Within one profile step" is bounded by half the granted increment: the item settles when `measured >= granted - min(step, increment / 2)`. A plain one-step tolerance would count the pre-step value as settled for the 1 A EV step. EV measures the raw measured draw (not the settle-protected baseline), the battery its measured charge; shed restores have no measurement and expire by `pending_timeout_s`.
+- **Battery counted at its latest draw.** Like the chargers, the battery enters the averaged current at its latest draw (measured, else the applied cap), so the 60 s averaging lag does not hide a ramp once its ledger item has settled.
+- **Worst-case restore (D4).** A load with unknown power restores only when `avg + pending == 0 A` on its phases, and counts as a full `main_fuse_a` in the ledger until it expires. The live power sensor only counts while it reads at least 50 W; a shed load reads about 0 W, so in practice the configured power (or the worst case) is used for the restore decision. Learning the power stays deferred.
+- **Fresh start of grid charging.** An existing measured charge becomes the initial cap. With no observed charge, the battery starts from zero, confirms room, resumes at its minimum through the shared gate and then ramps.
+- **Urgent overloads (D6).** Severe overloads retain the immediate pause/debounce rule, but all reductions obey one cut per fresh phase sample and the bounded response wait. Emergency writes bypass pacing and deadband.
+- **Pacing location (D10).** Adaptive step pacing lives in the balancer (ledger item age against `max_step_interval_s`), because only the balancer knows when a step has settled. The write layer keeps `last_write_at`, the deadband (never below one profile step, only while load balancing is enabled) and the urgent bypass; the EV current deadband is one ampere, so it never blocks an integer step.
+- **Restore arbitration (D2).** A shed entry explicitly planned off does not block higher-listed restores: it has no restore demand until its plan requests on.
+- **Minimum on/off times (D10).** Balanced water heaters and custom excess-PV switches send plan switching through the same reverse-order restore pass and min-on/off clocks. The custom excess-PV write is skipped when the entity is balanced, so it cannot override a shed. Overload sheds remain immediate.
+- **Startup state (D2/D10).** Balanced heaters read each device's actual switch/temperature target (reuse the first-heater read where possible). Binary shed chargers read their actual switch state and use the same plan intent as dispatch. Missing/unreadable state enters the shared restore gate conservatively; the legacy aggregate water-temperature default is never evidence that a heater is on.
+- **Binary charger power.** `ev_chargers[].rated_power_kw` (existing config key) is now parsed by the executor and is the configured restore power of a shed binary charger.
+- **Slot-0 duration (D13).** Positive remaining durations, including the last seconds of a slot, are used exactly. Only an exactly elapsed duration has a numerical floor of one microsecond to avoid division by zero.
+- **Replan plumbing.** `_request_balancer_replan`, `_executor_replan_allowed` and `ReplanReason.LOAD_BALANCER` keep their names: the manual-charge-end and EV failure/recovery replans still use them. Only the balancer-triggered caller and its tracking were removed.
+- **Docs.** No file under `docs/` mentioned `replan_after_throttled_s`; `docs/USER_MANUAL.md` gained a short section for the new keys.
+
+The delta explicitly amends the older severe same-tick shed-plus-EV scenarios: severity still bypasses pause debounce, but the new one-cut-per-fresh-phase-sample and bounded response guards apply. This reconciles the main spec with D6 and the maintainer's explicit key point; main specs remain unchanged until a separate sync.

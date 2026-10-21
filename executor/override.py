@@ -92,6 +92,17 @@ class SystemState:
     # load balancing sensors are unconfigured. universal-load-balancing
     grid_current_a: dict[int, float] | None = None
     grid_current_updated_at: dict[int, datetime] | None = None
+    # Phases whose reading was negative after the phase_sign convention
+    # (exporting); counted as 0 A in grid_current_a.
+    grid_export_phases: list[int] | None = None
+    # Fresh measured grid voltage (V) per phase, from input_sensors.grid_voltage_l*.
+    grid_voltage_v: dict[int, float] | None = None
+    # Live power (W) of balanced shed loads with a readable power sensor
+    # (custom_entity power_sensor), by load id.
+    shed_load_power_w: dict[str, float] | None = None
+    # Actual per-device on/off target of custom loads, heaters and binary EVs.
+    # Unreadable targets stay absent, so first starts use the shared room gate.
+    shed_load_on: dict[str, bool] | None = None
 
 
 @dataclass

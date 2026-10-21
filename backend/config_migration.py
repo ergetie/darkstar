@@ -167,6 +167,9 @@ DEPRECATED_NESTED_KEYS = {
         # by the ordered give_way_order[] list. _migrate_give_way_order() reads
         # it first to build the new order.
         "charger_priority",
+        # load-balancer-coordinated-ramping: the balancer-triggered replan was
+        # removed (plans respect the fuse limits instead); the key has no consumer.
+        "replan_after_throttled_s",
     ],
 }
 

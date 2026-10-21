@@ -217,7 +217,7 @@ class TestTargetMarginAndPause:
 
     def test_shed_restore_waits_for_averaged_margin(self):
         lb = make_lb(resume_delay_s=10)
-        wh = ShedLoadInput("wh", "water_heater", [2])
+        wh = ShedLoadInput("wh", "water_heater", [2], power_w=500.0, power_source="configured")
         now = BASE
         lb.tick(now, {1: 5.0, 2: 17.0, 3: 5.0}, fresh(now), [wh])
         t = now
@@ -245,7 +245,9 @@ class TestSafetyInvariants:
 
     def test_increase_step_limited_to_whole_momentary_headroom(self):
         lb = make_lb(increase_step_a=4)
-        now = warm_up(lb, {1: 6.0, 2: 6.0, 3: 6.0}, ev(6))
+        # One tick short of a full window: nothing ramped (and so no granted
+        # step is pending) before the tick under test.
+        now = warm_up(lb, {1: 6.0, 2: 6.0, 3: 6.0}, ev(6), seconds=55)
         now += timedelta(seconds=TICK_S)
         # Average leaves room for +4 A, momentary L2 headroom only 2.5 A.
         out = lb.tick(now, {1: 6.0, 2: 13.5, 3: 6.0}, fresh(now), [ev(6)]).ev_outputs[0]
@@ -405,7 +407,7 @@ class TestReliefOnlyWhenGoalAtRisk:
         assert not out.relief_1p_requested and out.state == "paused"
 
     def test_resume_in_surplus_slot_may_use_1_phase(self):
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         _pause(lb, BASE, relief=True)
         grid = {1: 2.0, 2: 2.0, 3: 12.0}  # only the 1-phase alternative fits
         entry = ev(None, relief=True, at_risk=False, surplus=True)
@@ -449,7 +451,7 @@ class TestEngineGoalRiskEvaluation:
             engine = ExecutorEngine("config.yaml")
         engine.dispatcher = MagicMock()
         captured: list = []
-        engine._load_balancer.tick = lambda now, grid, upd, entries: captured.extend(entries)
+        engine._load_balancer.tick = lambda now, grid, upd, entries, **_: captured.extend(entries)
         state = SystemState(
             grid_current_a={1: 2.0, 2: 2.0, 3: 2.0},
             grid_current_updated_at={1: BASE, 2: BASE, 3: BASE},
@@ -713,7 +715,7 @@ class TestQuickRefit:
     QUIET = {1: 2.0, 2: 2.0, 3: 2.0}
 
     def test_refits_after_confirm_window_not_resume_delay(self):
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         _pause(lb, BASE)
         outs = _paused_ticks(lb, BASE, self.QUIET, ev(None), 15)
         assert [o.target_a is None for _, o in outs] == [True, True, False]
@@ -723,18 +725,18 @@ class TestQuickRefit:
         assert out.state == "throttling" and not out.relief_1p_requested
 
     def test_resumes_at_largest_fitting_amps_capped_by_plan(self):
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         _pause(lb, BASE)
         # 13.6 A target - 2 A house = 11.6 A -> 11 A, under a 16 A plan
         out = _paused_ticks(lb, BASE, self.QUIET, ev(None, target=16), 15)[-1][1]
         assert out.target_a == 11
-        lb2 = make_lb()
+        lb2 = make_lb(ramp_up_window_s=0)
         _pause(lb2, BASE)
         out = _paused_ticks(lb2, BASE, self.QUIET, ev(None, target=8), 15)[-1][1]
         assert out.target_a == 8
 
     def test_resume_amps_fit_the_tightest_phase(self):
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         _pause(lb, BASE)
         grid = {1: 2.0, 2: 6.0, 3: 2.0}  # L2: 13.6 - 6 = 7.6 A -> 7 A
         out = _paused_ticks(lb, BASE, grid, ev(None, target=16), 15)[-1][1]
@@ -742,7 +744,7 @@ class TestQuickRefit:
         assert 6.0 + out.target_a <= 16 * 0.85
 
     def test_picks_1_phase_when_only_the_1_phase_line_fits(self):
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         _pause(lb, BASE, relief=True)
         grid = {1: 2.0, 2: 2.0, 3: 12.0}  # L3: 13.6 - 12 = 1.6 A < 6 A
         outs = _paused_ticks(lb, BASE, grid, ev(None, target=10, relief=True), 15)
@@ -753,13 +755,13 @@ class TestQuickRefit:
         assert "1-phase on L1" in out.reason
 
     def test_prefers_current_mode_when_it_fits(self):
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         _pause(lb, BASE, relief=True)
         out = _paused_ticks(lb, BASE, self.QUIET, ev(None, relief=True), 15)[-1][1]
         assert out.target_a is not None and not out.relief_1p_requested
 
     def test_stays_paused_when_dwell_not_elapsed_and_current_mode_does_not_fit(self):
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         _pause(lb, BASE)
         grid = {1: 2.0, 2: 2.0, 3: 12.0}
         # relief_available=False: dwell since the last switch not elapsed
@@ -771,14 +773,14 @@ class TestQuickRefit:
         assert outs[-1][1].relief_1p_requested and outs[-1][1].target_a is not None
 
     def test_1_phase_line_overloaded_stays_paused(self):
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         _pause(lb, BASE, relief=True)
         grid = {1: 12.0, 2: 2.0, 3: 2.0}
         outs = _paused_ticks(lb, BASE, grid, ev(None, relief=True), 120)
         assert all(o.target_a is None for _, o in outs)
 
     def test_stale_reading_restarts_the_confirm_window(self):
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         _pause(lb, BASE)
         t = BASE + timedelta(seconds=5)
         lb.tick(t, self.QUIET, fresh(t), [ev(None)])  # fits
@@ -796,7 +798,7 @@ class TestQuickRefit:
         """Fuse invariant: whatever the resume amps, projected phase current
         stays within the target margin (and hence below main_fuse_a)."""
         for house in (0.0, 1.5, 3.3, 5.0, 7.6):
-            lb = make_lb()
+            lb = make_lb(ramp_up_window_s=0)
             _pause(lb, BASE)
             grid = {1: house, 2: house, 3: house}
             out = _paused_ticks(lb, BASE, grid, ev(None, target=16), 15)[-1][1]
@@ -816,7 +818,7 @@ class TestQuickRefit:
         return pause_at
 
     def test_backoff_grows_on_repeated_pauses_and_resets(self):
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         _pause(lb, BASE)
         assert lb.refit_confirm_s("goe") == 10
         t = self._refit_then_pause(lb, BASE, 10)
@@ -843,18 +845,26 @@ class TestQuickRefit:
         def charger(cid, setpoint, target):
             e = ev(setpoint, target=target)
             e.charger_id = cid
+            # The sensors report what the car draws, so a resume is measured
+            # (and leaves the pending-increase ledger) on the next tick.
+            e.measured_a = float(setpoint) if setpoint is not None else None
             return e
 
-        lb = make_lb()
+        lb = make_lb(ramp_up_window_s=0)
         severe = {1: 10.0, 2: 10.0, 3: 30.0}
         out = lb.tick(BASE, severe, fresh(BASE), [charger("a", 6, 6), charger("b", 6, 6)])
+        assert [o.state for o in out.ev_outputs] == ["paused", "throttling"]
+        # Seed the second pause after its own fresh overload sample; one
+        # actuator may cut per phase sample.
+        later = BASE + timedelta(seconds=15)
+        out = lb.tick(later, severe, fresh(later), [charger("a", None, 6), charger("b", 6, 6)])
         assert [o.state for o in out.ev_outputs] == ["paused", "paused"]
 
         a_set = b_set = None
         house = 0.0
         resumed = {}
         for i in range(1, 7):
-            t = BASE + timedelta(seconds=i * TICK_S)
+            t = BASE + timedelta(seconds=15 + i * TICK_S)
             own = (a_set or 0) + (b_set or 0)
             grid = {p: house + own for p in (1, 2, 3)}
             out = lb.tick(t, grid, fresh(t), [charger("a", a_set, 6), charger("b", b_set, 6)])
@@ -866,11 +876,11 @@ class TestQuickRefit:
             a_set, b_set = a_out.target_a, b_out.target_a
             # Fuse invariant across both chargers.
             assert house + (a_set or 0) + (b_set or 0) <= 16 * 0.85 + 1e-9
-        assert resumed["b"] < resumed["a"]
+        assert resumed["b"] <= resumed["a"]  # both may resume if the shared budget fits
         assert a_set == 6 and b_set == 6
 
     def test_backoff_never_shorter_than_configured_confirm(self):
-        lb = make_lb(resume_confirm_s=60)
+        lb = make_lb(resume_confirm_s=60, ramp_up_window_s=0)
         _pause(lb, BASE)
         assert lb.refit_confirm_s("goe") == 60
         self._refit_then_pause(lb, BASE, 60)

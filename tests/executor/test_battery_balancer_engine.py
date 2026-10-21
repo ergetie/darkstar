@@ -4,7 +4,7 @@ status payload) with synthetic state and statuses (no HA, no full tick)."""
 
 import contextlib
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -50,19 +50,20 @@ def engine():
             enabled=True,
             main_fuse_a=20,
             nominal_voltage_v=230.0,
-            replan_after_throttled_s=600,
             notify_interventions=True,
             give_way_order=[GiveWayOrderEntry(kind="battery", id="battery")],
         ),
     )
 
-    with patch("executor.engine.load_executor_config", return_value=config):
-        with patch(
+    with (
+        patch("executor.engine.load_executor_config", return_value=config),
+        patch(
             "executor.engine.load_yaml",
             return_value={"automation": {"schedule": {"every_minutes": 60}}},
-        ):
-            with patch.object(ExecutorEngine, "_get_db_path", return_value=db_path):
-                eng = ExecutorEngine("config.yaml")
+        ),
+        patch.object(ExecutorEngine, "_get_db_path", return_value=db_path),
+    ):
+        eng = ExecutorEngine("config.yaml")
 
     eng.inverter_profile = load_profile("deye")
     yield eng
@@ -145,7 +146,31 @@ class TestCapApplication:
         engine._battery_cap_w = 5000.0
         engine._apply_battery_cap(decision, battery_status(8880.0, 8880.0, "idle"))
         assert decision.charge_value == 185.0
+        assert not decision.urgent_reduction
+
+    def test_cap_state_is_kept_at_the_plan_so_a_plan_rise_ramps(self, engine):
+        """Cap equal to the plan is not cleared: when the plan then rises, the
+        applied cap starts from the old level instead of jumping to the plan."""
+        decision = charge_decision(62.5)  # 3 kW at 48 V
+        engine._apply_battery_cap(decision, battery_status(3000.0, 3000.0, "idle"))
+        assert engine._battery_cap_w == 3000.0
+        rise = charge_decision(125.0)  # plan now 6 kW
+        inp = engine._battery_balancer_input(_state(import_kw=0.0), rise)
+        assert inp.planned_w == pytest.approx(6000.0)
+        assert inp.applied_cap_w == pytest.approx(3000.0)
+
+    def test_cap_state_dropped_when_not_charging(self, engine):
+        engine._battery_cap_w = 3000.0
+        decision = ControllerDecision(mode_intent="idle", charge_value=0.0)
+        engine._apply_battery_cap(decision, battery_status(0.0, 0.0, "idle"))
         assert engine._battery_cap_w is None
+
+    def test_cut_is_flagged_urgent_for_the_write_layer(self, engine):
+        decision = charge_decision(185.0)
+        status = battery_status(8880.0, 7200.0, "throttling")
+        status.battery_output.urgent = True
+        engine._apply_battery_cap(decision, status)
+        assert decision.urgent_reduction
 
     def test_non_charge_intent_untouched(self, engine):
         decision = ControllerDecision(mode_intent="self_consumption", charge_value=185.0)
@@ -156,6 +181,7 @@ class TestCapApplication:
 class TestBalancerInput:
     def test_reported_scenario_end_to_end(self, engine):
         """Deye 185 A (8.88 kW) grid charge, L1 at 24 A on a 20 A fuse."""
+        engine._battery_cap_w = 8880.0
         decision = charge_decision(185.0)
         status = engine._run_load_balancer(_state(), None, T0, decision)
         assert status.battery_output is not None
@@ -165,11 +191,14 @@ class TestBalancerInput:
         # 6120 W / 48 V = 127.5 A -> 125 A
         assert decision.charge_value == 125.0
 
-    def test_reducible_limited_by_battery_power(self, engine):
+    def test_reducible_ignores_lagging_measured_charge(self, engine):
+        """A measured charge below the cap must not shrink what a cut may use."""
+        engine._battery_cap_w = 8880.0
         inp = engine._battery_balancer_input(
             _state(import_kw=10.0, battery_charge_kw=2.0), charge_decision(185.0)
         )
-        assert inp.reducible_w == pytest.approx(2000.0)
+        assert inp.reducible_w == pytest.approx(8880.0)
+        assert inp.measured_w == pytest.approx(2000.0)
         assert inp.min_w == pytest.approx(480.0)
 
     def test_self_consumption_inactive(self, engine):
@@ -186,24 +215,6 @@ class TestBalancerInput:
 
 
 class TestReplanAndNotify:
-    def test_sustained_throttle_fires_one_replan(self, engine):
-        with patch.object(engine, "_request_balancer_replan") as req:
-            engine._track_balancer_throttling(battery_status(8880, 6000, "throttling"), T0)
-            engine._track_balancer_throttling(
-                battery_status(8880, 6000, "throttling"), T0 + timedelta(seconds=599)
-            )
-            assert req.call_count == 0
-            engine._track_balancer_throttling(
-                battery_status(8880, 6000, "throttling"), T0 + timedelta(seconds=600)
-            )
-            assert req.call_count == 1
-
-    def test_idle_resets_tracking(self, engine):
-        engine._track_balancer_throttling(battery_status(8880, 6000, "paused"), T0)
-        assert "battery" in engine._balancer_throttled_since
-        engine._track_balancer_throttling(battery_status(8880, 8880, "idle"), T0)
-        assert "battery" not in engine._balancer_throttled_since
-
     @pytest.mark.asyncio
     async def test_battery_pause_never_notifies(self, engine):
         engine.dispatcher = MagicMock()

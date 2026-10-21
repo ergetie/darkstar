@@ -20,6 +20,7 @@ from backend.core.load_balancing_margin import effective_target_margin_percent
 from backend.core.water_heating import active_water_heaters
 
 from .types import (
+    MIN_FIRST_SLOT_H,
     EVChargerInput,
     ExcessPVSinkEntry,
     KeplerConfig,
@@ -329,6 +330,27 @@ def planner_to_kepler_input(
         )
 
     return KeplerInput(slots=slots, initial_soc_kwh=initial_soc_kwh)  # type: ignore[arg-type]
+
+
+def scale_first_slot_to_remaining(kepler_input: KeplerInput) -> None:
+    """Scale the in-progress slot's forecast energy to the time left in it.
+
+    The forecast load and PV of slot 0 are full-slot energies; the solver plans
+    that slot over `first_slot_remaining_h` only, so the energy that still
+    happens in it is the share of the slot left (planner capability: one
+    remaining-time basis). A boundary plan (or no remaining time set) is
+    untouched.
+    """
+    remaining_h = kepler_input.first_slot_remaining_h
+    if remaining_h is None or not kepler_input.slots:
+        return
+    first = kepler_input.slots[0]
+    slot_h = (first.end_time - first.start_time).total_seconds() / 3600.0
+    if slot_h <= 0 or remaining_h >= slot_h:
+        return
+    share = max(remaining_h, MIN_FIRST_SLOT_H) / slot_h
+    first.load_kwh *= share
+    first.pv_kwh *= share
 
 
 def _comfort_level_to_penalty(
@@ -674,7 +696,7 @@ def kepler_result_to_dataframe(
     prev_soc_kwh = initial_soc_kwh
 
     for s in result.slots:
-        duration_h = (s.end_time - s.start_time).total_seconds() / 3600.0
+        duration_h = s.duration_h or (s.end_time - s.start_time).total_seconds() / 3600.0
         if duration_h <= 0:
             duration_h = 0.25
 

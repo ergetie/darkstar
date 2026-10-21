@@ -31,11 +31,11 @@ The system SHALL provide a download of `planner_learning.db` as a transactionall
 - **THEN** the request fails with an HTTP error and a clear message, and no partial file is served
 
 ### Requirement: Diagnostics bundle download
-The system SHALL provide a single zip download containing a consistent snapshot of `planner_learning.db`, `config.yaml` exactly as stored on disk, the log file, `schedule.json`, the JSON output of the version, status, health and monitors endpoints, and a `manifest.json`.
+The system SHALL provide a single zip download containing a consistent snapshot of `planner_learning.db`, `config.yaml` exactly as stored on disk, the log file, `schedule.json`, the JSON output of the version, status, health and monitors endpoints, the load balancer trace as `balancer_trace.json`, and a `manifest.json`.
 
 #### Scenario: Bundle contents
 - **WHEN** a user requests the diagnostics bundle on a healthy system
-- **THEN** the zip contains `planner_learning.db`, `config.yaml`, `darkstar.log`, `schedule.json`, `version.json`, `status.json`, `health.json`, `monitors.json` and `manifest.json`
+- **THEN** the zip contains `planner_learning.db`, `config.yaml`, `darkstar.log`, `schedule.json`, `version.json`, `status.json`, `health.json`, `monitors.json`, `balancer_trace.json` and `manifest.json`
 
 #### Scenario: Config is exported as is
 - **WHEN** the bundle is created

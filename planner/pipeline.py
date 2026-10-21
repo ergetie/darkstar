@@ -46,6 +46,7 @@ from planner.solver.adapter import (
     kepler_result_to_dataframe,
     planner_to_kepler_input,
     resolve_battery_power_limits,
+    scale_first_slot_to_remaining,
 )
 from planner.solver.kepler import KeplerSolver
 from planner.strategy.ev_deferral import (
@@ -1434,10 +1435,10 @@ class PlannerPipeline:
                 real_now = pd.Timestamp(now_override, tz="UTC").tz_convert(tz)
             else:
                 real_now = pd.Timestamp(now_override).tz_convert(tz)
-            now_slot = real_now.tz_convert("UTC").ceil("15min").tz_convert(tz)
         else:
             real_now = pd.Timestamp.now(tz=tz)
-            now_slot = real_now.tz_convert("UTC").floor("15min").tz_convert(tz)
+        # The slot containing now, with or without an override.
+        now_slot = real_now.tz_convert("UTC").floor("15min").tz_convert(tz)
         now_dt: datetime = now_slot.to_pydatetime()
 
         # Per-device mid-block detection (task 3.1)
@@ -1695,6 +1696,7 @@ class PlannerPipeline:
             kepler_input.first_slot_remaining_h = max(
                 0.0, (first_end - real_now).total_seconds() / 3600.0
             )
+            scale_first_slot_to_remaining(kepler_input)
         kepler_config = config_to_kepler_config(
             active_config,
             overrides,

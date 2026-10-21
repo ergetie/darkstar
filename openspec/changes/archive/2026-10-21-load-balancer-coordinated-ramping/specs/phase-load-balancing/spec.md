@@ -143,8 +143,70 @@ The balancer SHALL log every decision change at INFO (entry, old and new value, 
 
 ## MODIFIED Requirements
 
+### Requirement: EV charger is throttled first using per-phase feedback
+When any phase used by a charging EV has negative headroom and the fresh-sample/response guard permits a cut, the balancer SHALL reduce that charger's ampere setpoint by at least the magnitude of the worst negative headroom, immediately in that tick, clamped to the charger's minimum current.
+
+#### Scenario: Stove turns on while EV charges
+- **WHEN** the EV charges 3-phase at 16 A and a new house load drives L1 headroom to −6 A
+- **THEN** the balancer SHALL reduce the EV setpoint to 10 A or lower in the same tick
+
+#### Scenario: Car draws below its setpoint during an overload
+- **WHEN** the EV has a settled 16 A setpoint, measures 10 A draw, and L1 headroom is −4 A
+- **THEN** the balancer SHALL reduce the setpoint to 6 A or lower in the same tick
+- **AND** the relief folded into the pool for later entries SHALL be computed from 10 A, not 16 A
+
+#### Scenario: Balancer never exceeds the planned charging level
+- **WHEN** the planner-derived target for the current slot is 10 A and all phases have ample headroom
+- **THEN** the balancer SHALL NOT raise the setpoint above 10 A
+
+#### Scenario: Two chargers share an overloaded phase, higher-listed gives way first
+- **WHEN** charger A is listed above charger B in `give_way_order`, and both draw on L1, which has −10 A headroom
+- **THEN** the balancer SHALL reduce charger A toward its floor first, using as much of the −10 A deficit as charger A's headroom down to `min_current_a` can absorb
+- **AND** charger B SHALL only be reduced if charger A being fully exhausted is insufficient to resolve the remaining deficit
+
+#### Scenario: Shed load ordered above a charger gives way before the charger slows
+- **WHEN** `give_way_order` lists the water heater (shed entry, declared on L2) above charger A (also on L2), and L2 headroom goes negative while the water heater is heating
+- **THEN** the balancer SHALL shed the water heater first
+- **AND** while every phase charger A draws on reads at or below `severe_overload_percent` of `main_fuse_a`, charger A SHALL hold its setpoint (never below `min_current_a`) in the tick the water heater is shed, and its setpoint SHALL only be reduced if the deficit persists after the shed relief is measured
+
+#### Scenario: Severe overload pauses the charger even while a shed load gives way
+- **WHEN** `give_way_order` lists the water heater above charger A, both on L2, the water heater is shed this tick, and L2 reads above `severe_overload_percent` of `main_fuse_a` (default 125 %)
+- **THEN** the charger SHALL hold while the one-cut-per-sample and bounded actuator-response guard applies
+- **AND** if the phase remains severely overloaded on the next eligible fresh sample, the normal severe-overload reduction rule SHALL apply without pause debounce
+- **AND** a paused charger SHALL resume only through the normal quick re-fit rules (confirm window, target margin)
+
+#### Scenario: Single dynamically-throttled charger is unaffected by ordering
+- **WHEN** only one `type: current` EV charger is configured and no shed loads exist
+- **THEN** its position in `give_way_order` SHALL have no observable effect on balancer behavior
+
+#### Scenario: Throttle computed from effective baseline
+- **WHEN** the balancer reduces or holds a charger's setpoint
+- **THEN** the reduction, any hold, and the relief the charger contributes to the shared headroom pool SHALL be computed from the charger's effective baseline (see `ev-measured-draw`) rather than the last commanded setpoint
+- **AND** when no measurement exists the effective baseline equals the commanded setpoint
+
+#### Scenario: Raising the setpoint with positive headroom
+- **WHEN** headroom is positive
+- **THEN** the balancer MAY raise the setpoint toward the planner-derived target, never above `min(charger max_current_a, planner-derived amps)`
+
+#### Scenario: Top-down give-way ordering
+- **WHEN** a phase is overloaded and several balanced loads draw on it
+- **THEN** give-way ordering across ALL balanced loads SHALL be governed by the single ordered list `load_balancing.give_way_order` (see the `load-balancing-settings` capability)
+- **AND** the balancer SHALL process entries top-down, and an entry SHALL only be asked to give way once every entry above it that draws on the overloaded phase(s) is exhausted (a charger entry is exhausted when paused; a shed entry when shed)
+- **AND** when multiple entries could give way in the same tick, list position, not device kind, SHALL decide the order
+- **AND** a charger entry gives way by immediate setpoint reduction toward its `min_current_a`
+
+#### Scenario: Charger holds while a shed entry above gives way
+- **WHEN** a shed entry above a charger gives way in the current tick on a phase the charger draws on, so its relief is not yet measured
+- **THEN** the charger SHALL hold its setpoint for that tick instead of reducing or pausing
+- **AND** severe overload SHALL retain its existing detection threshold and bypass pause debounce, but SHALL NOT bypass the one-cut-per-fresh-sample or bounded response guard
+
+#### Scenario: Backward-compatible behavior of give-way ordering
+- **WHEN** a household's order matches the migrated default (all current-type chargers before all shed loads)
+- **THEN** it SHALL retain the previous two-tier give-way precedence
+- **AND** the new shared room, pending ledger, pacing and fresh-sample guards SHALL apply equally to this order and to a single dynamically-throttled charger
+
 ### Requirement: Asymmetric ramping with resume margin
-Setpoint decreases SHALL be applied immediately, without rate limit, and SHALL be computed from the momentary per-phase reading of the current tick. Setpoint increases SHALL be rate-limited to `increase_step_a` per granted step (default 1 A) and SHALL go through the shared pending-increase ledger and the minimum write interval (see "Coordinated increases with a pending-increase ledger" and "Anti-wear minimum write interval"). They SHALL be computed from a rolling average of each phase's current over `ramp_up_window_s` (default 60 s).
+Setpoint decreases SHALL be immediate and use momentary phase readings. Increases SHALL be at most `increase_step_a` per granted step (default 1 A), use the shared pending-increase ledger and adaptive step pacing, and be computed from rolling per-phase averages over `ramp_up_window_s` (default 60 s).
 
 #### Scenario: Load hovers just under the fuse limit
 - **WHEN** the averaged L1 current sits at 95 % of `main_fuse_a` with `target_margin_percent: 85`
@@ -179,7 +241,7 @@ Setpoint decreases SHALL be applied immediately, without rate limit, and SHALL b
 - **THEN** increases on that phase SHALL NOT occur
 
 ### Requirement: Battery charge ramps back after relief
-After a reduction the balancer SHALL NOT raise the battery cap for `ramp_up_window_s`. Later raises, including raises toward a higher plan, SHALL be `increase_step_a` per phase per granted step through the same room gate as every other increase, only while each battery phase's averaged current plus the raise stays within `target_margin_percent` of `main_fuse_a`, and never above the plan. A plan step-up SHALL NOT bypass this gate. A paused battery SHALL restore in reverse list order and resume per "Battery resume uses escalating back-off and a target margin".
+After a reduction, battery raises SHALL wait `ramp_up_window_s`. All raises, including plan step-ups, SHALL use the shared room gate, at most `increase_step_a` per phase per granted step, within the averaged `target_margin_percent` and never above plan. A paused battery SHALL restore in reverse list order under "Battery resume uses escalating back-off and a target margin".
 
 #### Scenario: Relief after the washing machine stops
 - **WHEN** the battery was throttled and the averaged L1 current has dropped well below the target margin for longer than `ramp_up_window_s`

@@ -164,7 +164,7 @@ class TestCurrentChargerKeepOnMinimumCurrent:
             temp_schedule,
             temp_db,
             charger,
-            load_balancing=LoadBalancingConfig(enabled=True, main_fuse_a=32),
+            load_balancing=LoadBalancingConfig(enabled=True, main_fuse_a=32, ramp_up_window_s=0),
         )
 
         tz = pytz.timezone("Europe/Stockholm")

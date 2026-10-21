@@ -26,6 +26,8 @@ The overload settings decide how much room the balancer keeps below your fuse (t
 
 The anti-flap settings (resume delay for shed loads, ramp-up step, stale-sensor timeout) control how cautiously the balancer restores loads or ramps back up — they exist so a noisy sensor reading doesn't cause the system to flicker loads on and off.
 
+Increases (EV current, battery grid charging, restoring a shed load) share one budget under your fuse: a step that was just granted counts until it shows in the measurement, so the car and the battery never ramp up together on a lagging average. The coordination settings control how long a step may wait (max time between ramp-up steps), how small a battery change is not worth writing (write deadband), how long a granted step counts if it is never measured, and which sign of your phase sensors means import. A shed load is only switched back on when there is room for its power: set its power (or a live power sensor) on the load; without either it is restored only when its whole phase is free. Water heaters and custom loads also keep a minimum on and off time so they do not toggle too often.
+
 This is a software safety net, not a certified protection device. If your EV charger has its own built-in load-management setting, keep that enabled too as a backup.`,
         aliases: ['breaker', 'circuit breaker', 'overload protection', 'phases'],
         relatedFieldKeys: [
@@ -38,6 +40,10 @@ This is a software safety net, not a certified protection device. If your EV cha
             'load_balancing.pause_debounce_s',
             'load_balancing.resume_confirm_s',
             'load_balancing.sensor_stale_after_s',
+            'load_balancing.max_step_interval_s',
+            'load_balancing.write_deadband_percent',
+            'load_balancing.pending_timeout_s',
+            'load_balancing.phase_sign',
         ],
     },
     {

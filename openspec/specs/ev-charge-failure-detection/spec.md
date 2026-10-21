@@ -55,7 +55,7 @@ The executor SHALL track consecutive ticks where the commanded EV charging level
 - **AND THEN** the failure-notified flag resets to false
 
 ### Requirement: Charge failure and recovery trigger a replan
-When EV charge failure is first detected in an EV charging period, and again when actual EV power first exceeds 0.1 kW after a detected failure, the executor SHALL request an immediate replan. These requests SHALL use their own cooldown of 5 minutes between failure/recovery replans, independent of the balancer-replan rate limit (at most one balancer-triggered replan per planner interval); neither limit SHALL consume or block the other.
+When EV charge failure is first detected in an EV charging period, and again when actual EV power first exceeds 0.1 kW after a detected failure, the executor SHALL request an immediate replan. These requests SHALL use their own cooldown of 5 minutes between failure/recovery replans, their own rate limit only.
 
 #### Scenario: Failure triggers replan
 - **WHEN** charge failure is detected (5 consecutive zero-power ticks under an active command)
@@ -79,8 +79,8 @@ When EV charge failure is first detected in an EV charging period, and again whe
 - **AND** SHALL be requested on the first tick with actual power above 0.1 kW after the cooldown has passed, unless the commanded period ends first
 
 #### Scenario: Independent of balancer rate limit
-- **WHEN** a balancer-triggered replan already ran within the current planner interval
-- **THEN** a failure/recovery replan SHALL still be requested, and SHALL NOT consume the balancer's replan slot
+- **WHEN** another replan was requested within the current planner interval
+- **THEN** a failure/recovery replan SHALL still be requested, subject only to its own 5 minute cooldown
 
 ### Requirement: Commanded phase switches get a 60 s grace window
 

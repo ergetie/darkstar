@@ -512,6 +512,51 @@ class ActionDispatcher:
         self.config = config
         self.shadow_mode = shadow_mode
         self.profile = profile
+        # Anti-wear (load-balancer-coordinated-ramping D10): when each
+        # actuator entity was last written (monotonic seconds).
+        self._last_write_at: dict[str, float] = {}
+
+    def last_write_at(self, entity_id: str) -> float | None:
+        """Monotonic time of the last successful write to `entity_id`."""
+        return self._last_write_at.get(entity_id)
+
+    def _below_write_deadband(
+        self,
+        previous: Any,
+        new: float,
+        step: float,
+        urgent: bool,
+    ) -> bool:
+        """Whether a change is too small to write (anti-wear deadband).
+
+        Only applies while load balancing is enabled. The deadband is
+        `write_deadband_percent` of the current value, never smaller than one
+        profile step. Urgent reductions (overload cuts), starts and stops
+        (a zero on either side) are always written.
+        """
+        lb = self.config.load_balancing
+        if not lb.enabled or urgent:
+            return False
+        try:
+            current = float(previous)
+        except (TypeError, ValueError):
+            return False
+        if current <= 0 or new <= 0:
+            return False
+        threshold = max(step, current * lb.write_deadband_percent / 100.0)
+        return abs(new - current) < threshold
+
+    def _charge_write_step(self, decision: ControllerDecision) -> float:
+        """One profile round step of the charge value, in the decision's unit."""
+        behavior = self.profile.behavior if self.profile else None
+        ctrl = self.config.controller
+        if decision.control_unit == "W":
+            step = behavior.round_step_w if behavior else ctrl.round_step_w
+            if behavior and behavior.grid_charge_round_step_w:
+                step = behavior.grid_charge_round_step_w
+        else:
+            step = behavior.round_step_a if behavior else ctrl.round_step_a
+        return float(step or 0.0)
 
     def update_config(
         self,
@@ -785,6 +830,29 @@ class ActionDispatcher:
                 duration_ms=int((time.time() - start_time) * 1000),
             )
 
+        if (
+            action.value == "{{charge_value}}"
+            and isinstance(resolved_value, int | float)
+            and self._below_write_deadband(
+                previous_value,
+                float(resolved_value),
+                self._charge_write_step(decision),
+                decision.urgent_reduction,
+            )
+        ):
+            return ActionResult(
+                action_type=action.entity,
+                success=True,
+                message=f"Within write deadband ({previous_value} → {resolved_value})",
+                previous_value=previous_value,
+                new_value=resolved_value,
+                entity_id=entity_id,
+                skipped=True,
+                requested_mode=mode_intent,
+                applied_mode=mode_intent,
+                duration_ms=int((time.time() - start_time) * 1000),
+            )
+
         if self.shadow_mode:
             logger.info(
                 "[SHADOW] Would set %s to %s (current: %s)",
@@ -810,6 +878,7 @@ class ActionDispatcher:
         verified_value = None
         verification_success = None
         if success:
+            self._last_write_at[entity_id] = time.monotonic()
             verified_value, verification_success = await self._verify_action(
                 entity_id, resolved_value, action.settle_ms
             )
@@ -1348,13 +1417,16 @@ class ActionDispatcher:
             error_details=error_details,
         )
 
-    async def set_ev_charger_current(self, entity_id: str, amps: int) -> ActionResult:
+    async def set_ev_charger_current(
+        self, entity_id: str, amps: int, urgent: bool = False
+    ) -> ActionResult:
         """
         Set an EV charger's ampere setpoint (variable-current control).
 
         Args:
             entity_id: HA number entity controlling charge current (A)
             amps: Target ampere setpoint
+            urgent: an overload reduction — never held back by the write deadband
 
         Returns:
             ActionResult with details of the action
@@ -1395,10 +1467,24 @@ class ActionDispatcher:
                 error_details=None,
             )
 
+        if self._below_write_deadband(current_state, float(amps), 1.0, urgent):
+            return ActionResult(
+                action_type="ev_charge_current",
+                success=True,
+                message=f"EV charger current change {current_state} -> {amps}A within write deadband",
+                previous_value=current_state,
+                new_value=amps,
+                entity_id=entity_id,
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+                error_details=None,
+            )
+
         error_details = None
         try:
             await self.ha.set_number(entity_id, float(amps))
             success = True
+            self._last_write_at[entity_id] = time.monotonic()
         except HACallError as e:
             success = False
             error_details = str(e)

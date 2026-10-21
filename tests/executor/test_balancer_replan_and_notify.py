@@ -1,6 +1,5 @@
-"""load-balancing-completion 4.3/5.2: sustained-throttle early replan and
-intervention notification gating, tested against the engine's tracking logic
-with synthetic balancer statuses (no HA, no full tick)."""
+"""load-balancing-completion 5.2: intervention notification gating, tested against
+the engine's tracking logic with synthetic balancer statuses (no HA, no full tick)."""
 
 import contextlib
 import logging
@@ -58,9 +57,7 @@ def engine():
         notifications=NotificationConfig(),
         controller=ControllerConfig(),
         ev_chargers=[charger],
-        load_balancing=LoadBalancingConfig(
-            enabled=True, main_fuse_a=20, replan_after_throttled_s=600
-        ),
+        load_balancing=LoadBalancingConfig(enabled=True, main_fuse_a=20),
     )
 
     with patch("executor.engine.load_executor_config", return_value=config):
@@ -90,88 +87,6 @@ def make_status(ev_state="throttling", ev_target=6, shed=(), enabled=True):
             for load_id, is_shed in shed
         ],
     )
-
-
-class TestSustainedThrottleReplan:
-    def test_fires_at_threshold(self, engine):
-        engine._request_balancer_replan = MagicMock()
-        engine._last_balancer_planned_targets = {"goe": 16}
-        throttled = make_status(ev_target=6)
-
-        engine._track_balancer_throttling(throttled, T0)
-        engine._request_balancer_replan.assert_not_called()
-
-        engine._track_balancer_throttling(throttled, T0 + timedelta(seconds=599))
-        engine._request_balancer_replan.assert_not_called()
-
-        engine._track_balancer_throttling(throttled, T0 + timedelta(seconds=600))
-        engine._request_balancer_replan.assert_called_once()
-
-    def test_paused_charger_counts_as_constrained(self, engine):
-        engine._request_balancer_replan = MagicMock()
-        engine._last_balancer_planned_targets = {"goe": 16}
-        paused = make_status(ev_state="paused", ev_target=None)
-
-        engine._track_balancer_throttling(paused, T0)
-        engine._track_balancer_throttling(paused, T0 + timedelta(seconds=600))
-        engine._request_balancer_replan.assert_called_once()
-
-    def test_respects_one_per_planner_interval(self, engine):
-        engine._request_balancer_replan = MagicMock()
-        engine._last_balancer_planned_targets = {"goe": 16}
-        throttled = make_status(ev_target=6)
-
-        engine._track_balancer_throttling(throttled, T0)
-        engine._track_balancer_throttling(throttled, T0 + timedelta(seconds=600))
-        assert engine._request_balancer_replan.call_count == 1
-
-        # Throttling persists: threshold crossed again well before the 60-min
-        # planner interval has elapsed -> no second replan.
-        engine._track_balancer_throttling(throttled, T0 + timedelta(seconds=1300))
-        engine._track_balancer_throttling(throttled, T0 + timedelta(seconds=2000))
-        assert engine._request_balancer_replan.call_count == 1
-
-        # After a full planner interval it rearms.
-        engine._track_balancer_throttling(throttled, T0 + timedelta(seconds=4300))
-        assert engine._request_balancer_replan.call_count == 2
-
-    def test_resets_on_recovery(self, engine):
-        engine._request_balancer_replan = MagicMock()
-        engine._last_balancer_planned_targets = {"goe": 16}
-        throttled = make_status(ev_target=6)
-        at_target = make_status(ev_state="idle", ev_target=16)
-
-        engine._track_balancer_throttling(throttled, T0)
-        engine._track_balancer_throttling(at_target, T0 + timedelta(seconds=300))
-        # Recovery reset the clock: 599s of *new* throttling is below threshold.
-        engine._track_balancer_throttling(throttled, T0 + timedelta(seconds=400))
-        engine._track_balancer_throttling(throttled, T0 + timedelta(seconds=999))
-        engine._request_balancer_replan.assert_not_called()
-
-        engine._track_balancer_throttling(throttled, T0 + timedelta(seconds=1000))
-        engine._request_balancer_replan.assert_called_once()
-
-    def test_ignores_planner_intended_reductions(self, engine):
-        engine._request_balancer_replan = MagicMock()
-        # Planner itself wants 6A (cheap top-up); the balancer is idle at 6A.
-        engine._last_balancer_planned_targets = {"goe": 6}
-        planner_low = make_status(ev_state="idle", ev_target=6)
-
-        engine._track_balancer_throttling(planner_low, T0)
-        engine._track_balancer_throttling(planner_low, T0 + timedelta(seconds=6000))
-        engine._request_balancer_replan.assert_not_called()
-        assert "goe" not in engine._balancer_throttled_since
-
-    def test_resets_when_slot_stops_planning_charge(self, engine):
-        engine._request_balancer_replan = MagicMock()
-        engine._last_balancer_planned_targets = {"goe": 16}
-        throttled = make_status(ev_target=6)
-        engine._track_balancer_throttling(throttled, T0)
-
-        engine._last_balancer_planned_targets = {"goe": None}
-        idle = make_status(ev_state="idle", ev_target=None)
-        engine._track_balancer_throttling(idle, T0 + timedelta(seconds=300))
-        assert "goe" not in engine._balancer_throttled_since
 
 
 class TestInterventionNotifications:

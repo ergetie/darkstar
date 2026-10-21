@@ -222,3 +222,48 @@ describe('GiveWayListEditor', () => {
         expect(screen.queryByText(/Nothing to balance yet/)).not.toBeInTheDocument()
     })
 })
+
+describe('GiveWayListEditor restore power and anti-wear fields', () => {
+    const CUSTOM = { device_type: 'custom_entity', device_id: 'pump', phases: [1], entity: 'switch.pump' }
+
+    it('custom loads show power and power sensor fields with restore help text', () => {
+        renderEditor({
+            order: [{ kind: 'shed', id: 'pump' }],
+            loads: [CUSTOM],
+        })
+        expect(screen.getByText('Power (kW)')).toBeTruthy()
+        expect(screen.getByText('Power sensor (optional)')).toBeTruthy()
+        expect(screen.getByText(/whole phase is free/i)).toBeTruthy()
+    })
+
+    it('editing the power writes power_kw, clearing it removes the value', () => {
+        const { onChangeLoads } = renderEditor({
+            order: [{ kind: 'shed', id: 'pump' }],
+            loads: [CUSTOM],
+        })
+        const input = screen.getByPlaceholderText('Unknown')
+        fireEvent.change(input, { target: { value: '2.2' } })
+        expect(onChangeLoads).toHaveBeenLastCalledWith([{ ...CUSTOM, power_kw: 2.2 }])
+    })
+
+    it('every load shows minimum on and off time with a 300 s default', () => {
+        renderEditor()
+        const inputs = screen.getAllByRole('spinbutton') as HTMLInputElement[]
+        const values = inputs.map((i) => i.value)
+        expect(values.filter((v) => v === '300')).toHaveLength(2)
+    })
+
+    it('editing the minimum off time writes min_off_s', () => {
+        const { onChangeLoads } = renderEditor()
+        const inputs = screen.getAllByRole('spinbutton') as HTMLInputElement[]
+        fireEvent.change(inputs[1], { target: { value: '600' } })
+        expect(onChangeLoads).toHaveBeenLastCalledWith([
+            { device_type: 'water_heater', device_id: 'main_tank', phases: [2], min_off_s: 600 },
+        ])
+    })
+
+    it('non-custom loads do not show the power fields', () => {
+        renderEditor()
+        expect(screen.queryByText('Power (kW)')).toBeNull()
+    })
+})

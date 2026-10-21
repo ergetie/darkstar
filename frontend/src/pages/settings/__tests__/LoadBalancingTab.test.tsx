@@ -83,3 +83,17 @@ describe('LoadBalancingTab slow-tick warning', () => {
         expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 })
+
+it('shows coordination settings and their help text in the advanced view', () => {
+    setupForm({ enabled: true, intervalSeconds: 5 })
+    render(
+        <MemoryRouter>
+            <LoadBalancingTab advancedMode />
+        </MemoryRouter>,
+    )
+    expect(screen.getByText('Coordination & Wear')).toBeInTheDocument()
+    expect(screen.getByText('Max time between ramp-up steps (seconds)')).toBeInTheDocument()
+    expect(screen.getByText('Write deadband (%)')).toBeInTheDocument()
+    expect(screen.getByText('Pending increase timeout (seconds)')).toBeInTheDocument()
+    expect(screen.getByText('Phase sensor sign')).toBeInTheDocument()
+})

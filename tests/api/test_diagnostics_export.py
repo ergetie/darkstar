@@ -16,6 +16,8 @@ from backend.api.deps import get_learning_store
 from backend.api.routers import config as config_router
 from backend.api.routers import system as system_router
 
+REAL_BALANCER_TRACE = system_router._get_balancer_trace
+
 CONFIG_BYTES = b"# comment kept\nzeta: 1\nalpha:   2\nhome_assistant:\n  url: http://ha\n"
 
 
@@ -46,7 +48,11 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     async def ok_monitors():
         return {"monitors": []}
 
+    async def ok_trace():
+        return {"max_ticks": 600, "ticks": []}
+
     monkeypatch.setattr(system_router, "get_system_status", ok_status)
+    monkeypatch.setattr(system_router, "_get_balancer_trace", ok_trace)
     monkeypatch.setattr(system_router, "get_system_health", ok_health)
     monkeypatch.setattr(system_router, "get_invariant_monitors", ok_monitors)
 
@@ -124,6 +130,7 @@ def test_bundle_contents(env, tmp_path_factory):
         "status.json",
         "health.json",
         "monitors.json",
+        "balancer_trace.json",
         "manifest.json",
     }
     assert zf.read("config.yaml") == CONFIG_BYTES
@@ -194,3 +201,35 @@ def test_config_download_is_raw_file_and_ignores_secrets(env, monkeypatch):
 def test_config_download_missing_is_404(env):
     (env.root / "config.yaml").unlink()
     assert env.client.get("/api/config/download").status_code == 404
+
+
+def test_bundle_includes_the_balancer_trace(env, monkeypatch):
+    ticks = [{"t": "2026-10-21T12:00:00", "state": "throttling"}]
+    fake_executor = SimpleNamespace(get_balancer_trace=lambda: ticks)
+    monkeypatch.setattr(system_router, "_get_balancer_trace", REAL_BALANCER_TRACE)
+    monkeypatch.setattr(
+        "backend.api.routers.executor.get_executor_instance", lambda: fake_executor
+    )
+
+    resp = env.client.get("/api/system/diagnostics")
+
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    trace = json.loads(zf.read("balancer_trace.json"))
+    assert trace["ticks"] == ticks
+    assert trace["max_ticks"] == 600
+    assert json.loads(zf.read("manifest.json"))["items"]["balancer_trace.json"] == "included"
+
+
+def test_bundle_survives_a_failing_balancer_trace(env, monkeypatch):
+    monkeypatch.setattr(system_router, "_get_balancer_trace", REAL_BALANCER_TRACE)
+    monkeypatch.setattr("backend.api.routers.executor.get_executor_instance", lambda: None)
+
+    resp = env.client.get("/api/system/diagnostics")
+
+    assert resp.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    assert "balancer_trace.json" not in zf.namelist()
+    items = json.loads(zf.read("manifest.json"))["items"]
+    assert "executor unavailable" in items["balancer_trace.json"]
+    assert items["planner_learning.db"] == "included"
+    assert items["status.json"] == "included"

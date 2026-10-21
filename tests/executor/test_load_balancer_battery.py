@@ -188,7 +188,7 @@ class TestBatteryRampAndRestore:
         status = _tick(lb, T0, over, entries(2000.0))
         assert status.shed_outputs[0].shed is True
         # Tick 2: still over (shed relief insufficient): battery pauses.
-        status = _tick(lb, T0 + timedelta(seconds=5), over, entries(2000.0))
+        status = _tick(lb, T0 + timedelta(seconds=15), over, entries(2000.0))
         assert status.battery_output.state == "paused"
         # Load drops: shed load may not restore while the battery is paused.
         quiet = {1: 15.0, 2: 15.0, 3: 15.0}
@@ -197,7 +197,7 @@ class TestBatteryRampAndRestore:
         assert status.shed_outputs[0].shed is True
 
     def test_paused_battery_resumes_after_confirm(self):
-        lb = LoadBalancer(_cfg())
+        lb = LoadBalancer(_cfg(ramp_up_window_s=0))
         status = _tick(
             lb, T0, {1: 24.0, 2: 16.0, 3: 16.0}, [_battery(planned_w=2000.0, min_w=2000.0)]
         )
@@ -221,18 +221,21 @@ class TestBatteryRampAndRestore:
 
 
 class TestBatteryStale:
-    def test_stale_phase_holds_cap(self):
+    def test_stale_phase_forces_minimum_charge(self):
+        """Same ladder as the EV: the cap drops to the profile minimum at once,
+        whatever the (untrusted) stale reading says."""
         lb = LoadBalancer(_cfg())
         stale_at = {1: T0 - timedelta(seconds=120), 2: T0, 3: T0}
         status = lb.tick(
             T0, {1: 30.0, 2: 16.0, 3: 16.0}, stale_at, [_battery(applied_cap_w=6000.0)]
         )
-        assert status.battery_output.cap_w == 6000.0
+        assert status.battery_output.cap_w == 480.0
         assert status.battery_output.state == "throttling"
+        assert "stale" in status.battery_output.reason
         status = lb.tick(
             T0, {1: 5.0, 2: 5.0, 3: 5.0}, stale_at, [_battery(applied_cap_w=6000.0)]
         )
-        assert status.battery_output.cap_w == 6000.0
+        assert status.battery_output.cap_w == 480.0
 
 
 class TestBatteryOrdering:
