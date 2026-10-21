@@ -3,7 +3,10 @@ SoC Target Calculation
 
 Derives per-slot soc_target_percent based on Kepler actions and battery configuration.
 This ensures the inverter receives the correct target for each slot type:
-- Charge blocks: Target = projected SoC at END of charge block
+- Charge blocks: Target = projected SoC at END of charge block, clamped to
+  max_soc_percent. It is not raised to min_soc_percent when the plan's own
+  block-end projection is lower (partial recovery from below the minimum);
+  without a projection the target falls back to at least min_soc_percent.
 - Export blocks: Target = projected SoC at END of export block
 - Discharge: Target = min_soc_percent
 - Hold: Target = entry SoC (current battery state)
@@ -30,6 +33,7 @@ def apply_soc_target_percent(
     This function processes the schedule to set appropriate soc_target_percent
     for each slot based on the action type:
     - Charge blocks: All slots in a charge window use the projected SoC at block end
+      (not raised to min_soc_percent when the projection itself is lower)
     - Export blocks: Use projected SoC at block end (with guard floor as minimum)
     - Discharge: Use min_soc_percent
     - Hold: Maintain entry SoC
@@ -155,11 +159,19 @@ def apply_soc_target_percent(
             block_target = projected[end]
             if block_target is None:
                 block_target = projected[start]
+            # A projected block end below min_soc only occurs during a planned
+            # partial recovery; do not raise it to min_soc, or the executor would
+            # charge beyond the plan (min-soc-floor-tracking D7).
+            lower_bound = (
+                min(min_soc_percent, float(block_target))
+                if block_target is not None
+                else min_soc_percent
+            )
             if block_target is None and entry_list[start] is not None:
                 block_target = entry_list[start]
 
             block_value = float(block_target) if block_target is not None else targets[start]
-            block_value = max(min_soc_percent, min(max_soc_percent, block_value))
+            block_value = max(lower_bound, min(max_soc_percent, block_value))
 
             # Apply manual constraints if present
             if any(manual_actions[k] == "charge" for k in block):

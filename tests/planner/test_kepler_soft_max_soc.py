@@ -97,7 +97,11 @@ def test_normal_soc_within_max_no_overshoot():
 
 
 def test_min_soc_violation_behavior_unchanged():
-    """Existing soc_violation (min-SoC soft constraint) still works when initial_soc < min_soc."""
+    """Existing soc_violation (min-SoC soft constraint) still works when initial_soc < min_soc.
+
+    The 30-point deficit is beyond the 5-point recovery window (min-soc-recovery), so
+    this stays on the deep-deficit path: min_soc is the lower bound for every state.
+    """
     config = _base_config(capacity_kwh=10.0, min_soc_percent=50.0, max_soc_percent=90.0)
     # initial_soc=2.0 < min_soc_kwh=5.0 → should still solve Optimally via soft constraint
     input_data = KeplerInput(slots=_make_slots(4), initial_soc_kwh=2.0)

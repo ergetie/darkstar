@@ -388,8 +388,8 @@ The Kepler MILP SHALL enforce `battery.max_soc_percent` as a soft constraint. Th
 #### Scenario: Lower bound behavior unchanged
 - **GIVEN** measured initial SoC is below `min_soc_kwh`
 - **WHEN** the planner runs
-- **THEN** the existing `soc_violation` slack and `MIN_SOC_PENALTY` are applied
-- **AND** no change to the lower-bound enforcement is observed
+- **THEN** the `soc_violation` slack and `MIN_SOC_PENALTY` SHALL apply against the per-state lower bound defined by the `min-soc-recovery` capability
+- **AND** the max-SoC bound SHALL be unaffected
 
 #### Scenario: Export floor config passed through adapter
 - **GIVEN** `export_floor_soc_percent = 20` is configured in the planner config

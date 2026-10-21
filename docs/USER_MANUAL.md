@@ -153,6 +153,8 @@ Use **EV Charge** in the dashboard command bar when you want the car charged *no
 - **Not a Hard Floor**: The executor will NOT force charging if the battery drops below this value
 - **BMS Responsibility**: Your battery's **BMS (Battery Management System)** must handle the actual hard safety cutoff
 
+In slots where the plan holds the battery, the executor never discharges it below `min_soc_percent`. If the battery is already below the minimum, a deficit of up to 5 percentage points is refilled within 6 hours at the cheapest time, while a larger deficit is refilled immediately.
+
 **⚠️ WARNING:**
 - If your inverter/BMS allows discharge below safe levels, Darkstar will not prevent it
 - Ensure your inverter is configured with appropriate hard SoC limits

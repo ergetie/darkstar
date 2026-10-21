@@ -99,6 +99,35 @@ def test_load_executor_config_defaults(tmp_path):
     assert config.automation_toggle_entity is None
 
 
+class TestControllerMinSoc:
+    """min-soc-floor-tracking D2: battery.min_soc_percent reaches ControllerConfig."""
+
+    def _load(self, tmp_path, data):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump(data))
+        return load_executor_config(str(config_file)).controller
+
+    def test_min_soc_read_from_battery_section(self, tmp_path):
+        ctrl = self._load(tmp_path, {"battery": {"min_soc_percent": 12}, "executor": {"enabled": True}})
+        assert ctrl.min_soc_percent == 12.0
+
+    def test_missing_min_soc_defaults_to_planner_fallback(self, tmp_path):
+        ctrl = self._load(tmp_path, {"battery": {"capacity_kwh": 19.2}, "executor": {"enabled": True}})
+        assert ctrl.min_soc_percent == 10.0
+
+    def test_zero_min_soc_is_kept(self, tmp_path):
+        ctrl = self._load(tmp_path, {"battery": {"min_soc_percent": 0}, "executor": {"enabled": True}})
+        assert ctrl.min_soc_percent == 0.0
+
+    def test_min_soc_read_without_executor_section(self, tmp_path):
+        ctrl = self._load(tmp_path, {"battery": {"min_soc_percent": 12}})
+        assert ctrl.min_soc_percent == 12.0
+
+    def test_min_soc_read_with_empty_executor_section(self, tmp_path):
+        ctrl = self._load(tmp_path, {"battery": {"min_soc_percent": 12}, "executor": {}})
+        assert ctrl.min_soc_percent == 12.0
+
+
 class TestWaterHeaterDeviceConfig:
     """Task 5.4: per-device water heater config loading."""
 

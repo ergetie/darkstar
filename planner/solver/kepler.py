@@ -38,6 +38,48 @@ def is_time_limit_hit(solve_duration_s: float, time_limit_s: float) -> bool:
 
 EV_SHORTFALL_PENALTY_DEFAULT = 50.0  # SEK/kWh — soft target-by-time penalty
 
+# Below-minimum recovery window (min-soc-floor-tracking D4/D5): an initial SoC at
+# most MIN_SOC_RECOVERY_MAX_DEFICIT_PERCENT points below min_soc becomes the lower
+# bound for states earlier than start + MIN_SOC_RECOVERY_HOURS, so the solver
+# refills the deficit at the cheapest time. Deeper deficits refill immediately.
+MIN_SOC_RECOVERY_HOURS = 6.0
+MIN_SOC_RECOVERY_MAX_DEFICIT_PERCENT = 5.0
+# Absorbs float rounding in the kWh / hour comparisons of the recovery window.
+_RECOVERY_EPS = 1e-6
+
+
+def min_soc_floor_kwh(
+    slot_hours: list[float],
+    initial_soc_kwh: float,
+    min_soc_kwh: float,
+    capacity_kwh: float,
+    *,
+    recovery_enabled: bool,
+) -> list[float]:
+    """Per-state SoC lower bound for states 0..T (min-soc-floor-tracking D4/D6).
+
+    The window is anchored at the start of the first slot on every solve
+    (stateless). The terminal state always uses ``min_soc_kwh``.
+    """
+    T = len(slot_hours)
+    max_deficit_kwh = capacity_kwh * MIN_SOC_RECOVERY_MAX_DEFICIT_PERCENT / 100.0
+    recovery = (
+        recovery_enabled
+        and initial_soc_kwh < min_soc_kwh
+        and initial_soc_kwh >= min_soc_kwh - max_deficit_kwh - _RECOVERY_EPS
+    )
+    if not recovery:
+        return [min_soc_kwh] * (T + 1)
+
+    floors: list[float] = []
+    elapsed_h = 0.0
+    for k in range(T + 1):
+        in_window = k < T and elapsed_h < MIN_SOC_RECOVERY_HOURS - _RECOVERY_EPS
+        floors.append(initial_soc_kwh if in_window else min_soc_kwh)
+        if k < T:
+            elapsed_h += slot_hours[k]
+    return floors
+
 
 class KeplerSolver:
     def solve(self, input_data: KeplerInput, config: KeplerConfig) -> KeplerResult:
@@ -301,6 +343,16 @@ class KeplerSolver:
         initial_soc: float = max(0.0, min(config.capacity_kwh, input_data.initial_soc_kwh))
         prob += soc[0] == initial_soc
 
+        # Per-state min-SoC lower bound with the below-minimum recovery window.
+        # Benchmark solves keep their own relaxed scalar bound.
+        floor_kwh: list[float] = min_soc_floor_kwh(
+            slot_hours,
+            initial_soc,
+            min_soc_kwh,
+            config.capacity_kwh,
+            recovery_enabled=benchmark is None,
+        )
+
         # Excess PV slot flags (pre-calculated from forecasts)
         excess_pv_flags: list[bool] = config.excess_pv_slots
         if excess_pv_flags and len(excess_pv_flags) != T:
@@ -400,7 +452,9 @@ class KeplerSolver:
                 )
 
         # Penalty constants
-        MIN_SOC_PENALTY = 1000.0  # Hard constraint - don't violate min_soc!
+        # Soft lower bound: penalised below the per-state floor (min_soc, or the
+        # initial SoC inside the recovery window). The BMS is the hard floor.
+        MIN_SOC_PENALTY = 1000.0
         MAX_SOC_PENALTY = 1000.0  # Soft constraint - prefer to stay below max_soc
         EXPORT_FLOOR_PENALTY = 1000.0  # Soft constraint - don't export below floor
         BOOST_REWARD_SEK = boost_entry.effective_reward_sek_per_kwh if boost_entry else 0.0
@@ -677,7 +731,7 @@ class KeplerSolver:
                 prob += grid_export[t] <= M_export * is_exporting[t]
                 prob += soc[t + 1] >= (
                     export_floor_kwh * is_exporting[t]
-                    + min_soc_kwh * (1 - is_exporting[t])
+                    + floor_kwh[t + 1] * (1 - is_exporting[t])
                     - export_floor_violation[t]
                 )
 
@@ -734,11 +788,11 @@ class KeplerSolver:
             )
 
             # Soft Min/Max SoC Constraints
-            prob += soc[t] >= min_soc_kwh - soc_violation[t]
+            prob += soc[t] >= floor_kwh[t] - soc_violation[t]
             prob += soc[t] <= max_soc_kwh + soc_overshoot[t]
 
         # Terminal constraints
-        prob += soc[T] >= min_soc_kwh - soc_violation[T]
+        prob += soc[T] >= floor_kwh[T] - soc_violation[T]
         prob += soc[T] <= max_soc_kwh + soc_overshoot[T]
 
         # Terminal SoC Target (BIDIRECTIONAL soft constraint)
@@ -905,7 +959,8 @@ class KeplerSolver:
                         )
 
         # Terminal SoC Target (BIDIRECTIONAL soft constraint)
-        # - min_soc violation: HARD penalty (1000 SEK/kWh)
+        # - min_soc violation: near-hard penalty (1000 SEK/kWh) below the per-state
+        #   floor (initial SoC inside the recovery window, min_soc otherwise)
         # - target violation: SOFT penalty (from config, derived from risk_appetite)
         #   * UNDER target: Risk penalty (configurable)
         #   * OVER target: Opportunity cost penalty (same as under)

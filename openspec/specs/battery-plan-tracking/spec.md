@@ -35,7 +35,7 @@ After grid charging stopped at target within a charge block, the executor SHALL 
 - **THEN** the executor SHALL resume grid charging
 
 ### Requirement: Hold slots use a 2-point margin
-In a hold slot, the executor SHALL use self-consumption while the rounded live SoC is above the target minus 2 percentage points, SHALL block battery discharge once SoC is at or below the target minus 2, and SHALL lift the block only when SoC is back at or above the target. The state SHALL reset when the hold block ends. EV source isolation SHALL keep precedence.
+In a hold slot the executor SHALL use self-consumption while the rounded live SoC is above the hold floor, SHALL block battery discharge once SoC is at or below it, and SHALL lift the block only when SoC is at or above the target and above the floor. The hold floor is `max(target − 2, min(target, battery.min_soc_percent))`. This applies to every inverter profile. The state SHALL reset when the hold block ends. EV source isolation SHALL keep precedence.
 
 #### Scenario: Small drop stays on auto
 - **GIVEN** a hold slot with target 50%
@@ -56,6 +56,33 @@ In a hold slot, the executor SHALL use self-consumption while the rounded live S
 - **GIVEN** discharge was blocked in a hold slot with target 50%
 - **WHEN** the live SoC reads 50%
 - **THEN** the executor SHALL use self-consumption
+
+#### Scenario: Margin never crosses the minimum
+- **GIVEN** `battery.min_soc_percent` is 12 and a hold slot with target 13%
+- **WHEN** the live SoC reads 12%
+- **THEN** the executor SHALL block battery discharge
+
+#### Scenario: Hold at the minimum blocks immediately
+- **GIVEN** `battery.min_soc_percent` is 12, inverter profile `fronius`, and a hold slot with target 12%
+- **WHEN** the live SoC reads 12%
+- **THEN** the executor SHALL block battery discharge
+- **AND** it SHALL NOT select self-consumption on the following ticks while the SoC stays at 12%
+
+#### Scenario: Hold at the minimum lifts only on a real gain
+- **GIVEN** discharge was blocked in a hold slot with target 12% and `battery.min_soc_percent` 12
+- **WHEN** PV raises the live SoC to 13%
+- **THEN** the executor SHALL use self-consumption
+
+#### Scenario: Hold below the minimum during recovery
+- **GIVEN** `battery.min_soc_percent` is 12 and a hold slot with target 11%
+- **WHEN** the live SoC reads 11%
+- **THEN** the executor SHALL block battery discharge and SHALL NOT grid charge
+- **AND** the block SHALL lift only once the live SoC reaches 12%
+
+#### Scenario: Profiles that write a SoC target are unchanged above the minimum
+- **GIVEN** inverter profile `deye`, `battery.min_soc_percent` 12 and a hold slot with target 50%
+- **WHEN** the live SoC reads 49%, then 48%
+- **THEN** the executor SHALL select self-consumption, then block discharge, writing `soc_target` 50 in both modes as before
 
 ### Requirement: Replan when the battery deviates from the plan
 The executor SHALL compare the live SoC with the plan's expected SoC now, interpolated linearly within the slot between its entry SoC and its projected end SoC. When the absolute deviation stays above `executor.soc_deviation_replan_percent` (default 10, 0 disables) for 5 minutes, it SHALL request an immediate planner run with reason `soc_deviation` and log the live SoC, the expected SoC and the threshold.

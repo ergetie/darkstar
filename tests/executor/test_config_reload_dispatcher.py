@@ -117,6 +117,16 @@ def test_unchanged_config_does_not_replace_dispatcher_config(engine):
     assert engine.dispatcher.config is dispatcher_config
 
 
+def test_reload_picks_up_min_soc_change(engine, tmp_path):
+    """min-soc-floor-tracking D2: min_soc_percent reloads with the executor config."""
+    config_path = tmp_path / "config.yaml"
+    assert engine.config.controller.min_soc_percent == 10.0
+    config_path.write_text(config_path.read_text() + "battery:\n  min_soc_percent: 12\n")
+    os.utime(config_path, (2000, 2000))
+    engine.reload_config()
+    assert engine.config.controller.min_soc_percent == 12.0
+
+
 @pytest.mark.asyncio
 async def test_reload_mid_tick_does_not_leak_into_running_tick(engine, tmp_path):
     def reload_from_api_thread() -> None:

@@ -29,7 +29,8 @@ from .profiles import InverterProfile
 logger = logging.getLogger(__name__)
 
 # Fixed margin (percentage points) shared by the charge-target latch and the
-# hold margin (battery-plan-tracking D1/D2).
+# hold margin (battery-plan-tracking D1/D2). The hold margin is bounded below by
+# battery.min_soc_percent (min-soc-floor-tracking D1).
 SOC_TRACKING_MARGIN = 2
 
 CHARGE_TARGET_REASON = "charge target reached, holding"
@@ -265,7 +266,8 @@ class Controller:
             self.plan_state.enter(None, None)
             mode_intent = "idle"
         elif slot.discharge_kw == 0 and not slot.discharge_blocked_by_ev:
-            # Hold slot: 2-point margin below the target (battery-plan-tracking D2).
+            # Hold slot: 2-point margin below the target, bounded by min_soc_percent
+            # (battery-plan-tracking D2, min-soc-floor-tracking D1).
             self.plan_state.enter("hold", slot.soc_target)
             mode_intent = self._hold_mode(live_soc, slot.soc_target)
             if mode_intent == "idle":
@@ -356,14 +358,22 @@ class Controller:
         return "charge"
 
     def _hold_mode(self, live_soc: int, target: int) -> str:
-        """Self-consumption until SoC is 2 points below target; block until back at target."""
+        """Self-consumption above the hold floor; block discharge at or below it.
+
+        The floor is ``max(target - 2, min(target, min_soc))`` so the margin never
+        crosses ``battery.min_soc_percent``, and a hold at or below the minimum
+        blocks immediately (min-soc-floor-tracking D1). The block lifts once SoC is
+        back at the target and above the floor, so a hold at the floor only lifts
+        on a real gain (no idle/self-consumption flap).
+        """
+        floor = max(target - SOC_TRACKING_MARGIN, min(target, self.config.min_soc_percent))
         st = self.plan_state
         if st.latched:
-            if live_soc >= target:
+            if live_soc >= target and live_soc > floor:
                 st.latched = False
                 return "self_consumption"
             return "idle"
-        if live_soc <= target - SOC_TRACKING_MARGIN:
+        if live_soc <= floor:
             st.latched = True
             return "idle"
         return "self_consumption"

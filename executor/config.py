@@ -322,6 +322,9 @@ class ControllerConfig:
     round_step_w: float = 100.0
     write_threshold_w: float = 100.0
     charge_efficiency: float = 0.92
+    # battery.min_soc_percent; bounds the hold margin (min-soc-floor-tracking D2).
+    # Same fallback as the planner adapter so both agree when the key is absent.
+    min_soc_percent: float = 10.0
 
 
 @dataclass
@@ -663,11 +666,25 @@ def battery_give_way_available(data: dict[str, Any]) -> bool:
     return "charge" in profile.modes
 
 
+def _parse_min_soc_percent(battery_data: dict[str, Any]) -> float:
+    """Read battery.min_soc_percent for the controller (min-soc-floor-tracking D2).
+
+    Falls back to ControllerConfig.min_soc_percent (10.0), the same fallback as
+    the planner adapter, so planner and executor agree when the key is absent.
+    """
+    value = battery_data.get("min_soc_percent")
+    if value is None:
+        return ControllerConfig.min_soc_percent
+    return float(str(value))
+
+
 def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     """
     Load executor configuration from config.yaml.
 
-    Falls back to defaults if executor section is missing.
+    Falls back to defaults if executor section is missing. Settings that live
+    outside the executor: section (timezone, load_balancing,
+    battery.min_soc_percent) are applied on both paths.
     """
     try:
         with Path(config_path).open(encoding="utf-8") as f:
@@ -714,12 +731,24 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
             current_type_charger_ids.append(str(charger_item.get("id", f"ev_charger_{idx}")))
     heal_give_way_order(load_balancing, current_type_charger_ids, battery_give_way_available(data))
 
+    # Root battery config (New SSOT for REV F17)
+    battery_data: dict[str, Any] = (
+        data.get("battery", {}) if isinstance(data.get("battery"), dict) else {}
+    )
+    # battery.min_soc_percent lives outside the executor: section, so it is read
+    # before the executor-section branch and applies on both return paths.
+    min_soc_percent = _parse_min_soc_percent(battery_data)
+
     executor_data: dict[str, Any] = (
         data.get("executor", {}) if isinstance(data.get("executor"), dict) else {}
     )
     if not executor_data:
         logger.info("No executor section in config, using defaults")
-        return ExecutorConfig(timezone=timezone, load_balancing=load_balancing)
+        return ExecutorConfig(
+            timezone=timezone,
+            load_balancing=load_balancing,
+            controller=ControllerConfig(min_soc_percent=min_soc_percent),
+        )
 
     # Parse nested configs
     inverter_data: dict[str, Any] = (
@@ -1005,11 +1034,6 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         ),
     )
 
-    # Root battery config (New SSOT for REV F17)
-    battery_data: dict[str, Any] = (
-        data.get("battery", {}) if isinstance(data.get("battery"), dict) else {}
-    )
-
     ctrl_data: dict[str, Any] = (
         executor_data.get("controller", {})
         if isinstance(executor_data.get("controller"), dict)
@@ -1076,6 +1100,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                 get_fb("charge_efficiency", "charge_efficiency", ControllerConfig.charge_efficiency)
             )
         ),
+        min_soc_percent=min_soc_percent,
     )
 
     excess_pv_data: dict[str, Any] = (
