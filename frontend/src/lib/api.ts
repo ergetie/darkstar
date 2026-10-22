@@ -498,6 +498,7 @@ export type LoadBalancerShedStatus = {
     load_id: string
     device_type: string
     shed: boolean
+    actively_shedding?: boolean
     reason: string
     /** Restore power used to decide when the load fits back in (W); null = unknown */
     power_w?: number | null

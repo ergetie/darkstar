@@ -12,7 +12,7 @@ export default function LoadBalancerCompactView({ status }: { status: LoadBalanc
     }
 
     const activeEv = status.ev.filter((ev) => ev.state !== 'idle' || ev.relief_1p)
-    const shedLoads = status.shed.filter((s) => s.shed)
+    const shedLoads = status.shed.filter((s) => s.actively_shedding)
     const battery = status.battery && status.battery.state !== 'idle' ? status.battery : null
 
     return (

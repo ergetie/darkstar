@@ -4130,13 +4130,16 @@ class ExecutorEngine:
                     )
             self._notified_ev_states[out.charger_id] = out.state
 
+        active_ids = {out.load_id for out in status.shed_outputs}
+        for load_id in self._notified_shed_states.keys() - active_ids:
+            del self._notified_shed_states[load_id]
         for shed_out in status.shed_outputs:
             prev_shed = self._notified_shed_states.get(shed_out.load_id, False)
-            if shed_out.shed and not prev_shed and dispatcher is not None:
+            if shed_out.actively_shedding and not prev_shed and dispatcher is not None:
                 await dispatcher.notify_balancer_intervention(
                     f"Load '{shed_out.load_id}' switched off — {shed_out.reason}"
                 )
-            self._notified_shed_states[shed_out.load_id] = shed_out.shed
+            self._notified_shed_states[shed_out.load_id] = shed_out.actively_shedding
 
     def _pause_goal_risk(
         self, charger_id: str, slot: "SlotPlan | None", now: datetime | None
@@ -4283,6 +4286,7 @@ class ExecutorEngine:
                     "load_id": o.load_id,
                     "device_type": o.device_type,
                     "shed": o.shed,
+                    "actively_shedding": o.actively_shedding,
                     "reason": o.reason,
                     # coordinated-ramping D4: restore power used and its source
                     # ("sensor" | "configured" | "worst_case")

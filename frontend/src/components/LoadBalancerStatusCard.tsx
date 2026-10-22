@@ -225,7 +225,7 @@ export default function LoadBalancerStatusCard() {
         )
     }
 
-    const shedLoads = status.shed.filter((s) => s.shed)
+    const shedLoads = status.shed.filter((s) => s.actively_shedding)
     const tickIntervalS = status.tick_interval_s ?? 300
     const ageSeconds = lastUpdatedAt !== null ? (nowMs - lastUpdatedAt) / 1000 : null
     const feedStale = ageSeconds !== null && ageSeconds > Math.max(3 * tickIntervalS, 15)

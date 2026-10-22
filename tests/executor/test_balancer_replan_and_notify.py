@@ -83,7 +83,9 @@ def make_status(ev_state="throttling", ev_target=6, shed=(), enabled=True):
         phase_headroom_a={1: 0.0},
         ev_outputs=[EVBalancerOutput("goe", ev_target, ev_state, "reason text")],
         shed_outputs=[
-            ShedLoadOutput(load_id, "water_heater", is_shed, "shed reason")
+            ShedLoadOutput(
+                load_id, "water_heater", is_shed, "shed reason", actively_shedding=is_shed
+            )
             for load_id, is_shed in shed
         ],
     )
@@ -394,3 +396,51 @@ class TestBalancerReliefDispatch:
         await engine._apply_balancer_relief(status, T0)
         assert status.ev_outputs[0].target_a == 8
         assert ctrl.commanded_mode == 1 and ctrl.relief_hold
+
+
+@pytest.mark.asyncio
+async def test_shedding_edges_ignore_commands_and_clear_removed_disabled(engine):
+    engine.config.load_balancing.notify_interventions = True
+    engine.dispatcher = MagicMock()
+    engine.dispatcher.notify_balancer_intervention = AsyncMock()
+    routine = make_status(shed=(("wh", True),))
+    routine.shed_outputs[0].actively_shedding = False
+    await engine._notify_balancer_interventions(routine)
+    engine.dispatcher.notify_balancer_intervention.assert_not_called()
+    active = make_status(shed=(("wh", True),))
+    await engine._notify_balancer_interventions(active)
+    await engine._notify_balancer_interventions(active)
+    assert engine.dispatcher.notify_balancer_intervention.call_count == 1
+    await engine._notify_balancer_interventions(routine)
+    await engine._notify_balancer_interventions(active)
+    assert engine.dispatcher.notify_balancer_intervention.call_count == 2
+    await engine._notify_balancer_interventions(make_status())
+    assert "wh" not in engine._notified_shed_states
+    await engine._notify_balancer_interventions(active)
+    assert engine.dispatcher.notify_balancer_intervention.call_count == 3
+    await engine._notify_balancer_interventions(make_status(enabled=False))
+    assert not engine._notified_shed_states
+    await engine._notify_balancer_interventions(active)
+    assert engine.dispatcher.notify_balancer_intervention.call_count == 4
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("demand,expected", [(True, 1), (None, 1), (False, 0)])
+async def test_actual_cut_notification_with_explicit_and_unknown_demand(engine, demand, expected):
+    from executor.load_balancer import LoadBalancer, ShedLoadInput
+    from tests.executor.fake_relief import InstantRelief
+
+    engine.config.load_balancing.notify_interventions = True
+    engine.dispatcher = MagicMock()
+    engine.dispatcher.notify_balancer_intervention = AsyncMock()
+    cfg = engine.config.load_balancing
+    lb = LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
+    load = ShedLoadInput(
+        "wh", "water_heater", [1], requested_on=demand, current_on=True, min_on_s=300
+    )
+    for sec, amps in [(0, 30), (5, 5), (10, 5)]:
+        t = T0 + timedelta(seconds=sec)
+        status = lb.tick(t, {1: amps}, {1: t}, [load])
+        assert status.shed_outputs[0].shed
+        await engine._notify_balancer_interventions(status)
+    assert engine.dispatcher.notify_balancer_intervention.call_count == expected

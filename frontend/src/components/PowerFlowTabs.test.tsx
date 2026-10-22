@@ -202,3 +202,45 @@ describe('PowerFlowTabs warning dot', () => {
         expect(tabButton?.querySelector('span.bg-bad')).toBeFalsy()
     })
 })
+
+describe('PowerFlowTabs shedding provenance', () => {
+    const load = (actively_shedding: boolean, load_id = 'main_tank') => ({
+        load_id,
+        device_type: 'water_heater',
+        shed: true,
+        actively_shedding,
+        reason: actively_shedding ? 'Overload' : 'Planned off',
+    })
+
+    it('ignores routine off and startup holds, then clears attention on cancellation', async () => {
+        vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue(baseStatus())
+        render(<PowerFlowTabs data={flowData} />)
+        await screen.findByTestId('flow-view')
+        for (const reason of ['Planned off', 'restore waits for room']) {
+            emitLiveMetrics(baseStatus({ shed: [{ ...load(false), reason }] }))
+            expect(screen.getByTestId('flow-view')).toBeInTheDocument()
+            expect(screen.getByText('Load Balancer').closest('button')?.querySelector('span.bg-bad')).toBeFalsy()
+        }
+        emitLiveMetrics(baseStatus({ state: 'shedding', shed: [load(true)] }))
+        await screen.findByTestId('lb-view')
+        screen.getByText('Flow').click()
+        await screen.findByTestId('flow-view')
+        expect(screen.getByText('Load Balancer').closest('button')?.querySelector('span.bg-bad')).toBeTruthy()
+        emitLiveMetrics(baseStatus({ shed: [load(false)] }))
+        expect(screen.getByTestId('flow-view')).toBeInTheDocument()
+        expect(screen.getByText('Load Balancer').closest('button')?.querySelector('span.bg-bad')).toBeFalsy()
+    })
+
+    it('keeps attention when cancellation leaves another intervention active', async () => {
+        vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue(baseStatus())
+        render(<PowerFlowTabs data={flowData} />)
+        await screen.findByTestId('flow-view')
+        emitLiveMetrics(baseStatus({ state: 'shedding', shed: [load(true), load(true, 'pump')] }))
+        await screen.findByTestId('lb-view')
+        screen.getByText('Flow').click()
+        await screen.findByTestId('flow-view')
+        emitLiveMetrics(baseStatus({ state: 'shedding', shed: [load(false), load(true, 'pump')] }))
+        expect(screen.getByTestId('flow-view')).toBeInTheDocument()
+        expect(screen.getByText('Load Balancer').closest('button')?.querySelector('span.bg-bad')).toBeTruthy()
+    })
+})

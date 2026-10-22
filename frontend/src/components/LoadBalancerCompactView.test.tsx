@@ -156,14 +156,46 @@ describe('LoadBalancerCompactView', () => {
         renderView(
             baseStatus({
                 shed: [
-                    { load_id: 'main_tank', device_type: 'water_heater', shed: false, reason: '' },
-                    { load_id: 'pool_pump', device_type: 'other', shed: true, reason: 'Over limit' },
+                    {
+                        load_id: 'main_tank',
+                        device_type: 'water_heater',
+                        shed: true,
+                        actively_shedding: false,
+                        reason: 'Planned off',
+                    },
+                    { load_id: 'legacy_load', device_type: 'other', shed: true, reason: '' },
+                    {
+                        load_id: 'pool_pump',
+                        device_type: 'other',
+                        shed: true,
+                        actively_shedding: true,
+                        reason: 'Over limit',
+                    },
                 ],
             }),
         )
 
         expect(screen.queryByText(/main_tank/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/legacy_load/)).not.toBeInTheDocument()
         expect(screen.getByText(/pool_pump/)).toBeInTheDocument()
+    })
+
+    it.each([false, undefined])('omits routine off warnings and headings (active=%s)', (active) => {
+        renderView(
+            baseStatus({
+                shed: [
+                    {
+                        load_id: 'main_tank',
+                        device_type: 'water_heater',
+                        shed: true,
+                        actively_shedding: active,
+                        reason: 'Planned off',
+                    },
+                ],
+            }),
+        )
+        expect(screen.queryByText(/Shed:/)).not.toBeInTheDocument()
+        expect(screen.queryByText('Shedding Loads')).not.toBeInTheDocument()
     })
 
     it('shows a throttled house battery with planned vs capped kW', () => {

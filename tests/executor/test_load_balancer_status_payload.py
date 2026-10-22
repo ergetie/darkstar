@@ -77,7 +77,13 @@ class TestEnabledPayload:
                 phase_headroom_a={1: 2.0, 2: 15.0, 3: 15.0},
                 ev_outputs=[EVBalancerOutput("goe", target_a=10, state=state, reason="ev reason")],
                 shed_outputs=[
-                    ShedLoadOutput("wh", "water_heater", shed=(state == "shedding"), reason="")
+                    ShedLoadOutput(
+                        "wh",
+                        "water_heater",
+                        shed=True,
+                        actively_shedding=(state == "shedding"),
+                        reason="",
+                    )
                 ],
             )
             engine._last_balancer_planned_targets = {"goe": 16}
@@ -105,7 +111,8 @@ class TestEnabledPayload:
             shed = payload["shed"][0]
             assert shed["load_id"] == "wh"
             assert shed["device_type"] == "water_heater"
-            assert shed["shed"] == (state == "shedding")
+            assert shed["shed"] is True
+            assert shed["actively_shedding"] == (state == "shedding")
 
     def test_charger_name_resolved_from_config(self, engine):
         engine.config.ev_chargers = [

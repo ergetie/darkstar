@@ -303,6 +303,7 @@ class ShedLoadOutput:
     reason: str = ""
     power_w: float | None = None
     power_source: str = "worst_case"
+    actively_shedding: bool = False
 
 
 # The house battery's inverter is assumed to be 3-phase (battery-load-balancing D2).
@@ -417,10 +418,12 @@ class LoadBalancer:
         self._relief_trigger: ReliefTrigger = relief_trigger or self._fuse_model
         self._ev_paused_at: dict[str, datetime] = {}
         self._ev_stale_since: dict[str, datetime] = {}
-        # Currently-shed loads: load_id -> shed timestamp (+ human reason).
+        # Off commands: load_id -> off timestamp (+ human reason).
         # Restore order comes from reverse list position, not insertion order.
         self._shed_at: dict[str, datetime] = {}
         self._shed_reason: dict[str, str] = {}
+        # Provenance of actual protection cuts, independent of off/restore clocks.
+        self._active_shedding: set[str] = set()
         self._switch_on_at: dict[str, datetime] = {}
         self._plan_switch_seen: set[str] = set()
         # Phases each charger drew on last tick (detects a phase-set expansion,
@@ -519,6 +522,7 @@ class LoadBalancer:
                 if load_id not in selected_sheds:
                     self._shed_at.pop(load_id, None)
                     self._shed_reason.pop(load_id, None)
+                    self._active_shedding.discard(load_id)
                     self._switch_on_at.pop(load_id, None)
                     self._plan_switch_seen.discard(load_id)
             if not any(e.kind == "battery" for e in config.give_way_order):
@@ -1550,6 +1554,9 @@ class LoadBalancer:
         """
         main_fuse_a = self.config.main_fuse_a
         if not self.config.enabled or main_fuse_a is None:
+            self._active_shedding.clear()
+            self._shed_reason.clear()
+            self._last_decisions.clear()
             return LoadBalancerStatus(
                 enabled=False,
                 state="disabled",
@@ -1664,6 +1671,13 @@ class LoadBalancer:
             if shed_id not in valid_shed_ids:
                 self._shed_at.pop(shed_id, None)
                 self._shed_reason.pop(shed_id, None)
+                self._active_shedding.discard(shed_id)
+        # Explicit off demand ends an intervention without touching its off clock.
+        for entry in entries:
+            if isinstance(entry, ShedLoadInput) and entry.requested_on is False:
+                self._active_shedding.discard(entry.load_id)
+                if entry.load_id in self._shed_at:
+                    self._shed_reason[entry.load_id] = "Planned off"
         restore_notes: dict[str, str] = {}
 
         if not any(isinstance(e, BatteryBalancerInput) for e in entries):
@@ -1690,12 +1704,22 @@ class LoadBalancer:
                     self._switch_on_at[entry.load_id] = now
                 else:
                     self._shed_at.setdefault(entry.load_id, now)
+                    self._shed_reason.setdefault(entry.load_id, "Startup hold")
             if not entry.requested_on and entry.load_id not in self._shed_at:
                 on_at = self._switch_on_at.get(entry.load_id, now)
                 if (now - on_at).total_seconds() >= entry.min_on_s:
                     self._shed_at[entry.load_id] = now
                     self._shed_reason[entry.load_id] = "Planned off"
                     self._ledger.clear(f"shed:{entry.load_id}")
+
+        for entry in entries:
+            if (
+                isinstance(entry, ShedLoadInput)
+                and entry.requested_on is True
+                and entry.load_id in self._shed_at
+                and entry.load_id not in self._active_shedding
+            ):
+                self._shed_reason[entry.load_id] = "Waiting for safe start"
 
         shed_restore_done = False
 
@@ -1724,6 +1748,7 @@ class LoadBalancer:
             if room is not None and room + _AMPS_EPSILON >= need_a:
                 self._shed_at.pop(entry.load_id, None)
                 self._shed_reason.pop(entry.load_id, None)
+                self._active_shedding.discard(entry.load_id)
                 self._switch_on_at[entry.load_id] = now
                 self._ledger.grant(
                     f"shed:{entry.load_id}",
@@ -1899,9 +1924,13 @@ class LoadBalancer:
             overloaded = [p for p in entry.phases if pool_headroom.get(p, main_fuse_a) < 0]
             if overloaded and not ((set(entry.phases) & pending_relief_phases) - carried_gate):
                 self._shed_at[entry.load_id] = now
-                self._shed_reason[entry.load_id] = (
-                    f"Shed: phase(s) {overloaded} overloaded, every higher give-way entry exhausted"
-                )
+                if entry.requested_on is not False:
+                    self._active_shedding.add(entry.load_id)
+                    self._shed_reason[entry.load_id] = (
+                        f"Shed: phase(s) {overloaded} overloaded, every higher give-way entry exhausted"
+                    )
+                else:
+                    self._shed_reason[entry.load_id] = "Planned off"
                 self._ledger.clear(f"shed:{entry.load_id}")
                 pending_relief_phases |= set(entry.phases)
                 carried_gate -= set(entry.phases)
@@ -1941,6 +1970,7 @@ class LoadBalancer:
                 ),
                 power_w=e.power_w,
                 power_source=e.power_source,
+                actively_shedding=e.load_id in self._active_shedding,
             )
             for e in entries
             if isinstance(e, ShedLoadInput)
@@ -1956,7 +1986,7 @@ class LoadBalancer:
 
         if any_paused:
             state = "paused"
-        elif self._shed_at:
+        elif self._active_shedding:
             state = "shedding"
         elif any_stale_fallback:
             state = "stale_fallback"
@@ -2050,10 +2080,13 @@ class LoadBalancer:
                     continue
                 note(
                     f"shed:{entry.load_id}",
-                    "shed" if shed.shed else "on",
+                    "shedding" if shed.actively_shedding else "off" if shed.shed else "on",
                     "off" if shed.shed else "on",
                     shed.reason,
-                    {"power_source": shed.power_source},
+                    {
+                        "power_source": shed.power_source,
+                        "actively_shedding": shed.actively_shedding,
+                    },
                 )
         for key in list(self._last_decisions):
             if key not in seen:
@@ -2081,6 +2114,7 @@ class LoadBalancer:
                 "gated_phases": sorted(gated),
                 "entries": snapshot_entries,
                 "shed": sorted(self._shed_at),
+                "actively_shedding": sorted(self._active_shedding),
                 "ledger": self._ledger.snapshot(),
             }
         )

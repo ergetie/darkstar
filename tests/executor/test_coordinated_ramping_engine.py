@@ -322,6 +322,7 @@ def test_unplanned_custom_start_still_uses_shared_room(temp_schedule, temp_db):
     )
     first = engine._run_load_balancer(state, None, NOW)
     assert first.shed_outputs[0].shed
+    assert not first.shed_outputs[0].actively_shedding
     state.grid_current_a[1] = 5
     later = NOW + timedelta(seconds=5)
     state.grid_current_updated_at = {p: later for p in (1, 2, 3)}
@@ -410,6 +411,7 @@ def test_heater_initial_start_requires_shared_room(temp_schedule, temp_db, on):
     decision = ControllerDecision(mode_intent="idle", water_temps={"tank": 60})
     first = engine._run_load_balancer(state, None, NOW, decision)
     assert first.shed_outputs[0].shed
+    assert not first.shed_outputs[0].actively_shedding
     later = NOW + timedelta(seconds=5)
     state.grid_current_a[1] = 0
     state.grid_current_updated_at = {p: later for p in (1, 2, 3)}
@@ -450,8 +452,105 @@ async def test_binary_charger_start_uses_shared_room(temp_schedule, temp_db):
     state.grid_current_a = {1: 10, 2: 5, 3: 5}
     state.grid_current_updated_at = {p: NOW for p in (1, 2, 3)}
     slot = SlotPlan(ev_charger_plans={"wallbox": 3.1})
-    assert engine._run_load_balancer(state, slot, NOW).shed_outputs[0].shed
+    status = engine._run_load_balancer(state, slot, NOW)
+    assert status.shed_outputs[0].shed
+    assert not status.shed_outputs[0].actively_shedding
     later = NOW + timedelta(seconds=5)
     state.grid_current_a[1] = 0
     state.grid_current_updated_at = {p: later for p in (1, 2, 3)}
     assert not engine._run_load_balancer(state, slot, later).shed_outputs[0].shed
+
+
+@pytest.mark.asyncio
+async def test_routine_off_commands_still_dispatch_for_every_binary_load(temp_schedule, temp_db):
+    import json
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from executor.controller import ControllerDecision
+    from executor.load_balancer import LoadBalancerStatus, ShedLoadOutput
+    from tests.executor.test_load_balancer_wiring import make_ev_slot, make_schedule
+
+    engine = make_engine(temp_schedule, temp_db, load_balancing_enabled=True)
+    engine.config.ev_chargers = [
+        EVChargerDeviceConfig(
+            id="wallbox", type="binary", switch_entity="switch.wallbox", rated_power_kw=3.1
+        )
+    ]
+    engine.config.water_heater_devices = [
+        WaterHeaterDeviceConfig(id="tank", target_entity="switch.tank", control_type="switch")
+    ]
+    engine.config.load_balancing.loads = [
+        BalancedLoadConfig(
+            device_type=BalancedLoadType.CUSTOM_ENTITY,
+            device_id="pump",
+            entity="switch.pump",
+            on_value="on",
+            off_value="off",
+        )
+    ]
+    now = datetime.now(pytz.UTC)
+    Path(temp_schedule).write_text(json.dumps(make_schedule([make_ev_slot(now, "wallbox", 3.1)])))
+    outputs = [
+        ShedLoadOutput(load_id, device_type, True, "Startup hold", actively_shedding=False)
+        for load_id, device_type in [
+            ("wallbox", "ev_charger"),
+            ("tank", "water_heater"),
+            ("pump", "custom_entity"),
+        ]
+    ]
+    status = LoadBalancerStatus(True, "idle", "", 20, {}, {}, shed_outputs=outputs)
+    with (
+        patch.object(engine, "_run_load_balancer", return_value=status),
+        patch(
+            "executor.engine.make_decision",
+            return_value=ControllerDecision(mode_intent="idle", water_temps={"tank": 60}),
+        ),
+    ):
+        await engine.run_once()
+    for entity in ["switch.wallbox", "switch.tank", "switch.pump"]:
+        engine.ha_client.set_switch.assert_any_call(entity, False)
+
+
+@pytest.mark.asyncio
+async def test_scheduled_custom_demand_cancels_notification_without_resetting_clock(
+    temp_schedule, temp_db
+):
+    from unittest.mock import AsyncMock
+
+    from executor.config import ExcessPVSinkEntry
+    from executor.override import SlotPlan
+
+    engine = make_engine(temp_schedule, temp_db, load_balancing_enabled=True)
+    engine.config.ev_chargers = []
+    engine.config.load_balancing.notify_interventions = True
+    engine.dispatcher.notify_balancer_intervention = AsyncMock()
+    engine.config.load_balancing.loads = [
+        BalancedLoadConfig(
+            device_type=BalancedLoadType.CUSTOM_ENTITY,
+            device_id="pump",
+            entity="switch.pump",
+            phases=[1],
+            power_kw=2.3,
+            min_off_s=300,
+        )
+    ]
+    engine.config.excess_pv.priority = [ExcessPVSinkEntry(entity="switch.pump")]
+    slot = SlotPlan(custom_entity_active={"0": True})
+    state = SystemState(
+        grid_current_a={1: 25}, grid_current_updated_at={1: NOW}, shed_load_on={"pump": True}
+    )
+    status = engine._run_load_balancer(state, slot, NOW)
+    assert status.shed_outputs[0].actively_shedding
+    await engine._notify_balancer_interventions(status)
+    for sec, requested in [(5, True), (10, False), (15, True)]:
+        t = NOW + timedelta(seconds=sec)
+        slot.custom_entity_active["0"] = requested
+        state.grid_current_a = {1: 5}
+        state.grid_current_updated_at = {1: t}
+        status = engine._run_load_balancer(state, slot, t)
+        assert status.shed_outputs[0].shed
+        assert status.shed_outputs[0].actively_shedding is (sec == 5)
+        assert engine._load_balancer._shed_at["pump"] == NOW
+        await engine._notify_balancer_interventions(status)
+    engine.dispatcher.notify_balancer_intervention.assert_called_once()

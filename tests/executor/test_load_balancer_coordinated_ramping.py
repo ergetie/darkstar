@@ -865,3 +865,145 @@ class TestPlannedSwitches:
         assert out.battery_output.cap_w == 3000 + STEP_W
         assert out.battery_output.state == "idle"
         assert out.state == "idle"
+
+
+class TestSheddingProvenance:
+    @staticmethod
+    def load(**kwargs):
+        return ShedLoadInput(
+            "pump", "custom_entity", [1], power_w=2300, power_source="configured", **kwargs
+        )
+
+    @pytest.mark.parametrize("requested_on", [True, False])
+    @pytest.mark.parametrize("current_on", [False, None])
+    def test_startup_is_safe_off_without_intervention(self, requested_on, current_on, caplog):
+        lb = make_lb()
+        load = self.load(requested_on=requested_on, current_on=current_on, min_off_s=300)
+        with caplog.at_level(logging.INFO):
+            status = lb.tick(T0, grid(15), fresh(T0), [load])
+        assert status.shed_outputs[0].shed
+        assert not status.shed_outputs[0].actively_shedding
+        assert status.state == "idle"
+        assert "-> shedding" not in caplog.text
+        snapshot = lb.trace.snapshot()[-1]
+        assert snapshot["shed"] == ["pump"]
+        assert snapshot["actively_shedding"] == []
+
+    @pytest.mark.parametrize("demand", [True, None])
+    def test_actual_cut_persists_until_granted_restore(self, demand):
+        lb = make_lb()
+        load = self.load(requested_on=demand, current_on=True, min_off_s=300)
+        status = lb.tick(T0, grid(25), fresh(T0), [load])
+        assert status.state == "shedding"
+        assert status.shed_outputs[0].actively_shedding
+        for sec, amps in [(5, 5), (121, 5), (301, 15)]:
+            t = T0 + timedelta(seconds=sec)
+            status = lb.tick(t, grid(amps), fresh(t), [load])
+            assert status.shed_outputs[0].actively_shedding
+            assert status.shed_outputs[0].shed
+            assert lb._shed_at["pump"] == T0
+        t += timedelta(seconds=5)
+        status = lb.tick(t, grid(5), fresh(t), [load])
+        assert not status.shed_outputs[0].shed
+        assert not status.shed_outputs[0].actively_shedding
+        assert status.state == "idle"
+
+    def test_plan_cancellation_preserves_clock_and_never_revives_cut(self, caplog):
+        lb = make_lb()
+        load = self.load(requested_on=True, current_on=True, min_off_s=300)
+        assert lb.tick(T0, grid(25), fresh(T0), [load]).shed_outputs[0].actively_shedding
+        load.requested_on = False
+        t = T0 + timedelta(seconds=5)
+        with caplog.at_level(logging.INFO):
+            status = lb.tick(t, grid(5), fresh(t), [load])
+        assert status.shed_outputs[0].shed
+        assert not status.shed_outputs[0].actively_shedding
+        assert status.shed_outputs[0].reason == "Planned off"
+        assert "-> off off" in caplog.text
+        assert "-> on" not in caplog.text
+        assert lb._shed_at["pump"] == T0
+        load.requested_on = True
+        t += timedelta(seconds=5)
+        status = lb.tick(t, grid(5), fresh(t), [load])
+        assert status.shed_outputs[0].shed
+        assert not status.shed_outputs[0].actively_shedding
+        assert "overloaded" not in status.shed_outputs[0].reason
+        assert lb._shed_at["pump"] == T0
+
+    def test_planned_stop_and_urgent_cut_during_min_on_are_not_shedding(self):
+        lb = make_lb()
+        load = self.load(requested_on=False, current_on=True, min_on_s=300)
+        status = lb.tick(T0, grid(5), fresh(T0), [load])
+        assert not status.shed_outputs[0].shed
+        t = T0 + timedelta(seconds=5)
+        status = lb.tick(t, grid(25), fresh(t), [load])
+        assert status.shed_outputs[0].shed
+        assert not status.shed_outputs[0].actively_shedding
+        assert status.state == "idle"
+
+    @pytest.mark.parametrize("cleanup", ["remove", "disable"])
+    def test_cleanup_discards_provenance(self, cleanup):
+        lb = make_lb()
+        load = self.load(requested_on=None)
+        lb.tick(T0, grid(25), fresh(T0), [load])
+        assert lb._active_shedding == {"pump"}
+        if cleanup == "disable":
+            lb.config.enabled = False
+        t = T0 + timedelta(seconds=5)
+        lb.tick(t, grid(5), fresh(t), [] if cleanup == "remove" else [load])
+        assert lb._active_shedding == set()
+        lb.config.enabled = True
+        status = lb.tick(t, grid(5), fresh(t), [load])
+        assert not status.shed_outputs[0].actively_shedding
+
+    def test_unknown_demand_does_not_cancel_real_cut(self):
+        lb = make_lb()
+        load = self.load(requested_on=True, current_on=True)
+        lb.tick(T0, grid(25), fresh(T0), [load])
+        load.requested_on = None
+        t = T0 + timedelta(seconds=5)
+        assert lb.tick(t, grid(5), fresh(t), [load]).shed_outputs[0].actively_shedding
+
+    def test_cooling_and_reverse_order_keep_intervention_active(self):
+        lb = make_lb(resume_delay_s=0)
+        load = self.load(requested_on=None)
+        lb.tick(T0, grid(25), fresh(T0), [load])
+        lb._relief_trigger.hot = {1}
+        t = T0 + timedelta(seconds=5)
+        status = lb.tick(t, grid(5), fresh(t), [load])
+        assert status.shed_outputs[0].actively_shedding
+        assert "heat must cool" in status.shed_outputs[0].reason
+        lb._relief_trigger.hot.clear()
+        lower = ShedLoadInput(
+            "lower", "custom_entity", [1], power_w=2300, power_source="configured", min_off_s=300
+        )
+        t += timedelta(seconds=5)
+        lb.tick(t, grid(25), fresh(t), [load, lower])
+        t += timedelta(seconds=5)
+        status = lb.tick(t, grid(5), fresh(t), [load, lower])
+        assert all(o.actively_shedding for o in status.shed_outputs)
+        assert lb.trace.snapshot()[-1]["actively_shedding"] == ["lower", "pump"]
+        t += timedelta(seconds=301)
+        status = lb.tick(t, grid(5), fresh(t), [load, lower])
+        assert status.shed_outputs[0].actively_shedding
+        assert not status.shed_outputs[1].actively_shedding
+
+    def test_routine_off_does_not_mask_ev_or_battery_throttling(self):
+        for entry in [ev(16), battery(6000, 6000)]:
+            lb = make_lb()
+            load = self.load(requested_on=False)
+            status = lb.tick(T0, grid(24), fresh(T0), [entry, load])
+            assert status.state == "throttling"
+            assert status.shed_outputs[0].shed
+            assert not status.shed_outputs[0].actively_shedding
+
+    def test_routine_off_does_not_mask_pause_or_stale_fallback(self):
+        lb = make_lb()
+        load = self.load(requested_on=False)
+        status = lb.tick(T0, grid(30), fresh(T0), [ev(6), load])
+        assert status.state == "paused"
+        assert not status.shed_outputs[0].actively_shedding
+        lb = make_lb()
+        status = lb.tick(T0, grid(5), {}, [ev(16), load])
+        assert status.state == "stale_fallback"
+        assert not status.shed_outputs[0].actively_shedding

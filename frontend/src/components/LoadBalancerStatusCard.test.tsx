@@ -165,6 +165,31 @@ describe('LoadBalancerStatusCard', () => {
         expect(screen.getAllByText('1-phase on L1 — relieving L3')).toHaveLength(1)
     })
 
+    it.each([false, undefined])('omits routine off warnings and headings (active=%s)', async (active) => {
+        vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue({
+            enabled: true,
+            state: 'idle',
+            reason: '',
+            main_fuse_a: 20,
+            phase_current_a: { '1': 5 },
+            phase_headroom_a: { '1': 15 },
+            ev: [],
+            shed: [
+                {
+                    load_id: 'main_tank',
+                    device_type: 'water_heater',
+                    shed: true,
+                    actively_shedding: active,
+                    reason: 'Planned off',
+                },
+            ],
+        } as LoadBalancerStatusResponse)
+        renderCard()
+        await screen.findByText('Within Limits')
+        expect(screen.queryByText(/Shed:/)).not.toBeInTheDocument()
+        expect(screen.queryByText('Shedding Loads')).not.toBeInTheDocument()
+    })
+
     it('shows shed loads when the balancer is shedding', async () => {
         vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue({
             enabled: true,
@@ -174,13 +199,31 @@ describe('LoadBalancerStatusCard', () => {
             phase_current_a: { '1': 5, '2': 25, '3': 5 },
             phase_headroom_a: { '1': 15, '2': -5, '3': 15 },
             ev: [],
-            shed: [{ load_id: 'main_tank', device_type: 'water_heater', shed: true, reason: 'phase overloaded' }],
+            shed: [
+                {
+                    load_id: 'main_tank',
+                    device_type: 'water_heater',
+                    shed: true,
+                    actively_shedding: true,
+                    reason: 'phase overloaded',
+                },
+                {
+                    load_id: 'planned_load',
+                    device_type: 'other',
+                    shed: true,
+                    actively_shedding: false,
+                    reason: 'Planned off',
+                },
+                { load_id: 'legacy_load', device_type: 'other', shed: true, reason: '' },
+            ],
         } as LoadBalancerStatusResponse)
 
         renderCard()
 
         await waitFor(() => {
             expect(screen.getByText(/Shed: main_tank/)).toBeInTheDocument()
+            expect(screen.queryByText(/Shed: planned_load/)).not.toBeInTheDocument()
+            expect(screen.queryByText(/Shed: legacy_load/)).not.toBeInTheDocument()
         })
     })
 })
