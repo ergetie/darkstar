@@ -24,8 +24,13 @@ jobs:
   test:
     name: API Tests Gating
     runs-on: ubuntu-latest
+    outputs:
+      dev_version: ${{ steps.version.outputs.dev_version }}
     steps:
       - uses: actions/checkout@v6
+      - name: Generate shared dev version
+        id: version
+        run: echo "dev_version=dev-$(date -u +'%y%m%d.%H%M')" >> "$GITHUB_OUTPUT"
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -67,6 +72,8 @@ jobs:
 
       - name: Setup environment
         id: setup
+        env:
+          DEV_VERSION: ${{ needs.test.outputs.dev_version }}
         run: |
           if [[ $GITHUB_REF == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
@@ -75,7 +82,7 @@ jobs:
             IS_DEV=false
           else
             # Build DEV image for any non-tag push (main or dev)
-            VERSION="dev-$(date +'%y%m%d.%H%M')"
+            VERSION="$DEV_VERSION"
             IMAGE_NAME="ergetie/darkstar-dev"
             ADDON_PATH="darkstar-dev"
             IS_DEV=true
@@ -123,8 +130,9 @@ jobs:
 
           # Re-apply the version bump to the dev branch file
           sed -i "s/^version: .*/version: \"${{ steps.setup.outputs.version }}\"/" darkstar-dev/config.yaml
+          echo "${{ steps.setup.outputs.version }}" > VERSION
 
-          git add darkstar-dev/config.yaml
+          git add darkstar-dev/config.yaml VERSION
           git commit -m "chore(dev): bump version to ${{ steps.setup.outputs.version }} [skip ci]"
           git push origin ${{ github.ref_name }}
 
