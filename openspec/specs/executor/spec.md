@@ -260,7 +260,7 @@ The executor, recorder, load disaggregator and live-power socket mapping SHALL N
 #### Scenario: current_water_temp comes from the first configured heater
 - **WHEN** the executor determines its single `current_water_temp` value
 - **THEN** the value SHALL be taken from the first configured heater (`water_heater_devices[0]`)
-- **AND** when that heater is switch-controlled, no read occurs and `current_water_temp` keeps its default
+- **AND** when that heater is switch-controlled, no read occurs and `current_water_temp` stays `None` (no reading)
 
 #### Scenario: Water heating disabled skips sensor reads
 - **WHEN** the recorder or executor gathers power sensor readings
@@ -275,7 +275,7 @@ The executor, recorder, load disaggregator and live-power socket mapping SHALL N
 
 #### Scenario: Switch-controlled heater
 - **WHEN** a heater has `control_type: switch` and target entity state "on"
-- **THEN** no temperature read or parse is attempted for it, no warning is logged, and `current_water_temp` keeps its default
+- **THEN** no temperature read or parse is attempted for it, no warning is logged, and `current_water_temp` stays `None` (no reading)
 
 #### Scenario: Temperature-controlled heater
 - **WHEN** the first heater has `control_type: temperature` and the entity state is "55.5"
@@ -298,6 +298,14 @@ The executor, recorder, load disaggregator and live-power socket mapping SHALL N
 #### Scenario: Socket client with flag off
 - **GIVEN** `system.has_water_heater` is `false` with configured heaters
 - **THEN** no `water_kw_*` mapping exists and `water_heater_configs` is empty
+
+#### Scenario: Failed temperature read records no value
+- **WHEN** the first heater is `control_type: temperature` and its state cannot be parsed as a number
+- **THEN** `current_water_temp` SHALL stay `None` and the execution record's `before_water_temp` SHALL be `None`
+
+#### Scenario: Switch heater records no temperature
+- **WHEN** the first heater is `control_type: switch`
+- **THEN** the execution record's `before_water_temp` SHALL be `None`, not a default such as 50
 
 ### Requirement: EV charger sensor reads are gated by has_ev_charger flag
 The recorder SHALL NOT fetch EV charger power sensors when `system.has_ev_charger` is `false`.
@@ -752,3 +760,41 @@ When `reload_config()` loads a changed config, the new `ExecutorConfig` SHALL be
 - **WHEN** an API thread calls `reload_config()` with `soc_target: number.inverter_program_6_soc` before the tick's SoC write
 - **THEN** that tick writes only `input_number.master_soc_target`
 - **AND** the next tick writes `number.inverter_program_6_soc`
+
+### Requirement: EV source isolation preserves the slot plan
+EV source isolation SHALL zero only battery discharge; every other `SlotPlan` field SHALL reach the controller unchanged. Water heaters SHALL follow their plan during isolation for every trigger.
+
+#### Scenario: Planned EV charging with per-device water plan
+- **GIVEN** a switch-controlled heater planned at 3.1 kW and planned EV charging in the same slot
+- **WHEN** isolation starts
+- **THEN** the heater's decision temperature SHALL be `temp_normal` and the heater switch SHALL be turned or left on
+
+#### Scenario: Manual EV charge with water plan
+- **GIVEN** an active manual EV charge and a heater planned in the slot
+- **WHEN** the executor ticks
+- **THEN** the heater SHALL stay on its plan
+
+#### Scenario: Actual unplanned charging with water plan
+- **GIVEN** measured EV power above 0.1 kW, no planned EV charging, and a heater planned in the slot
+- **WHEN** the executor ticks
+- **THEN** the heater SHALL stay on its plan
+
+#### Scenario: All other fields preserved
+- Fields include `water_heater_plans`, `water_heating_boost`, `ev_charger_plans`, `ev_surplus_kw`, `custom_entity_active`, `soc_entry`, `slot_start`, `slot_end`.
+- **WHEN** isolation builds its slot from any `SlotPlan`
+- **THEN** every field of `SlotPlan` except `discharge_kw` and `discharge_blocked_by_ev` SHALL equal the original's
+
+### Requirement: Executor page shows the before-state of the water heater without a fake temperature
+In "State before execution" the Executor page SHALL show a numeric temperature with `°C` only when `before_water_temp` has a value. For a switch (on/off) heater with no temperature it SHALL show the heater's switch state before execution (On or Off, from the `previous_value` of the record's `water_switch` action). When neither is available it SHALL show "—" without a unit.
+
+#### Scenario: Switch heater
+- **GIVEN** a record with `before_water_temp` null and a `water_switch` action whose `previous_value` is "off"
+- **THEN** the cell SHALL show "Off" and no `°C`
+
+#### Scenario: Temperature heater with failed read
+- **GIVEN** a record with `before_water_temp` null and no `water_switch` action
+- **THEN** the cell SHALL show "—" with no `°C`
+
+#### Scenario: Temperature heater with a reading
+- **GIVEN** `before_water_temp` 55.5
+- **THEN** the cell SHALL show the temperature with `°C`

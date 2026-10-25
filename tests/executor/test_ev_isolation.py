@@ -5,13 +5,26 @@ Production-grade test suite for battery discharge prevention during EV charging.
 Covers fail-safe error handling, state-based logging, and threshold edge cases.
 """
 
+import dataclasses
 import logging
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from executor.config import ControllerConfig, InverterConfig
-from executor.controller import Controller, ControllerDecision, make_decision
+from executor.config import (
+    ControllerConfig,
+    ExecutorConfig,
+    InverterConfig,
+    WaterHeaterDeviceConfig,
+    WaterHeaterGlobalConfig,
+)
+from executor.controller import (
+    MIN_SOC_GUARD_REASON,
+    Controller,
+    ControllerDecision,
+    make_decision,
+)
 from executor.engine import ExecutorEngine
 from executor.override import OverrideResult, SlotPlan, SystemState
 
@@ -170,6 +183,52 @@ class TestControllerEVIsolation:
 
         assert decision.mode_intent == "idle"
 
+    def test_flagged_isolation_slot_idles_above_target(self, controller, base_state):
+        """Manual / actual-only / surplus isolation: no planned kW, no keep-on, flag set."""
+        slot = SlotPlan(
+            discharge_kw=0.0,
+            ev_charging_kw=0.0,
+            soc_target=60,
+            discharge_blocked_by_ev=True,
+        )
+        decision = make_decision(
+            slot, base_state, None, controller.config, controller.inverter_config, None, None
+        )
+        assert decision.mode_intent == "idle"
+
+    def test_flagged_isolation_keeps_planned_grid_charge(self, controller):
+        """Planned grid charge below its target still wins over isolation."""
+        state = SystemState(current_soc_percent=40.0, min_soc_percent=10.0)
+        slot = SlotPlan(
+            charge_kw=3.0,
+            grid_charge_kw=3.0,
+            discharge_kw=0.0,
+            soc_target=60,
+            discharge_blocked_by_ev=True,
+        )
+        decision = make_decision(
+            slot, state, None, controller.config, controller.inverter_config, None, None
+        )
+        assert decision.mode_intent == "charge"
+
+    def test_isolation_composes_with_min_soc_guard(self, controller):
+        """Engaged guard leaves the already-idle isolated slot (and its reason) alone."""
+        state = SystemState(current_soc_percent=10.0, min_soc_percent=10.0)
+        slot = SlotPlan(discharge_kw=0.0, soc_target=60, discharge_blocked_by_ev=True)
+        decision = make_decision(
+            slot, state, None, controller.config, controller.inverter_config, None, None
+        )
+        assert decision.mode_intent == "idle"
+        assert MIN_SOC_GUARD_REASON not in decision.reason
+
+    def test_unflagged_hold_slot_unchanged(self, controller, base_state):
+        """A plain hold slot above target (no isolation) still follows the hold logic."""
+        slot = SlotPlan(discharge_kw=0.0, ev_charging_kw=0.0, soc_target=60)
+        decision = make_decision(
+            slot, base_state, None, controller.config, controller.inverter_config, None, None
+        )
+        assert decision.mode_intent == "self_consumption"
+
 
 class TestEngineEVIsolation:
     """Test engine.py EV isolation: discharge blocking & fail-safe."""
@@ -322,39 +381,143 @@ class TestEngineEVIsolation:
         warning_count = caplog.text.count("EV power monitoring failed")
         assert warning_count == 1
 
-    def test_slot_reconstruction_preserves_all_fields(self):
-        """ALL fields preserved when blocking discharge."""
-        original = SlotPlan(
-            charge_kw=5.0,
-            discharge_kw=3.0,
-            export_kw=2.0,
-            load_kw=1.0,
-            water_kw=0.5,
-            ev_charging_kw=0.15,
-            soc_target=80,
-            soc_projected=75,
-        )
 
-        # Simulate reconstruction
-        new_slot = SlotPlan(
-            charge_kw=original.charge_kw,
-            discharge_kw=0.0,  # Modified (safety)
-            export_kw=original.export_kw,
-            load_kw=original.load_kw,
-            water_kw=original.water_kw,
-            ev_charging_kw=original.ev_charging_kw,  # Preserved
-            soc_target=original.soc_target,
-            soc_projected=original.soc_projected,
-        )
+class _StopTick(Exception):
+    """Raised by the make_decision spy to end the tick after capturing."""
 
-        assert new_slot.charge_kw == 5.0
-        assert new_slot.discharge_kw == 0.0  # Safety modification
-        assert new_slot.export_kw == 2.0
-        assert new_slot.load_kw == 1.0
-        assert new_slot.water_kw == 0.5
-        assert new_slot.ev_charging_kw == 0.15  # Critical: EV data preserved
-        assert new_slot.soc_target == 80
-        assert new_slot.soc_projected == 75
+
+class TestIsolationSlotThroughEngine:
+    """The slot the engine hands to make_decision during EV source isolation."""
+
+    @pytest.fixture
+    def engine(self):
+        with (
+            patch("executor.engine.load_executor_config"),
+            patch("executor.engine.load_yaml") as mock_yaml,
+            patch("executor.engine.ExecutionHistory"),
+            patch("executor.engine.LoadDisaggregator") as mock_disagg,
+        ):
+            mock_yaml.return_value = {
+                "system": {"has_battery": True, "has_water_heater": True},
+                "ev_chargers": [],
+                "water_heaters": [],
+            }
+            eng = ExecutorEngine()
+        eng.config = ExecutorConfig(
+            water_heater=WaterHeaterGlobalConfig(temp_normal=60, temp_off=40),
+            water_heater_devices=[
+                WaterHeaterDeviceConfig(
+                    id="vvb", target_entity="switch.vvb", control_type="switch"
+                )
+            ],
+        )
+        eng.ha_client = None
+        eng._has_ev_charger = True
+        eng._has_battery = True
+        eng._load_disaggregator = mock_disagg.return_value
+        eng._load_disaggregator.update_current_power = AsyncMock()
+        eng._load_disaggregator.get_total_ev_power.return_value = 0.0
+        eng._gather_system_state = AsyncMock(
+            return_value=SystemState(current_soc_percent=65.0, min_soc_percent=10.0)
+        )
+        eng._maybe_request_ev_manual_replan = MagicMock()
+        return eng
+
+    async def _isolated(self, engine, slot, actual_ev_kw=0.0):
+        """Run one tick; return (slot passed to make_decision, decision)."""
+        engine._load_current_slot = MagicMock(return_value=(slot, "slot"))
+        engine._load_disaggregator.get_total_ev_power.return_value = actual_ev_kw
+        captured: dict = {}
+
+        def spy(passed_slot, *args, **kwargs):
+            captured["slot"] = passed_slot
+            captured["decision"] = make_decision(passed_slot, *args, **kwargs)
+            raise _StopTick
+
+        with patch("executor.engine.make_decision", side_effect=spy):
+            await engine._tick()
+        return captured["slot"], captured["decision"]
+
+    @pytest.mark.asyncio
+    async def test_all_fields_preserved(self, engine):
+        """Generic over SlotPlan fields: only discharge_kw and the flag change."""
+        now = datetime(2026, 10, 24, 1, 45)
+        values: dict = {}
+        for f in dataclasses.fields(SlotPlan):
+            default = SlotPlan.__dataclass_fields__[f.name].default
+            if f.name in ("discharge_kw", "discharge_blocked_by_ev"):
+                continue
+            if f.name == "soc_entry":
+                values[f.name] = 33
+            elif f.name == "slot_start":
+                values[f.name] = now
+            elif f.name == "slot_end":
+                values[f.name] = now + timedelta(minutes=15)
+            elif f.name == "grid_charge_kw":
+                values[f.name] = 1.5
+            elif f.name.endswith("_plans") or f.name in ("ev_surplus_kw", "water_heating_boost"):
+                values[f.name] = {"x": 1.0} if f.name != "water_heating_boost" else {"x": True}
+            elif f.name in ("custom_entity_active", "ev_keep_on"):
+                values[f.name] = {"1": True}
+            elif isinstance(default, int):
+                values[f.name] = 77
+            else:
+                values[f.name] = 1.25
+        values["ev_charging_kw"] = 6.0  # trigger isolation
+        original = SlotPlan(discharge_kw=2.0, **values)
+        assert set(values) | {"discharge_kw", "discharge_blocked_by_ev"} == {
+            f.name for f in dataclasses.fields(SlotPlan)
+        }
+
+        passed, _ = await self._isolated(engine, original)
+
+        assert passed.discharge_kw == 0.0
+        assert passed.discharge_blocked_by_ev is True
+        for name, value in values.items():
+            assert getattr(passed, name) == value, name
+
+    @pytest.mark.asyncio
+    async def test_planned_ev_keeps_heater_on(self, engine):
+        slot = SlotPlan(
+            discharge_kw=1.0, ev_charging_kw=6.0, water_kw=3.1, water_heater_plans={"vvb": 3.1}
+        )
+        _, decision = await self._isolated(engine, slot)
+        assert decision.water_temps["vvb"] == 60
+        assert decision.mode_intent == "idle"
+
+    @pytest.mark.asyncio
+    async def test_manual_charge_keeps_heater_on(self, engine):
+        engine._ev_manual_charge = {"c1": MagicMock()}
+        engine._check_ev_manual_charge_end = AsyncMock()
+        slot = SlotPlan(water_kw=3.1, water_heater_plans={"vvb": 3.1}, soc_target=60)
+        _, decision = await self._isolated(engine, slot)
+        assert decision.water_temps["vvb"] == 60
+        assert decision.mode_intent == "idle"
+
+    @pytest.mark.asyncio
+    async def test_actual_unplanned_charge_keeps_heater_on(self, engine):
+        slot = SlotPlan(water_kw=3.1, water_heater_plans={"vvb": 3.1}, soc_target=60)
+        _, decision = await self._isolated(engine, slot, actual_ev_kw=7.0)
+        assert decision.water_temps["vvb"] == 60
+        assert decision.mode_intent == "idle"
+
+    @pytest.mark.asyncio
+    async def test_keep_on_keeps_heater_on(self, engine):
+        slot = SlotPlan(water_kw=3.1, water_heater_plans={"vvb": 3.1}, ev_keep_on={"c1": True})
+        _, decision = await self._isolated(engine, slot)
+        assert decision.water_temps["vvb"] == 60
+
+    @pytest.mark.asyncio
+    async def test_surplus_keeps_heater_on(self, engine):
+        slot = SlotPlan(
+            water_kw=3.1,
+            water_heater_plans={"vvb": 3.1},
+            ev_surplus_kw={"c1": 5.0},
+            soc_target=60,
+        )
+        _, decision = await self._isolated(engine, slot)
+        assert decision.water_temps["vvb"] == 60
+        assert decision.mode_intent == "idle"
 
 
 class TestEVLoggingStateMachine:

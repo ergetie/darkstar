@@ -105,7 +105,7 @@ async def test_switch_heater_does_not_block_phase_currents(temp_schedule, caplog
 
     assert "switch.vvb" not in requested
     assert not [r for r in caplog.records if "switch.vvb" in r.getMessage()]
-    assert state.current_water_temp == 50.0
+    assert state.current_water_temp is None
     assert state.grid_current_a == {1: 10.0, 2: 10.0, 3: 10.0}
     assert not _balancer_stale(engine, state)
 
@@ -143,6 +143,7 @@ async def test_non_numeric_sensor_does_not_block_phase_currents(temp_schedule, c
     engine, _ = _make_engine(temp_schedule, [heater], {"sensor.tank": "garbage"})
     with caplog.at_level(logging.WARNING):
         state = await engine._gather_system_state()
+    assert state.current_water_temp is None  # failed read: no fake default
     assert state.grid_current_a == {1: 10.0, 2: 10.0, 3: 10.0}
     assert any("sensor.tank" in r.getMessage() for r in caplog.records)
 

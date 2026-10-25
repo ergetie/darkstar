@@ -74,7 +74,7 @@ class SystemState:
 
     # Water heater
     has_water_heater: bool = True
-    current_water_temp: float = 50.0
+    current_water_temp: float | None = None
     water_temp_target: float = 60.0
 
     # Price info

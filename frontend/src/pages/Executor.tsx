@@ -120,7 +120,7 @@ type ExecutionRecord = {
     // State before execution
     before_soc_percent?: number
     before_work_mode?: string
-    before_water_temp?: number
+    before_water_temp?: number | null
     before_pv_kw?: number
     before_load_kw?: number
     // Action details (REV F52 Phase 2)
@@ -129,6 +129,22 @@ type ExecutionRecord = {
     duration_ms?: number
     error_message?: string
     source?: string
+}
+
+// Before-state of the first water heater: temperature, else switch state, else none.
+function describeWaterBefore(
+    beforeTemp: number | null | undefined,
+    actions: ActionResult[] | undefined,
+): { text: string; isSwitch: boolean } {
+    if (typeof beforeTemp === 'number') return { text: `${beforeTemp}°C`, isSwitch: false }
+    const sw = actions?.find((a) => a.type === 'water_switch')
+    if (sw) {
+        const prev = String(sw.previous_value ?? '').toLowerCase()
+        if (prev === 'on') return { text: 'On', isSwitch: true }
+        if (prev === 'off') return { text: 'Off', isSwitch: true }
+        return { text: '—', isSwitch: true }
+    }
+    return { text: '—', isSwitch: false }
 }
 
 // REV F52 Phase 2: ActionResult interface for type safety
@@ -1468,12 +1484,20 @@ export default function Executor() {
                                                             {record.before_load_kw?.toFixed(1) ?? '—'} kW
                                                         </span>
                                                     </div>
-                                                    <div className="flex flex-col">
-                                                        <span className="text-muted/60">Water Temp</span>
-                                                        <span className="text-text">
-                                                            {record.before_water_temp ?? '—'}°C
-                                                        </span>
-                                                    </div>
+                                                    {(() => {
+                                                        const water = describeWaterBefore(
+                                                            record.before_water_temp,
+                                                            record.action_results,
+                                                        )
+                                                        return (
+                                                            <div className="flex flex-col">
+                                                                <span className="text-muted/60">
+                                                                    {water.isSwitch ? 'Water Heater' : 'Water Temp'}
+                                                                </span>
+                                                                <span className="text-text">{water.text}</span>
+                                                            </div>
+                                                        )
+                                                    })()}
                                                 </div>
                                             </div>
 

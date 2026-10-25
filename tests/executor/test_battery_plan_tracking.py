@@ -144,9 +144,13 @@ class TestHoldMargin:
         assert controller.decide(slot, _soc(12)).mode_intent == "idle"
         assert controller.decide(slot, _soc(13)).mode_intent == "self_consumption"
 
-    def test_ev_isolated_slot_is_not_a_hold(self, controller):
+    def test_ev_isolated_slot_idles_without_hold_margin(self, controller):
+        # Isolation always idles (ev-isolation-slot-and-water-state D2); it is
+        # not a hold slot, so no hold-margin reason is attached.
         slot = SlotPlan(discharge_kw=0.0, soc_target=12, discharge_blocked_by_ev=True)
-        assert controller.decide(slot, _soc(13)).mode_intent == "self_consumption"
+        decision = controller.decide(slot, _soc(13))
+        assert decision.mode_intent == "idle"
+        assert HOLD_MARGIN_REASON not in decision.reason
 
     def test_pv_shortfall_at_most_one_block(self, controller):
         socs = [50, 49, 48, 49, 48, 49, 50, 49]

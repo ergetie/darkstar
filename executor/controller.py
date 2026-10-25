@@ -249,7 +249,9 @@ class Controller:
         note: str | None = None
         live_soc = round(state.current_soc_percent)
         ev_isolating = slot.discharge_kw == 0 and (
-            slot.ev_charging_kw > 0.1 or any(slot.ev_keep_on.values())
+            slot.ev_charging_kw > 0.1
+            or any(slot.ev_keep_on.values())
+            or slot.discharge_blocked_by_ev
         )
         if slot.export_kw > 0 and slot.discharge_kw > 0:
             # Battery discharge to grid - use export mode
@@ -269,7 +271,9 @@ class Controller:
         elif ev_isolating:
             # REV F76 Phase 3: EV charging active - idle prevents any battery
             # discharge to EV. keep_on-only slots (no planned kW) get the same
-            # treatment (design D4). Takes precedence over the hold margin.
+            # treatment (design D4). Engine-isolated slots (manual, actual-only,
+            # surplus) carry discharge_blocked_by_ev. Takes precedence over the
+            # hold margin.
             self.plan_state.enter(None, None)
             mode_intent = "idle"
         elif slot.discharge_kw == 0 and not slot.discharge_blocked_by_ev:

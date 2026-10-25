@@ -1926,19 +1926,10 @@ class ExecutorEngine:
                     self._ev_detected_last_tick = True
 
                 # Force zero discharge to prevent battery → EV energy flow
-                slot = SlotPlan(
-                    charge_kw=slot.charge_kw,
-                    grid_charge_kw=slot.grid_charge_kw,
-                    discharge_kw=0.0,  # Block discharge
-                    export_kw=slot.export_kw,
-                    load_kw=slot.load_kw,
-                    water_kw=slot.water_kw,
-                    ev_charging_kw=slot.ev_charging_kw,  # REV F76: Preserve EV data
-                    soc_target=slot.soc_target,
-                    soc_projected=slot.soc_projected,
-                    ev_keep_on=slot.ev_keep_on,  # Preserve for _follow_plan's keep-on idle check
-                    discharge_blocked_by_ev=True,  # Not a planned hold: no hold margin
-                )
+                # Only discharge changes; every other field (water plans, EV plans,
+                # slot times, ...) must reach the controller. The flag marks
+                # isolation for every trigger (not a planned hold: no hold margin).
+                slot = replace(slot, discharge_kw=0.0, discharge_blocked_by_ev=True)
 
                 # Set isolation/keep-on reason for execution record
                 actual_for_reason = actual_ev_power_kw if not self._ev_power_fetch_failed else 0.0

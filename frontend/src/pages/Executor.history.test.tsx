@@ -159,3 +159,41 @@ describe('Execution history source filter', () => {
         expect(screen.getAllByText('HTTP 500: min 6').length).toBeGreaterThan(0)
     })
 })
+
+describe('Execution history water before-state', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    async function renderExpanded(overrides: Record<string, unknown>) {
+        mockFetch([{ ...EV_FAILURE_RECORD, ...overrides }])
+        render(
+            <MemoryRouter>
+                <ExecutorPage />
+            </MemoryRouter>,
+        )
+        fireEvent.click(await screen.findByText(/EV current/))
+    }
+
+    it('shows the switch state for a switch heater and no temperature unit', async () => {
+        await renderExpanded({
+            before_water_temp: null,
+            action_results: [{ type: 'water_switch', success: true, message: 'ok', previous_value: 'off' }],
+        })
+        expect(await screen.findByText('Water Heater')).toBeInTheDocument()
+        expect(screen.getByText('Off')).toBeInTheDocument()
+        expect(screen.queryByText(/°C/)).not.toBeInTheDocument()
+    })
+
+    it('shows a bare dash for a failed temperature read', async () => {
+        await renderExpanded({ before_water_temp: null })
+        const label = await screen.findByText('Water Temp')
+        expect(label.nextElementSibling).toHaveTextContent(/^—$/)
+        expect(screen.queryByText(/°C/)).not.toBeInTheDocument()
+    })
+
+    it('shows the temperature with a unit when a reading exists', async () => {
+        await renderExpanded({ before_water_temp: 55.5 })
+        expect(await screen.findByText('55.5°C')).toBeInTheDocument()
+    })
+})
