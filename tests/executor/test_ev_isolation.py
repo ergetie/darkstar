@@ -20,7 +20,9 @@ from executor.config import (
     WaterHeaterGlobalConfig,
 )
 from executor.controller import (
+    EV_ISOLATION_REASON,
     MIN_SOC_GUARD_REASON,
+    BatteryPlanState,
     Controller,
     ControllerDecision,
     make_decision,
@@ -220,6 +222,75 @@ class TestControllerEVIsolation:
         )
         assert decision.mode_intent == "idle"
         assert MIN_SOC_GUARD_REASON not in decision.reason
+
+    @staticmethod
+    def _pv_charge_slot(**kwargs):
+        return SlotPlan(
+            charge_kw=3.0,
+            grid_charge_kw=0.0,
+            discharge_kw=0.0,
+            export_kw=0.0,
+            soc_target=80,
+            **kwargs,
+        )
+
+    def _decide(self, controller, slot, soc=50.0):
+        state = SystemState(current_soc_percent=soc, min_soc_percent=10.0)
+        return make_decision(
+            slot, state, None, controller.config, controller.inverter_config, None, None
+        )
+
+    def test_pv_charge_flagged_isolation_idles_with_reason(self, controller):
+        decision = self._decide(controller, self._pv_charge_slot(discharge_blocked_by_ev=True))
+        assert decision.mode_intent == "idle"
+        assert EV_ISOLATION_REASON in decision.reason
+
+    def test_pv_charge_planned_ev_idles(self, controller):
+        decision = self._decide(controller, self._pv_charge_slot(ev_charging_kw=0.5))
+        assert decision.mode_intent == "idle"
+
+    def test_pv_charge_keep_on_only_idles(self, controller):
+        decision = self._decide(controller, self._pv_charge_slot(ev_keep_on={"ev1": True}))
+        assert decision.mode_intent == "idle"
+
+    def test_pv_charge_without_ev_is_self_consumption(self, controller):
+        decision = self._decide(controller, self._pv_charge_slot())
+        assert decision.mode_intent == "self_consumption"
+        assert EV_ISOLATION_REASON not in decision.reason
+
+    def test_existing_isolation_idle_branch_has_reason(self, controller):
+        slot = SlotPlan(discharge_kw=0.0, soc_target=60, discharge_blocked_by_ev=True)
+        decision = self._decide(controller, slot, soc=65.0)
+        assert EV_ISOLATION_REASON in decision.reason
+
+    def test_pv_charge_isolation_composes_with_min_soc_guard(self, controller):
+        slot = self._pv_charge_slot(discharge_blocked_by_ev=True)
+        plan_state = BatteryPlanState()
+        state = SystemState(current_soc_percent=10.0, min_soc_percent=10.0)
+        decision = make_decision(
+            slot,
+            state,
+            None,
+            controller.config,
+            controller.inverter_config,
+            None,
+            None,
+            plan_state=plan_state,
+        )
+        assert decision.mode_intent == "idle"
+        assert EV_ISOLATION_REASON in decision.reason
+        assert MIN_SOC_GUARD_REASON not in decision.reason
+        assert plan_state.min_soc_guard is True
+
+    def test_grid_charge_below_target_not_overridden_by_isolation(self, controller):
+        slot = SlotPlan(
+            charge_kw=3.0,
+            grid_charge_kw=3.0,
+            discharge_kw=0.0,
+            soc_target=80,
+            discharge_blocked_by_ev=True,
+        )
+        assert self._decide(controller, slot, soc=40.0).mode_intent == "charge"
 
     def test_unflagged_hold_slot_unchanged(self, controller, base_state):
         """A plain hold slot above target (no isolation) still follows the hold logic."""

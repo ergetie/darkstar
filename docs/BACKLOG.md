@@ -49,12 +49,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Reported on Discord 2026-09-22 by two users, one with an EV: "tick success 57.51% over 24 h (82/193 failed)" while everything worked. `backend/monitors.py` computes the rate over throttled `execution_log` rows; failed ticks are always logged while healthy ones are throttled, so failures are over-weighted (the code comment admits the bias). Possible trigger, not confirmed: the EV charge-failure check marking ticks unsuccessful for a plugged-in or sleeping car. **(needs production data)**
 
-#### [Executor] Battery Can Feed The EV In Solar-Charge Slots
-
-**Goal:** Block battery discharge while the EV charges even in slots where the plan also charges the battery from solar.
-
-**Notes:** Found 2026-10-25 while fixing EV source isolation (fae5e93d). In `executor/controller.py` `_follow_plan`, the `elif slot.charge_kw > 0` branch maps to `self_consumption` before the `ev_isolating` branch is reached, so if PV drops below house + EV load the battery covers the EV. Switching to `idle` there is only safe on inverters whose idle mode still lets PV charge the battery: Fronius idle is "Block Discharging" (`profiles/fronius.yaml`), Deye idle is "Zero Export To CT" with `max_discharge_current` 15 (`profiles/deye.yaml`), and its PV-charge behavior is unverified. Check every profile's idle actions first.
-
 ---
 
 ## 🔧 Improvements

@@ -36,6 +36,7 @@ SOC_TRACKING_MARGIN = 2
 CHARGE_TARGET_REASON = "charge target reached, holding"
 HOLD_MARGIN_REASON = "hold margin used, blocking discharge"
 MIN_SOC_GUARD_REASON = "min SoC reached, blocking discharge"
+EV_ISOLATION_REASON = "EV charging, blocking battery discharge"
 
 
 @dataclass
@@ -266,8 +267,14 @@ class Controller:
                 note = CHARGE_TARGET_REASON
         elif slot.charge_kw > 0:
             # Solar charging can consume all surplus, with zero grid export.
+            # While EV source isolation is active, idle blocks battery discharge
+            # to the EV; PV charging stays possible in idle.
             self.plan_state.enter(None, None)
-            mode_intent = "self_consumption"
+            if ev_isolating:
+                mode_intent = "idle"
+                note = EV_ISOLATION_REASON
+            else:
+                mode_intent = "self_consumption"
         elif ev_isolating:
             # REV F76 Phase 3: EV charging active - idle prevents any battery
             # discharge to EV. keep_on-only slots (no planned kW) get the same
@@ -276,6 +283,7 @@ class Controller:
             # hold margin.
             self.plan_state.enter(None, None)
             mode_intent = "idle"
+            note = EV_ISOLATION_REASON
         elif slot.discharge_kw == 0 and not slot.discharge_blocked_by_ev:
             # Hold slot: 2-point margin below the target, bounded by min_soc_percent
             # (battery-plan-tracking D2, min-soc-floor-tracking D1).
@@ -335,9 +343,11 @@ class Controller:
         max_discharge = self.config.max_discharge_w if unit == "W" else self.config.max_discharge_a
 
         # Override for self_consumption default fallback
-        # When no charge is planned (charge_value <= 0) and we fall back to self_consumption,
-        # we should use max charge instead of 0 to allow PV to charge the battery.
-        if mode_intent == "self_consumption" and charge_value <= 0:
+        # Use max charge instead of the planned value when no charge is planned
+        # (charge_value <= 0) or when no export is planned (export_kw <= 0), so
+        # all PV can charge the battery. The planned value only caps charging
+        # when the slot plans PV surplus export.
+        if mode_intent == "self_consumption" and (charge_value <= 0 or slot.export_kw <= 0):
             charge_value = max_charge
             write_charge = True
 

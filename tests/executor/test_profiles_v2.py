@@ -9,6 +9,9 @@ from typing import ClassVar
 
 import pytest
 
+from executor.config import ControllerConfig, InverterConfig
+from executor.controller import make_decision
+from executor.override import SlotPlan, SystemState
 from executor.profiles import InverterProfile, list_profiles, load_profile
 
 PROFILE_NAMES = ["deye", "sungrow", "fronius", "generic"]
@@ -94,6 +97,27 @@ class TestProfileV2Modes:
         assert action.value == "{{charge_value}}", (
             "max_charge_current must use {{charge_value}} template"
         )
+
+    def test_deye_zero_export_pv_charge_writes_max_charge(self):
+        """A planned PV charge without export writes the configured max charge current."""
+        profile = load_profile("deye")
+        config = ControllerConfig()
+        slot = SlotPlan(charge_kw=2.0, grid_charge_kw=0.0, export_kw=0.0, discharge_kw=0.0)
+
+        decision = make_decision(
+            slot,
+            SystemState(current_soc_percent=50),
+            None,
+            config,
+            InverterConfig(),
+            None,
+            None,
+            profile,
+        )
+
+        assert decision.mode_intent == "self_consumption"
+        assert decision.charge_value == config.max_charge_a
+        assert decision.write_charge_current is True
 
 
 class TestProfileV2EntityValidation:

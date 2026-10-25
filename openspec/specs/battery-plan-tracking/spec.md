@@ -19,7 +19,7 @@ In a slot planned for grid charging, the executor SHALL charge only while the ro
 - **THEN** the executor SHALL NOT grid charge in that slot
 
 #### Scenario: Solar-only charging unaffected
-- **WHEN** a slot plans battery charging from PV only and SoC is above the target
+- **WHEN** a slot plans battery charging from PV only, SoC is above the target and EV source isolation is not active
 - **THEN** the executor SHALL keep self-consumption mode
 
 ### Requirement: Stopped grid charging resumes only clearly below target
@@ -179,7 +179,7 @@ The executor SHALL keep a min-SoC guard latch, independent of the per-block plan
 - **THEN** the profile's `soc_target` handling SHALL be unchanged
 
 ### Requirement: EV source isolation always blocks battery discharge
-While EV source isolation is active, the controller SHALL select `idle` (unless a charge or export branch applies) for every trigger and at any SoC relative to `soc_target`, and SHALL recognise the isolated slot even with no planned EV kW and no keep-on. Isolation keeps precedence over the hold margin; inverter profile idle actions are unchanged.
+While EV source isolation is active, the controller SHALL select `idle` (unless a grid-charge or export branch applies) for every trigger and at any SoC relative to `soc_target`, including isolated slots with no planned EV kW or keep-on and slots planning PV-only charging (the reason SHALL state that EV charging blocks battery discharge). Isolation keeps precedence over the hold margin; inverter profile idle actions are unchanged.
 
 #### Scenario: Manual EV charge above the SoC target
 - **GIVEN** an active manual EV charge, a slot with `ev_charging_kw` 0 and no keep-on, and live SoC above `soc_target`
@@ -195,6 +195,27 @@ While EV source isolation is active, the controller SHALL select `idle` (unless 
 - **GIVEN** a slot with surplus-eligible EV kW and `ev_charging_kw` 0, and live SoC above `soc_target`
 - **WHEN** the executor evaluates the slot
 - **THEN** the decision mode SHALL be `idle`
+
+#### Scenario: Planned PV charge with isolation by the engine
+- **GIVEN** a slot with `charge_kw` > 0, no grid charging and `discharge_blocked_by_ev` set
+- **WHEN** the executor evaluates the slot
+- **THEN** the decision mode SHALL be `idle`, not `self_consumption`
+- **AND** the decision reason SHALL state that EV charging blocks battery discharge
+
+#### Scenario: Planned PV charge with planned EV charging
+- **GIVEN** a slot with `charge_kw` > 0, no grid charging, and `ev_charging_kw` above 0.1
+- **WHEN** the executor evaluates the slot
+- **THEN** the decision mode SHALL be `idle`
+
+#### Scenario: Planned PV charge with keep-on only
+- **GIVEN** a slot with `charge_kw` > 0, no grid charging, no planned EV kW and a keep-on flag set
+- **WHEN** the executor evaluates the slot
+- **THEN** the decision mode SHALL be `idle`
+
+#### Scenario: Planned PV charge without EV charging is unchanged
+- **GIVEN** a slot with `charge_kw` > 0, no grid charging, and no isolation trigger
+- **WHEN** the executor evaluates the slot
+- **THEN** the decision mode SHALL be `self_consumption`
 
 #### Scenario: Planned grid charge is not overridden
 - **GIVEN** isolation is active and the slot plans grid charging below its target

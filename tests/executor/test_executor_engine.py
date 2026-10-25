@@ -594,7 +594,7 @@ class TestRunOnce:
         else:
             kwargs["plan_state"] = BatteryPlanState()
         decision = make_decision(*args, **kwargs)
-        assert decision.mode_intent == ("self_consumption" if grid_charge_kw == 0 else "charge")
+        assert decision.mode_intent == ("idle" if grid_charge_kw == 0 else "charge")
 
     async def test_force_charge_cleared_when_target_reached(self, engine, temp_schedule):
         """Top Up ends at its target SoC and the tick follows the schedule."""

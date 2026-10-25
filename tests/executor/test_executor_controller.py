@@ -303,6 +303,42 @@ class TestControllerFollowPlan:
         assert decision.control_unit == "W"
         assert decision.write_charge_current is True
 
+    def test_pv_charge_without_export_uses_max_charge(self, controller):
+        """Planned PV charge with no export gets max charge, not the planned cap."""
+        slot = SlotPlan(charge_kw=2.0, grid_charge_kw=0.0, export_kw=0.0, discharge_kw=0.0)
+
+        decision = controller.decide(slot, SystemState(current_soc_percent=50))
+
+        assert decision.mode_intent == "self_consumption"
+        assert decision.charge_value == controller.config.max_charge_a
+        assert decision.write_charge_current is True
+
+    def test_pv_charge_without_export_uses_max_charge_w(self):
+        """Watt-based control unit uses max_charge_w for PV charge without export."""
+        config = ControllerConfig()
+        profile = InverterProfile(
+            metadata=ProfileMetadata(name="test", version="1.0"),
+            behavior=ProfileBehavior(control_unit="W"),
+        )
+        controller = Controller(config, InverterConfig(), profile=profile)
+        slot = SlotPlan(charge_kw=2.0, grid_charge_kw=0.0, export_kw=0.0, discharge_kw=0.0)
+
+        decision = controller.decide(slot, SystemState(current_soc_percent=50))
+
+        assert decision.mode_intent == "self_consumption"
+        assert decision.charge_value == config.max_charge_w
+        assert decision.write_charge_current is True
+
+    def test_grid_charge_keeps_planned_charge_value(self, controller):
+        """Grid charge mode keeps the planned charge value, not max."""
+        slot = SlotPlan(charge_kw=2.0, grid_charge_kw=2.0, export_kw=0.0, soc_target=80)
+
+        decision = controller.decide(slot, SystemState(current_soc_percent=40))
+
+        assert decision.mode_intent == "charge"
+        assert decision.charge_value == 40.0
+        assert decision.charge_value < controller.config.max_charge_a
+
     def test_pv_surplus_uses_planned_charge_limit(self, controller):
         """Verify PV surplus path (charge_kw > 0) still uses the planned charge_value
         and is NOT overridden to max.
