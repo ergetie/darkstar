@@ -35,6 +35,7 @@ SOC_TRACKING_MARGIN = 2
 
 CHARGE_TARGET_REASON = "charge target reached, holding"
 HOLD_MARGIN_REASON = "hold margin used, blocking discharge"
+MIN_SOC_GUARD_REASON = "min SoC reached, blocking discharge"
 
 
 @dataclass
@@ -49,6 +50,9 @@ class BatteryPlanState:
     kind: str | None = None  # "charge" | "hold"
     target: int | None = None
     latched: bool = False  # charge: stopped at target / hold: discharge blocked
+    # Min-SoC discharge guard (executor-min-soc-discharge-guard D3). Not per-block:
+    # enter() never resets it, so it persists across slot changes and replans.
+    min_soc_guard: bool = False
 
     def enter(self, kind: str | None, target: int | None) -> None:
         """Reset the latch when the block changes."""
@@ -283,6 +287,14 @@ class Controller:
             self.plan_state.enter(None, None)
             mode_intent = "self_consumption"
 
+        # Shared min-SoC discharge guard (executor-min-soc-discharge-guard D1).
+        if self._update_min_soc_guard(state, live_soc) and mode_intent in (
+            "self_consumption",
+            "export",
+        ):
+            mode_intent = "idle"
+            note = MIN_SOC_GUARD_REASON
+
         # Calculate charge/discharge values
         if note == CHARGE_TARGET_REASON:
             charge_value, write_charge = 0.0, False
@@ -346,6 +358,24 @@ class Controller:
             source="plan",
             reason=reason,
         )
+
+    def _update_min_soc_guard(self, state: SystemState, live_soc: int) -> bool:
+        """Update and return the min-SoC discharge guard latch.
+
+        Engages at or below ``battery.min_soc_percent`` and releases at
+        ``min_soc_percent + SOC_TRACKING_MARGIN`` (D2). With unreadable SoC the
+        latch keeps its previous state (D4).
+        """
+        st = self.plan_state
+        if not state.soc_available:
+            return st.min_soc_guard
+        min_soc = self.config.min_soc_percent
+        if st.min_soc_guard:
+            if live_soc >= min_soc + SOC_TRACKING_MARGIN:
+                st.min_soc_guard = False
+        elif live_soc <= min_soc:
+            st.min_soc_guard = True
+        return st.min_soc_guard
 
     def _grid_charge_or_hold(self, live_soc: int, target: int) -> str:
         """Charge below target; hold from target until SoC is 2 points below it."""

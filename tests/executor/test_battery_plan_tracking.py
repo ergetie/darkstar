@@ -1,5 +1,6 @@
 """battery-plan-tracking: grid-charge stop at target, hold margin, tick reasons."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from executor.config import ControllerConfig, InverterConfig
 from executor.controller import (
     CHARGE_TARGET_REASON,
     HOLD_MARGIN_REASON,
+    MIN_SOC_GUARD_REASON,
     BatteryPlanState,
     Controller,
 )
@@ -180,9 +182,11 @@ class TestHoldFloorAtMinSoc:
         assert modes == ["idle"] * 5
 
     def test_hold_at_minimum_lifts_on_real_gain(self):
+        # The min-SoC guard (executor-min-soc-discharge-guard D2) requires min + 2.
         controller = _min_soc_controller(12)
         controller.decide(hold(12), _soc(12))
-        assert controller.decide(hold(12), _soc(13)).mode_intent == "self_consumption"
+        assert controller.decide(hold(12), _soc(13)).mode_intent == "idle"
+        assert controller.decide(hold(12), _soc(14)).mode_intent == "self_consumption"
 
     def test_hold_below_minimum_is_idle_without_charge(self):
         controller = _min_soc_controller(12)
@@ -191,10 +195,13 @@ class TestHoldFloorAtMinSoc:
         assert decision.write_charge_current is False
         assert controller.decide(hold(11), _soc(11)).mode_intent == "idle"
 
-    def test_hold_below_minimum_lifts_only_at_minimum(self):
+    def test_hold_below_minimum_lifts_only_after_guard_release(self):
+        # Hold block lifts at 12, but the min-SoC guard keeps idle until min + 2.
         controller = _min_soc_controller(12)
         controller.decide(hold(11), _soc(11))
-        assert controller.decide(hold(11), _soc(12)).mode_intent == "self_consumption"
+        assert controller.decide(hold(11), _soc(12)).mode_intent == "idle"
+        assert controller.decide(hold(11), _soc(13)).mode_intent == "idle"
+        assert controller.decide(hold(11), _soc(14)).mode_intent == "self_consumption"
 
 
 class TestFroniusHoldAtMinSoc:
@@ -247,3 +254,103 @@ class TestDeyeAboveMinSocUnchanged:
         resumed = deye.decide(grid_charge(18), _soc(16))
         assert resumed.mode_intent == "charge"
         assert resumed.soc_target == 18
+
+
+def pv_charge() -> SlotPlan:
+    return SlotPlan(charge_kw=0.2, grid_charge_kw=0.0, soc_target=12)
+
+
+def battery_export() -> SlotPlan:
+    return SlotPlan(export_kw=2.0, discharge_kw=2.0, soc_target=12)
+
+
+def _unavailable() -> SystemState:
+    return SystemState(current_soc_percent=50.0, soc_available=False)
+
+
+class TestMinSocDischargeGuard:
+    """executor-min-soc-discharge-guard: block discharge at or below min_soc_percent."""
+
+    def test_pv_charge_slot_at_minimum_is_idle(self):
+        controller = _min_soc_controller(12)
+        decision = controller.decide(pv_charge(), _soc(12))
+        assert decision.mode_intent == "idle"
+        assert MIN_SOC_GUARD_REASON in decision.reason
+
+    def test_pv_charge_slot_above_minimum_unchanged(self):
+        controller = _min_soc_controller(12)
+        decision = controller.decide(pv_charge(), _soc(13))
+        assert decision.mode_intent == "self_consumption"
+        assert MIN_SOC_GUARD_REASON not in decision.reason
+
+    def test_export_at_minimum_is_idle(self):
+        controller = _min_soc_controller(12)
+        decision = controller.decide(battery_export(), _soc(11))
+        assert decision.mode_intent == "idle"
+        assert MIN_SOC_GUARD_REASON in decision.reason
+
+    def test_release_needs_margin(self):
+        controller = _min_soc_controller(12)
+        assert controller.decide(pv_charge(), _soc(12)).mode_intent == "idle"
+        assert controller.decide(pv_charge(), _soc(13)).mode_intent == "idle"
+        assert controller.plan_state.min_soc_guard is True
+        assert controller.decide(pv_charge(), _soc(14)).mode_intent == "self_consumption"
+        assert controller.plan_state.min_soc_guard is False
+
+    def test_latch_survives_slot_change_and_replan(self):
+        controller = _min_soc_controller(12)
+        controller.decide(pv_charge(), _soc(12))
+        # Different block kinds/targets (slot change, replan) do not reset it.
+        controller.decide(grid_charge(30), _soc(13))
+        controller.decide(hold(40), _soc(13))
+        decision = controller.decide(SlotPlan(discharge_kw=2.0, soc_target=10), _soc(13))
+        assert decision.mode_intent == "idle"
+        assert MIN_SOC_GUARD_REASON in decision.reason
+
+    def test_idle_slot_updates_latch(self):
+        controller = _min_soc_controller(12)
+        controller.decide(SlotPlan(discharge_kw=2.0, soc_target=12), _soc(12))
+        assert controller.plan_state.min_soc_guard is True
+        controller.decide(SlotPlan(discharge_kw=2.0, soc_target=12), _soc(14))
+        assert controller.plan_state.min_soc_guard is False
+
+    def test_unavailable_soc_keeps_engaged(self):
+        controller = _min_soc_controller(12)
+        controller.decide(pv_charge(), _soc(12))
+        assert controller.decide(pv_charge(), _unavailable()).mode_intent == "idle"
+        assert controller.plan_state.min_soc_guard is True
+
+    def test_unavailable_soc_keeps_released(self):
+        controller = _min_soc_controller(60)
+        # Placeholder 50.0 is below min 60 but must not engage the latch.
+        assert controller.decide(pv_charge(), _unavailable()).mode_intent == "self_consumption"
+        assert controller.plan_state.min_soc_guard is False
+
+    def test_charge_slot_untouched(self):
+        controller = _min_soc_controller(12)
+        controller.decide(pv_charge(), _soc(11))
+        decision = controller.decide(grid_charge(18), _soc(11))
+        assert decision.mode_intent == "charge"
+        assert MIN_SOC_GUARD_REASON not in decision.reason
+
+    def test_status_copy_does_not_mutate_engine_latch(self):
+        engine_state = BatteryPlanState()
+        controller = Controller(
+            ControllerConfig(min_soc_percent=12.0),
+            InverterConfig(),
+            plan_state=replace(engine_state),
+        )
+        controller.decide(pv_charge(), _soc(12))
+        assert controller.plan_state.min_soc_guard is True
+        assert engine_state.min_soc_guard is False
+
+    def test_deye_soc_target_unchanged(self):
+        deye = _min_soc_controller(12, load_profile("deye", PROFILES_DIR))
+        decision = deye.decide(pv_charge(), _soc(12))
+        assert decision.mode_intent == "idle"
+        assert decision.soc_target == 12
+        assert deye.profile is not None
+        soc_writes = [
+            a.value for a in deye.profile.get_mode("idle").actions if a.entity == "soc_target"
+        ]
+        assert soc_writes == ["{{soc_target}}"]

@@ -568,7 +568,9 @@ class TestRunOnce:
         self, engine, temp_schedule, grid_charge_kw
     ):
         """Blocking battery discharge to an EV must not change solar/grid intent."""
-        from executor.controller import make_decision
+        import dataclasses
+
+        from executor.controller import BatteryPlanState, make_decision
 
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         slot_data = make_slot(now - timedelta(minutes=5), charge_kw=3.0, soc_target=80)
@@ -582,7 +584,16 @@ class TestRunOnce:
         isolated_slot = decide.call_args.args[0]
         assert isolated_slot.grid_charge_kw == grid_charge_kw
         assert isolated_slot.discharge_kw == 0.0
-        decision = make_decision(*decide.call_args.args, **decide.call_args.kwargs)
+        # Re-decide above min SoC with a fresh plan state so the min-SoC discharge
+        # guard (executor-min-soc-discharge-guard) does not mask the plan intent.
+        args = list(decide.call_args.args)
+        args[1] = dataclasses.replace(args[1], current_soc_percent=50.0, soc_available=True)
+        kwargs = dict(decide.call_args.kwargs)
+        if len(args) > 8:
+            args[8] = BatteryPlanState()
+        else:
+            kwargs["plan_state"] = BatteryPlanState()
+        decision = make_decision(*args, **kwargs)
         assert decision.mode_intent == ("self_consumption" if grid_charge_kw == 0 else "charge")
 
     async def test_force_charge_cleared_when_target_reached(self, engine, temp_schedule):
