@@ -351,7 +351,7 @@ class ControllerConfig:
     round_step_w: float = 100.0
     write_threshold_w: float = 100.0
     charge_efficiency: float = 0.92
-    # battery.min_soc_percent; bounds the hold margin (min-soc-floor-tracking D2).
+    # battery.min_soc_percent; guards discharge at the minimum (min-soc-floor-tracking D2).
     # Same fallback as the planner adapter so both agree when the key is absent.
     min_soc_percent: float = 10.0
 

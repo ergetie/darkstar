@@ -21,6 +21,7 @@ from executor.config import (
 )
 from executor.controller import (
     EV_ISOLATION_REASON,
+    HOLD_REASON,
     MIN_SOC_GUARD_REASON,
     BatteryPlanState,
     Controller,
@@ -293,12 +294,13 @@ class TestControllerEVIsolation:
         assert self._decide(controller, slot, soc=40.0).mode_intent == "charge"
 
     def test_unflagged_hold_slot_unchanged(self, controller, base_state):
-        """A plain hold slot above target (no isolation) still follows the hold logic."""
+        """A plain hold slot above target (no isolation) idles with the hold reason."""
         slot = SlotPlan(discharge_kw=0.0, ev_charging_kw=0.0, soc_target=60)
         decision = make_decision(
             slot, base_state, None, controller.config, controller.inverter_config, None, None
         )
-        assert decision.mode_intent == "self_consumption"
+        assert decision.mode_intent == "idle"
+        assert HOLD_REASON in decision.reason
 
 
 class TestEngineEVIsolation:

@@ -134,13 +134,13 @@ class TestControllerFollowPlan:
         assert controller.decide(slot, SystemState()).mode_intent == "export"
 
     def test_idle_mode_when_at_soc_target(self, controller):
-        """Hold slot at target: within the 2-point margin, so self-consumption."""
+        """Hold slot at target blocks discharge."""
         slot = SlotPlan(export_kw=0.0, charge_kw=0.0, soc_target=50)
         state = SystemState(current_soc_percent=50)
 
         decision = controller.decide(slot, state)
 
-        assert decision.mode_intent == "self_consumption"
+        assert decision.mode_intent == "idle"
 
     def test_idle_mode_when_margin_used(self, controller):
         """Hold slot at target minus 2 blocks discharge."""
@@ -170,7 +170,7 @@ class TestControllerFollowPlan:
 
     def test_idle_mode_when_soc_slightly_above_target(self, controller):
         """When SoC rounds above target, use self_consumption (not idle)."""
-        slot = SlotPlan(export_kw=0.0, charge_kw=0.0, soc_target=78)
+        slot = SlotPlan(export_kw=0.0, charge_kw=0.0, discharge_kw=1.0, soc_target=78)
         # Battery at 78.6% rounds to 79, which is > 78, so self_consumption
         state = SystemState(current_soc_percent=78.6)
 
@@ -180,7 +180,7 @@ class TestControllerFollowPlan:
 
     def test_self_consumption_when_above_soc_target(self, controller):
         """When above SoC target, use self_consumption mode intent."""
-        slot = SlotPlan(export_kw=0.0, charge_kw=0.0, soc_target=50)
+        slot = SlotPlan(export_kw=0.0, charge_kw=0.0, discharge_kw=1.0, soc_target=50)
         state = SystemState(current_soc_percent=80)
 
         decision = controller.decide(slot, state)
@@ -273,7 +273,7 @@ class TestControllerFollowPlan:
         when nothing is planned and SoC is above target.
         """
         # When charge_kw is 0 and soc > target, it falls back to self_consumption
-        slot = SlotPlan(charge_kw=0.0, soc_target=50)
+        slot = SlotPlan(charge_kw=0.0, discharge_kw=1.0, soc_target=50)
         state = SystemState(current_soc_percent=80)
 
         decision = controller.decide(slot, state)
@@ -293,7 +293,7 @@ class TestControllerFollowPlan:
         )
         controller = Controller(config, InverterConfig(), profile=profile)
 
-        slot = SlotPlan(charge_kw=0.0, soc_target=50, export_kw=0.0, discharge_kw=0.0)
+        slot = SlotPlan(charge_kw=0.0, soc_target=50, export_kw=0.0, discharge_kw=1.0)
         state = SystemState(current_soc_percent=80)
 
         decision = controller.decide(slot, state)

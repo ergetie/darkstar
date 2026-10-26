@@ -419,7 +419,7 @@ class ExecutorEngine:
         # Last executor-requested replan (rate limit shared by the manual-charge
         # end replan; the balancer itself never requests a replan).
         self._last_balancer_replan_at: datetime | None = None
-        # battery-plan-tracking: per-block charge latch / hold margin state, and
+        # battery-plan-tracking: per-block charge latch state, and
         # SoC-deviation replan tracking (own limiter, separate from the balancer's).
         self._battery_plan_state = BatteryPlanState()
         self._soc_deviation_since: datetime | None = None
@@ -1928,7 +1928,7 @@ class ExecutorEngine:
                 # Force zero discharge to prevent battery → EV energy flow
                 # Only discharge changes; every other field (water plans, EV plans,
                 # slot times, ...) must reach the controller. The flag marks
-                # isolation for every trigger (not a planned hold: no hold margin).
+                # isolation for every trigger (not a planned hold).
                 slot = replace(slot, discharge_kw=0.0, discharge_blocked_by_ev=True)
 
                 # Set isolation/keep-on reason for execution record

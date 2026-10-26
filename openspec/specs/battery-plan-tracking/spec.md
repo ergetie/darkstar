@@ -35,67 +35,46 @@ After grid charging stopped at target within a charge block, the executor SHALL 
 - **WHEN** the live SoC reads 15%
 - **THEN** the executor SHALL resume grid charging
 
-### Requirement: Hold slots use a 2-point margin
-In a hold slot the executor SHALL use self-consumption while the rounded live SoC is above the hold floor `max(target − 2, min(target, battery.min_soc_percent))`, SHALL block battery discharge at or below it, and SHALL lift the block only when SoC is at or above the target and above the floor. EV source isolation keeps precedence.
+### Requirement: Hold slots block battery discharge
+In a hold slot (planned `discharge_kw` 0, no EV isolation, no charge, export or discharge-at-floor branch) the executor SHALL select `idle` at every live SoC and `soc_target`, with a reason naming the hold. The decision SHALL NOT depend on PV forecast, measured PV or target changes between plans. PV charging SHALL remain possible and the charge limit SHALL NOT be capped. Hold slots SHALL carry no state and SHALL reset a preceding charge latch. EV isolation keeps precedence.
 
-#### Scenario: Small drop stays on auto
+#### Scenario: Hold slot idles at any SoC
 - **GIVEN** a hold slot with target 50%
-- **WHEN** the live SoC reads 49%
-- **THEN** the executor SHALL use self-consumption
+- **WHEN** the live SoC reads 60%, 50%, 49% or 40%
+- **THEN** the executor SHALL select idle and the reason SHALL name the hold
 
-#### Scenario: Margin used up
+#### Scenario: Mode is stable across a hold block
 - **GIVEN** a hold slot with target 50%
-- **WHEN** the live SoC reads 48%
-- **THEN** the executor SHALL block battery discharge
+- **WHEN** the live SoC alternates between 49% and 50% on successive ticks
+- **THEN** the executor SHALL select idle on every tick and SHALL NOT select self-consumption
 
-#### Scenario: No flip on one point of PV
-- **GIVEN** discharge was blocked at 48% in a hold slot with target 50%
-- **WHEN** PV raises the SoC to 49%
-- **THEN** the executor SHALL keep blocking discharge
+#### Scenario: Replans with falling targets do not ratchet
+- **GIVEN** successive plans whose hold slot targets fall as the entry SoC is re-seeded (96, 94, 92, 90)
+- **WHEN** the live SoC equals each new target in turn
+- **THEN** the executor SHALL select idle every time and SHALL NOT select self-consumption at any of them
 
-#### Scenario: Back at target
-- **GIVEN** discharge was blocked in a hold slot with target 50%
-- **WHEN** the live SoC reads 50%
-- **THEN** the executor SHALL use self-consumption
+#### Scenario: Idle in a hold slot still allows PV charging
+- **GIVEN** any inverter profile (`fronius`, `deye`, `sungrow`, `generic`)
+- **WHEN** the executor selects idle for a hold slot
+- **THEN** the profile's idle actions SHALL NOT write a zero charge limit, so PV can still charge the battery
 
-#### Scenario: Margin never crosses the minimum
-- **GIVEN** `battery.min_soc_percent` is 12 and a hold slot with target 13%
-- **WHEN** the live SoC reads 12%
-- **THEN** the executor SHALL block battery discharge
+#### Scenario: Hold at the minimum
+- **GIVEN** `battery.min_soc_percent` is 12 and a hold slot with target 12% (or 11% during recovery)
+- **WHEN** the live SoC reads 11%, 12%, 13% or 14%
+- **THEN** the executor SHALL select idle and SHALL NOT grid charge
 
-#### Scenario: Hold at the minimum blocks immediately
-- **GIVEN** `battery.min_soc_percent` is 12, inverter profile `fronius`, and a hold slot with target 12%
-- **WHEN** the live SoC reads 12%
-- **THEN** the executor SHALL block battery discharge
-- **AND** it SHALL NOT select self-consumption on the following ticks while the SoC stays at 12%
+#### Scenario: EV isolation keeps precedence
+- **GIVEN** a hold slot with EV source isolation active
+- **THEN** the decision SHALL be idle with the isolation reason, not the hold reason
 
-#### Scenario: Hold at the minimum lifts only on a real gain
-- **GIVEN** discharge was blocked in a hold slot with target 12% and `battery.min_soc_percent` 12
-- **WHEN** PV raises the live SoC to 13%
-- **THEN** the executor SHALL keep blocking discharge
-- **WHEN** the live SoC then reads 14%
-- **THEN** the executor SHALL use self-consumption
+#### Scenario: Previous charge latch is reset
+- **GIVEN** a grid-charge block stopped at its target (latch engaged)
+- **WHEN** a hold slot starts and a later grid-charge block begins with live SoC 2 points below its target
+- **THEN** the later block SHALL charge, as for any new block
 
-#### Scenario: Hold below the minimum during recovery
-- **GIVEN** `battery.min_soc_percent` is 12 and a hold slot with target 11%
-- **WHEN** the live SoC reads 11%
-- **THEN** the executor SHALL block battery discharge and SHALL NOT grid charge
-- **AND** discharge SHALL stay blocked at 12% and 13% and SHALL be allowed again only once the live SoC reaches 14%
-
-#### Scenario: Profiles that write a SoC target are unchanged above the minimum
-- **GIVEN** inverter profile `deye`, `battery.min_soc_percent` 12 and a hold slot with target 50%
-- **WHEN** the live SoC reads 49%, then 48%
-- **THEN** the executor SHALL select self-consumption, then block discharge, writing `soc_target` 50 in both modes as before
-
-#### Scenario: Hold state applies to every profile and resets
-- **GIVEN** any inverter profile and a hold block
-- **THEN** the same floor and lift rules SHALL apply
-- **WHEN** the hold block ends
-- **THEN** the hold state SHALL reset
-
-#### Scenario: Minimum-SoC guard outlasts the hold block
+#### Scenario: Minimum-SoC guard outlasts the hold
 - **GIVEN** the live SoC is at or near `battery.min_soc_percent`
-- **WHEN** the hold block lifts
+- **WHEN** a hold block ends and a slot follows that plans self-consumption
 - **THEN** the minimum-SoC discharge guard SHALL keep discharge blocked until the live SoC reaches `min_soc_percent + 2`
 
 ### Requirement: Replan when the battery deviates from the plan
@@ -179,7 +158,7 @@ The executor SHALL keep a min-SoC guard latch, independent of the per-block plan
 - **THEN** the profile's `soc_target` handling SHALL be unchanged
 
 ### Requirement: EV source isolation always blocks battery discharge
-While EV source isolation is active, the controller SHALL select `idle` (unless a grid-charge or export branch applies) for every trigger and at any SoC relative to `soc_target`, including isolated slots with no planned EV kW or keep-on and slots planning PV-only charging (the reason SHALL state that EV charging blocks battery discharge). Isolation keeps precedence over the hold margin; inverter profile idle actions are unchanged.
+While EV source isolation is active, the controller SHALL select `idle` (unless a grid-charge or export branch applies) for every trigger and at any SoC relative to `soc_target`, including isolated slots with no planned EV kW or keep-on and slots planning PV-only charging (the reason SHALL state that EV charging blocks battery discharge). Isolation keeps precedence over hold-slot handling; inverter profile idle actions are unchanged.
 
 #### Scenario: Manual EV charge above the SoC target
 - **GIVEN** an active manual EV charge, a slot with `ev_charging_kw` 0 and no keep-on, and live SoC above `soc_target`

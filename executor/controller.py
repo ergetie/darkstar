@@ -28,29 +28,28 @@ from .profiles import InverterProfile
 
 logger = logging.getLogger(__name__)
 
-# Fixed margin (percentage points) shared by the charge-target latch and the
-# hold margin (battery-plan-tracking D1/D2). The hold margin is bounded below by
-# battery.min_soc_percent (min-soc-floor-tracking D1).
+# Fixed margin (percentage points) for the charge-target resume
+# (battery-plan-tracking D1) and the min-SoC guard release.
 SOC_TRACKING_MARGIN = 2
 
 CHARGE_TARGET_REASON = "charge target reached, holding"
-HOLD_MARGIN_REASON = "hold margin used, blocking discharge"
+HOLD_REASON = "hold slot, blocking battery discharge"
 MIN_SOC_GUARD_REASON = "min SoC reached, blocking discharge"
 EV_ISOLATION_REASON = "EV charging, blocking battery discharge"
 
 
 @dataclass
 class BatteryPlanState:
-    """Per-block runtime state for charge-target latch and hold margin.
+    """Per-block runtime state for the charge-target latch.
 
     Owned by the executor and passed to the controller on each tick. A block is
-    identified by its kind and soc_target; any tick that is neither a grid-charge
-    nor a hold slot (or has a different target) starts a fresh block.
+    identified by its kind and soc_target; any tick that is not a grid-charge
+    slot (or has a different target) starts a fresh block.
     """
 
-    kind: str | None = None  # "charge" | "hold"
+    kind: str | None = None  # "charge"
     target: int | None = None
-    latched: bool = False  # charge: stopped at target / hold: discharge blocked
+    latched: bool = False  # charge: stopped at target
     # Min-SoC discharge guard (executor-min-soc-discharge-guard D3). Not per-block:
     # enter() never resets it, so it persists across slot changes and replans.
     min_soc_guard: bool = False
@@ -279,18 +278,18 @@ class Controller:
             # REV F76 Phase 3: EV charging active - idle prevents any battery
             # discharge to EV. keep_on-only slots (no planned kW) get the same
             # treatment (design D4). Engine-isolated slots (manual, actual-only,
-            # surplus) carry discharge_blocked_by_ev. Takes precedence over the
-            # hold margin.
+            # surplus) carry discharge_blocked_by_ev. Takes precedence over hold
+            # slot handling.
             self.plan_state.enter(None, None)
             mode_intent = "idle"
             note = EV_ISOLATION_REASON
         elif slot.discharge_kw == 0 and not slot.discharge_blocked_by_ev:
-            # Hold slot: 2-point margin below the target, bounded by min_soc_percent
-            # (battery-plan-tracking D2, min-soc-floor-tracking D1).
-            self.plan_state.enter("hold", slot.soc_target)
-            mode_intent = self._hold_mode(live_soc, slot.soc_target)
-            if mode_intent == "idle":
-                note = HOLD_MARGIN_REASON
+            # Hold slot: the plan models zero discharge, so always block battery
+            # discharge; PV may still charge. Stateless, so replans cannot re-arm
+            # anything (fix-hold-slot-discharge-ratchet D1/D3).
+            self.plan_state.enter(None, None)
+            mode_intent = "idle"
+            note = HOLD_REASON
         elif live_soc <= slot.soc_target:
             # Discharge slot at its floor (or EV-isolated) - idle to hold battery
             self.plan_state.enter(None, None)
@@ -403,27 +402,6 @@ class Controller:
             st.latched = True
             return "idle"
         return "charge"
-
-    def _hold_mode(self, live_soc: int, target: int) -> str:
-        """Self-consumption above the hold floor; block discharge at or below it.
-
-        The floor is ``max(target - 2, min(target, min_soc))`` so the margin never
-        crosses ``battery.min_soc_percent``, and a hold at or below the minimum
-        blocks immediately (min-soc-floor-tracking D1). The block lifts once SoC is
-        back at the target and above the floor, so a hold at the floor only lifts
-        on a real gain (no idle/self-consumption flap).
-        """
-        floor = max(target - SOC_TRACKING_MARGIN, min(target, self.config.min_soc_percent))
-        st = self.plan_state
-        if st.latched:
-            if live_soc >= target and live_soc > floor:
-                st.latched = False
-                return "self_consumption"
-            return "idle"
-        if live_soc <= floor:
-            st.latched = True
-            return "idle"
-        return "self_consumption"
 
     def _calculate_charge_limit(self, slot: SlotPlan, state: SystemState) -> tuple[float, bool]:
         """

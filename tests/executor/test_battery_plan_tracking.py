@@ -1,14 +1,16 @@
-"""battery-plan-tracking: grid-charge stop at target, hold margin, tick reasons."""
+"""battery-plan-tracking: grid-charge stop at target, hold slots, tick reasons."""
 
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import yaml
 
 from executor.config import ControllerConfig, InverterConfig
 from executor.controller import (
     CHARGE_TARGET_REASON,
-    HOLD_MARGIN_REASON,
+    EV_ISOLATION_REASON,
+    HOLD_REASON,
     MIN_SOC_GUARD_REASON,
     BatteryPlanState,
     Controller,
@@ -105,112 +107,99 @@ class TestStopGridChargeAtTarget:
         assert modes == ["charge", "charge", "charge", "idle", "idle"]
 
 
-class TestHoldMargin:
-    def test_small_drop_stays_on_auto(self, controller):
-        assert controller.decide(hold(), _soc(49)).mode_intent == "self_consumption"
+class TestHoldBlocksDischarge:
+    """fix-hold-slot-discharge-ratchet: a hold slot is idle at every SoC."""
 
-    def test_margin_used_blocks(self, controller):
-        decision = controller.decide(hold(), _soc(48))
+    @pytest.mark.parametrize("soc", [60, 50, 49, 40])
+    def test_idle_at_any_soc(self, controller, soc):
+        decision = controller.decide(hold(50), _soc(soc))
         assert decision.mode_intent == "idle"
-        assert HOLD_MARGIN_REASON in decision.reason
+        assert HOLD_REASON in decision.reason
 
-    def test_no_flip_on_one_point(self, controller):
-        controller.decide(hold(), _soc(48))
-        assert controller.decide(hold(), _soc(49)).mode_intent == "idle"
+    def test_stable_across_alternating_soc(self, controller):
+        modes = [controller.decide(hold(50), _soc(s)).mode_intent for s in (49, 50) * 4]
+        assert modes == ["idle"] * 8
 
-    def test_back_at_target_lifts(self, controller):
-        controller.decide(hold(), _soc(48))
-        assert controller.decide(hold(), _soc(50)).mode_intent == "self_consumption"
+    def test_hold_leaves_no_plan_state(self, controller):
+        controller.decide(grid_charge(50), _soc(50))
+        assert controller.plan_state.latched is True
+        controller.decide(hold(50), _soc(49))
+        assert controller.plan_state.kind is None
+        assert controller.plan_state.target is None
+        assert controller.plan_state.latched is False
 
-    def test_state_resets_at_block_change(self, controller):
-        controller.decide(hold(50), _soc(48))
-        controller.decide(SlotPlan(charge_kw=2.0, grid_charge_kw=0.0), _soc(49))
-        assert controller.decide(hold(50), _soc(49)).mode_intent == "self_consumption"
-
-    def test_reason_absent_on_auto(self, controller):
-        assert HOLD_MARGIN_REASON not in controller.decide(hold(), _soc(49)).reason
+    def test_hold_does_not_cap_charge(self, controller):
+        decision = controller.decide(hold(50), _soc(49))
+        assert decision.mode_intent == "idle"
+        assert decision.write_charge_current is False
 
     def test_ev_isolation_keeps_precedence(self, controller):
-        slot = hold(50, ev_charging_kw=3.0)
-        assert controller.decide(slot, _soc(50)).mode_intent == "idle"
-        assert controller.decide(slot, _soc(60)).mode_intent == "idle"
+        for slot in (hold(50, ev_charging_kw=3.0), hold(50, ev_keep_on={"car": True})):
+            for soc in (49, 50, 60):
+                decision = controller.decide(slot, _soc(soc))
+                assert decision.mode_intent == "idle"
+                assert EV_ISOLATION_REASON in decision.reason
+                assert HOLD_REASON not in decision.reason
 
-    def test_ev_keep_on_keeps_precedence(self, controller):
-        slot = hold(50, ev_keep_on={"car": True})
-        assert controller.decide(slot, _soc(49)).mode_intent == "idle"
-
-    def test_discharge_slot_keeps_floor_without_margin(self, controller):
+    def test_discharge_slot_keeps_floor(self, controller):
         slot = SlotPlan(discharge_kw=2.0, soc_target=12)
         assert controller.decide(slot, _soc(12)).mode_intent == "idle"
         assert controller.decide(slot, _soc(13)).mode_intent == "self_consumption"
 
-    def test_ev_isolated_slot_idles_without_hold_margin(self, controller):
-        # Isolation always idles (ev-isolation-slot-and-water-state D2); it is
-        # not a hold slot, so no hold-margin reason is attached.
+    def test_ev_isolated_slot_has_no_hold_reason(self, controller):
         slot = SlotPlan(discharge_kw=0.0, soc_target=12, discharge_blocked_by_ev=True)
         decision = controller.decide(slot, _soc(13))
         assert decision.mode_intent == "idle"
-        assert HOLD_MARGIN_REASON not in decision.reason
+        assert HOLD_REASON not in decision.reason
 
-    def test_pv_shortfall_at_most_one_block(self, controller):
-        socs = [50, 49, 48, 49, 48, 49, 50, 49]
-        modes = [controller.decide(hold(), _soc(s)).mode_intent for s in socs]
-        assert modes == [
-            "self_consumption",
-            "self_consumption",
-            "idle",
-            "idle",
-            "idle",
-            "idle",
-            "self_consumption",
-            "self_consumption",
-        ]
+    @pytest.mark.parametrize("offset", [0, 1, 2])
+    def test_replan_ratchet_regression(self, controller, offset):
+        # Each replan re-seeds the hold target from the live SoC (96, 94, 92, 90).
+        for target in (96, 94, 92, 90):
+            decision = controller.decide(hold(target), _soc(target + offset))
+            assert decision.mode_intent == "idle"
+            assert HOLD_REASON in decision.reason
+
+    def test_replan_ratchet_mode_never_flips(self, controller):
+        modes = []
+        for target in (96, 94, 92, 90):
+            for soc in (target + 2, target + 1, target):
+                modes.append(controller.decide(hold(target), _soc(soc)).mode_intent)
+        assert set(modes) == {"idle"}
+
+    def test_hold_resets_charge_latch(self, controller):
+        assert controller.decide(grid_charge(50), _soc(50)).mode_intent == "idle"
+        assert controller.plan_state.latched is True
+        controller.decide(hold(50), _soc(50))
+        assert controller.decide(grid_charge(50), _soc(48)).mode_intent == "charge"
 
 
-class TestHoldFloorAtMinSoc:
-    """min-soc-floor-tracking D1: the hold margin never crosses min_soc_percent."""
+class TestHoldAtMinSoc:
+    """A hold at or near battery.min_soc_percent idles and never grid charges."""
 
-    def test_margin_never_crosses_minimum(self):
+    @pytest.mark.parametrize(("target", "soc"), [(12, 11), (12, 12), (12, 13), (12, 14), (11, 11)])
+    def test_idle_without_charge(self, target, soc):
         controller = _min_soc_controller(12)
-        decision = controller.decide(hold(13), _soc(12))
-        assert decision.mode_intent == "idle"
-        assert HOLD_MARGIN_REASON in decision.reason
-
-    def test_target_above_minimum_still_auto(self):
-        controller = _min_soc_controller(12)
-        assert controller.decide(hold(13), _soc(13)).mode_intent == "self_consumption"
-
-    def test_hold_at_minimum_blocks_immediately_and_stays(self):
-        controller = _min_soc_controller(12)
-        modes = [controller.decide(hold(12), _soc(12)).mode_intent for _ in range(5)]
-        assert modes == ["idle"] * 5
-
-    def test_hold_at_minimum_lifts_on_real_gain(self):
-        # The min-SoC guard (executor-min-soc-discharge-guard D2) requires min + 2.
-        controller = _min_soc_controller(12)
-        controller.decide(hold(12), _soc(12))
-        assert controller.decide(hold(12), _soc(13)).mode_intent == "idle"
-        assert controller.decide(hold(12), _soc(14)).mode_intent == "self_consumption"
-
-    def test_hold_below_minimum_is_idle_without_charge(self):
-        controller = _min_soc_controller(12)
-        decision = controller.decide(hold(11), _soc(11))
+        decision = controller.decide(hold(target), _soc(soc))
         assert decision.mode_intent == "idle"
         assert decision.write_charge_current is False
-        assert controller.decide(hold(11), _soc(11)).mode_intent == "idle"
 
-    def test_hold_below_minimum_lifts_only_after_guard_release(self):
-        # Hold block lifts at 12, but the min-SoC guard keeps idle until min + 2.
+    def test_guard_persists_through_hold_and_releases_at_margin(self):
         controller = _min_soc_controller(12)
         controller.decide(hold(11), _soc(11))
-        assert controller.decide(hold(11), _soc(12)).mode_intent == "idle"
-        assert controller.decide(hold(11), _soc(13)).mode_intent == "idle"
-        assert controller.decide(hold(11), _soc(14)).mode_intent == "self_consumption"
+        assert controller.plan_state.min_soc_guard is True
+        for soc in (12, 13):
+            controller.decide(hold(11), _soc(soc))
+            assert controller.plan_state.min_soc_guard is True
+        follow = SlotPlan(charge_kw=0.2, grid_charge_kw=0.0, soc_target=12)
+        decision = controller.decide(follow, _soc(13))
+        assert decision.mode_intent == "idle"
+        assert MIN_SOC_GUARD_REASON in decision.reason
+        assert controller.decide(follow, _soc(14)).mode_intent == "self_consumption"
+        assert controller.plan_state.min_soc_guard is False
 
 
 class TestFroniusHoldAtMinSoc:
-    """Fronius writes no SoC target, so the hold floor alone stops self-consumption."""
-
     @pytest.fixture
     def fronius(self):
         profile = load_profile("fronius", PROFILES_DIR)
@@ -218,39 +207,30 @@ class TestFroniusHoldAtMinSoc:
         return _min_soc_controller(12, profile)
 
     def test_hold_at_minimum_blocks_on_first_tick(self, fronius):
-        decision = fronius.decide(hold(12), _soc(12))
-        assert decision.mode_intent == "idle"
+        assert fronius.decide(hold(12), _soc(12)).mode_intent == "idle"
 
     def test_reported_sequence_no_charge_auto_cycle(self, fronius):
-        # Charge block with target 12 reaches target and latches idle.
         assert fronius.decide(grid_charge(12), _soc(12)).mode_intent == "idle"
-        # The following hold slot at the minimum stays idle (no self-consumption).
         hold_modes = [fronius.decide(hold(12), _soc(12)).mode_intent for _ in range(3)]
         assert hold_modes == ["idle"] * 3
-        # The following charge slot at live 12 stays idle (no new top-up).
         assert fronius.decide(grid_charge(12), _soc(12)).mode_intent == "idle"
 
 
-class TestDeyeAboveMinSocUnchanged:
-    """Profiles that write a SoC target keep today's behaviour above the minimum."""
-
+class TestDeyeHold:
     @pytest.fixture
     def deye(self):
         return _min_soc_controller(12, load_profile("deye", PROFILES_DIR))
 
-    def test_hold_margin_and_soc_target_unchanged(self, deye):
-        first = deye.decide(hold(50), _soc(49))
-        second = deye.decide(hold(50), _soc(48))
-        assert first.mode_intent == "self_consumption"
-        assert second.mode_intent == "idle"
-        assert first.soc_target == 50
-        assert second.soc_target == 50
+    def test_hold_idles_and_keeps_soc_target(self, deye):
+        for soc in (49, 48):
+            decision = deye.decide(hold(50), _soc(soc))
+            assert decision.mode_intent == "idle"
+            assert decision.soc_target == 50
         assert deye.profile is not None
-        for mode in ("self_consumption", "idle"):
-            soc_writes = [
-                a.value for a in deye.profile.get_mode(mode).actions if a.entity == "soc_target"
-            ]
-            assert soc_writes == ["{{soc_target}}"]
+        soc_writes = [
+            a.value for a in deye.profile.get_mode("idle").actions if a.entity == "soc_target"
+        ]
+        assert soc_writes == ["{{soc_target}}"]
 
     def test_grid_charge_latch_unchanged(self, deye):
         assert deye.decide(grid_charge(18), _soc(18)).mode_intent == "idle"
@@ -258,6 +238,18 @@ class TestDeyeAboveMinSocUnchanged:
         resumed = deye.decide(grid_charge(18), _soc(16))
         assert resumed.mode_intent == "charge"
         assert resumed.soc_target == 18
+
+
+@pytest.mark.parametrize("name", ["fronius", "deye", "sungrow", "generic", "schema"])
+def test_idle_writes_no_zero_charge_limit(name):
+    """Idle in a hold slot must leave PV charging possible on every profile.
+
+    Raw YAML is read because the schema template does not pass profile validation.
+    """
+    data = yaml.safe_load((PROFILES_DIR / f"{name}.yaml").read_text())
+    for action in data["modes"]["idle"]["actions"]:
+        if action["entity"] in ("max_charge_current", "max_charge_power"):
+            assert str(action["value"]).strip().lower() not in {"0", "0.0", "false", "off"}
 
 
 def pv_charge() -> SlotPlan:
