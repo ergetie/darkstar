@@ -655,15 +655,23 @@ def _stub_generation_inputs():
 
 
 @pytest.mark.asyncio
-async def test_generate_persists_known_prices_until(tmp_db, price_config, no_published_prices):
+async def test_generate_persists_known_prices_until(
+    tmp_db, price_config, no_published_prices, monkeypatch
+):
     """The end of the last published slot is stored on every record."""
     import pytz
 
+    fixed_now = datetime(2026, 10, 5, 12, tzinfo=pytz.UTC)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+
+    monkeypatch.setattr("ml.price_forecast.datetime", FrozenDateTime)
     db_path, engine = tmp_db
     tz = pytz.timezone("Europe/Stockholm")
-    last_published = tz.localize(
-        datetime.combine(date.today() + timedelta(days=1), datetime.min.time())
-    )
+    last_published = tz.localize(datetime.combine(date(2026, 10, 6), datetime.min.time()))
     last_published += timedelta(hours=23, minutes=45)
     no_published_prices.return_value = {last_published: 0.4}
 

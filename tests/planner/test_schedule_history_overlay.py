@@ -1,6 +1,6 @@
 import json
 import sys
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -166,7 +166,7 @@ async def test_past_slot_keeps_planned_ev_and_null_is_not_fabricated(tmp_path):
     """Planned EV for past slots comes from slot_plans; NULL rows yield no value."""
     db_path = tmp_path / "planner_learning.db"
     tz = pytz.timezone("Europe/Stockholm")
-    today_start = tz.localize(datetime.combine(datetime.now(tz).date(), time(0, 0)))
+    today_start = tz.localize(datetime.combine(date(2026, 6, 15), time(0, 0)))
     ev_slot = today_start.replace(hour=1)
     null_slot = today_start.replace(hour=2)
 
@@ -249,7 +249,7 @@ def test_slot_duration_hours(end, expected):
 async def test_history_uses_real_slot_duration(tmp_path):
     db_path = tmp_path / "planner_learning.db"
     tz = pytz.timezone("Europe/Stockholm")
-    today_start = tz.localize(datetime.combine(datetime.now(tz).date(), time(0, 0)))
+    today_start = tz.localize(datetime.combine(date(2026, 6, 15), time(0, 0)))
     hour_slot = today_start.replace(hour=1)
     null_slot = today_start.replace(hour=2)
     half_slot = today_start.replace(hour=3)

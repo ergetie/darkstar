@@ -515,12 +515,25 @@ class TestDailyOutlookKnownPrices(unittest.TestCase):
 
     def setUp(self):
         from datetime import datetime, timedelta
+        from unittest.mock import patch
 
         import pytz
 
         self.db_fd, self.db_path = tempfile.mkstemp(suffix=".db")
         self.tz = pytz.timezone("Europe/Stockholm")
-        today = datetime.now(self.tz).date()
+        self.now = fixed_now = self.tz.localize(datetime(2026, 10, 5, 12, 0))
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return (
+                    fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+                )
+
+        freezer = patch("backend.core.price_outlook.datetime", FrozenDateTime)
+        freezer.start()
+        self.addCleanup(freezer.stop)
+        today = fixed_now.date()
         self.d1 = today + timedelta(days=1)
         self.d2 = today + timedelta(days=2)
 
@@ -581,10 +594,7 @@ class TestDailyOutlookKnownPrices(unittest.TestCase):
         )
 
     def test_today_known_slots_do_not_add_a_day(self):
-        from datetime import datetime
-
-        now = datetime.now(self.tz)
-        result = get_daily_outlook(self.db_path, {now: 9.0})
+        result = get_daily_outlook(self.db_path, {self.now: 9.0})
         self.assertEqual(sorted(d["days_ahead"] for d in result), [1, 2])
 
 

@@ -25,6 +25,22 @@ async def store(tmp_path):
     await value.close()
 
 
+NORMAL_DAY = datetime(2026, 10, 5).date()
+
+
+def _freeze_day_after(monkeypatch, day):
+    fixed_now = datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=UTC).replace(hour=12)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+
+    from backend.api.routers import energy
+
+    monkeypatch.setattr(energy, "datetime", FrozenDateTime)
+
+
 async def _add(store: LearningStore, rows: list[dict], *, day=None) -> list[datetime]:
     day = day or (datetime.now(TZ).date() - timedelta(days=1))
     first = TZ.localize(datetime.combine(day, datetime.min.time()))
@@ -55,7 +71,8 @@ async def _add(store: LearningStore, rows: list[dict], *, day=None) -> list[date
 
 
 @pytest.mark.asyncio
-async def test_metered_hourly_points_keep_actual_accounting_and_grid_comparison_is_separate(store):
+async def test_metered_hourly_points_keep_actual_accounting_and_grid_comparison_is_separate(store, monkeypatch):
+    _freeze_day_after(monkeypatch, NORMAL_DAY)
     rows = [
         {"import_kwh": 1.0, "load_kwh": 1.0},
         {"import_kwh": 1.0, "load_kwh": 2.0},
@@ -63,7 +80,7 @@ async def test_metered_hourly_points_keep_actual_accounting_and_grid_comparison_
         {"import_kwh": 0.5, "load_kwh": 0.5},
         {"import_kwh": 0.0, "export_kwh": 0.0, "load_kwh": 0.0},
     ]
-    await _add(store, rows)
+    await _add(store, rows, day=NORMAL_DAY)
     with patch("backend.api.routers.energy.load_yaml", return_value=CONFIG):
         series = await get_cost_series(period="yesterday", store=store)
         totals = await get_energy_range(period="yesterday", store=store)
@@ -120,14 +137,15 @@ async def test_per_slot_prices_controlled_loads_gross_flows_and_unrelated_batter
 
 
 @pytest.mark.asyncio
-async def test_missing_hour_keeps_other_eligible_slots_and_exposes_exact_internal_gap(store):
+async def test_missing_hour_keeps_other_eligible_slots_and_exposes_exact_internal_gap(store, monkeypatch):
+    _freeze_day_after(monkeypatch, NORMAL_DAY)
     rows = [{"load_kwh": 1.0, "import_kwh": 0.5} for _ in range(8)]
     rows[3] = {
         "load_kwh": 1.0,
         "import_kwh": 0.5,
         "quality_flags": json.dumps({"source": "recorder", "exclude": True}),
     }
-    await _add(store, rows)
+    await _add(store, rows, day=NORMAL_DAY)
     with patch("backend.api.routers.energy.load_yaml", return_value=CONFIG):
         series = await get_cost_series(period="yesterday", store=store)
     comparison = series["grid_only_comparison"]
@@ -139,7 +157,8 @@ async def test_missing_hour_keeps_other_eligible_slots_and_exposes_exact_interna
 
 
 @pytest.mark.asyncio
-async def test_empty_and_unusable_periods_have_coverage_but_no_amounts(store):
+async def test_empty_and_unusable_periods_have_coverage_but_no_amounts(store, monkeypatch):
+    _freeze_day_after(monkeypatch, NORMAL_DAY)
     with patch("backend.api.routers.energy.load_yaml", return_value=CONFIG):
         empty = await get_cost_series(period="yesterday", store=store)
     comparison = empty["grid_only_comparison"]
@@ -148,7 +167,7 @@ async def test_empty_and_unusable_periods_have_coverage_but_no_amounts(store):
     assert "saving_sek" not in comparison
     assert "points" not in comparison
     assert "segments" not in comparison
-    await _add(store, [{"quality_flags": json.dumps({"source": "recorder", "exclude": True})}])
+    await _add(store, [{"quality_flags": json.dumps({"source": "recorder", "exclude": True})}], day=NORMAL_DAY)
     with patch("backend.api.routers.energy.load_yaml", return_value=CONFIG):
         unusable = await get_cost_series(period="yesterday", store=store)
     comparison = unusable["grid_only_comparison"]

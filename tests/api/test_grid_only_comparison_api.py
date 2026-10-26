@@ -123,8 +123,16 @@ async def test_request_reads_only_selected_period_and_does_not_write(store):
 
 
 @pytest.mark.asyncio
-async def test_configured_battery_missing_flow_excludes_slot_and_measured_wear_reconciles(store):
-    yesterday = datetime.now(TZ).date() - timedelta(days=1)
+async def test_configured_battery_missing_flow_excludes_slot_and_measured_wear_reconciles(store, monkeypatch):
+    fixed_now = TZ.localize(datetime(2026, 10, 6, 10, 7)).astimezone(UTC)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+
+    monkeypatch.setattr(energy, "datetime", FrozenDateTime)
+    yesterday = datetime(2026, 10, 5).date()
     start = TZ.localize(datetime.combine(yesterday, datetime.min.time()))
     await add_rows(
         store,

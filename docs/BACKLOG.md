@@ -49,12 +49,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Reported on Discord 2026-09-22 by two users, one with an EV: "tick success 57.51% over 24 h (82/193 failed)" while everything worked. `backend/monitors.py` computes the rate over throttled `execution_log` rows; failed ticks are always logged while healthy ones are throttled, so failures are over-weighted (the code comment admits the bias). Possible trigger, not confirmed: the EV charge-failure check marking ticks unsuccessful for a plugged-in or sleeping car. **(needs production data)**
 
-#### [Tests] Schedule History Overlay Tests Fail On DST Fall-Back Day
-
-**Goal:** Make the schedule history overlay tests pass on every date, and check the overlay itself on the 25-hour day.
-
-**Notes:** `test_past_slot_keeps_planned_ev_and_null_is_not_fabricated` and `test_history_uses_real_slot_duration` (`tests/planner/test_schedule_history_overlay.py:169-171`, `:251-253`) build slots from the real current date with `.replace(hour=N)` on midnight, which keeps the CEST offset. On 2026-10-25 (CEST→CET) this gives `02:00+02:00`, a key the code never produces → KeyError. Reproduced by freezing the date: fails on 10-25, passes on 10-24 and 10-26. Fix: pin the tests to a fixed normal date (as the parametrized test in the same file does) or localize each hour. Separately, not verified: `get_schedule_today_with_history` (`backend/api/routers/schedule.py`) keys slots by naive local time, so the repeated 02:00–03:00 hour may collapse on the fall-back day; add a DST test for it.
-
 ---
 
 ## 🔧 Improvements
