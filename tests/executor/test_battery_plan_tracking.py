@@ -350,3 +350,28 @@ class TestMinSocDischargeGuard:
             a.value for a in deye.profile.get_mode("idle").actions if a.entity == "soc_target"
         ]
         assert soc_writes == ["{{soc_target}}"]
+
+
+class TestManualBoostWithMinSocGuard:
+    """A manual boost override stays idle and blocked even with the min-SoC guard latched."""
+
+    def test_boost_override_idle_with_guard_latched(self):
+        controller = _min_soc_controller(12)
+        controller.decide(hold(11), _soc(11))
+        assert controller.plan_state.min_soc_guard is True
+
+        boost = OverrideResult(
+            override_needed=True,
+            override_type=OverrideType.FORCE_HEAT,
+            priority=8.0,
+            reason="Water Boost active",
+            actions={"soc_target": 11, "water_temp": 65},
+        )
+        decision = controller.decide(hold(11), _soc(11), boost)
+
+        assert decision.mode_intent == "idle"
+        assert decision.discharge_value == 0.0
+        assert decision.write_discharge_current is False
+        assert decision.soc_target == 11
+        assert decision.source == "override"
+        assert controller.plan_state.min_soc_guard is True

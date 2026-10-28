@@ -1680,8 +1680,8 @@ executor:
 
 
 @pytest.mark.asyncio
-class TestWaterBoostCancellationNotification:
-    """Test that the boost-cancellation notification is awaited (#24)."""
+class TestWaterBoostNotCancelledBySoc:
+    """A manual water boost is never cancelled or refused based on battery SoC."""
 
     @pytest.fixture
     def engine(self, temp_schedule, temp_db):
@@ -1765,35 +1765,104 @@ class TestWaterBoostCancellationNotification:
         with pytest.raises(ValueError, match="Invalid duration"):
             engine.set_water_boost(minutes)
 
-    async def test_boost_cancelled_notification_is_awaited(self, engine, temp_schedule):
-        """Notification is sent (and awaited) when boost is cancelled due to low SoC."""
-        from unittest.mock import AsyncMock
+    @staticmethod
+    def _freeze_clock(monkeypatch):
+        """Pin the engine clock to a fixed non-DST day (2026-06-15 12:07 CEST)."""
+        fixed_now = pytz.timezone("Europe/Stockholm").localize(datetime(2026, 6, 15, 12, 7))
 
-        # Activate a water boost
-        engine.set_water_boost(60)
-        assert engine.get_water_boost_status() is not None
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
 
-        # SoC = 5% < min_soc(10) + 10 = 20% → boost should be cancelled
-        from executor.engine import SystemState
+        monkeypatch.setattr("executor.engine.datetime", FrozenDateTime)
 
-        low_soc_state = SystemState(current_soc_percent=5.0)
+    @staticmethod
+    def _write_schedule(path, soc_target=42):
+        """96 quarter-hour slots covering 2026-06-15 (non-DST day)."""
+        tz = pytz.timezone("Europe/Stockholm")
+        day_start = tz.localize(datetime(2026, 6, 15))
+        slots = [
+            {
+                "start_time": (day_start + timedelta(minutes=15 * i)).isoformat(),
+                "end_time": (day_start + timedelta(minutes=15 * (i + 1))).isoformat(),
+                "soc_target_percent": soc_target,
+            }
+            for i in range(96)
+        ]
+        assert len(slots) == 96
+        generated_at = tz.localize(datetime(2026, 6, 15, 12, 0)).isoformat()
+        with Path(path).open("w", encoding="utf-8") as f:
+            json.dump({"schedule": slots, "meta": {"generated_at": generated_at}}, f)
+
+    async def _run_boost_tick(self, engine, temp_schedule, monkeypatch, soc, *, with_plan=True):
+        """Run one tick with an active boost; return (decision, notify mock)."""
+        self._freeze_clock(monkeypatch)
+        if with_plan:
+            self._write_schedule(temp_schedule)
+        else:
+            with Path(temp_schedule).open("w", encoding="utf-8") as f:
+                json.dump({"schedule": []}, f)
         engine._full_config["battery"] = {"min_soc_percent": 10.0}
+        engine.set_water_boost(60)
 
         mock_notify = AsyncMock()
         engine.dispatcher._send_notification = mock_notify  # type: ignore[attr-defined]
 
-        with patch.object(
-            engine, "_gather_system_state", new=AsyncMock(return_value=low_soc_state)
+        import executor.engine as engine_module
+
+        with (
+            patch.object(
+                engine,
+                "_gather_system_state",
+                new=AsyncMock(return_value=SystemState(current_soc_percent=soc)),
+            ),
+            patch.object(engine_module, "make_decision", wraps=engine_module.make_decision) as spy,
         ):
-            with Path(temp_schedule).open("w", encoding="utf-8") as f:
-                json.dump({"schedule": []}, f)
-
             await engine.run_once()
+        # First call is the tick decision; later ones are status telemetry.
+        return spy.call_args_list[0], mock_notify
 
-        # Notification must have been awaited (not just called)
-        mock_notify.assert_awaited_once()
-        # Boost should be cleared
-        assert engine.get_water_boost_status()["active"] is False
+    async def test_boost_below_min_soc_stays_active_without_notification(
+        self, engine, temp_schedule, monkeypatch
+    ):
+        call, mock_notify = await self._run_boost_tick(engine, temp_schedule, monkeypatch, 5.0)
+
+        assert engine.get_water_boost_status()["active"] is True
+        override = call.args[2]
+        assert override.override_needed is True
+        assert override.override_type.value == "force_heat"
+        assert override.actions["water_temp"] == engine.config.water_heater.temp_boost
+        # Only the generic "override active" notice may fire, never a cancellation.
+        titles = [c.kwargs.get("title") for c in mock_notify.await_args_list]
+        assert "Darkstar Water Boost" not in titles
+        assert not any("cancelled" in str(c.args[0]) for c in mock_notify.await_args_list)
+
+    @pytest.mark.parametrize("soc", [5.0, 50.0])
+    async def test_boost_is_idle_without_discharge_and_uses_plan_soc_target(
+        self, engine, temp_schedule, monkeypatch, soc
+    ):
+        from executor.controller import make_decision
+
+        call, _ = await self._run_boost_tick(engine, temp_schedule, monkeypatch, soc)
+        decision = make_decision(*call.args, **call.kwargs)
+
+        assert decision.mode_intent == "idle"
+        assert decision.discharge_value == 0.0
+        assert decision.write_discharge_current is False
+        assert call.args[0].soc_target == 42
+        assert decision.soc_target == 42
+
+    @pytest.mark.parametrize(("soc", "expected"), [(5.0, 10), (50.0, 50)])
+    async def test_boost_without_plan_slot_holds_soc_at_least_min_soc(
+        self, engine, temp_schedule, monkeypatch, soc, expected
+    ):
+        call, _ = await self._run_boost_tick(
+            engine, temp_schedule, monkeypatch, soc, with_plan=False
+        )
+
+        assert call.args[2].actions["soc_target"] == expected
+        assert engine.get_water_boost_status()["active"] is True
 
 
 class TestCreateExecutionRecordErrorMessage:
