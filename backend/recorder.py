@@ -320,7 +320,9 @@ async def record_observation_from_current_state(
     history = await get_power_history_batch(
         sources.entity_ids() + car_entities, slot_start, slot_end
     )
-    series = {entity: parse_power_states(states) for entity, states in (history or {}).items()}
+    series = {
+        entity: parse_power_states(states, entity) for entity, states in (history or {}).items()
+    }
     energy = compute_slot_energy(sources, series, slot_start, slot_end)
 
     def or_snapshot(integrated: float | None, snapshot_kw: float) -> float:

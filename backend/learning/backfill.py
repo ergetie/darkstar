@@ -232,7 +232,7 @@ class BackfillEngine:
         slot_starts: list[datetime],
     ) -> list[dict[str, Any]]:
         """Integrate one day's batched history into one record per slot (CPU-bound)."""
-        series = {entity: parse_power_states(states) for entity, states in history.items()}
+        series = {entity: parse_power_states(states, entity) for entity, states in history.items()}
         if not any(series.get(entity) for entity in sources.entity_ids()):
             return []
         soc_points = series.get(soc_entity, []) if soc_entity else []

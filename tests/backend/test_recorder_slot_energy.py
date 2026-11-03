@@ -142,6 +142,15 @@ class TestIntegratedSlotEnergy:
         assert record_["load_kwh"] == pytest.approx(0.25 * 900 / 3600)
 
     @pytest.mark.asyncio
+    async def test_watt_sensor_slot_starting_unavailable_is_not_inflated(self):
+        """After an outage the unit sits on the leading `unavailable` state only."""
+        states = series("sensor.pv", [(0, 0.0), (10, 4000)], unit="W")
+        states[0]["state"] = "unavailable"
+        del states[1]["attributes"]
+        record_, _ = await record(base_config(), {"sensor.pv": states})
+        assert record_["pv_kwh"] == pytest.approx(4.0 * 890 / 3600)
+
+    @pytest.mark.asyncio
     async def test_pv_and_load_come_from_history(self):
         history = {
             "sensor.pv": constant("sensor.pv", 4.0),

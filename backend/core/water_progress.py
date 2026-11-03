@@ -36,11 +36,12 @@ def _history_energy(
     end: datetime,
     cutoff_kw: float,
     timezone: pytz.BaseTzInfo,
+    entity_id: str | None = None,
 ) -> tuple[float, float]:
     """Integrate only known HA history segments; return energy and covered seconds."""
     valid_by_time = {
         local_time: value
-        for timestamp, value in parse_power_states(states)
+        for timestamp, value in parse_power_states(states, entity_id)
         if (local_time := _as_local_datetime(timestamp, timezone)) is not None
     }
     transitions: list[tuple[datetime, float | None]] = []
@@ -236,7 +237,7 @@ async def read_water_heating_progress(
             states = history.get(sensor, [])
             for gap_start, gap_end in _gaps(bucket_start, end, covered[heater_id]):
                 added_kwh, added_seconds = _history_energy(
-                    states, gap_start, gap_end, cutoff_kw, timezone
+                    states, gap_start, gap_end, cutoff_kw, timezone, sensor
                 )
                 values[heater_id] += added_kwh
                 known_seconds += added_seconds

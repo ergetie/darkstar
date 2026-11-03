@@ -235,18 +235,39 @@ def _state_timestamp(state: dict[str, Any]) -> datetime | None:
     return None
 
 
-def parse_power_states(states: list[dict[str, Any]]) -> list[PowerPoint]:
+# Entities already warned about for a missing unit (once per entity per process).
+_unitless_warned: set[str] = set()
+
+
+def _warn_unknown_unit_once(entity_id: str | None) -> None:
+    key = entity_id or "<unknown entity>"
+    if key in _unitless_warned:
+        return
+    _unitless_warned.add(key)
+    logger.warning("No unit_of_measurement known for %s; assuming kW", key)
+
+
+def parse_power_states(
+    states: list[dict[str, Any]], entity_id: str | None = None
+) -> list[PowerPoint]:
     """Parse HA history states of one power sensor into time-sorted ``(timestamp, kW)`` points.
 
     States without a timestamp or numeric value are skipped. A state lacking a unit
     inherits the last unit seen earlier in the series (HA often reports it only on the
-    first state).
+    first state, which may be a non-numeric one, so the unit is learned from every
+    state before its value is skipped). A numeric series with no unit anywhere is read
+    as kW; ``entity_id`` only names it in the once-per-process warning.
     """
     points: list[PowerPoint] = []
     cached_unit: str | None = None
     stamped = [(ts, state) for state in states if (ts := _state_timestamp(state)) is not None]
     stamped.sort(key=lambda item: item[0])
     for ts, state in stamped:
+        attributes: dict[str, Any] = state.get("attributes") or {}
+        unit: str | None = attributes.get("unit_of_measurement")
+        if unit is not None and unit != "":
+            cached_unit = unit
+
         state_val = state.get("state", "")
         if state_val in ("unknown", "unavailable", "", None):
             continue
@@ -255,12 +276,10 @@ def parse_power_states(states: list[dict[str, Any]]) -> list[PowerPoint]:
         except (TypeError, ValueError):
             continue
 
-        attributes: dict[str, Any] = state.get("attributes") or {}
-        unit: str | None = attributes.get("unit_of_measurement")
-        if unit is not None and unit != "":
-            cached_unit = unit
         if unit is None or unit == "":
             unit = cached_unit
+        if unit is None:
+            _warn_unknown_unit_once(entity_id)
         normalized = normalize_active_power_kw(value, unit)
         if normalized is not None:
             points.append((ts, normalized))
@@ -340,8 +359,12 @@ async def get_power_history_batch(
     params = {
         "filter_entity_id": ",".join(entities),
         "end_time": end.isoformat(),
-        "significant_changes_only": False,
-        "minimal_response": False,
+        # HA enables minimal_response by mere presence of the key (only the first state
+        # of a series then carries attributes) and significant_changes_only unless it
+        # equals "0". Full attributes would bloat each response by several MB, so the
+        # minimal form is kept deliberately and missing units are filled in below.
+        "significant_changes_only": "0",
+        "minimal_response": "true",
     }
 
     try:
@@ -365,7 +388,47 @@ async def get_power_history_batch(
             result[entity_id] = series
         elif len(entities) == 1 and len(all_series) == 1:
             result[entities[0]] = series
+    await _fill_missing_units(result)
     return result
+
+
+def _unit_of(state: dict[str, Any]) -> str | None:
+    attributes = state.get("attributes")
+    if not isinstance(attributes, dict):
+        return None
+    unit = cast("dict[str, Any]", attributes).get("unit_of_measurement")
+    return str(unit) if unit else None
+
+
+def _series_has_unit(series: list[dict[str, Any]]) -> bool:
+    return any(_unit_of(state) for state in series)
+
+
+async def _fill_missing_units(result: dict[str, list[dict[str, Any]]]) -> None:
+    """Give every non-empty series without a unit the entity's current unit (in place).
+
+    The unit is written into a copy of the first state's attributes. A failed lookup
+    leaves the series unchanged.
+    """
+    unitless = [
+        entity for entity, series in result.items() if series and not _series_has_unit(series)
+    ]
+    if not unitless:
+        return
+    current = await asyncio.gather(
+        *(get_ha_entity_state(entity) for entity in unitless), return_exceptions=True
+    )
+    for entity, state in zip(unitless, current, strict=True):
+        if not isinstance(state, dict):
+            continue
+        unit = _unit_of(state)
+        if not unit:
+            continue
+        series = list(result[entity])
+        first = dict(series[0])
+        first["attributes"] = {**(first.get("attributes") or {}), "unit_of_measurement": unit}
+        series[0] = first
+        result[entity] = series
 
 
 async def get_energy_from_power_history(
@@ -380,7 +443,9 @@ async def get_energy_from_power_history(
     history = await get_power_history_batch([entity_id], start, end)
     if not history:
         return None
-    integrated = integrate_power_points(parse_power_states(history[entity_id]), start, end)
+    integrated = integrate_power_points(
+        parse_power_states(history[entity_id], entity_id), start, end
+    )
     if integrated is None:
         return None
     return integrated[0] - integrated[1]
@@ -861,7 +926,7 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
                     discard_reason=f"'{entity}' history could not be fetched from Home Assistant",
                 )
 
-            points = parse_power_states(history[entity])
+            points = parse_power_states(history[entity], entity)
             valid_points += len(points)
             slot_start = day_start
             while slot_start < day_end:

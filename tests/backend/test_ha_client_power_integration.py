@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytz
 
+from backend.core import ha_client
 from backend.core.ha_client import (
     get_energy_from_power_history,
     get_power_history_batch,
@@ -99,7 +100,106 @@ def _patched(client: MagicMock):
     )
 
 
+class TestParsePowerStatesUnitLearning:
+    def test_unit_learned_from_leading_non_numeric_state(self):
+        """A chunk starting `unavailable` (unit on it) keeps W for the unitless states after."""
+        for leading in ("unavailable", "unknown"):
+            states = [_state(leading, 0, unit="W"), _state("1000", 5, None), _state("2000", 10, None)]
+            result = _integrate(states)
+            assert result is not None
+            assert result[0] == pytest.approx(1.0 * 5 / 60 + 2.0 * 5 / 60)
+
+    def test_normal_series_unchanged(self):
+        points = parse_power_states([_state("1000", 0, unit="W"), _state("2000", 5, None)])
+        assert [value for _ts, value in points] == [1.0, 2.0]
+
+    def test_unit_unknown_assumes_kw_and_warns_once_per_entity(self, caplog):
+        ha_client._unitless_warned.clear()
+        states = [_state("2.0", 0, unit=None), _state("3.0", 5, unit=None)]
+        with caplog.at_level(logging.WARNING, logger="darkstar.core.ha_client"):
+            first = parse_power_states(states, "sensor.nounit")
+            parse_power_states(states, "sensor.nounit")
+            parse_power_states(states, "sensor.other")
+        assert [value for _ts, value in first] == [2.0, 3.0]
+        messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(messages) == 2
+        assert "sensor.nounit" in messages[0]
+        assert "sensor.other" in messages[1]
+
+
 class TestGetPowerHistoryBatch:
+    @pytest.mark.asyncio
+    async def test_request_params_are_explicit_strings(self):
+        client = _mock_client([[_state("1.0", 0, entity="sensor.a")]])
+        secrets_patch, client_patch = _patched(client)
+        with secrets_patch, client_patch:
+            await get_power_history_batch(["sensor.a"], START, END)
+        params = client.get.await_args.kwargs["params"]
+        assert params["significant_changes_only"] == "0"
+        assert params["minimal_response"] == "true"
+        assert False not in params.values()
+
+    @pytest.mark.asyncio
+    async def test_unitless_series_gets_current_unit_without_mutating_source(self):
+        series = [_state("1000", 0, None, "sensor.a"), _state("2000", 5, None, "sensor.a")]
+        client = _mock_client([series])
+        secrets_patch, client_patch = _patched(client)
+        state_mock = AsyncMock(return_value={"attributes": {"unit_of_measurement": "W"}})
+        with secrets_patch, client_patch, patch.object(ha_client, "get_ha_entity_state", state_mock):
+            history = await get_power_history_batch(["sensor.a"], START, END)
+        assert history is not None
+        state_mock.assert_awaited_once_with("sensor.a")
+        assert history["sensor.a"][0]["attributes"]["unit_of_measurement"] == "W"
+        assert "attributes" not in series[0]
+        assert integrate_power_points(parse_power_states(history["sensor.a"]), START, END) == (
+            pytest.approx(1.0 * 5 / 60 + 2.0 * 10 / 60),
+            0.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_extra_request_when_series_has_unit(self):
+        client = _mock_client([[_state("1000", 0, "W", "sensor.a")]])
+        secrets_patch, client_patch = _patched(client)
+        state_mock = AsyncMock()
+        with secrets_patch, client_patch, patch.object(ha_client, "get_ha_entity_state", state_mock):
+            await get_power_history_batch(["sensor.a"], START, END)
+        state_mock.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_failed_unit_lookup_leaves_series_unchanged(self):
+        client = _mock_client(
+            [[_state("1000", 0, None, "sensor.a")], [_state("1", 0, None, "sensor.b")]]
+        )
+        secrets_patch, client_patch = _patched(client)
+
+        async def lookup(entity):
+            if entity == "sensor.a":
+                raise RuntimeError("boom")
+            return {"attributes": {"unit_of_measurement": "W"}}
+
+        with (
+            secrets_patch,
+            client_patch,
+            patch.object(ha_client, "get_ha_entity_state", AsyncMock(side_effect=lookup)),
+        ):
+            history = await get_power_history_batch(["sensor.a", "sensor.b"], START, END)
+        assert history is not None
+        assert "attributes" not in history["sensor.a"][0]
+        assert history["sensor.b"][0]["attributes"]["unit_of_measurement"] == "W"
+
+    @pytest.mark.asyncio
+    async def test_unavailable_lookup_result_leaves_series_unchanged(self):
+        client = _mock_client([[_state("1000", 0, None, "sensor.a")]])
+        secrets_patch, client_patch = _patched(client)
+        with (
+            secrets_patch,
+            client_patch,
+            patch.object(ha_client, "get_ha_entity_state", AsyncMock(return_value=None)),
+        ):
+            history = await get_power_history_batch(["sensor.a"], START, END)
+        assert history is not None
+        assert "attributes" not in history["sensor.a"][0]
+
     @pytest.mark.asyncio
     async def test_one_request_returns_one_series_per_entity(self):
         client = _mock_client(
@@ -188,3 +288,48 @@ class TestGetEnergyFromPowerHistoryWrapper:
         secrets_patch, client_patch = _patched(client)
         with secrets_patch, client_patch:
             assert await get_energy_from_power_history("sensor.ev", START, END) is None
+
+
+class TestLoadProfileAfterOutage:
+    @pytest.mark.asyncio
+    async def test_day_chunk_starting_unavailable_stays_in_watts(self, monkeypatch):
+        """Every day chunk opens `unavailable` (unit only there): W must not become kW."""
+        # Fixed normal (non-DST) date: the 7-day window 2026-09-29..10-06 has no clock change.
+        fixed_now = datetime(2026, 10, 6, 12, 0, tzinfo=pytz.UTC)
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+
+        monkeypatch.setattr(ha_client, "datetime", FrozenDateTime)
+
+        async def fake_history(entity_ids, start, end, **_kwargs):
+            return {
+                entity_ids[0]: [
+                    {
+                        "state": "unavailable",
+                        "last_changed": start.isoformat(),
+                        "attributes": {"unit_of_measurement": "W"},
+                    },
+                    {"state": "1000", "last_changed": (start + timedelta(seconds=1)).isoformat()},
+                ]
+            }
+
+        config = {
+            "timezone": "Europe/Stockholm",
+            "input_sensors": {"load_power": "sensor.load"},
+        }
+        with (
+            patch(
+                "backend.core.ha_client.secrets.load_home_assistant_config",
+                return_value={"url": "http://ha.local", "token": "tok"},
+            ),
+            patch.object(ha_client, "get_power_history_batch", AsyncMock(side_effect=fake_history)),
+        ):
+            profile = await ha_client.get_load_profile_from_ha(config)
+
+        assert len(profile) == 96
+        # Constant 1 kW is 24 kWh/day minus the 1 s `unavailable` lead of each of the 7
+        # chunks (7 s / 7 days = 1 s/day -> 24 - 1/3600 kWh); the 1000x bug gives 24000.
+        assert sum(profile) == pytest.approx(24.0 - 1 / 3600, abs=1e-6)
