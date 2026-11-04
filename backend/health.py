@@ -8,6 +8,7 @@ Validates HA connection, entity availability, config validity, and planner metri
 import asyncio
 import logging
 import threading
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -31,6 +32,19 @@ _forecast_lock: threading.Lock = threading.Lock()
 
 # Share of estimated horizon slots above which the PV forecast banner turns critical
 PV_ESTIMATED_CRITICAL_FRACTION = 0.5
+
+# PV site sanity: the ratio is slow-moving, so it is computed at most this often.
+PV_SITE_RATIO_CACHE_SECONDS = 6 * 3600.0
+# After a failed computation, do not retry on every health poll.
+PV_SITE_RATIO_RETRY_SECONDS = 600.0
+# (monotonic time computed, ratio or None when there is not enough evidence)
+_pv_site_ratio_cache: tuple[float, float | None] | None = None
+
+
+def get_cached_pv_site_ratio() -> float | None:
+    """The last computed PV site ratio, regardless of age (None if unknown)."""
+    return _pv_site_ratio_cache[1] if _pv_site_ratio_cache is not None else None
+
 
 # REV F65 Phase 5b: Load forecast status tracking
 _load_forecast_status: str = "ok"  # "ok", "degraded"
@@ -143,6 +157,7 @@ class HealthIssue:
     details: dict[str, Any] | None = None  # Structured diagnostic data
     retry_in_s: int | None = None  # Seconds until next planner retry
     config_blocking: bool = False  # True when the error requires a config change to resolve
+    acknowledge_id: str | None = None  # Set when the user may acknowledge (hide) this issue
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -161,6 +176,8 @@ class HealthIssue:
             d["retry_in_s"] = self.retry_in_s
         if self.config_blocking:
             d["config_blocking"] = True
+        if self.acknowledge_id is not None:
+            d["acknowledge_id"] = self.acknowledge_id
         return d
 
 
@@ -332,6 +349,9 @@ class HealthChecker:
         # Check planner health (error codes + retry policy)
         issues.extend(self.check_planner())
 
+        # Informational PV site plausibility notice (fail-open)
+        issues.extend(await self.check_pv_site_sanity())
+
         # Runtime invariant monitors (stabilization-review-2) — fail-open
         issues.extend(self.check_monitors())
 
@@ -340,6 +360,104 @@ class HealthChecker:
         healthy = not has_critical
 
         return HealthStatus(healthy=healthy, issues=issues)
+
+    async def _pv_site_ratio(self) -> float | None:
+        """Recorded PV / baseline on clear days, cached for PV_SITE_RATIO_CACHE_SECONDS."""
+        global _pv_site_ratio_cache
+        cached = _pv_site_ratio_cache
+        if cached is not None and time.monotonic() - cached[0] < PV_SITE_RATIO_CACHE_SECONDS:
+            return cached[1]
+
+        from backend.core.forecasts import get_forecast_db_path
+        from backend.learning.pv_site_sanity import compute_pv_site_ratio
+        from backend.learning.store import LearningStore
+
+        db_path = get_forecast_db_path()
+        if not Path(db_path).exists():
+            return None
+        store = LearningStore(
+            db_path, pytz.timezone(str(self._config.get("timezone", "Europe/Stockholm")))
+        )
+        try:
+            result = await compute_pv_site_ratio(store, self._config)
+        except Exception:
+            # Back-dated so the failure expires after PV_SITE_RATIO_RETRY_SECONDS.
+            stamp = time.monotonic() - (PV_SITE_RATIO_CACHE_SECONDS - PV_SITE_RATIO_RETRY_SECONDS)
+            _pv_site_ratio_cache = (stamp, None)
+            raise
+        finally:
+            await store.close()
+        ratio = result[0] if result is not None else None
+        _pv_site_ratio_cache = (time.monotonic(), ratio)
+        return ratio
+
+    async def check_pv_site_sanity(self) -> list[HealthIssue]:
+        """Informational notice when recorded PV is implausible on clear days.
+
+        The user can acknowledge it; it then stays hidden unless the ratio gets clearly worse
+        or crosses to the other side of the plausible range. Never raises.
+        """
+        try:
+            from backend.core.onboarding_state import clear_acknowledged_warning, read_state
+            from backend.learning.pv_site_sanity import (
+                NOTICE_HIGH,
+                NOTICE_LOW,
+                notice_code,
+                should_show,
+            )
+
+            ratio = await self._pv_site_ratio()
+            if ratio is None:
+                return []
+
+            code = notice_code(ratio)
+            acknowledged = read_state().acknowledged_warnings
+            if code is None:
+                # Back inside the plausible range: a later recurrence must be shown again.
+                for notice_id in (NOTICE_LOW, NOTICE_HIGH):
+                    if notice_id in acknowledged:
+                        clear_acknowledged_warning(notice_id)
+                return []
+
+            # Crossing to the other side of the range makes the notice new again.
+            other = NOTICE_HIGH if code == NOTICE_LOW else NOTICE_LOW
+            if other in acknowledged:
+                clear_acknowledged_warning(other)
+            if not should_show(ratio, acknowledged.get(code)):
+                return []
+
+            percent = round(ratio * 100)
+            if code == NOTICE_LOW:
+                message = (
+                    "Your solar panels produce much less than forecast on clear days "
+                    f"(about {percent} % of forecast)."
+                )
+                guidance = (
+                    "This can be shading, a wrong panel setting, or a missing string. "
+                    "Darkstar still learns and adjusts the forecast."
+                )
+            else:
+                message = (
+                    "Your solar panels produce much more than forecast on clear days "
+                    f"(about {percent} % of forecast)."
+                )
+                guidance = (
+                    "This can be panels set up smaller than they really are, or production "
+                    "measured twice. Darkstar still learns and adjusts the forecast."
+                )
+            return [
+                HealthIssue(
+                    category="forecast",
+                    severity="info",
+                    message=message,
+                    guidance=guidance,
+                    code=code,
+                    acknowledge_id=code,
+                )
+            ]
+        except Exception as e:
+            logger.debug("Could not check PV site sanity: %s", e)
+            return []
 
     def check_monitors(self) -> list[HealthIssue]:
         """Surface active invariant violations from the runtime monitors."""

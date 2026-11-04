@@ -81,6 +81,16 @@ def isolated_ev_state_file(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolated_onboarding_state(monkeypatch, tmp_path):
+    """Keep onboarding/acknowledgement state and the PV site ratio cache per test."""
+    from backend import health
+    from backend.core import onboarding_state
+
+    monkeypatch.setattr(onboarding_state, "STATE_FILE_PATH", tmp_path / "onboarding_state.json")
+    monkeypatch.setattr(health, "_pv_site_ratio_cache", None)
+
+
+@pytest.fixture(autouse=True)
 def isolated_ev_soc_memory():
     """Clear the process-wide last-known SoC / stale-episode memory per test."""
     from backend.core.ev_live_state import reset_soc_memory

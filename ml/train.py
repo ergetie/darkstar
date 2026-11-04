@@ -20,9 +20,14 @@ import numpy as np
 import pandas as pd
 
 from backend.learning import LearningEngine, get_learning_engine
+from backend.learning.pv_cleaning import (
+    clean_pv_slots,
+    site_location,
+    total_solar_kwp,
+)
 from backend.validation import get_max_energy_per_slot
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
-from ml.weather import get_weather_series
+from ml.weather import get_historical_weather_series
 
 
 @dataclass
@@ -128,6 +133,8 @@ def _load_slot_observations(
                 o.slot_start,
                 o.load_kwh,
                 o.pv_kwh,
+                o.soc_end_percent,
+                o.export_kwh,
                 f.openmeteo_pv_forecast_kwh
             FROM slot_observations o
             LEFT JOIN slot_forecasts f
@@ -148,6 +155,8 @@ def _load_slot_observations(
                 o.slot_start,
                 o.load_kwh,
                 o.pv_kwh,
+                o.soc_end_percent,
+                o.export_kwh,
                 f.openmeteo_pv_forecast_kwh
             FROM slot_observations o
             LEFT JOIN slot_forecasts f
@@ -169,6 +178,8 @@ def _load_slot_observations(
                 o.slot_start,
                 o.load_kwh,
                 o.pv_kwh,
+                o.soc_end_percent,
+                o.export_kwh,
                 f.openmeteo_pv_forecast_kwh
             FROM slot_observations o
             LEFT JOIN slot_forecasts f
@@ -190,6 +201,8 @@ def _load_slot_observations(
                 o.slot_start,
                 o.load_kwh,
                 o.pv_kwh,
+                o.soc_end_percent,
+                o.export_kwh,
                 f.openmeteo_pv_forecast_kwh
             FROM slot_observations o
             LEFT JOIN slot_forecasts f
@@ -361,8 +374,8 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
         index=observations.index,
     )
 
-    # Enrich with hourly weather where available
-    weather_df = get_weather_series(obs_start, now, config=engine.config)
+    # Enrich with real historical weather (inference uses forecast weather, same columns)
+    weather_df = get_historical_weather_series(obs_start, now, config=engine.config)
     if not weather_df.empty:
         observations = observations.merge(
             weather_df,
@@ -371,6 +384,9 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
             how="left",
         )
     else:
+        print(
+            "Warning: Historical weather unavailable; training continues without weather features."
+        )
         for col in ("temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2"):
             observations[col] = np.nan
 
@@ -457,20 +473,26 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
         print("Warning: No valid load_kwh samples found; skipping load models.")
 
     # --- Train PV Models ---
-    # HYBRID PV: Train on residuals (actual - physics) with sun-up filter
+    # HYBRID PV: Train on residuals (actual - Open-Meteo baseline)
     pv_df = observations.dropna(subset=["pv_kwh"]).copy()
 
-    # Apply sun-up filter: only train on slots with radiation > 10 OR actual PV > 0.01
-    # This excludes nighttime slots (radiation=0, pv=0) which provide no learning signal
-    if "shortwave_radiation_w_m2" in pv_df.columns:
-        sun_up_mask = (pv_df["shortwave_radiation_w_m2"] > 10) | (pv_df["pv_kwh"] > 0.01)
-        pv_df = pv_df[sun_up_mask].copy()
-        filtered_count = len(observations.dropna(subset=["pv_kwh"])) - len(pv_df)
-        if filtered_count > 0:
-            print(f"Filtered {filtered_count} nighttime/zero-production slots from PV training")
-
     if not pv_df.empty:
-        pv_df = pv_df.dropna(subset=["openmeteo_pv_forecast_kwh"]).copy()
+        # Shared cleaning (also feeds the Reflex bias): keeps shaded zero slots, drops night,
+        # dropouts, spikes and curtailed slots (and slots without a baseline).
+        latitude, longitude = site_location(engine.config)
+        before = len(pv_df)
+        cleaned = clean_pv_slots(
+            pv_df.rename(columns={"openmeteo_pv_forecast_kwh": "baseline_kwh"}),
+            total_kwp=total_solar_kwp(engine.config),
+            latitude=latitude,
+            longitude=longitude,
+        )
+        dropped_by_rule = cleaned.attrs.get("dropped_by_rule", {})
+        pv_df = cleaned.rename(columns={"baseline_kwh": "openmeteo_pv_forecast_kwh"})
+        print(
+            f"PV cleaning dropped {before - len(pv_df)} of {before} slots "
+            f"(by rule: {', '.join(f'{k}={v}' for k, v in dropped_by_rule.items())})"
+        )
         if pv_df.empty:
             print("Warning: No stored Open-Meteo baselines found; skipping PV models.")
         else:

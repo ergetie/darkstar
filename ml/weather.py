@@ -10,6 +10,7 @@ import json
 import logging
 import math
 import time
+from datetime import UTC, date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+    from pytz import BaseTzInfo
 
 
 def _calculate_solar_position(
@@ -291,6 +294,67 @@ def _load_config(config_path: str = "config.yaml") -> dict[str, Any]:
         return result
 
 
+def _hourly_payload_to_frame(
+    hourly: dict[str, Any],
+    tz: BaseTzInfo,
+    extra_params: list[str] | None = None,
+) -> pd.DataFrame:
+    """Convert an Open-Meteo ``hourly`` payload to a 15-minute frame in ``tz``.
+
+    Shared by the forecast and historical fetches so both produce identical columns:
+    parse, DST-safe localize, duplicate drop, linear resample. Returns an empty frame
+    when the payload has no usable data.
+    """
+    times: list[Any] = hourly.get("time") or []
+    temps: list[Any] = hourly.get("temperature_2m") or []
+    clouds: list[Any] = hourly.get("cloud_cover") or []
+    sw_rad: list[Any] = hourly.get("shortwave_radiation") or []
+
+    if not times:
+        return pd.DataFrame(dtype="float64")
+
+    dt_index = pd.to_datetime(times)
+    # Open-Meteo returns local-time strings when timezone is specified in the request.
+    # Localize to the requested timezone (not UTC) to avoid shifting by the UTC offset.
+    dt_index = dst_safe_localize(dt_index, tz) if dt_index.tz is None else dt_index.tz_convert(tz)
+
+    data: dict[str, list[float]] = {}
+    if temps and len(temps) == len(times):
+        data["temp_c"] = temps
+    if clouds and len(clouds) == len(times):
+        data["cloud_cover_pct"] = clouds
+    if sw_rad and len(sw_rad) == len(times):
+        data["shortwave_radiation_w_m2"] = sw_rad
+
+    # Extract any extra parameters
+    if extra_params:
+        for param in extra_params:
+            values: list[Any] = hourly.get(param) or []
+            if values and len(values) == len(times):
+                # Map Open-Meteo param names to our column names
+                col_name = param.replace("_", "_")
+                data[col_name] = values
+
+    if not data:
+        return pd.DataFrame(dtype="float64")
+
+    df = pd.DataFrame(data, index=dt_index).astype("float64")
+
+    # DST spring-forward can create duplicate timestamps (e.g. 2:00 AM shifted to
+    # 3:00 AM which already exists). Drop duplicates before resampling.
+    if df.index.duplicated().any():
+        df = df[~df.index.duplicated(keep="last")]
+
+    # REV F67: Resample from hourly to 15-minute resolution via linear interpolation.
+    # This ensures all slots (Bug #1) get weather data (radiation/temp/clouds).
+    if not df.empty and len(df) > 1:
+        # We resample BEFORE filtering to start/end so that boundary points
+        # are used for interpolation of the edge slots.
+        df = df.resample("15min").interpolate(method="linear")
+
+    return df
+
+
 def get_weather_series(
     start_time: datetime,
     end_time: datetime,
@@ -381,53 +445,9 @@ def get_weather_series(
         logger.warning("Failed to fetch weather data from Open-Meteo: %s", exc)
         return pd.DataFrame(dtype="float64")
 
-    hourly: dict[str, Any] = payload.get("hourly") or {}
-    times: list[Any] = hourly.get("time") or []
-    temps: list[Any] = hourly.get("temperature_2m") or []
-    clouds: list[Any] = hourly.get("cloud_cover") or []
-    sw_rad: list[Any] = hourly.get("shortwave_radiation") or []
-
-    if not times:
-        return pd.DataFrame(dtype="float64")
-
-    dt_index = pd.to_datetime(times)
-    # Open-Meteo returns local-time strings when timezone is specified in the request.
-    # Localize to the requested timezone (not UTC) to avoid shifting by the UTC offset.
-    dt_index = dst_safe_localize(dt_index, tz) if dt_index.tz is None else dt_index.tz_convert(tz)
-
-    data: dict[str, list[float]] = {}
-    if temps and len(temps) == len(times):
-        data["temp_c"] = temps
-    if clouds and len(clouds) == len(times):
-        data["cloud_cover_pct"] = clouds
-    if sw_rad and len(sw_rad) == len(times):
-        data["shortwave_radiation_w_m2"] = sw_rad
-
-    # Extract any extra parameters
-    if extra_params:
-        for param in extra_params:
-            values: list[Any] = hourly.get(param) or []
-            if values and len(values) == len(times):
-                # Map Open-Meteo param names to our column names
-                col_name = param.replace("_", "_")
-                data[col_name] = values
-
-    if not data:
-        return pd.DataFrame(dtype="float64")
-
-    df = pd.DataFrame(data, index=dt_index).astype("float64")
-
-    # DST spring-forward can create duplicate timestamps (e.g. 2:00 AM shifted to
-    # 3:00 AM which already exists). Drop duplicates before resampling.
-    if df.index.duplicated().any():
-        df = df[~df.index.duplicated(keep="last")]
-
-    # REV F67: Resample from hourly to 15-minute resolution via linear interpolation.
-    # This ensures all slots (Bug #1) get weather data (radiation/temp/clouds).
-    if not df.empty and len(df) > 1:
-        # We resample BEFORE filtering to start/end so that boundary points
-        # are used for interpolation of the edge slots.
-        df = df.resample("15min").interpolate(method="linear")
+    df = _hourly_payload_to_frame(payload.get("hourly") or {}, tz, extra_params)
+    if df.empty:
+        return df
 
     df = df[(df.index >= start_local) & (df.index < end_local)]
 
@@ -461,6 +481,158 @@ async def async_get_weather_series(
         forecast_days=forecast_days,
         extra_params=extra_params,
     )
+
+
+HISTORICAL_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
+ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+_HISTORICAL_HOURLY = "temperature_2m,cloud_cover,shortwave_radiation"
+# Completed past days do not change; today and yesterday may still be revised.
+_HISTORICAL_DAY_TTL_SECONDS = 30 * 24 * 3600.0
+_RECENT_DAY_TTL_SECONDS = 3600.0
+_RECENT_DAYS = 1
+
+# (latitude, longitude, UTC date, source) -> (cached at, hourly payload slice for that day)
+_historical_day_cache: dict[tuple[float, float, date, str], tuple[float, dict[str, list[Any]]]] = {}
+
+
+def _historical_day_ttl(day: date, today: date) -> float:
+    if day >= today - timedelta(days=_RECENT_DAYS):
+        return _RECENT_DAY_TTL_SECONDS
+    return _HISTORICAL_DAY_TTL_SECONDS
+
+
+def _fetch_hourly_days(
+    url: str, latitude: float, longitude: float, first: date, last: date
+) -> dict[date, dict[str, list[Any]]]:
+    """Fetch UTC hourly weather for ``first``..``last`` and split it per UTC date.
+
+    Dates without any non-null value are omitted so callers can fall back to another source.
+    """
+    params: dict[str, Any] = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "hourly": _HISTORICAL_HOURLY,
+        "start_date": first.isoformat(),
+        "end_date": last.isoformat(),
+        "timezone": "UTC",
+    }
+
+    def _fetch() -> requests.Response:
+        response = requests.get(url, params=params, timeout=20)
+        response.raise_for_status()
+        return response
+
+    response = retry_sync(_fetch, label="historical weather", is_transient=is_transient_http_error)
+    payload: dict[str, Any] = response.json()  # type: ignore[assignment]
+    hourly: dict[str, Any] = payload.get("hourly") or {}
+    times: list[Any] = hourly.get("time") or []
+    columns = {
+        key: list(hourly.get(key) or [])
+        for key in ("temperature_2m", "cloud_cover", "shortwave_radiation")
+    }
+
+    days: dict[date, dict[str, list[Any]]] = {}
+    for idx, stamp in enumerate(times):
+        day = date.fromisoformat(str(stamp)[:10])
+        entry = days.setdefault(day, {"time": [], **{key: [] for key in columns}})
+        entry["time"].append(stamp)
+        for key, values in columns.items():
+            entry[key].append(values[idx] if len(values) == len(times) else None)
+    return {
+        day: entry
+        for day, entry in days.items()
+        if any(value is not None for key in columns for value in entry[key])
+    }
+
+
+def get_historical_weather_series(
+    start_time: datetime,
+    end_time: datetime,
+    config: dict[str, Any] | None = None,
+    *,
+    config_path: str = "config.yaml",
+) -> pd.DataFrame:
+    """
+    Fetch real historical hourly weather for model training, at 15-minute resolution.
+
+    Same columns and index as ``get_weather_series`` (``temp_c``, ``cloud_cover_pct``,
+    ``shortwave_radiation_w_m2``; timezone-aware in the planner timezone). The
+    historical-forecast API is preferred because it matches the kind of data the live forecast
+    supplies; the reanalysis archive API fills dates it does not return. Data is requested
+    and cached per UTC day, so repeated training only fetches days it has not seen, and the
+    UTC request keeps daylight-saving changes free of duplicated or shifted instants.
+
+    Best-effort: returns an empty DataFrame (with a warning) when nothing could be fetched.
+    """
+    cfg: dict[str, Any] = config or _load_config(config_path)
+    system_cfg: dict[str, Any] = cfg.get("system", {}) or {}
+    loc_cfg: dict[str, Any] = system_cfg.get("location", {}) or {}
+    latitude = float(loc_cfg.get("latitude", 59.3))
+    longitude = float(loc_cfg.get("longitude", 18.1))
+    tz = pytz.timezone(cfg.get("timezone", "Europe/Stockholm"))
+
+    start_utc = start_time.astimezone(UTC)
+    end_utc = end_time.astimezone(UTC)
+    now_ts = time.time()
+    today = pd.Timestamp(now_ts, unit="s", tz="UTC").date()
+    wanted: list[date] = [
+        d.date()
+        for d in pd.date_range(
+            start_utc.date(), (end_utc - timedelta(microseconds=1)).date(), freq="D"
+        )
+    ]
+
+    def _cached(day: date) -> dict[str, list[Any]] | None:
+        for source in ("historical_forecast", "archive"):
+            hit = _historical_day_cache.get((latitude, longitude, day, source))
+            if hit is not None and now_ts - hit[0] < _historical_day_ttl(day, today):
+                return hit[1]
+        return None
+
+    have: dict[date, dict[str, list[Any]]] = {}
+    missing: list[date] = []
+    for day in wanted:
+        cached = _cached(day)
+        if cached is None:
+            missing.append(day)
+        else:
+            have[day] = cached
+
+    for source, url in (("historical_forecast", HISTORICAL_FORECAST_URL), ("archive", ARCHIVE_URL)):
+        if not missing:
+            break
+        try:
+            fetched = _fetch_hourly_days(url, latitude, longitude, missing[0], missing[-1])
+        except Exception as exc:
+            logger.warning("Failed to fetch %s weather from Open-Meteo: %s", source, exc)
+            continue
+        for day in missing:
+            if day in fetched:
+                have[day] = fetched[day]
+                _historical_day_cache[(latitude, longitude, day, source)] = (now_ts, fetched[day])
+        missing = [day for day in missing if day not in fetched]
+
+    if not have:
+        logger.warning(
+            "No historical weather available from Open-Meteo for %s..%s", start_utc, end_utc
+        )
+        return pd.DataFrame(dtype="float64")
+
+    merged: dict[str, list[Any]] = {"time": []}
+    for day in sorted(have):
+        for key, values in have[day].items():
+            merged.setdefault(key, []).extend(values)
+
+    df = _hourly_payload_to_frame(merged, pytz.UTC)
+    if df.empty:
+        logger.warning("Historical weather payload from Open-Meteo had no usable columns")
+        return df
+    # The last hourly value holds for the rest of its hour, so the final day has all its slots.
+    quarter_hours = pd.date_range(
+        df.index[0], df.index[-1] + pd.Timedelta(minutes=45), freq="15min"
+    )
+    df = df.reindex(quarter_hours).ffill(limit=3).tz_convert(tz)
+    return df[(df.index >= start_utc) & (df.index < end_utc)]
 
 
 def get_weather_volatility(

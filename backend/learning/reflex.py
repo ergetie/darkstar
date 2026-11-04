@@ -7,6 +7,10 @@ from ruamel.yaml import YAML
 
 from backend.config_migration import update_config as persist_config_update
 from backend.learning.engine import LearningEngine
+from backend.learning.pv_cleaning import (
+    site_location,
+    total_solar_kwp,
+)
 from backend.strategy.history import append_strategy_event
 from backend.validation import get_max_energy_per_slot
 
@@ -36,7 +40,7 @@ SAFETY_CRITICAL_EVENT_COUNT = 3  # Events in 30d to trigger increase
 SAFETY_RELAXATION_DAYS = 60  # No events for this long to trigger decrease
 
 # Confidence analyzer thresholds
-CONFIDENCE_BIAS_THRESHOLD = 0.5  # kWh/slot avg bias to trigger adjustment
+CONFIDENCE_REL_BIAS_THRESHOLD = 0.10  # relative bias (forecast-actual)/actual that triggers it
 CONFIDENCE_MIN_SAMPLES = 100  # Minimum data points for reliable bias calculation
 CONFIDENCE_LOOKBACK_DAYS = 14  # Days to analyze for bias
 
@@ -276,10 +280,14 @@ class AuroraReflex:
         except ValueError:
             max_kwh = None
 
+        latitude, longitude = site_location(self.config)
         df = await self.store.get_forecast_vs_actual(
             days_back=CONFIDENCE_LOOKBACK_DAYS,
             target="pv",
             max_kwh=max_kwh,
+            total_kwp=total_solar_kwp(self.config),
+            latitude=latitude,
+            longitude=longitude,
         )
 
         if len(df) < CONFIDENCE_MIN_SAMPLES:
@@ -288,45 +296,49 @@ class AuroraReflex:
                 f"Confidence: Insufficient data ({len(df)} samples, need {CONFIDENCE_MIN_SAMPLES})",
             )
 
-        # Calculate bias (positive = over-prediction, negative = under-prediction)
-        mean_bias = df["error"].mean()
-        mae = df["error"].abs().mean()
+        actual_total = float(df["actual"].sum())
+        if actual_total <= 0:
+            return {}, "Confidence: Stable (no production in window)"
+
+        # Relative bias so the decision is independent of array size
+        # (positive = over-prediction, negative = under-prediction)
+        rel_bias = (float(df["forecast"].sum()) - actual_total) / actual_total
 
         current_value = self.config.get("forecasting", {}).get("pv_confidence_percent", 90)
         min_val, max_val = BOUNDS[param_path]
         max_change = MAX_DAILY_CHANGE[param_path]
 
-        if mean_bias > CONFIDENCE_BIAS_THRESHOLD:
+        if rel_bias > CONFIDENCE_REL_BIAS_THRESHOLD:
             # Systematic over-prediction → lower confidence (be more conservative)
             proposed = current_value - max_change
             new_value = self._clamp_value(param_path, current_value, proposed)
 
             if new_value < current_value:
                 logger.info(
-                    f"Confidence: Over-predicting PV (bias={mean_bias:.2f} kWh/slot) → "
+                    f"Confidence: Over-predicting PV (bias={rel_bias:+.1%}) → "
                     f"lowering confidence {current_value:.1f}% → {new_value:.1f}%"
                 )
                 return (
                     {param_path: round(new_value, 1)},
-                    f"Confidence: Over-predicting PV (bias=+{mean_bias:.2f} kWh) → "
+                    f"Confidence: Over-predicting PV (bias={rel_bias:+.1%}) → "
                     f"confidence {current_value:.1f}% → {new_value:.1f}%",
                 )
             else:
                 return {}, f"Confidence: Over-predicting but already at min ({min_val}%)"
 
-        elif mean_bias < -CONFIDENCE_BIAS_THRESHOLD:
+        elif rel_bias < -CONFIDENCE_REL_BIAS_THRESHOLD:
             # Systematic under-prediction → raise confidence (we're too conservative)
             proposed = current_value + max_change
             new_value = self._clamp_value(param_path, current_value, proposed)
 
             if new_value > current_value:
                 logger.info(
-                    f"Confidence: Under-predicting PV (bias={mean_bias:.2f} kWh/slot) → "
+                    f"Confidence: Under-predicting PV (bias={rel_bias:+.1%}) → "
                     f"raising confidence {current_value:.1f}% → {new_value:.1f}%"
                 )
                 return (
                     {param_path: round(new_value, 1)},
-                    f"Confidence: Under-predicting PV (bias={mean_bias:.2f} kWh) → "
+                    f"Confidence: Under-predicting PV (bias={rel_bias:+.1%}) → "
                     f"confidence {current_value:.1f}% → {new_value:.1f}%",
                 )
             else:
@@ -334,7 +346,7 @@ class AuroraReflex:
 
         return (
             {},
-            f"Confidence: Stable (bias={mean_bias:.2f} kWh, MAE={mae:.2f} kWh, {len(df)} samples)",
+            f"Confidence: Stable (bias={rel_bias:+.1%}, {len(df)} samples)",
         )
 
     async def analyze_capacity(self) -> tuple[dict[str, Any], str]:

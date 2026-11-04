@@ -1184,6 +1184,7 @@ export type HealthIssue = {
     code?: string | null
     details?: Record<string, unknown> | null
     retry_in_s?: number | null
+    acknowledge_id?: string | null
 }
 
 export type HealthResponse = {
@@ -1473,6 +1474,7 @@ export const Api = {
     scheduleTodayWithHistory: () => getJSON<ScheduleTodayWithHistoryResponse>('/api/schedule/today_with_history'),
     status: () => getJSON<StatusResponse>('/api/status'),
     health: () => getJSON<HealthResponse>('/api/health'),
+    acknowledgeHealthIssue: (id: string) => getJSON<{ id: string }>('/api/system/health/acknowledge', 'POST', { id }),
     version: () => getJSON<{ version: string }>('/api/version'),
     horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
     config: () => getJSON<ConfigResponse>('/api/config'),

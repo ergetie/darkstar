@@ -22,9 +22,9 @@ import pytz
 from backend.learning.models import Base
 from backend.learning.reflex import (
     BOUNDS,
-    CONFIDENCE_BIAS_THRESHOLD,
     CONFIDENCE_LOOKBACK_DAYS,
     CONFIDENCE_MIN_SAMPLES,
+    CONFIDENCE_REL_BIAS_THRESHOLD,
     MAX_DAILY_CHANGE,
     SAFETY_CRITICAL_EVENT_COUNT,
     SAFETY_LOW_SOC_THRESHOLD,
@@ -403,10 +403,11 @@ class TestForecastVsActualQuery:
             # Insert forecast
             conn.execute(
                 """
-                INSERT INTO slot_forecasts (slot_start, pv_forecast_kwh, forecast_version)
-                VALUES (?, ?, ?)
+                INSERT INTO slot_forecasts
+                    (slot_start, pv_forecast_kwh, openmeteo_pv_forecast_kwh, forecast_version)
+                VALUES (?, ?, ?, ?)
                 """,
-                (slot_time.isoformat(), 3.0, "aurora"),
+                (slot_time.isoformat(), 3.0, 2.0, "aurora"),
             )
             conn.commit()
 
@@ -418,146 +419,177 @@ class TestForecastVsActualQuery:
         assert df.iloc[0]["error"] == 0.5  # forecast - actual = 3.0 - 2.5
 
 
+class _FrozenStoreDatetime(datetime):
+    """``datetime`` whose now() is pinned, so the 14-day lookback window is fixed."""
+
+    @classmethod
+    def now(cls, tz=None):
+        pinned = pytz.timezone("Europe/Stockholm").localize(datetime(2026, 6, 15, 12, 0))
+        return pinned.astimezone(tz) if tz else pinned
+
+
 class TestAnalyzeConfidence:
-    """Test the analyze_confidence analyzer logic."""
+    """Test the analyze_confidence analyzer logic (relative bias over 14 pinned days)."""
 
-    def _insert_forecast_data(self, conn, tz, num_samples, bias):
-        """Helper to insert forecast vs actual data with specified bias."""
-        now = datetime.now(tz)
-        for i in range(num_samples):
-            slot_time = (now - timedelta(hours=i)).replace(minute=0, second=0, microsecond=0)
-            actual = 1.0  # Fixed actual
-            forecast = actual + bias  # Add bias to forecast
+    def _insert_days(
+        self,
+        conn,
+        tz,
+        *,
+        days=14,
+        bias,
+        scale=1.0,
+        actual=0.4,
+        baseline=0.5,
+        curtailed_slots=0,
+    ):
+        """2026-06-01.. with 96 slots per day; 08:00-17:45 has baseline, the rest is night.
 
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO slot_observations (slot_start, slot_end, pv_kwh)
-                VALUES (?, ?, ?)
-                """,
-                (slot_time.isoformat(), (slot_time + timedelta(minutes=15)).isoformat(), actual),
-            )
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO slot_forecasts (slot_start, pv_forecast_kwh, forecast_version)
-                VALUES (?, ?, ?)
-                """,
-                (slot_time.isoformat(), forecast, "aurora"),
-            )
+        ``curtailed_slots`` daytime slots (full battery, nothing exported) get a wildly
+        over-forecast value that only a correct cleaning step keeps out of the bias.
+        """
+        obs, fcs = [], []
+        curtailed_left = curtailed_slots
+        for day in range(1, days + 1):
+            for i in range(96):
+                start = tz.localize(datetime(2026, 6, day, i // 4, 15 * (i % 4)))
+                daytime = 8 <= start.hour < 18
+                pv = actual * scale if daytime else 0.0
+                base = baseline * scale if daytime else 0.0
+                forecast = pv * (1 + bias)
+                soc, export = 50.0, 0.5
+                if daytime and curtailed_left > 0:
+                    curtailed_left -= 1
+                    pv, forecast, soc, export = 0.1 * scale, 0.5 * scale, 100.0, 0.0
+                end = (start + timedelta(minutes=15)).isoformat()
+                obs.append((start.isoformat(), end, pv, soc, export))
+                fcs.append((start.isoformat(), forecast, base))
+        conn.executemany(
+            "INSERT INTO slot_observations (slot_start, slot_end, pv_kwh, soc_end_percent, "
+            "export_kwh) VALUES (?, ?, ?, ?, ?)",
+            obs,
+        )
+        conn.executemany(
+            "INSERT INTO slot_forecasts (slot_start, pv_forecast_kwh, openmeteo_pv_forecast_kwh, "
+            "forecast_version) VALUES (?, ?, ?, 'aurora')",
+            fcs,
+        )
         conn.commit()
+
+    async def _analyze(self, db_path, store, tz, mock_config, **insert):
+        with sqlite3.connect(db_path) as conn:
+            self._insert_days(conn, tz, **insert)
+
+        with (
+            patch.object(AuroraReflex, "__init__", lambda self, path: None),
+            patch("backend.learning.store.datetime", _FrozenStoreDatetime),
+        ):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.store = store
+            reflex.timezone = tz
+            reflex.learning_engine = MagicMock()
+            return await reflex.analyze_confidence()
 
     @pytest.mark.asyncio
     async def test_insufficient_data_no_change(self, temp_db, mock_config):
-        """With insufficient data, should not make changes."""
+        """With fewer than CONFIDENCE_MIN_SAMPLES cleaned slots, nothing changes."""
         db_path, store, tz = temp_db
 
-        # Insert fewer than CONFIDENCE_MIN_SAMPLES
-        with sqlite3.connect(db_path) as conn:
-            self._insert_forecast_data(conn, tz, 50, 0.0)
+        updates, msg = await self._analyze(db_path, store, tz, mock_config, days=2, bias=0.5)
 
-        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
-            reflex = AuroraReflex.__new__(AuroraReflex)
-            reflex.config = mock_config
-            reflex.store = store
-            reflex.timezone = tz
-            reflex.learning_engine = MagicMock()
-
-            updates, msg = await reflex.analyze_confidence()
-
-            assert updates == {}
-            assert "Insufficient data" in msg
+        assert updates == {}
+        assert "Insufficient data" in msg
 
     @pytest.mark.asyncio
     async def test_over_prediction_lowers_confidence(self, temp_db, mock_config):
-        """Systematic over-prediction should lower confidence."""
         db_path, store, tz = temp_db
 
-        # Insert data with positive bias (over-prediction)
-        with sqlite3.connect(db_path) as conn:
-            self._insert_forecast_data(conn, tz, 150, 0.8)  # bias > 0.5
+        updates, msg = await self._analyze(db_path, store, tz, mock_config, bias=0.15)
 
-        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
-            reflex = AuroraReflex.__new__(AuroraReflex)
-            reflex.config = mock_config
-            reflex.store = store
-            reflex.timezone = tz
-            reflex.learning_engine = MagicMock()
-
-            updates, msg = await reflex.analyze_confidence()
-
-            assert "forecasting.pv_confidence_percent" in updates
-            new_value = updates["forecasting.pv_confidence_percent"]
-            # Should decrease by max_change (5.0) from 90 to 85
-            assert new_value == 85.0
-            assert "Over-predicting" in msg
+        assert updates == {"forecasting.pv_confidence_percent": 85.0}
+        assert "Over-predicting" in msg
+        assert "+15.0%" in msg
 
     @pytest.mark.asyncio
     async def test_under_prediction_raises_confidence(self, temp_db, mock_config):
-        """Systematic under-prediction should raise confidence."""
         db_path, store, tz = temp_db
 
-        # Insert data with negative bias (under-prediction)
-        with sqlite3.connect(db_path) as conn:
-            self._insert_forecast_data(conn, tz, 150, -0.8)  # bias < -0.5
+        updates, msg = await self._analyze(db_path, store, tz, mock_config, bias=-0.15)
 
-        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
-            reflex = AuroraReflex.__new__(AuroraReflex)
-            reflex.config = mock_config
-            reflex.store = store
-            reflex.timezone = tz
-            reflex.learning_engine = MagicMock()
-
-            updates, msg = await reflex.analyze_confidence()
-
-            assert "forecasting.pv_confidence_percent" in updates
-            new_value = updates["forecasting.pv_confidence_percent"]
-            # Should increase by max_change (5.0) from 90 to 95
-            assert new_value == 95.0
-            assert "Under-predicting" in msg
+        assert updates == {"forecasting.pv_confidence_percent": 95.0}
+        assert "Under-predicting" in msg
 
     @pytest.mark.asyncio
-    async def test_small_bias_is_stable(self, temp_db, mock_config):
-        """Small bias within threshold should be stable."""
+    async def test_bias_within_tolerance_is_stable_and_reported_in_percent(
+        self, temp_db, mock_config
+    ):
         db_path, store, tz = temp_db
 
-        # Insert data with small bias
-        with sqlite3.connect(db_path) as conn:
-            self._insert_forecast_data(conn, tz, 150, 0.3)  # |bias| < 0.5
+        updates, msg = await self._analyze(db_path, store, tz, mock_config, bias=0.06)
 
-        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
-            reflex = AuroraReflex.__new__(AuroraReflex)
-            reflex.config = mock_config
-            reflex.store = store
-            reflex.timezone = tz
-            reflex.learning_engine = MagicMock()
-
-            updates, msg = await reflex.analyze_confidence()
-
-            assert updates == {}
-            assert "Stable" in msg
+        assert updates == {}
+        assert "Stable" in msg
+        assert "+6.0%" in msg
 
     @pytest.mark.asyncio
-    async def test_respects_confidence_bounds(self, temp_db, mock_config):
-        """Should not go below 80% or above 100%."""
+    async def test_stays_at_lower_bound(self, temp_db, mock_config):
         db_path, store, tz = temp_db
+        mock_config["forecasting"]["pv_confidence_percent"] = 70
 
-        # Set to old max (100)
+        updates, msg = await self._analyze(db_path, store, tz, mock_config, bias=0.15)
+
+        assert updates == {}
+        assert "at min" in msg
+
+    @pytest.mark.asyncio
+    async def test_stays_at_upper_bound(self, temp_db, mock_config):
+        db_path, store, tz = temp_db
         mock_config["forecasting"]["pv_confidence_percent"] = 120
 
-        # Insert data with negative bias (would want to increase)
+        updates, msg = await self._analyze(db_path, store, tz, mock_config, bias=-0.15)
+
+        assert updates == {}
+        assert "at max" in msg
+
+    @pytest.mark.asyncio
+    async def test_no_production_makes_no_change(self, temp_db, mock_config):
+        """Shaded zero slots (baseline 0.2) are kept, but a zero actual total gives no bias."""
+        db_path, store, tz = temp_db
+
+        updates, msg = await self._analyze(
+            db_path, store, tz, mock_config, bias=0.0, actual=0.0, baseline=0.2
+        )
+
+        assert updates == {}
+        assert "no production" in msg
+
+    @pytest.mark.asyncio
+    async def test_curtailed_slots_do_not_change_measured_bias(self, temp_db, mock_config):
+        db_path, store, tz = temp_db
+        mock_config["system"] = {"solar_arrays": [{"kwp": 10.0}]}
+
+        updates, msg = await self._analyze(
+            db_path, store, tz, mock_config, bias=0.06, curtailed_slots=100
+        )
+
+        # Included, the curtailed slots would push the bias above +25 %.
+        assert updates == {}
+        assert "+6.0%" in msg
+
+    @pytest.mark.asyncio
+    async def test_array_size_does_not_matter(self, temp_db, mock_config):
+        db_path, store, tz = temp_db
+        mock_config["system"] = {"solar_arrays": [{"kwp": 5.0}]}
+        small = await self._analyze(db_path, store, tz, mock_config, bias=0.15, scale=0.5)
+
         with sqlite3.connect(db_path) as conn:
-            self._insert_forecast_data(conn, tz, 150, -0.8)
+            conn.execute("DELETE FROM slot_observations")
+            conn.execute("DELETE FROM slot_forecasts")
+        mock_config["system"] = {"solar_arrays": [{"kwp": 20.0}]}
+        large = await self._analyze(db_path, store, tz, mock_config, bias=0.15, scale=2.0)
 
-        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
-            reflex = AuroraReflex.__new__(AuroraReflex)
-            reflex.config = mock_config
-            reflex.store = store
-            reflex.timezone = tz
-            reflex.learning_engine = MagicMock()
-
-            updates, msg = await reflex.analyze_confidence()
-
-            assert updates == {}
-            assert "at max" in msg
+        assert small[0] == large[0] == {"forecasting.pv_confidence_percent": 85.0}
 
 
 class TestConstants:
@@ -582,7 +614,7 @@ class TestConstants:
 
     def test_confidence_thresholds(self):
         """Confidence thresholds should match plan."""
-        assert CONFIDENCE_BIAS_THRESHOLD == 0.5
+        assert CONFIDENCE_REL_BIAS_THRESHOLD == 0.10
         assert CONFIDENCE_MIN_SAMPLES == 100
         assert CONFIDENCE_LOOKBACK_DAYS == 14
 

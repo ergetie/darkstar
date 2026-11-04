@@ -55,12 +55,14 @@ class TestLearningStoreSpikeFiltering:
                 {
                     "slot_start": now.isoformat(),
                     "pv_forecast_kwh": 2.0,
+                    "openmeteo_pv_forecast_kwh": 2.0,
                     "load_forecast_kwh": 1.0,
                     "forecast_version": "aurora",
                 },
                 {
                     "slot_start": (now + timedelta(minutes=15)).isoformat(),
                     "pv_forecast_kwh": 2.0,
+                    "openmeteo_pv_forecast_kwh": 2.0,
                     "load_forecast_kwh": 1.0,
                     "forecast_version": "aurora",
                 },
@@ -106,6 +108,7 @@ class TestLearningStoreSpikeFiltering:
                 {
                     "slot_start": now.isoformat(),
                     "pv_forecast_kwh": 2.0,
+                    "openmeteo_pv_forecast_kwh": 2.0,
                     "load_forecast_kwh": 1.0,
                     "forecast_version": "aurora",
                 },
@@ -158,12 +161,14 @@ class TestLearningStoreSpikeFiltering:
                 {
                     "slot_start": now.isoformat(),
                     "pv_forecast_kwh": 2.0,
+                    "openmeteo_pv_forecast_kwh": 2.0,
                     "load_forecast_kwh": 1.0,
                     "forecast_version": "aurora",
                 },
                 {
                     "slot_start": (now + timedelta(minutes=15)).isoformat(),
                     "pv_forecast_kwh": 2.0,
+                    "openmeteo_pv_forecast_kwh": 2.0,
                     "load_forecast_kwh": 1.0,
                     "forecast_version": "aurora",
                 },

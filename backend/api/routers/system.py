@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, ConfigDict
 from starlette.background import BackgroundTask
 
 from backend.api.deps import get_learning_store
@@ -24,6 +25,7 @@ from backend.api.models.system import (
 )
 from backend.core.ev_plug import DEFAULT_EV_PLUGGED_IN_STATES
 from backend.core.ha_client import get_ha_bool, get_ha_sensor_float, get_ha_sensor_kw_normalized
+from backend.core.onboarding_state import NoticeId, acknowledge_warning
 from backend.core.secrets import load_yaml
 from backend.core.version import get_version as _get_git_version
 from backend.learning.store import LearningStore
@@ -327,6 +329,30 @@ async def get_system_health() -> SystemHealthResponse:
         forecast=forecast_health,
         system=system_metrics,
     )
+
+
+class AcknowledgeHealthIssueBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: NoticeId
+
+
+@router.post(
+    "/api/system/health/acknowledge",
+    summary="Acknowledge a Health Notice",
+    description=(
+        "Hides an informational health notice until its measured value gets clearly worse. "
+        "The server records the value it last measured; 409 when the notice is not active."
+    ),
+)
+async def acknowledge_health_issue(body: AcknowledgeHealthIssueBody) -> dict[str, str]:
+    from backend.health import get_cached_pv_site_ratio
+    from backend.learning.pv_site_sanity import notice_code
+
+    ratio = get_cached_pv_site_ratio()
+    if ratio is None or notice_code(ratio) != body.id:
+        raise HTTPException(status_code=409, detail="No active notice with that id")
+    acknowledge_warning(body.id, ratio)
+    return {"id": body.id}
 
 
 # ---------------------------------------------------------------------------

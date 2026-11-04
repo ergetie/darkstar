@@ -1,6 +1,11 @@
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { SystemAlert, type HealthStatus, type HealthIssue } from './SystemAlert'
+import { Api } from '../lib/api'
+
+vi.mock('../lib/api', () => ({
+    Api: { acknowledgeHealthIssue: vi.fn() },
+}))
 
 // jsdom's localStorage is unavailable under this Node version's built-in
 // (disabled without a flag) global localStorage shadowing it — stub a
@@ -21,6 +26,7 @@ function makeMemoryStorage(): Storage {
 
 beforeEach(() => {
     vi.stubGlobal('localStorage', makeMemoryStorage())
+    vi.mocked(Api.acknowledgeHealthIssue).mockReset()
 })
 
 function issue(overrides: Partial<HealthIssue> = {}): HealthIssue {
@@ -121,5 +127,56 @@ describe('SystemAlert snooze', () => {
         render(<SystemAlert health={status([c])} />)
         fireEvent.click(screen.getByTitle('Snooze for 24 hours'))
         expect(screen.queryByText('Critical issue')).not.toBeInTheDocument()
+    })
+})
+
+describe('SystemAlert acknowledgeable info notices', () => {
+    const notice = () =>
+        issue({
+            category: 'forecast',
+            severity: 'info',
+            code: 'pv_site_ratio_low',
+            acknowledge_id: 'pv_site_ratio_low',
+            message: 'Your solar panels produce much less than forecast on clear days (about 40 % of forecast).',
+            guidance: 'This can be shading.',
+        })
+
+    it('renders an info issue with acknowledge_id as an info banner', () => {
+        const { container } = render(<SystemAlert health={status([notice()])} />)
+
+        expect(screen.getByText(/much less than forecast on clear days/)).toBeInTheDocument()
+        expect(screen.getByText(/This can be shading/)).toBeInTheDocument()
+        expect(container.querySelector('.banner.banner-info')).not.toBeNull()
+    })
+
+    it('Got it acknowledges via the API and hides the notice', async () => {
+        vi.mocked(Api.acknowledgeHealthIssue).mockResolvedValue({ id: 'pv_site_ratio_low' })
+        render(<SystemAlert health={status([notice()])} />)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
+
+        await waitFor(() => expect(screen.queryByText(/much less than forecast/)).not.toBeInTheDocument())
+        expect(Api.acknowledgeHealthIssue).toHaveBeenCalledWith('pv_site_ratio_low')
+    })
+
+    it('keeps the notice visible when the API call fails', async () => {
+        vi.mocked(Api.acknowledgeHealthIssue).mockRejectedValue(new Error('boom'))
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        render(<SystemAlert health={status([notice()])} />)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
+
+        await waitFor(() => expect(consoleError).toHaveBeenCalled())
+        expect(screen.getByText(/much less than forecast/)).toBeInTheDocument()
+        consoleError.mockRestore()
+    })
+
+    it('does not render an info issue without acknowledge_id', () => {
+        const { container } = render(
+            <SystemAlert health={status([issue({ severity: 'info', message: 'Plain info' })])} />,
+        )
+
+        expect(screen.queryByText('Plain info')).not.toBeInTheDocument()
+        expect(container).toBeEmptyDOMElement()
     })
 })

@@ -22,6 +22,7 @@ from backend.learning.models import (
     SlotPlan,
     SystemState,
 )
+from backend.learning.pv_cleaning import clean_pv_slots
 from backend.measurement_provenance import (
     metadata_object,
     parse_quality_flags,
@@ -465,7 +466,10 @@ class LearningStore:
                     SlotForecast.openmeteo_pv_forecast_kwh,
                 ),
                 "load_forecast_kwh": stmt.excluded.load_forecast_kwh,
-                "pv_ml_residual_raw_kwh": stmt.excluded.pv_ml_residual_raw_kwh,
+                "pv_ml_residual_raw_kwh": func.coalesce(
+                    stmt.excluded.pv_ml_residual_raw_kwh,
+                    SlotForecast.pv_ml_residual_raw_kwh,
+                ),
                 "pv_p10": stmt.excluded.pv_p10,
                 "pv_p90": stmt.excluded.pv_p90,
                 "load_p10": stmt.excluded.load_p10,
@@ -835,6 +839,9 @@ class LearningStore:
         days_back: int = 14,
         target: str = "pv",
         max_kwh: float | None = None,
+        total_kwp: float = 0.0,
+        latitude: float | None = None,
+        longitude: float | None = None,
     ) -> pd.DataFrame:
         """
         Compare forecast vs actual values for PV or load using Async SQLAlchemy.
@@ -844,6 +851,11 @@ class LearningStore:
             target: "pv" or "load"
             max_kwh: Maximum energy value threshold. Rows with actual values exceeding
                     this threshold will be excluded (spike filtering).
+            total_kwp: Total array capacity for the PV spike rule (0 skips it).
+            latitude: Site latitude for the PV night-production rule (None skips it).
+            longitude: Site longitude for the PV night-production rule (None skips it).
+
+        PV rows are cleaned with ``clean_pv_slots``, the same rules as model training.
         """
         cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
 
@@ -852,11 +864,17 @@ class LearningStore:
             actual_col = SlotObservation.pv_kwh
             p10_col = SlotForecast.pv_p10
             p90_col = SlotForecast.pv_p90
+            extra_cols = [
+                SlotForecast.openmeteo_pv_forecast_kwh.label("baseline"),
+                SlotObservation.soc_end_percent,
+                SlotObservation.export_kwh,
+            ]
         else:
             forecast_col = SlotForecast.load_forecast_kwh
             actual_col = SlotObservation.load_kwh
             p10_col = SlotForecast.load_p10
             p90_col = SlotForecast.load_p90
+            extra_cols = []
 
         async with self.AsyncSession() as session:
             conditions = [
@@ -864,10 +882,6 @@ class LearningStore:
                 actual_col.is_not(None),
                 forecast_col.is_not(None),
             ]
-            if target == "pv":
-                # REV F67: Filter out night slots (Bug #3) to avoid diluting bias signal.
-                # Only analyze slots where PV production was actually occurring.
-                conditions.append(actual_col > 0.01)
 
             # Spike filtering: exclude rows where actual exceeds threshold
             if max_kwh is not None:
@@ -881,6 +895,7 @@ class LearningStore:
                     (forecast_col - actual_col).label("error"),
                     p10_col.label("p10"),
                     p90_col.label("p90"),
+                    *extra_cols,
                 )
                 .join(
                     SlotForecast,
@@ -896,7 +911,61 @@ class LearningStore:
             if not rows:
                 return pd.DataFrame()
 
-            # Return as DataFrame
+            df = pd.DataFrame([row._asdict() for row in rows])  # type: ignore
+            if target != "pv":
+                return df
+
+        # Same cleaning as PV training: night, dropouts, spikes and curtailed slots go.
+        cleaned = clean_pv_slots(
+            pd.DataFrame(
+                {
+                    "slot_start": pd.to_datetime(df["slot_start"], utc=True, format="ISO8601"),
+                    "pv_kwh": df["actual"],
+                    "baseline_kwh": df["baseline"],
+                    "soc_end_percent": df["soc_end_percent"],
+                    "export_kwh": df["export_kwh"],
+                }
+            ),
+            total_kwp=total_kwp,
+            latitude=latitude,
+            longitude=longitude,
+        )
+        df = df.loc[cleaned.index].drop(columns=["baseline", "soc_end_percent", "export_kwh"])
+        return df.reset_index(drop=True) if not df.empty else pd.DataFrame()
+
+    async def get_pv_actual_vs_baseline(self, days_back: int = 60) -> pd.DataFrame:
+        """Recorded PV next to the Open-Meteo baseline, with the inputs PV cleaning needs.
+
+        Columns: slot_start, actual, baseline, soc_end_percent, export_kwh. Slots without
+        a recorded value or a stored baseline are left out; cleaning is the caller's job.
+        """
+        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+
+        async with self.AsyncSession() as session:
+            stmt = (
+                select(
+                    SlotObservation.slot_start,
+                    SlotObservation.pv_kwh.label("actual"),
+                    SlotForecast.openmeteo_pv_forecast_kwh.label("baseline"),
+                    SlotObservation.soc_end_percent,
+                    SlotObservation.export_kwh,
+                )
+                .join(
+                    SlotForecast,
+                    (SlotObservation.slot_start == SlotForecast.slot_start)
+                    & (SlotForecast.forecast_version == "aurora"),
+                )
+                .where(
+                    func.date(SlotObservation.slot_start) >= cutoff_date,
+                    SlotObservation.pv_kwh.is_not(None),
+                    SlotForecast.openmeteo_pv_forecast_kwh.is_not(None),
+                )
+                .order_by(SlotObservation.slot_start.asc())
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+            if not rows:
+                return pd.DataFrame()
             return pd.DataFrame([row._asdict() for row in rows])  # type: ignore
 
     async def get_capacity_estimate(self, days_back: int = 30) -> float | None:

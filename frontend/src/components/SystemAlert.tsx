@@ -9,6 +9,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
+import { Api } from '../lib/api'
 import { PlannerErrorDetails } from './PlannerErrorDetails'
 
 export interface HealthIssue {
@@ -21,6 +22,7 @@ export interface HealthIssue {
     details?: Record<string, unknown> | null
     retry_in_s?: number | null
     config_blocking?: boolean
+    acknowledge_id?: string | null
 }
 
 export interface HealthStatus {
@@ -73,6 +75,8 @@ export function SystemAlert({ health }: SystemAlertProps) {
     // purity: Date.now() may not be read during render — track it in state,
     // refreshed periodically so an expired snooze reappears without reload.
     const [now, setNow] = useState<number>(() => Date.now())
+    // Informational notices acknowledged in this session (the server persists the acknowledgement).
+    const [acknowledgedIds, setAcknowledgedIds] = useState<string[]>([])
 
     useEffect(() => {
         const id = setInterval(() => setNow(Date.now()), 60000)
@@ -106,11 +110,24 @@ export function SystemAlert({ health }: SystemAlertProps) {
         saveSnoozeMap(next)
     }
 
+    const acknowledge = async (id: string) => {
+        try {
+            await Api.acknowledgeHealthIssue(id)
+            setAcknowledgedIds((prev) => [...prev, id])
+        } catch (e) {
+            console.error('Failed to acknowledge health notice', e)
+        }
+    }
+
+    // Only informational issues the user can acknowledge are shown; other info issues stay hidden.
+    const infoIssues = visibleIssues.filter(
+        (i) => i.severity === 'info' && i.acknowledge_id && !acknowledgedIds.includes(i.acknowledge_id),
+    )
     const criticalIssues = visibleIssues.filter((i) => i.severity === 'critical')
     const warningIssues = visibleIssues.filter((i) => i.severity === 'warning')
     const allIssues = [...criticalIssues, ...warningIssues]
 
-    if (allIssues.length === 0 && snoozedIssues.length === 0) {
+    if (allIssues.length === 0 && infoIssues.length === 0 && snoozedIssues.length === 0) {
         return null
     }
 
@@ -233,6 +250,26 @@ export function SystemAlert({ health }: SystemAlertProps) {
                         ))}
                     </>
                 ))}
+
+            {/* Acknowledgeable informational notices */}
+            {infoIssues.map((issue) => (
+                <div
+                    key={`info-${issue.acknowledge_id}`}
+                    className="banner banner-info flex flex-wrap items-center justify-between gap-2 text-xs"
+                >
+                    <span>
+                        <span className="font-medium">{issue.message}</span>
+                        <span className="opacity-70"> {issue.guidance}</span>
+                    </span>
+                    <button
+                        className="btn btn-ghost px-2 py-1"
+                        type="button"
+                        onClick={() => void acknowledge(issue.acknowledge_id!)}
+                    >
+                        Got it
+                    </button>
+                </div>
+            ))}
 
             {/* Details drawer */}
             {selectedIssue && (

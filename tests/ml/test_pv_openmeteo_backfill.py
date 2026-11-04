@@ -7,7 +7,7 @@ import pytest
 import pytz
 
 from backend.learning import LearningEngine
-from backend.learning.pv_openmeteo_backfill import backfill_openmeteo_pv_baselines
+from backend.learning.pv_openmeteo_backfill import _valid_arrays, backfill_openmeteo_pv_baselines
 from ml.forward import _pv_personalization_weight, generate_forward_slots
 
 
@@ -152,3 +152,28 @@ async def test_forward_ramp_cold_partial_full_respects_bound():
     assert await run_with_days(0) == pytest.approx(1.0)
     assert await run_with_days(5) == pytest.approx(1.125)
     assert await run_with_days(10) == pytest.approx(1.25)
+
+
+def _arrays(**array):
+    return _valid_arrays({"system": {"solar_arrays": [{"kwp": 5.0, **array}]}})
+
+
+def test_valid_arrays_tilt_zero_is_kept():
+    assert _arrays(tilt=0, azimuth=180)[0]["tilt"] == 0.0
+
+
+def test_valid_arrays_azimuth_conversion_keeps_zero_and_south():
+    assert _arrays(tilt=30, azimuth=0)[0]["azimuth"] == -180.0
+    assert _arrays(tilt=30, azimuth=180)[0]["azimuth"] == 0.0
+
+
+def test_valid_arrays_missing_values_default_to_south_30_degrees():
+    array = _arrays()[0]
+    assert array["tilt"] == 30.0
+    assert array["azimuth"] == 0.0
+
+
+def test_valid_arrays_null_values_default():
+    array = _arrays(tilt=None, azimuth=None)[0]
+    assert array["tilt"] == 30.0
+    assert array["azimuth"] == 0.0

@@ -217,6 +217,8 @@ class TestSpikeFiltering(unittest.TestCase):
                         slot_start TEXT PRIMARY KEY,
                         load_kwh REAL,
                         pv_kwh REAL,
+                        soc_end_percent REAL,
+                        export_kwh REAL,
                         quality_flags TEXT
                     )
                 """)

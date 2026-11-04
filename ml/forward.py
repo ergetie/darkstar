@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
@@ -18,6 +18,7 @@ import pandas as pd
 from backend.exceptions import PVForecastError
 from backend.health import clear_load_forecast_status, set_load_forecast_status
 from backend.learning import LearningEngine, get_learning_engine
+from backend.learning.pv_cleaning import total_solar_kwp
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
 from ml.train import _build_time_features  # type: ignore[reportPrivateUsage]
 from ml.weather import async_get_weather_series
@@ -58,19 +59,6 @@ def determine_graduation_level(engine: LearningEngine) -> tuple[int, str, float]
 logger = logging.getLogger("darkstar.ml.forward")
 
 
-def _total_solar_kwp(config: dict[str, Any]) -> float:
-    system_cfg: dict[str, Any] = config.get("system", {}) or {}
-    arrays: list[Any] = system_cfg.get("solar_arrays", []) or []
-    if not arrays:
-        legacy_array: dict[str, Any] = system_cfg.get("solar_array", {}) or {}
-        arrays = [legacy_array] if legacy_array else []
-    return sum(
-        float(cast("dict[str, Any]", array).get("kwp", 0.0) or 0.0)
-        for array in arrays
-        if isinstance(array, dict)
-    )
-
-
 DEFAULT_PV_RESIDUAL_BOUND_FRACTION = 1.0
 
 
@@ -102,7 +90,7 @@ def _pv_tuning_config(config: dict[str, Any]) -> tuple[float, float, float]:
 
 def _pv_physical_ceiling_kwh(config: dict[str, Any], slot_hours: float = 0.25) -> float:
     _, ceiling_efficiency, _ = _pv_tuning_config(config)
-    total_kwp = _total_solar_kwp(config)
+    total_kwp = total_solar_kwp(config)
     system_cfg: dict[str, Any] = config.get("system", {}) or {}
     inverter_cfg: dict[str, Any] = system_cfg.get("inverter", {}) or {}
     dc_limit_kw = float(inverter_cfg.get("max_dc_input_kw", 0.0) or 0.0)

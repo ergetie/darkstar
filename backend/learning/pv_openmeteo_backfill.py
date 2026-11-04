@@ -15,6 +15,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger("darkstar.learning.pv_openmeteo_backfill")
 
 
+def _num(value: Any, default: float) -> float:
+    """``value`` as a float, or ``default`` only when it is None or non-numeric (0 is valid)."""
+    if value is None or isinstance(value, bool):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _valid_arrays(config: dict[str, Any]) -> list[dict[str, float]]:
     system_cfg: dict[str, Any] = config.get("system", {}) or {}
     arrays: list[Any] = system_cfg.get("solar_arrays", []) or []
@@ -33,8 +43,8 @@ def _valid_arrays(config: dict[str, Any]) -> list[dict[str, float]]:
         valid.append(
             {
                 "kwp": kwp,
-                "tilt": float(array_cfg.get("tilt", 30.0) or 30.0),
-                "azimuth": (float(array_cfg.get("azimuth", 180.0) or 180.0) % 360) - 180,
+                "tilt": _num(array_cfg.get("tilt"), 30.0),
+                "azimuth": (_num(array_cfg.get("azimuth"), 180.0) % 360) - 180,
             }
         )
     return valid
