@@ -138,6 +138,10 @@ DEPRECATED_NESTED_KEYS = {
         # Read by no code since planner/simulation.py was removed; the solver uses
         # charge_efficiency and discharge_efficiency.
         "roundtrip_efficiency_percent",
+        # Removed from the defaults in a26b42c9 and read by no code; the battery power
+        # limit is max_charge_a/max_discharge_a or max_charge_w/max_discharge_w.
+        "max_charge_power_kw",
+        "max_discharge_power_kw",
     ],
     "executor.override": [
         "low_soc_export_floor",  # Moved to export.export_floor_soc_percent

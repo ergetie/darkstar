@@ -43,12 +43,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🐛 Fixes
 
-#### [Monitoring] Command Success Invariant Gives False Alarms
-
-**Goal:** Stop reporting a healthy executor as failing, and show which action actually failed when something does.
-
-**Notes:** Reported on Discord 2026-09-22 by two users, one with an EV: "tick success 57.51% over 24 h (82/193 failed)" while everything worked. `backend/monitors.py` computes the rate over throttled `execution_log` rows; failed ticks are always logged while healthy ones are throttled, so failures are over-weighted (the code comment admits the bias). Possible trigger, not confirmed: the EV charge-failure check marking ticks unsuccessful for a plugged-in or sleeping car. **(needs production data)**
-
 ---
 
 ## 🔧 Improvements
@@ -58,12 +52,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 **Goal:** Tell the user when a setting is outside the range Darkstar's own learning would ever choose, or contradicts what the recorded data shows, and what it is likely costing them.
 
 **Notes:** Found 2026-10-06 (cmon89): `forecasting.pv_confidence_percent` was 60 while Reflex only moves it within 70–120 (`backend/learning/reflex.py:22`) and his forecasts were 96 % accurate over 30 days (PV 938 actual vs 905 forecast). Nothing warned him. A replay estimated 60 % vs 83 % at ~53 kr over 25 days. His `learning.max_daily_param_change.pv_confidence_percent` was also 60 (default 1.0). Must cover every Reflex-tuned parameter (bounds table in `reflex.py`) and similar settings, e.g. max-daily-change values far from defaults. Harmless leftovers (e.g. an enabled `water_heaters` entry with `has_water_heater: false`, which the planner ignores) get at most a one-time info note, not a warning.
-
-#### [Settings] Unused And Misleading Battery Power Settings
-
-**Goal:** Remove or clearly label battery settings that do nothing, so users don't trust the wrong limit.
-
-**Notes:** Found 2026-10-11 in prod `config.yaml` `battery:`: `max_charge_w`/`max_discharge_w: 5000` are only used when the inverter control unit is W (`executor/controller.py:145`, `:357`); in amp mode the real limit is `max_charge_a`/`max_discharge_a` (185 A × nominal voltage = 8.88 kW in the planner, `planner/solver/adapter.py:468`). A stray `max_charge_power_kw`/`max_discharge_power_kw: 8` under `battery:` is read only by `planner/strategy/manual_plan.py:40`. Check what the settings UI shows for each.
 
 ---
 

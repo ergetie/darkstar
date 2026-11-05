@@ -21,6 +21,7 @@ import type { TransferFeeMode, TransferFeeRule } from '../transferFees'
 import { NumberInput } from '../../../components/ui/NumberInput'
 import { NumberPresetInput } from './NumberPresetInput'
 import { DEFAULT_NOMINAL_VOLTAGE_V } from '../evPower'
+import { effectiveBatteryKw } from '../batteryPower'
 
 interface SettingsFieldProps {
     field: BaseField
@@ -365,6 +366,10 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
         return null
     }
 
+    const effectiveKwHint = field.effectiveKwVoltageKey
+        ? effectiveBatteryKw(value, fullForm[field.effectiveKwVoltageKey])
+        : null
+
     return (
         <div
             data-field-key={field.key}
@@ -381,6 +386,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                 </label>
             )}
             {renderInput()}
+            {effectiveKwHint && <p className="text-[10px] mt-1 text-muted">{effectiveKwHint}</p>}
             {error && <p className="text-[11px] text-bad">{error}</p>}
         </div>
     )

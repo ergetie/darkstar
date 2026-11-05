@@ -273,23 +273,36 @@ The frontend SHALL render planner failures as persistent banners using the exist
 - **AND** the frontend SHALL read planner state exclusively from the health endpoint/stream
 
 ### Requirement: Battery config preflight reads correct field names
-The battery config preflight check (`check_battery_config()`) SHALL read charge and discharge power limits from `battery.max_charge_w` and `battery.max_discharge_w` (stored in watts), converting to kW by dividing by 1000 before comparison. The check SHALL NOT reference `battery.max_charge_power_kw` or `battery.max_discharge_power_kw` — these keys do not exist in the v2 config schema.
+The battery config preflight check (`check_battery_config()`) SHALL validate the charge and discharge limits of the active control unit as resolved in kW, SHALL NOT validate the inactive unit's fields, and SHALL NOT reference `battery.max_charge_power_kw` or `battery.max_discharge_power_kw`.
 
 #### Scenario: Valid battery config passes preflight
-- **WHEN** `battery.capacity_kwh = 29`, `max_charge_w = 5000`, `max_discharge_w = 5000`, `min_soc_percent = 12`, `max_soc_percent = 100`
+- **WHEN** the control unit is Watts, `battery.capacity_kwh = 29`, `max_charge_w = 5000`, `max_discharge_w = 5000`, `min_soc_percent = 12`, `max_soc_percent = 100`
+- **THEN** `check_battery_config()` raises no error
+
+#### Scenario: Valid Amps config passes with hidden Watts at zero
+- **WHEN** the control unit is Amps, `max_charge_a = 100`, `max_discharge_a = 100`, `nominal_voltage_v = 48`, and `max_charge_w = 0`
 - **THEN** `check_battery_config()` raises no error
 
 #### Scenario: Zero watts triggers invalid config error
-- **WHEN** `battery.max_charge_w = 0`
-- **THEN** `check_battery_config()` raises `CONFIG_INVALID`
+- **WHEN** the control unit is Watts and `battery.max_charge_w = 0`
+- **THEN** `check_battery_config()` raises `CONFIG_INVALID` with field `battery.max_charge_w`
 
 #### Scenario: Missing watts field defaults to zero and triggers error
-- **WHEN** `battery.max_charge_w` is absent from config
-- **THEN** the field defaults to `0.0` and `check_battery_config()` raises `CONFIG_INVALID`
+- **WHEN** the control unit is Watts and `battery.max_charge_w` is absent
+- **THEN** the field resolves to 0 and `check_battery_config()` raises `CONFIG_INVALID`
+
+#### Scenario: Missing Amps field triggers error naming the Amps field
+- **WHEN** the control unit is Amps and `battery.max_discharge_a` is absent
+- **THEN** `check_battery_config()` raises `CONFIG_INVALID` with field `battery.max_discharge_a`
 
 #### Scenario: Battery preflight checks
 - **WHEN** `check_battery_config()` runs
-- **THEN** it SHALL check `capacity_kwh > 0`, `max_charge_w / 1000 > 0`, `max_discharge_w / 1000 > 0`, and `min_soc_percent < max_soc_percent`
+- **THEN** it SHALL check `capacity_kwh > 0`, the resolved charge kW > 0, the resolved discharge kW > 0, and `min_soc_percent < max_soc_percent`
+- **AND** Watts mode resolves `max_*_w` / 1000, Amps mode resolves `max_*_a` x nominal voltage / 1000
+
+#### Scenario: Failure details name the active field
+- **WHEN** the check fails on a limit
+- **THEN** the error details name the active field (for example `battery.max_charge_a`), the resolved kW value and the control unit
 
 ### Requirement: Planner service emits terminal phase on failure
 `PlannerService` SHALL emit a `"failed"` progress phase via WebSocket immediately before clearing `_current_phase` in every error path (both typed `PlannerError` and untyped `Exception`). The `"failed"` phase SHALL be emitted before any state cleanup so the frontend receives a definitive terminal signal.

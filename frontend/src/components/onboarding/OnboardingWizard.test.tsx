@@ -426,6 +426,32 @@ describe('OnboardingWizard', () => {
         expect(screen.queryByText(/Total house energy/)).not.toBeInTheDocument()
     })
 
+    it('asks for current and voltage, not watts, for an amp-controlled profile', async () => {
+        const defaults = baseConfig()
+        setup('battery', {
+            profiles: [{ ...profile, behavior: { control_unit: 'A' as never } }],
+            config: { ...defaults, system: { ...defaults.system, has_battery: true } },
+        })
+
+        expect(await screen.findByLabelText(/Maximum charge current/)).toBeInTheDocument()
+        expect(screen.getByLabelText(/Maximum discharge current/)).toBeInTheDocument()
+        expect(screen.getByLabelText(/Nominal battery voltage/)).toBeInTheDocument()
+        expect(screen.queryByLabelText(/Maximum charge power/)).not.toBeInTheDocument()
+        expect(screen.queryByLabelText(/Maximum discharge power/)).not.toBeInTheDocument()
+    })
+
+    it('asks for watts, not current, for a watt-controlled profile', async () => {
+        const defaults = baseConfig()
+        setup('battery', {
+            config: { ...defaults, system: { ...defaults.system, has_battery: true } },
+        })
+
+        expect(await screen.findByLabelText(/Maximum charge power/)).toBeInTheDocument()
+        expect(screen.getByLabelText(/Maximum discharge power/)).toBeInTheDocument()
+        expect(screen.queryByLabelText(/Maximum charge current/)).not.toBeInTheDocument()
+        expect(screen.queryByLabelText(/Maximum discharge current/)).not.toBeInTheDocument()
+    })
+
     it('does not request counter roles from the suggestions endpoint', async () => {
         setup('sensors')
         expect(await screen.findByRole('heading', { name: 'Core sensors' })).toBeInTheDocument()

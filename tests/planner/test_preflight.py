@@ -56,7 +56,12 @@ def _valid_config(**battery_overrides) -> dict:
         "max_discharge_w": 5000,
     }
     battery.update(battery_overrides)
-    return {"system": {"has_battery": True}, "battery": battery, "ev_chargers": []}
+    return {
+        "system": {"has_battery": True},
+        "battery": battery,
+        "executor": {"inverter": {"control_unit": "W"}},
+        "ev_chargers": [],
+    }
 
 
 def _valid_input(initial_soc_kwh: float = 5.0, future_hours: int = 8) -> dict:
@@ -103,6 +108,36 @@ def test_battery_config_invalid_discharge_power():
     with pytest.raises(PlannerError) as exc:
         check_battery_config(config)
     assert exc.value.code == PlannerErrorCode.CONFIG_INVALID
+
+
+def _amps_config(**battery_overrides) -> dict:
+    config = _valid_config(
+        max_charge_a=100, max_discharge_a=100, nominal_voltage_v=48, **battery_overrides
+    )
+    config["executor"]["inverter"]["control_unit"] = "A"
+    return config
+
+
+def test_battery_config_amps_valid_with_hidden_watts_zero():
+    check_battery_config(_amps_config(max_charge_w=0, max_discharge_w=0))
+
+
+def test_battery_config_amps_missing_discharge_names_amps_field():
+    config = _amps_config()
+    del config["battery"]["max_discharge_a"]
+    with pytest.raises(PlannerError) as exc:
+        check_battery_config(config)
+    assert exc.value.code == PlannerErrorCode.CONFIG_INVALID
+    assert exc.value.details["field"] == "battery.max_discharge_a"
+    assert exc.value.details["control_unit"] == "A"
+
+
+def test_battery_config_watts_zero_names_watts_field():
+    with pytest.raises(PlannerError) as exc:
+        check_battery_config(_valid_config(max_charge_w=0))
+    assert exc.value.details["field"] == "battery.max_charge_w"
+    assert exc.value.details["control_unit"] == "W"
+    assert exc.value.details["value"] == 0
 
 
 # --- check_initial_soc ---

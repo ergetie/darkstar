@@ -35,6 +35,8 @@ export interface BaseField {
     type: FieldType
     options?: { label: string; value: string }[]
     companionKey?: string
+    /** Number field in amps: form key of the battery voltage used to show an effective kW hint */
+    effectiveKwVoltageKey?: string
     disabled?: boolean
     notImplemented?: boolean
     required?: boolean
@@ -956,7 +958,8 @@ export const batterySections: SettingsSection[] = [
             {
                 key: 'battery.max_charge_a',
                 label: 'Max charge current (A)',
-                helper: 'Maximum charging current allowed from grid.',
+                helper: 'Maximum charge current of the battery (per the inverter/battery spec).',
+                effectiveKwVoltageKey: 'battery.nominal_voltage_v',
                 path: ['battery', 'max_charge_a'],
                 type: 'number',
                 showIf: {
@@ -967,7 +970,7 @@ export const batterySections: SettingsSection[] = [
             {
                 key: 'battery.max_charge_w',
                 label: 'Max charge power (W)',
-                helper: 'Maximum charging power allowed from grid.',
+                helper: 'Maximum charge power of the battery (per the inverter/battery spec).',
                 path: ['battery', 'max_charge_w'],
                 type: 'number',
                 showIf: {
@@ -978,7 +981,8 @@ export const batterySections: SettingsSection[] = [
             {
                 key: 'battery.max_discharge_a',
                 label: 'Max discharge current (A)',
-                helper: 'Maximum discharge current for load following.',
+                helper: 'Maximum discharge current of the battery (per the inverter/battery spec).',
+                effectiveKwVoltageKey: 'battery.nominal_voltage_v',
                 path: ['battery', 'max_discharge_a'],
                 type: 'number',
                 showIf: {
@@ -989,7 +993,7 @@ export const batterySections: SettingsSection[] = [
             {
                 key: 'battery.max_discharge_w',
                 label: 'Max discharge power (W)',
-                helper: 'Maximum discharge power for load following.',
+                helper: 'Maximum discharge power of the battery (per the inverter/battery spec).',
                 path: ['battery', 'max_discharge_w'],
                 type: 'number',
                 showIf: {

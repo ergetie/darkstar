@@ -350,7 +350,7 @@ export function OnboardingWizard({ onClose }: Props) {
         setErrorMessage(null)
         setWarnings([])
         try {
-            const patch = activeStep.buildPatch(config)
+            const patch = activeStep.buildPatch(config, profiles)
             if (Object.keys(patch).length) {
                 const result = await Api.configSave(patch)
                 setWarnings(result.warnings ?? [])

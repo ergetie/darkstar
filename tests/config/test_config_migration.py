@@ -44,6 +44,25 @@ class TestDeprecatedKeyRemoval:
         assert "work_mode_entity" not in result["executor"]["inverter"]
         assert "soc_target_entity" not in result["executor"]["inverter"]
 
+    def test_remove_stray_battery_kw_limit_keys(self):
+        from backend.config_migration import remove_deprecated_keys
+
+        battery = {
+            "max_charge_power_kw": 8,
+            "max_discharge_power_kw": 8,
+            "max_charge_a": 100,
+            "max_discharge_a": 100,
+            "max_charge_w": 5000,
+            "max_discharge_w": 5000,
+        }
+        result, changed = remove_deprecated_keys({"battery": dict(battery)})
+        assert changed
+        assert result["battery"] == {
+            k: v for k, v in battery.items() if not k.endswith("power_kw")
+        }
+        _, changed_again = remove_deprecated_keys(result)
+        assert not changed_again
+
     def test_remove_fictional_water_penalty_keys(self):
         """fix-water-comfort-truthfulness: the four global water_heating penalty
         keys were never read by the solver and must be stripped on migration,

@@ -436,9 +436,23 @@ async def test_readiness_placeholder_and_battery_w(config):
     checks = {c["id"]: c for c in result["checks"]}
     assert not result["ready"]
     assert checks["location"]["status"] == "fail"
+    config["executor"]["inverter"]["control_unit"] = "W"
     config["battery"]["max_charge_w"] = 0
     result = await readiness_with(config, [])
     assert next(c for c in result["checks"] if c["id"] == "battery_limits")["status"] == "fail"
+
+
+async def test_readiness_battery_limits_follow_amps_unit(config):
+    config["executor"]["inverter"]["control_unit"] = "A"
+    config["battery"].update(max_charge_a=100, max_discharge_a=100, max_charge_w=0)
+    result = await readiness_with(config, [])
+    check = next(c for c in result["checks"] if c["id"] == "battery_limits")
+    assert check["status"] == "pass"
+    del config["battery"]["max_charge_a"]
+    result = await readiness_with(config, [])
+    check = next(c for c in result["checks"] if c["id"] == "battery_limits")
+    assert check["status"] == "fail"
+    assert "battery.max_charge_a" in check["message"]
 
 
 @pytest.mark.parametrize("name", ["deye", "fronius", "sungrow"])

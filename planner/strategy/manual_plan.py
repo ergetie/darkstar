@@ -7,11 +7,16 @@ Extracted from planner_legacy.py during Rev K13 modularization.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 import pandas as pd
 import pytz
 from pandas import Timestamp
+
+from planner.battery_limits import resolve_battery_power_limits
+
+logger = logging.getLogger("darkstar.planner.manual_plan")
 
 
 def apply_manual_plan(
@@ -36,11 +41,7 @@ def apply_manual_plan(
     timezone_name = config.get("timezone", "Europe/Stockholm")
     tz = pytz.timezone(timezone_name)
 
-    charge_cap_kw = (
-        config.get("system", {}).get("battery", {}).get("max_charge_power_kw")
-        or config.get("battery", {}).get("max_charge_power_kw")
-        or 0.0
-    )
+    charge_cap_kw = resolve_battery_power_limits(config)[0]
     water_kw_default = config.get("water_heating", {}).get("power_kw", 0.0)
 
     working_df = df.copy()
@@ -127,6 +128,10 @@ def apply_manual_plan(
             continue
 
         if normalized == "charge":
+            if charge_cap_kw <= 0:
+                logger.warning(
+                    "Battery max charge limit is not configured; manual Charge plans 0 kW"
+                )
             working_df.loc[mask, "charge_kw"] = float(charge_cap_kw)
             working_df.loc[mask, "manual_action"] = "Charge"
         elif normalized == "water heating":

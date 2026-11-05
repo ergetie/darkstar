@@ -15,6 +15,7 @@ import Select from '../ui/Select'
 import Switch from '../ui/Switch'
 import { EntityField } from './EntityField'
 import {
+    activeControlUnit,
     configDiff,
     getPath,
     hasFiniteNumber,
@@ -54,7 +55,7 @@ export type StepDefinition = {
     title: string
     appliesWhen: (config: WizardConfig) => boolean
     component: ComponentType<StepProps>
-    buildPatch: (config: WizardConfig) => Record<string, unknown>
+    buildPatch: (config: WizardConfig, profiles: InverterProfile[]) => Record<string, unknown>
     isComplete: (config: WizardConfig, profiles: InverterProfile[]) => boolean
 }
 
@@ -761,8 +762,7 @@ function SolarStep(props: StepProps) {
 }
 
 function BatteryStep(props: StepProps) {
-    const profile = props.profiles.find((item) => item.name === getPath(props.config, 'system.inverter_profile'))
-    const requiresVoltage = profile?.behavior.control_unit === 'A'
+    const controlUnit = activeControlUnit(props.config, props.profiles)
     return (
         <div className="grid gap-4 sm:grid-cols-2">
             <TextField
@@ -798,42 +798,71 @@ function BatteryStep(props: StepProps) {
                 unit="%"
                 required
             />
-            <TextField
-                config={props.config}
-                update={props.update}
-                path="battery.max_charge_w"
-                label="Maximum charge power"
-                type="number"
-                min={1}
-                step={100}
-                unit="W"
-                required
-            />
-            <TextField
-                config={props.config}
-                update={props.update}
-                path="battery.max_discharge_w"
-                label="Maximum discharge power"
-                type="number"
-                min={1}
-                step={100}
-                unit="W"
-                required
-            />
-            {requiresVoltage && (
-                <TextField
-                    config={props.config}
-                    update={props.update}
-                    path="battery.nominal_voltage_v"
-                    label="Nominal battery voltage"
-                    type="number"
-                    min={1}
-                    unit="V"
-                    required
-                />
+            {controlUnit === 'A' ? (
+                <>
+                    <TextField
+                        config={props.config}
+                        update={props.update}
+                        path="battery.max_charge_a"
+                        label="Maximum charge current"
+                        type="number"
+                        min={1}
+                        step={1}
+                        unit="A"
+                        required
+                    />
+                    <TextField
+                        config={props.config}
+                        update={props.update}
+                        path="battery.max_discharge_a"
+                        label="Maximum discharge current"
+                        type="number"
+                        min={1}
+                        step={1}
+                        unit="A"
+                        required
+                    />
+                    <TextField
+                        config={props.config}
+                        update={props.update}
+                        path="battery.nominal_voltage_v"
+                        label="Nominal battery voltage"
+                        type="number"
+                        min={1}
+                        unit="V"
+                        required
+                    />
+                </>
+            ) : (
+                <>
+                    <TextField
+                        config={props.config}
+                        update={props.update}
+                        path="battery.max_charge_w"
+                        label="Maximum charge power"
+                        type="number"
+                        min={1}
+                        step={100}
+                        unit="W"
+                        required
+                    />
+                    <TextField
+                        config={props.config}
+                        update={props.update}
+                        path="battery.max_discharge_w"
+                        label="Maximum discharge power"
+                        type="number"
+                        min={1}
+                        step={100}
+                        unit="W"
+                        required
+                    />
+                </>
             )}
             <p className="text-xs text-muted sm:col-span-2">
-                Charge and discharge power are required in watts. Check the inverter or battery specifications.
+                {controlUnit === 'A'
+                    ? 'Charge and discharge current are required in amps. Check the inverter or battery specifications.'
+                    : 'Charge and discharge power are required in watts. Check the inverter or battery specifications.'}
             </p>
         </div>
     )
@@ -1277,14 +1306,14 @@ export const steps: StepDefinition[] = [
         title: 'Battery',
         appliesWhen: (config) => isFeatureEnabled(config, 'has_battery'),
         component: BatteryStep,
-        buildPatch: (config) =>
+        buildPatch: (config, profiles) =>
             patchFor(config, [
                 'battery.capacity_kwh',
                 'battery.min_soc_percent',
                 'battery.max_soc_percent',
-                'battery.max_charge_w',
-                'battery.max_discharge_w',
-                'battery.nominal_voltage_v',
+                ...(activeControlUnit(config, profiles) === 'A'
+                    ? ['battery.max_charge_a', 'battery.max_discharge_a', 'battery.nominal_voltage_v']
+                    : ['battery.max_charge_w', 'battery.max_discharge_w']),
             ]),
         isComplete: (config, profiles) =>
             hasFiniteNumber(getPath(config, 'battery.capacity_kwh')) &&
@@ -1295,11 +1324,12 @@ export const steps: StepDefinition[] = [
             hasFiniteNumber(getPath(config, 'battery.max_soc_percent')) &&
             Number(getPath(config, 'battery.max_soc_percent')) > 0 &&
             Number(getPath(config, 'battery.max_soc_percent')) <= 100 &&
-            Number(getPath(config, 'battery.max_charge_w')) > 0 &&
-            Number(getPath(config, 'battery.max_discharge_w')) > 0 &&
-            (profiles.find((profile) => profile.name === getPath(config, 'system.inverter_profile'))?.behavior
-                .control_unit !== 'A' ||
-                Number(getPath(config, 'battery.nominal_voltage_v')) > 0),
+            (activeControlUnit(config, profiles) === 'A'
+                ? Number(getPath(config, 'battery.max_charge_a')) > 0 &&
+                  Number(getPath(config, 'battery.max_discharge_a')) > 0 &&
+                  Number(getPath(config, 'battery.nominal_voltage_v')) > 0
+                : Number(getPath(config, 'battery.max_charge_w')) > 0 &&
+                  Number(getPath(config, 'battery.max_discharge_w')) > 0),
     },
     {
         id: 'water',

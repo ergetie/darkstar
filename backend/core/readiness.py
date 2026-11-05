@@ -150,13 +150,15 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
         except (ValueError, TypeError, ArithmeticError) as exc:
             add("battery_limits", "battery", "fail", str(exc), "battery")
         except Exception as exc:
+            field = getattr(exc, "details", {}).get("field")
             add(
                 "battery_limits",
                 "battery",
                 "fail",
-                str(exc),
+                f"{exc} ({field})" if field else str(exc),
                 "battery",
-                "Set capacity, positive charge/discharge Watts and min SoC below max SoC.",
+                "Set capacity, positive max charge/discharge for the active control unit "
+                "(Amps or Watts) and min SoC below max SoC.",
             )
         try:
             profile = get_profile_from_config(config)

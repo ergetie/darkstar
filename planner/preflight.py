@@ -14,6 +14,7 @@ from typing import Any
 
 from backend.core.ev_power import charger_max_kw, nominal_voltage_v
 
+from .battery_limits import resolve_battery_power_limits, resolve_control_unit
 from .errors import PlannerError, PlannerErrorCode, user_message
 
 logger = logging.getLogger("darkstar.planner.preflight")
@@ -30,8 +31,9 @@ def check_battery_config(config: dict[str, Any]) -> None:
     min_pct = battery.get("min_soc_percent", 0.0)
     max_pct = battery.get("max_soc_percent", 100.0)
     capacity = battery.get("capacity_kwh", 0.0)
-    max_charge = battery.get("max_charge_w", 0.0) / 1000
-    max_discharge = battery.get("max_discharge_w", 0.0) / 1000
+    max_charge, max_discharge = resolve_battery_power_limits(config)
+    control_unit = resolve_control_unit(config)
+    unit_suffix = control_unit.lower()
 
     if min_pct >= max_pct:
         raise PlannerError(
@@ -52,12 +54,20 @@ def check_battery_config(config: dict[str, Any]) -> None:
         if max_charge <= 0:
             raise PlannerError(
                 code=PlannerErrorCode.CONFIG_INVALID,
-                details={"field": "battery.max_charge_w", "value": max_charge},
+                details={
+                    "field": f"battery.max_charge_{unit_suffix}",
+                    "value": max_charge,
+                    "control_unit": control_unit,
+                },
             )
         if max_discharge <= 0:
             raise PlannerError(
                 code=PlannerErrorCode.CONFIG_INVALID,
-                details={"field": "battery.max_discharge_w", "value": max_discharge},
+                details={
+                    "field": f"battery.max_discharge_{unit_suffix}",
+                    "value": max_discharge,
+                    "control_unit": control_unit,
+                },
             )
 
 

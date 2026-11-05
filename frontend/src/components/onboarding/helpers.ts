@@ -1,4 +1,5 @@
 import type { ConfigResponse } from '../../lib/api'
+import type { InverterProfile } from '../../pages/settings/types'
 
 export type WizardConfig = ConfigResponse & Record<string, unknown>
 
@@ -27,6 +28,14 @@ export function setPath(root: WizardConfig, path: string, value: unknown): Wizar
     if (Array.isArray(node)) node[Number(last)] = value
     else node[last] = value
     return result as WizardConfig
+}
+
+/** Active battery control unit: the selected profile's, else the configured one, else Amps. */
+export function activeControlUnit(config: unknown, profiles: InverterProfile[]): 'A' | 'W' {
+    const profileName = getPath(config, 'system.inverter_profile')
+    const profileUnit = profiles.find((profile) => profile.name === profileName)?.behavior.control_unit
+    const unit = profileUnit ?? getPath(config, 'executor.inverter.control_unit')
+    return unit === 'W' ? 'W' : 'A'
 }
 
 export function isConfigured(value: unknown): boolean {
@@ -89,6 +98,9 @@ const SETTING_LABELS: Record<string, string> = {
     'battery.capacity_kwh': 'Battery capacity',
     'battery.min_soc_percent': 'Minimum state of charge',
     'battery.max_soc_percent': 'Maximum state of charge',
+    'battery.max_charge_a': 'Maximum charge current',
+    'battery.max_discharge_a': 'Maximum discharge current',
+    'battery.nominal_voltage_v': 'Nominal battery voltage',
     'battery.max_charge_w': 'Maximum charge power',
     'battery.max_discharge_w': 'Maximum discharge power',
     'executor.shadow_mode': 'Executor mode',

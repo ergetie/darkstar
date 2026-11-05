@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { InverterProfile } from '../../pages/settings/types'
 import { applicableSteps, steps } from './steps'
-import { configDiff, hasFiniteNumber, prefillHighConfidence, setPath, settingLabel, type WizardConfig } from './helpers'
+import {
+    activeControlUnit,
+    configDiff,
+    hasFiniteNumber,
+    prefillHighConfidence,
+    setPath,
+    settingLabel,
+    type WizardConfig,
+} from './helpers'
 
 const profile: InverterProfile = {
     name: 'test-profile',
@@ -58,6 +66,46 @@ describe('onboarding step rules', () => {
         expect(batteryStep.isComplete(complete, [profile])).toBe(true)
     })
 
+    it('requires current and voltage, not watts, for an amp-controlled profile', () => {
+        const batteryStep = steps.find((step) => step.id === 'battery')!
+        const ampProfile: InverterProfile = { ...profile, name: 'amp-profile', behavior: { control_unit: 'A' } }
+        const values = config({
+            system: { has_battery: true, inverter_profile: ampProfile.name },
+            battery: { capacity_kwh: 8, min_soc_percent: 10, max_soc_percent: 90, nominal_voltage_v: 48 },
+        })
+
+        expect(batteryStep.isComplete(values, [ampProfile])).toBe(false)
+        const complete = setPath(setPath(values, 'battery.max_charge_a', 100), 'battery.max_discharge_a', 100)
+        expect(batteryStep.isComplete(complete, [ampProfile])).toBe(true)
+        expect(batteryStep.isComplete(setPath(complete, 'battery.nominal_voltage_v', ''), [ampProfile])).toBe(false)
+        expect(batteryStep.buildPatch(setPath(complete, 'battery.max_charge_w', 0), [ampProfile])).toEqual({
+            battery: {
+                capacity_kwh: 8,
+                min_soc_percent: 10,
+                max_soc_percent: 90,
+                max_charge_a: 100,
+                max_discharge_a: 100,
+                nominal_voltage_v: 48,
+            },
+        })
+    })
+
+    it('resolves the active control unit from profile, then config, then amps', () => {
+        const ampProfile: InverterProfile = { ...profile, name: 'amp-profile', behavior: { control_unit: 'A' } }
+        const unitless: InverterProfile = { ...profile, name: 'unitless', behavior: { control_unit: null } }
+        const withUnit = (name: string, unit?: string) =>
+            config({
+                system: { inverter_profile: name },
+                ...(unit ? { executor: { inverter: { control_unit: unit } } } : {}),
+            })
+
+        expect(activeControlUnit(withUnit(ampProfile.name, 'W'), [ampProfile, profile])).toBe('A')
+        expect(activeControlUnit(withUnit(profile.name, 'A'), [ampProfile, profile])).toBe('W')
+        expect(activeControlUnit(withUnit(unitless.name, 'W'), [unitless])).toBe('W')
+        expect(activeControlUnit(withUnit(unitless.name), [unitless])).toBe('A')
+        expect(activeControlUnit(withUnit('missing'), [])).toBe('A')
+    })
+
     it('accepts a zero minimum state of charge but blocks missing and out-of-range values', () => {
         const batteryStep = steps.find((step) => step.id === 'battery')!
         const values = config({
@@ -87,8 +135,10 @@ describe('onboarding step rules', () => {
         ]
         const current = config({ water_heaters: waterHeaters, ev_chargers: evChargers })
 
-        expect(steps.find((step) => step.id === 'water')!.buildPatch(current)).toEqual({ water_heaters: waterHeaters })
-        expect(steps.find((step) => step.id === 'ev')!.buildPatch(current)).toEqual({ ev_chargers: evChargers })
+        expect(steps.find((step) => step.id === 'water')!.buildPatch(current, [])).toEqual({
+            water_heaters: waterHeaters,
+        })
+        expect(steps.find((step) => step.id === 'ev')!.buildPatch(current, [])).toEqual({ ev_chargers: evChargers })
     })
 
     it('treats zero coordinates as present and rejects empty coordinates', () => {

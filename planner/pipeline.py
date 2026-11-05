@@ -33,6 +33,7 @@ from backend.core.ev_power import (
 from backend.core.version import get_version
 from backend.core.water_heating import active_water_heaters, validate_water_heating_config
 from backend.learning.store import LearningStore
+from planner.battery_limits import resolve_battery_power_limits
 from planner.errors import PlannerError, PlannerErrorCode
 from planner.inputs.data_prep import apply_safety_margins, prepare_df
 from planner.inputs.learning import load_learning_overlays
@@ -45,7 +46,6 @@ from planner.solver.adapter import (
     config_to_kepler_config,
     kepler_result_to_dataframe,
     planner_to_kepler_input,
-    resolve_battery_power_limits,
     scale_first_slot_to_remaining,
 )
 from planner.solver.kepler import KeplerSolver
