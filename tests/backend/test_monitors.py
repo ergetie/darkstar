@@ -6,6 +6,7 @@ API/health exposure.
 """
 
 import contextlib
+import json
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -57,6 +58,23 @@ def mon_db(monkeypatch):
         Path(db_path).unlink()
 
 
+def seed_system_state(db_path: str, key: str, value: object) -> None:
+    """Upsert a JSON value into system_state (the executor's persisted counters/notices)."""
+    import sqlite3
+
+    con = sqlite3.connect(db_path)
+    con.execute(
+        "INSERT OR REPLACE INTO system_state (key, value) VALUES (?, ?)",
+        (key, json.dumps(value)),
+    )
+    con.commit()
+    con.close()
+
+
+def tick_stats(buckets: dict[str, dict]) -> dict:
+    return {"v": 1, "buckets": buckets}
+
+
 def seed_healthy(db_path: str, hours: int = 25) -> None:
     """Seed a fully healthy trailing window: contiguous slots, balanced energy,
     sane SoC, fresh plan, successful ticks, sane future forecast."""
@@ -74,12 +92,6 @@ def seed_healthy(db_path: str, hours: int = 25) -> None:
             " soc_end_percent, import_price_sek_kwh, export_price_sek_kwh) "
             "VALUES (?, ?, 0.5, 0, 0, 0.5, 0, 0, 0, 0, 50, 50, 1.0, 0.5)",
             (start.isoformat(), end.isoformat()),
-        )
-        con.execute(
-            "INSERT INTO execution_log "
-            "(executed_at, slot_start, override_active, success, source, commanded_unit) "
-            "VALUES (?, ?, 0, 1, 'native', 'A')",
-            (start.isoformat(), start.isoformat()),
         )
     # fresh plan write (created_at is naive UTC per production convention)
     con.execute(
@@ -101,6 +113,21 @@ def seed_healthy(db_path: str, hours: int = 25) -> None:
     )
     con.commit()
     con.close()
+    # healthy tick counters: one bucket per hour of the trailing 24 h, all ticks ok
+    seed_system_state(
+        db_path,
+        "executor_tick_stats",
+        tick_stats(
+            {
+                (datetime.now(UTC) - timedelta(hours=h)).strftime("%Y-%m-%dT%H"): {
+                    "t": 12,
+                    "f": 0,
+                    "a": {},
+                }
+                for h in range(24)
+            }
+        ),
+    )
 
 
 @pytest.fixture
@@ -204,20 +231,6 @@ class TestViolations:
         assert r.status == "violation"
 
     @pytest.mark.asyncio
-    async def test_command_failure_rate_detected(self, mon_db, monitors):
-        import sqlite3
-
-        seed_healthy(mon_db)
-        con = sqlite3.connect(mon_db)
-        con.execute("UPDATE execution_log SET success = 0 WHERE rowid % 10 = 0")  # 10% failures
-        con.commit()
-        con.close()
-
-        results = await monitors.evaluate_all()
-        r = next(x for x in results if x.name == "command_success")
-        assert r.status == "violation"
-
-    @pytest.mark.asyncio
     async def test_pv_forecast_over_ceiling_detected(self, mon_db, tmp_path):
         import sqlite3
 
@@ -314,31 +327,6 @@ class TestViolations:
         assert "no solar arrays" in r.detail
 
     @pytest.mark.asyncio
-    async def test_brief_outage_within_95_percent_passes(self, mon_db, monitors):
-        """18/1321 failed ticks (98.64%) passes at the 95% threshold."""
-        import sqlite3
-
-        seed_healthy(mon_db)
-        con = sqlite3.connect(mon_db)
-        now = datetime.now(TZ)
-        con.execute("DELETE FROM execution_log")
-        for i in range(1321):
-            t = now - timedelta(minutes=i)
-            success = 0 if i < 18 else 1
-            con.execute(
-                "INSERT INTO execution_log "
-                "(executed_at, slot_start, override_active, success, source, commanded_unit) "
-                "VALUES (?, ?, 0, ?, 'native', 'A')",
-                (t.isoformat(), t.isoformat(), success),
-            )
-        con.commit()
-        con.close()
-
-        results = await monitors.evaluate_all()
-        r = next(x for x in results if x.name == "command_success")
-        assert r.status == "pass", r.detail
-
-    @pytest.mark.asyncio
     async def test_data_quality_violation_on_missing_prices(self, mon_db, monitors):
         import sqlite3
 
@@ -403,6 +391,163 @@ class TestEpisodeDedup:
         con.close()
         await monitors.evaluate_all()
         assert "plan_freshness" not in monitors.state.episodes
+
+
+PINNED_NOW = datetime(2026, 6, 15, 12, 30, tzinfo=UTC)
+
+
+def _bucket(hours_ago: int, total: int, failed: int, actions: dict | None = None) -> dict:
+    key = (PINNED_NOW - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H")
+    return {key: {"t": total, "f": failed, "a": actions or {}}}
+
+
+def _evaluate(db_path: str, name: str) -> InvariantResult:
+    """Run one evaluator directly with a read-only connection and the pinned clock."""
+    import sqlite3
+
+    monitors = InvariantMonitors(config_path="config.yaml")
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        return getattr(monitors, f"_eval_{name}")(con, PINNED_NOW)
+    finally:
+        con.close()
+
+
+class TestCommandSuccessFromTickStats:
+    def test_brief_outage_passes(self, mon_db):
+        seed_system_state(
+            mon_db,
+            "executor_tick_stats",
+            tick_stats({**_bucket(3, 1000, 18), **_bucket(1, 321, 0)}),
+        )
+        r = _evaluate(mon_db, "command_success")
+        assert r.status == "pass", r.detail
+        assert "98.64%" in r.detail
+
+    def test_violation_names_failing_action_entity_and_error(self, mon_db):
+        failing = {
+            "charge_discharge_power": {
+                "n": 82,
+                "entity": "input_number.darkstar_power_rec_w",
+                "err": "HTTP 400 | Response: value out of range",
+            }
+        }
+        seed_system_state(
+            mon_db,
+            "executor_tick_stats",
+            tick_stats({**_bucket(5, 1000, 82, failing), **_bucket(2, 410, 0)}),
+        )
+        r = _evaluate(mon_db, "command_success")
+        assert r.status == "violation"
+        assert "94.18%" in r.detail
+        assert "(82/1410 failed)" in r.detail
+        assert "charge_discharge_power failed 82\u00d7" in r.detail
+        assert "input_number.darkstar_power_rec_w" in r.detail
+        assert "value out of range" in r.detail
+
+    def test_only_top_two_actions_named(self, mon_db):
+        failing = {
+            "a_one": {"n": 30, "entity": "number.a", "err": "e1"},
+            "b_two": {"n": 20, "entity": "number.b", "err": "e2"},
+            "c_three": {"n": 5, "entity": "number.c", "err": "e3"},
+        }
+        seed_system_state(
+            mon_db, "executor_tick_stats", tick_stats(_bucket(1, 100, 55, failing))
+        )
+        r = _evaluate(mon_db, "command_success")
+        assert r.status == "violation"
+        assert "a_one" in r.detail and "b_two" in r.detail
+        assert "c_three" not in r.detail
+
+    def test_too_few_ticks_skipped(self, mon_db):
+        seed_system_state(mon_db, "executor_tick_stats", tick_stats(_bucket(1, 5, 5)))
+        r = _evaluate(mon_db, "command_success")
+        assert r.status == "skipped"
+        assert "only 5 ticks recorded" in r.detail
+
+    def test_absent_key_skipped(self, mon_db):
+        assert _evaluate(mon_db, "command_success").status == "skipped"
+
+    def test_corrupt_stats_skipped(self, mon_db):
+        import sqlite3
+
+        con = sqlite3.connect(mon_db)
+        con.execute(
+            "INSERT INTO system_state (key, value) VALUES ('executor_tick_stats', '{not json')"
+        )
+        con.commit()
+        con.close()
+        assert _evaluate(mon_db, "command_success").status == "skipped"
+
+    def test_buckets_older_than_24h_ignored(self, mon_db):
+        # 30 h old bucket is all failures, the recent one is healthy
+        seed_system_state(
+            mon_db,
+            "executor_tick_stats",
+            tick_stats({**_bucket(30, 500, 500), **_bucket(1, 100, 0)}),
+        )
+        r = _evaluate(mon_db, "command_success")
+        assert r.status == "pass", r.detail
+
+    def test_execution_log_rows_are_not_used(self, mon_db):
+        import sqlite3
+
+        con = sqlite3.connect(mon_db)
+        for i in range(50):
+            t = PINNED_NOW - timedelta(minutes=i)
+            con.execute(
+                "INSERT INTO execution_log "
+                "(executed_at, slot_start, override_active, success, source, commanded_unit) "
+                "VALUES (?, ?, 0, 0, 'ev_charger', 'A')",
+                (t.isoformat(), t.isoformat()),
+            )
+        con.commit()
+        con.close()
+        seed_system_state(mon_db, "executor_tick_stats", tick_stats(_bucket(1, 100, 0)))
+        assert _evaluate(mon_db, "command_success").status == "pass"
+
+
+class TestEvChargeDelivery:
+    def _notice(self, since: datetime, active: bool = True) -> dict:
+        return {
+            "active": active,
+            "since": since.isoformat(),
+            "message": "EV charge failure: charger(s) commanded to charge but 0.00kW actual",
+            "commanded": True,
+            "actual_kw": 0.0,
+        }
+
+    def test_violation_with_message(self, mon_db):
+        seed_system_state(
+            mon_db,
+            "executor_ev_charge_notice",
+            self._notice(PINNED_NOW - timedelta(minutes=30)),
+        )
+        r = _evaluate(mon_db, "ev_charge_delivery")
+        assert r.status == "violation"
+        assert "0.00kW actual" in r.detail
+
+    def test_pass_when_inactive(self, mon_db):
+        seed_system_state(
+            mon_db, "executor_ev_charge_notice", self._notice(PINNED_NOW, active=False)
+        )
+        assert _evaluate(mon_db, "ev_charge_delivery").status == "pass"
+
+    def test_skipped_when_absent(self, mon_db):
+        assert _evaluate(mon_db, "ev_charge_delivery").status == "skipped"
+
+    def test_stale_notice_ignored(self, mon_db):
+        seed_system_state(
+            mon_db,
+            "executor_ev_charge_notice",
+            self._notice(PINNED_NOW - timedelta(hours=7)),
+        )
+        assert _evaluate(mon_db, "ev_charge_delivery").status == "pass"
+
+    def test_command_success_unaffected_by_ev_notice(self, mon_db):
+        seed_system_state(mon_db, "executor_tick_stats", tick_stats(_bucket(1, 100, 0)))
+        seed_system_state(mon_db, "executor_ev_charge_notice", self._notice(PINNED_NOW))
+        assert _evaluate(mon_db, "command_success").status == "pass"
 
 
 class TestFailureIsolation:
@@ -470,6 +615,7 @@ class TestSurfaces:
             "command_success",
             "forecast_sanity",
             "data_quality",
+            "ev_charge_delivery",
         }
 
     def test_result_serialization(self):

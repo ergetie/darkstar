@@ -30,6 +30,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
+import aiohttp
 import pytz
 
 # import yaml
@@ -46,7 +47,7 @@ from backend.core.ha_timestamps import reading_timestamp
 from backend.core.secrets import load_home_assistant_config
 from backend.loads.service import LoadDisaggregator
 
-from .actions import ActionDispatcher, ActionResult, HAClient
+from .actions import ActionDispatcher, ActionResult, HACallError, HAClient
 from .config import (
     BalancedLoadConfig,
     BalancedLoadType,
@@ -82,6 +83,7 @@ from .override import (
     SystemState,
     evaluate_overrides,
 )
+from .tick_stats import TICK_STATS_KEY, TickFailure, TickStats
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +100,11 @@ EV_KEEP_ON_REASON_MARKER = "EV keep-on active"
 # Consecutive-tick threshold before a command-failure push; deterministic
 # rejections, so lower than the EV zero-power threshold (5).
 ACTION_FAILURE_NOTIFY_STREAK = 3
+
+# Minimum seconds between flushes of the tick counters to system_state.
+TICK_STATS_FLUSH_INTERVAL_S = 30.0
+# system_state key of the EV zero-power charge-failure notice (read by the monitors).
+EV_CHARGE_NOTICE_KEY = "executor_ev_charge_notice"
 
 
 # Minimum gap between EV charge failure/recovery replans (ev-charge-failure-detection).
@@ -325,6 +332,11 @@ class ExecutorEngine:
             timezone=self.config.timezone,
         )
 
+        # Unthrottled tick counters behind the command_success monitor; restored
+        # from system_state so a restart keeps the trailing 24 h window.
+        self._tick_stats = TickStats.from_json(self._read_system_state(TICK_STATS_KEY))
+        self._tick_stats_flushed_at: float = time.monotonic()
+
         self.ha_client: HAClient | None = None
         self.dispatcher: ActionDispatcher | None = None
 
@@ -447,6 +459,9 @@ class ExecutorEngine:
         # EV charge failure detection
         self._ev_zero_power_ticks: int = 0
         self._ev_failure_notified: bool = False
+        # Whether the persisted EV charge-failure notice is active (avoids a DB
+        # write on every tick); seeded from system_state to survive a restart.
+        self._ev_notice_active: bool = self._persisted_ev_notice_active()
         # A failure fired this commanded period; the first >0.1kW afterwards
         # requests a recovery replan (ev-charge-failure-detection).
         self._ev_failure_recovery_pending: bool = False
@@ -1407,6 +1422,7 @@ class ExecutorEngine:
         if self._thread:
             self._thread.join(timeout=5)
             logger.info("Executor stopped")
+        self._flush_tick_stats(force=True)
 
     async def run_once(self) -> dict[str, Any]:
         """
@@ -1615,6 +1631,10 @@ class ExecutorEngine:
             "error": None,
         }
 
+        # Tick counters (design D5): counted once, only for ticks that write.
+        tick_counted = False
+        tick_uncounted = config.shadow_mode
+
         try:
             # 0. Check pause state first
             if self.is_paused:
@@ -1685,6 +1705,12 @@ class ExecutorEngine:
 
             # D1: Honor manual override — skip all writes but keep telemetry
             skip_writes = state.manual_override_active
+            # Holding on a stale or timestamp-less schedule is not a counted tick.
+            tick_uncounted = (
+                tick_uncounted
+                or skip_writes
+                or (slot is None and bool(self._stale_schedule_warning))
+            )
 
             # ev-manual-charge: end manual charges whose condition fired, before
             # any EV decision this tick, then replan if one ended.
@@ -1875,7 +1901,6 @@ class ExecutorEngine:
             # Preserve original slot before EV source isolation may overwrite discharge_kw
             original_slot = slot
             ev_isolation_reason: str | None = None
-            ev_charge_failed = False
 
             # Charger IDs on solely via the keep-on flag (no planned power).
             # Computed unconditionally (not gated on _has_battery) so the tick
@@ -2061,14 +2086,12 @@ class ExecutorEngine:
                     for c in config.ev_chargers
                     if c.id in self._ev_charger_states
                 )
-                if await self._check_ev_charge_failure(
-                    commanded_active, actual_ev_power_kw, now=now
-                ):
-                    ev_charge_failed = True
+                await self._check_ev_charge_failure(commanded_active, actual_ev_power_kw, now=now)
             elif self._has_ev_charger:
                 self._ev_zero_power_ticks = 0
                 self._ev_failure_notified = False
                 self._ev_failure_recovery_pending = False
+                self._clear_ev_charge_notice()
 
             # 6. Execute actions (skipped when manual_override_active — no inverter/EV/water writes)
             action_results: list[ActionResult] = list(ev_surplus_phase_mode_results)
@@ -2253,6 +2276,11 @@ class ExecutorEngine:
                     for r in action_results
                 ]
 
+            # Count the tick before logging so a failure while logging cannot hide it.
+            if not tick_uncounted:
+                tick_counted = True
+                self._record_tick(now, action_results)
+
             # 7. Log execution to history
             duration_ms = int((time.time() - start_time) * 1000)
             record = self._create_execution_record(
@@ -2263,10 +2291,7 @@ class ExecutorEngine:
                 decision=decision,
                 override=override,
                 action_results=action_results,
-                success=(
-                    not ev_charge_failed
-                    and (all(r.success for r in action_results) if action_results else True)
-                ),
+                success=all(r.success for r in action_results) if action_results else True,
                 duration_ms=duration_ms,
                 ev_isolation_reason=ev_isolation_reason,
             )
@@ -2368,7 +2393,106 @@ class ExecutorEngine:
             except Exception as ws_err:
                 logger.debug("WebSocket broadcast failed: %s", ws_err)
 
+            if not tick_counted and not tick_uncounted:
+                self._record_tick(now, [], tick_error=e)
+
         return result
+
+    def _read_system_state(self, key: str) -> str | None:
+        """Read a system_state value; None when absent or the DB is unavailable."""
+        try:
+            value = self.history.get_system_state(key)
+        except Exception as e:
+            logger.debug("Could not read system_state %s: %s", key, e)
+            return None
+        return value if isinstance(value, str) else None
+
+    def _write_system_state(self, key: str, value: str) -> None:
+        """Persist a system_state value; failures are logged and never raised."""
+        try:
+            self.history.set_system_state(key, value)
+        except Exception as e:
+            logger.debug("Could not write system_state %s: %s", key, e)
+
+    def _record_tick(
+        self,
+        now: datetime,
+        action_results: list[ActionResult],
+        tick_error: Exception | None = None,
+    ) -> None:
+        """Count one executed tick (failed when an action failed or the tick raised).
+
+        Feeds the command_success monitor. ``execution_log`` is throttled, so
+        these counters are the only unbiased tick total. EV zero-power notices
+        and per-write EV rows never reach this.
+        """
+        failures: list[TickFailure] = []
+        for r in action_results:
+            if r.success or r.skipped:
+                continue
+            error = r.error_details or r.message
+            if r.ha_unavailable:
+                error = f"HA unavailable: {error}"
+            failures.append((r.action_type, r.entity_id, error))
+        if tick_error is not None:
+            unavailable = (
+                isinstance(tick_error, HACallError) and tick_error.status_code is None
+            ) or isinstance(tick_error, aiohttp.ClientError | TimeoutError)
+            error = f"HA unavailable: {tick_error}" if unavailable else str(tick_error)
+            failures.append(("engine_tick", None, error))
+        self._tick_stats.record(now, failures)
+        self._flush_tick_stats()
+
+    def _flush_tick_stats(self, force: bool = False) -> None:
+        """Persist the tick counters when dirty, at most every 30 s unless forced."""
+        stats = self._tick_stats
+        if not stats.dirty:
+            return
+        if (
+            not force
+            and time.monotonic() - self._tick_stats_flushed_at < TICK_STATS_FLUSH_INTERVAL_S
+        ):
+            return
+        self._tick_stats_flushed_at = time.monotonic()
+        try:
+            self.history.set_system_state(TICK_STATS_KEY, stats.to_json())
+            stats.dirty = False
+        except Exception as e:
+            logger.debug("Could not persist tick stats: %s", e)
+
+    def _persisted_ev_notice_active(self) -> bool:
+        """Whether system_state still holds an active EV charge-failure notice."""
+        raw = self._read_system_state(EV_CHARGE_NOTICE_KEY)
+        if not raw:
+            return False
+        try:
+            notice: Any = json.loads(raw)
+        except ValueError:
+            return False
+        return isinstance(notice, dict) and bool(cast("dict[str, Any]", notice).get("active"))
+
+    def _raise_ev_charge_notice(self, now: datetime, message: str, actual_kw: float) -> None:
+        """Persist the active EV charge-failure notice for the ev_charge_delivery monitor."""
+        self._write_system_state(
+            EV_CHARGE_NOTICE_KEY,
+            json.dumps(
+                {
+                    "active": True,
+                    "since": now.isoformat(),
+                    "message": message,
+                    "commanded": True,
+                    "actual_kw": actual_kw,
+                }
+            ),
+        )
+        self._ev_notice_active = True
+
+    def _clear_ev_charge_notice(self) -> None:
+        """Mark the persisted EV charge-failure notice inactive (no write when already clear)."""
+        if not self._ev_notice_active:
+            return
+        self._write_system_state(EV_CHARGE_NOTICE_KEY, json.dumps({"active": False}))
+        self._ev_notice_active = False
 
     def _load_current_slot(self, now: datetime) -> tuple[SlotPlan | None, str | None]:
         """
@@ -3060,9 +3184,8 @@ class ExecutorEngine:
         reasons: list[str] = []
 
         if not record_success:
-            # A failed tick (e.g. ev_charge_failed, which sets success=0 without
-            # necessarily producing a non-skipped/failed action_result) must
-            # never be silently dropped by the heartbeat throttle.
+            # A failed tick must never be silently dropped by the heartbeat
+            # throttle.
             reasons.append("execution failed")
 
         if decision.mode_intent != self._last_logged_mode_intent:
@@ -4313,6 +4436,7 @@ class ExecutorEngine:
             self._ev_zero_power_ticks = 0
             self._ev_failure_notified = False
             self._ev_failure_recovery_pending = False
+            self._clear_ev_charge_notice()
             return False
 
         if now is None:
@@ -4326,6 +4450,8 @@ class ExecutorEngine:
                 self._ev_zero_power_ticks += 1
         else:
             self._ev_zero_power_ticks = 0
+            if actual_ev_power_kw >= 0.1:
+                self._clear_ev_charge_notice()
             # Stays pending until the replan actually fires, so a recovery
             # inside the cooldown is retried on a later tick, not dropped.
             if (
@@ -4348,6 +4474,7 @@ class ExecutorEngine:
                 await self.dispatcher.notify_error(error_msg)
             self._ev_failure_notified = True
             self._ev_failure_recovery_pending = True
+            self._raise_ev_charge_notice(now, error_msg, actual_ev_power_kw)
             self._request_ev_failure_replan(now, "EV charge failure detected")
             return True
 

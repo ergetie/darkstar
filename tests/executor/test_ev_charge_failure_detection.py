@@ -5,6 +5,7 @@ delta-spec scenarios directly against ExecutorEngine._check_ev_charge_failure.
 """
 
 import contextlib
+import json
 import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -372,3 +373,33 @@ class TestPhaseSwitchGraceWindow:
         engine._ev_charger_states["goe"] = EVChargerState(charging_active=False)
         fired = await self._ticks(engine, self.SWITCH_AT + timedelta(seconds=5), 5)
         assert fired[-1] is True
+
+
+class TestFailureNoticeIsNotATickFailure:
+    """The heuristic raises a persisted notice; it never marks the tick failed."""
+
+    @pytest.mark.asyncio
+    async def test_firing_writes_active_notice_and_recovery_clears_it(self, engine):
+        engine._write_system_state = MagicMock()
+        now = datetime(2026, 6, 15, 10, 0)
+        for _ in range(5):
+            await engine._check_ev_charge_failure(True, 0.0, now=now)
+
+        engine._write_system_state.assert_called_once()
+        key, raw = engine._write_system_state.call_args.args
+        notice = json.loads(raw)
+        assert key == "executor_ev_charge_notice"
+        assert notice["active"] is True and notice["actual_kw"] == 0.0
+
+        engine._write_system_state.reset_mock()
+        await engine._check_ev_charge_failure(True, 1.0, now=now)
+        engine._write_system_state.assert_called_once_with(
+            "executor_ev_charge_notice", json.dumps({"active": False})
+        )
+
+    @pytest.mark.asyncio
+    async def test_below_threshold_writes_nothing(self, engine):
+        engine._write_system_state = MagicMock()
+        for _ in range(4):
+            await engine._check_ev_charge_failure(True, 0.0)
+        engine._write_system_state.assert_not_called()

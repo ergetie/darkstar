@@ -13,9 +13,10 @@ from typing import Any
 
 import pytz
 from sqlalchemy import create_engine, delete, desc, func, select, text
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import sessionmaker
 
-from backend.learning.models import ExecutionLog
+from backend.learning.models import ExecutionLog, SystemState
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +256,25 @@ class ExecutionHistory:
             writer.writerow(row)
 
         return output.getvalue()
+
+    def get_system_state(self, key: str) -> str | None:
+        """Read a value from the ``system_state`` key/value table (None when absent)."""
+        with self.Session() as session:
+            return session.execute(
+                select(SystemState.value).where(SystemState.key == key)
+            ).scalar_one_or_none()
+
+    def set_system_state(self, key: str, value: str) -> None:
+        """Upsert a value into the ``system_state`` key/value table."""
+        now = datetime.now(self.timezone)
+        with self.Session() as session:
+            stmt = sqlite_insert(SystemState).values(key=key, value=value, updated_at=now)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": stmt.excluded.value, "updated_at": stmt.excluded.updated_at},
+            )
+            session.execute(stmt)
+            session.commit()
 
     def cleanup_old_records(self, retention_days: int = 30) -> int:
         """

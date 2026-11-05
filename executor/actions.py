@@ -14,11 +14,12 @@ Key Features:
 
 import asyncio
 import logging
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import aiohttp
 
@@ -33,6 +34,74 @@ logger = logging.getLogger(__name__)
 # profile does not declare its own settle_ms.
 VERIFY_MAX_WAIT_MS = 2000
 VERIFY_POLL_INTERVAL_MS = 400
+
+# Entity-range clamp warnings are logged once per entity per hour (debug otherwise).
+CLAMP_WARN_INTERVAL_S = 3600.0
+
+NUMBER_DOMAINS = ("number", "input_number")
+
+
+def _finite_float(raw: Any) -> float | None:
+    """Parse a HA attribute (number or numeric string) to a finite float, else None."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _clamp_to_entity_range(value: Any, attributes: Any) -> tuple[Any, str | None]:
+    """Clamp a numeric write to the entity's ``min``/``max`` and snap it to ``step``.
+
+    Returns ``(value, note)``. ``note`` is None when the value is returned
+    unchanged (the original object, so callers keep its type), otherwise it
+    names the limit applied. Unusable attributes (missing, ``any``, ``unknown``,
+    ``unavailable``, non-positive step, ``min`` above ``max``) are ignored, and
+    a non-finite or non-numeric value is never touched. Snapping is relative to
+    ``min`` (or 0) with deterministic half-up rounding and never leaves the
+    range.
+    """
+    if isinstance(value, bool) or not isinstance(attributes, dict):
+        return value, None
+    attrs = cast("dict[str, Any]", attributes)
+    requested = _finite_float(value)
+    if requested is None:
+        return value, None
+
+    low = _finite_float(attrs.get("min"))
+    high = _finite_float(attrs.get("max"))
+    if low is not None and high is not None and low > high:
+        low = high = None
+    step = _finite_float(attrs.get("step"))
+    if step is not None and step <= 0:
+        step = None
+
+    result = requested
+    notes: list[str] = []
+    if high is not None and result > high:
+        result = high
+        notes.append(f"max {high:g}")
+    if low is not None and result < low:
+        result = low
+        notes.append(f"min {low:g}")
+    if step is not None:
+        base = low if low is not None else 0.0
+        snapped = base + math.floor((result - base) / step + 0.5) * step
+        if high is not None and snapped > high:
+            snapped = base + math.floor((high - base) / step) * step
+        if low is not None and snapped < low:
+            snapped = base + math.ceil((low - base) / step) * step
+        snapped = round(snapped, 9)
+        if abs(snapped - result) > 1e-9:
+            notes.append(f"step {step:g}")
+        result = snapped
+
+    result = round(result, 9)
+    if abs(result - requested) < 1e-9:
+        return value, None
+    return result, ", ".join(notes) if notes else "entity range"
 
 
 class HACallError(Exception):
@@ -210,6 +279,8 @@ class ActionResult:
     # ARC16: Track the controller's intended mode vs applied mode
     requested_mode: str | None = None  # The mode_intent from controller (e.g., "idle")
     applied_mode: str | None = None  # The actual mode whose entities were applied
+    # True when the write failed without an HTTP status (HA unreachable, timeout, retries exhausted)
+    ha_unavailable: bool = False
 
 
 class HAClient:
@@ -515,6 +586,8 @@ class ActionDispatcher:
         # Anti-wear (load-balancer-coordinated-ramping D10): when each
         # actuator entity was last written (monotonic seconds).
         self._last_write_at: dict[str, float] = {}
+        # Entity-range clamp warnings, rate limited per entity (monotonic seconds).
+        self._clamp_log_at: dict[str, float] = {}
 
     def last_write_at(self, entity_id: str) -> float | None:
         """Monotonic time of the last successful write to `entity_id`."""
@@ -621,6 +694,7 @@ class ActionDispatcher:
         domain: str,
         *,
         raise_errors: bool = False,
+        entity_state: dict[str, Any] | None = None,
     ) -> bool:
         """
         Write value to HA entity using appropriate service call.
@@ -629,12 +703,17 @@ class ActionDispatcher:
             entity_id: The HA entity ID to write to
             value: The value to write
             domain: The HA domain (select, number, switch, input_number)
+            entity_state: Full HA state of the entity if already fetched; number
+                domains clamp to its min/max/step (fetched once when omitted)
 
         Returns:
             True if successful
         """
         try:
-            if domain in ("number", "input_number"):
+            if domain in NUMBER_DOMAINS:
+                if entity_state is None:
+                    entity_state = await self.ha.get_state(entity_id)
+                value, _ = self._clamp_to_entity(entity_id, value, entity_state)
                 return await self.ha.set_number(entity_id, float(value))
             elif domain == "select":
                 return await self.ha.set_select_option(entity_id, str(value))
@@ -651,6 +730,45 @@ class ActionDispatcher:
             if raise_errors:
                 raise
             return False
+
+    def _clamp_to_entity(
+        self, entity_id: str, value: Any, entity_state: dict[str, Any] | None
+    ) -> tuple[Any, str | None]:
+        """Clamp `value` to the entity's range and log a change (warning once per hour)."""
+        attributes = entity_state.get("attributes") if entity_state else None
+        clamped, note = _clamp_to_entity_range(value, attributes)
+        if note is None:
+            return value, None
+        now = time.monotonic()
+        last = self._clamp_log_at.get(entity_id)
+        if last is None or now - last >= CLAMP_WARN_INTERVAL_S:
+            self._clamp_log_at[entity_id] = now
+            log = logger.warning
+        else:
+            log = logger.debug
+        log("Clamped %s from %s to %s (%s)", entity_id, value, clamped, note)
+        return clamped, note
+
+    async def _read_number_target(
+        self, entity_id: str, value: Any
+    ) -> tuple[str | None, Any, dict[str, Any] | None]:
+        """Read a number entity once and clamp the intended write to its range.
+
+        Returns ``(current_state, clamped_value, entity_state)``. Callers use the
+        clamped value for their skip checks, the write and the read-back
+        verification, so an entity limit never shows up as a failed or
+        unverified write nor as a rewrite on every tick.
+        """
+        entity_state = await self.ha.get_state(entity_id)
+        current = entity_state.get("state") if entity_state else None
+        clamped, _ = self._clamp_to_entity(entity_id, value, entity_state)
+        return current, clamped, entity_state
+
+    @staticmethod
+    def _number_domain(entity_id: str) -> str:
+        """Domain to write a number entity with; unknown prefixes fail in `set_number`."""
+        prefix = entity_id.split(".", 1)[0]
+        return prefix if prefix in NUMBER_DOMAINS else "number"
 
     def _values_match(self, current: str | None, target: Any) -> bool:
         """Check if current value matches target value."""
@@ -814,13 +932,25 @@ class ActionDispatcher:
 
         resolved_value = self._resolve_value(action.value, decision)
 
-        previous_value = await self.ha.get_state_value(entity_id)
+        entity_state = await self.ha.get_state(entity_id)
+        previous_value = entity_state.get("state") if entity_state else None
+
+        # Clamp before the skip checks so an entity already at its limit is not
+        # rewritten every tick.
+        clamp_suffix = ""
+        if entity_def.domain in NUMBER_DOMAINS:
+            requested_value = resolved_value
+            resolved_value, clamp_note = self._clamp_to_entity(
+                entity_id, resolved_value, entity_state
+            )
+            if clamp_note:
+                clamp_suffix = f" (requested {requested_value}, clamped: {clamp_note})"
 
         if self._values_match(previous_value, resolved_value):
             return ActionResult(
                 action_type=action.entity,
                 success=True,
-                message=f"Already at {resolved_value}",
+                message=f"Already at {resolved_value}{clamp_suffix}",
                 previous_value=previous_value,
                 new_value=resolved_value,
                 entity_id=entity_id,
@@ -843,7 +973,7 @@ class ActionDispatcher:
             return ActionResult(
                 action_type=action.entity,
                 success=True,
-                message=f"Within write deadband ({previous_value} → {resolved_value})",
+                message=f"Within write deadband ({previous_value} → {resolved_value}){clamp_suffix}",
                 previous_value=previous_value,
                 new_value=resolved_value,
                 entity_id=entity_id,
@@ -863,7 +993,7 @@ class ActionDispatcher:
             return ActionResult(
                 action_type=action.entity,
                 success=True,
-                message=f"[SHADOW] Would change {previous_value} → {resolved_value}",
+                message=f"[SHADOW] Would change {previous_value} → {resolved_value}{clamp_suffix}",
                 previous_value=previous_value,
                 new_value=resolved_value,
                 entity_id=entity_id,
@@ -873,7 +1003,20 @@ class ActionDispatcher:
                 duration_ms=int((time.time() - start_time) * 1000),
             )
 
-        success = await self._write_entity(entity_id, resolved_value, entity_def.domain)
+        error_details = None
+        ha_unavailable = False
+        try:
+            success = await self._write_entity(
+                entity_id,
+                resolved_value,
+                entity_def.domain,
+                raise_errors=True,
+                entity_state=entity_state,
+            )
+        except HACallError as e:
+            success = False
+            error_details = str(e)
+            ha_unavailable = e.status_code is None
 
         verified_value = None
         verification_success = None
@@ -891,9 +1034,11 @@ class ActionDispatcher:
         return ActionResult(
             action_type=action.entity,
             success=success,
-            message=f"{previous_value} → {resolved_value}"
+            message=f"{previous_value} → {resolved_value}{clamp_suffix}"
             if success
-            else f"Failed to set {action.entity}",
+            else f"Failed to set {entity_id}: {error_details}"
+            if error_details
+            else f"Failed to set {entity_id}",
             previous_value=previous_value,
             new_value=resolved_value,
             entity_id=entity_id,
@@ -902,6 +1047,8 @@ class ActionDispatcher:
             requested_mode=mode_intent,
             applied_mode=mode_intent,
             duration_ms=duration_ms,
+            error_details=error_details,
+            ha_unavailable=ha_unavailable,
         )
 
     async def set_water_temp(self, target: int, target_entity: str | None = None) -> ActionResult:
@@ -932,7 +1079,9 @@ class ActionDispatcher:
             )
 
         assert entity is not None  # guaranteed by _is_entity_configured guard above
-        current = await self.ha.get_state_value(entity)
+        current, clamped_target, entity_state = await self._read_number_target(entity, target)
+        if clamped_target != target:
+            target = int(clamped_target) if float(clamped_target).is_integer() else clamped_target
         try:
             current_val = int(float(current)) if current else None
         except (ValueError, TypeError):
@@ -969,7 +1118,13 @@ class ActionDispatcher:
 
         error_details = None
         try:
-            success = await self.ha.set_input_number(entity, float(target))  # type: ignore[arg-type]
+            success = await self._write_entity(
+                entity,  # type: ignore[arg-type]
+                float(target),
+                self._number_domain(entity),  # type: ignore[arg-type]
+                raise_errors=True,
+                entity_state=entity_state,
+            )
         except HACallError as e:
             success = False
             error_details = str(e)
@@ -1209,7 +1364,7 @@ class ActionDispatcher:
                 error_details=None,
             )
 
-        current = await self.ha.get_state_value(entity)
+        current, watts, entity_state = await self._read_number_target(entity, watts)
         try:
             current_val = float(current) if current else None
         except (ValueError, TypeError):
@@ -1245,7 +1400,13 @@ class ActionDispatcher:
 
         error_details = None
         try:
-            success = await self.ha.set_number(entity, watts)
+            success = await self._write_entity(
+                entity,
+                watts,
+                self._number_domain(entity),
+                raise_errors=True,
+                entity_state=entity_state,
+            )
         except HACallError as e:
             success = False
             error_details = str(e)
@@ -1433,7 +1594,9 @@ class ActionDispatcher:
         """
         start = time.time()
 
-        current_state = await self.ha.get_state_value(entity_id)
+        current_state, clamped_amps, entity_state = await self._read_number_target(entity_id, amps)
+        if clamped_amps != amps:
+            amps = int(clamped_amps) if float(clamped_amps).is_integer() else clamped_amps
 
         # Idempotent skip
         if self._values_match(current_state, amps):
@@ -1482,7 +1645,13 @@ class ActionDispatcher:
 
         error_details = None
         try:
-            await self.ha.set_number(entity_id, float(amps))
+            await self._write_entity(
+                entity_id,
+                float(amps),
+                self._number_domain(entity_id),
+                raise_errors=True,
+                entity_state=entity_state,
+            )
             success = True
             self._last_write_at[entity_id] = time.monotonic()
         except HACallError as e:

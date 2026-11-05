@@ -174,8 +174,7 @@ class TestChangeDrivenLogging:
 
 
 class TestFailureNeverThrottled:
-    """9.2: a record with success=0 (e.g. ev_charge_failed, which doesn't
-    necessarily produce a non-skipped/failed action_result) must always pass
+    """9.2: a record with success=0 (a failed action result) must always pass
     the throttle gate, even mid-slot with nothing else changed.
     """
 

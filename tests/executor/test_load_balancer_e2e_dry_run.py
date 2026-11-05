@@ -202,7 +202,13 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         return "0"
 
     mock_ha = MagicMock(spec=HAClient)
-    mock_ha.get_state = AsyncMock(side_effect=fake_get_state)
+    async def get_state_with_writables(entity_id):
+        # Writable number entities report their value (and no range limits).
+        if entity_id.startswith(("number.", "input_number.")):
+            return {"state": await fake_get_state_value(entity_id), "attributes": {}}
+        return await fake_get_state(entity_id)
+
+    mock_ha.get_state = AsyncMock(side_effect=get_state_with_writables)
     mock_ha.get_state_value = AsyncMock(side_effect=fake_get_state_value)
     mock_ha.set_number = AsyncMock(return_value=True)
     mock_ha.set_input_number = AsyncMock(return_value=True)
@@ -225,7 +231,7 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
     def water_heater_writes() -> list[float]:
         return [
             c.args[1]
-            for c in mock_ha.set_input_number.call_args_list
+            for c in mock_ha.set_number.call_args_list
             if c.args[0] == "input_number.water_heater_target"
         ]
 
@@ -255,7 +261,7 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         _FakeDateTime._current = t0 + timedelta(seconds=15)
         grid["2"] = 40.0  # water heater's phase, deeply over fuse
         mock_ha.set_number.reset_mock()
-        mock_ha.set_input_number.reset_mock()
+        mock_ha.set_number.reset_mock()
         mock_ha.set_switch.reset_mock()
         await engine.run_once()
 
@@ -270,7 +276,7 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         # is still active underneath, per shed_outputs)
         for i in range(2):
             _FakeDateTime._current = t0 + timedelta(seconds=30 + i * 5)
-            mock_ha.set_input_number.reset_mock()
+            mock_ha.set_number.reset_mock()
             await engine.run_once()
             assert engine._last_balancer_status.state in ("paused", "shedding")
             assert any(o.shed for o in engine._last_balancer_status.shed_outputs)
@@ -280,7 +286,7 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         grid["2"] = 5.0
         _FakeDateTime._current = t0 + timedelta(seconds=45)
         mock_ha.set_number.reset_mock()
-        mock_ha.set_input_number.reset_mock()
+        mock_ha.set_number.reset_mock()
         await engine.run_once()
         # Too soon: still shed/paused
         assert engine._last_balancer_status.state in ("paused", "shedding")
@@ -288,7 +294,7 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         # Past resume_delay_s and the heater's default 300 s minimum off time.
         _FakeDateTime._current = t0 + timedelta(seconds=30 + 305)
         mock_ha.set_number.reset_mock()
-        mock_ha.set_input_number.reset_mock()
+        mock_ha.set_number.reset_mock()
         await engine.run_once()
         # The charger (above the heater in the order) now waits for the restored
         # heater's draw to be measured before it takes room again.
@@ -416,7 +422,13 @@ async def test_power_sensor_phase_end_to_end(temp_schedule, temp_db):
         return "0"
 
     mock_ha = MagicMock(spec=HAClient)
-    mock_ha.get_state = AsyncMock(side_effect=fake_get_state)
+    async def get_state_with_writables(entity_id):
+        # Writable number entities report their value (and no range limits).
+        if entity_id.startswith(("number.", "input_number.")):
+            return {"state": await fake_get_state_value(entity_id), "attributes": {}}
+        return await fake_get_state(entity_id)
+
+    mock_ha.get_state = AsyncMock(side_effect=get_state_with_writables)
     mock_ha.get_state_value = AsyncMock(side_effect=fake_get_state_value)
     mock_ha.set_number = AsyncMock(return_value=True)
     mock_ha.set_switch = AsyncMock(return_value=True)
@@ -563,7 +575,13 @@ async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
         return "0"
 
     mock_ha = MagicMock(spec=HAClient)
-    mock_ha.get_state = AsyncMock(side_effect=fake_get_state)
+    async def get_state_with_writables(entity_id):
+        # Writable number entities report their value (and no range limits).
+        if entity_id.startswith(("number.", "input_number.")):
+            return {"state": await fake_get_state_value(entity_id), "attributes": {}}
+        return await fake_get_state(entity_id)
+
+    mock_ha.get_state = AsyncMock(side_effect=get_state_with_writables)
     mock_ha.get_state_value = AsyncMock(side_effect=fake_get_state_value)
     mock_ha.set_number = AsyncMock(return_value=True)
     mock_ha.set_input_number = AsyncMock(return_value=True)
@@ -586,7 +604,7 @@ async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
     def water_heater_writes() -> list[float]:
         return [
             c.args[1]
-            for c in mock_ha.set_input_number.call_args_list
+            for c in mock_ha.set_number.call_args_list
             if c.args[0] == "input_number.water_heater_target"
         ]
 

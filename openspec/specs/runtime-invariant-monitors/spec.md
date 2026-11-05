@@ -17,7 +17,7 @@ The system SHALL periodically evaluate a catalog of runtime invariants against e
 - **THEN** no Home Assistant service call was made by the monitors and no row consumed by planner, executor, recorder, or ML training was created or modified by the monitors
 
 ### Requirement: Invariant catalog
-The monitors SHALL evaluate at least the following invariants; exact thresholds SHALL be constants informed by the evidence phase of the stabilization review and documented alongside the implementation. The invariants are slot continuity, energy accounting, SoC bounds, plan freshness, command success, forecast sanity and data quality, as specified in the scenarios below.
+The monitors SHALL evaluate at least the following invariants; exact thresholds SHALL be constants informed by the evidence phase of the stabilization review and documented alongside the implementation. The invariants are slot continuity, energy accounting, SoC bounds, plan freshness, command success, forecast sanity, data quality and EV charge delivery, as specified in the scenarios below.
 
 #### Scenario: Violated invariant is detected
 - **WHEN** the trailing-24 h observation data contains a missing 15-minute slot
@@ -40,7 +40,7 @@ The monitors SHALL evaluate at least the following invariants; exact thresholds 
 - **THEN** the forecast-sanity invariant reports skipped with a reason, not a violation
 
 #### Scenario: Brief outage does not trip command success
-- **WHEN** 18 of 1321 logged executor ticks in the trailing 24 h failed (success rate 98.64 %)
+- **WHEN** 18 of 1321 executed ticks in the trailing 24 h failed (success rate 98.64 %)
 - **THEN** the command-success invariant passes, because 98.64 % ≥ 95 %
 
 #### Scenario: Slot continuity invariant
@@ -55,7 +55,7 @@ The monitors SHALL evaluate at least the following invariants; exact thresholds 
 #### Scenario: Plan freshness and command success invariants
 - **WHEN** the monitors evaluate plan freshness and command success
 - **THEN** the executor SHALL be acting on a schedule generated within the expected planner cadence (no stale-plan execution)
-- **AND** the executor's recent tick success rate (from `execution_log.success`) SHALL stay at or above 95 % over the trailing 24 h, so that short outages or restarts (up to roughly 72 failed one-minute ticks per day) do not raise a violation while sustained breakage still does
+- **AND** the executor's tick success rate, computed from the unthrottled persisted tick counters (not from `execution_log`), SHALL stay at or above 95 % over the trailing 24 h, so that short outages or restarts do not raise a violation while sustained breakage still does
 
 #### Scenario: Forecast sanity invariant
 - **WHEN** the monitors evaluate forecast sanity
@@ -91,3 +91,56 @@ The system SHALL expose the latest evaluation results (per-invariant status, las
 #### Scenario: Status visible via API
 - **WHEN** a client requests system health after at least one evaluation cycle
 - **THEN** the response includes each invariant's latest status and the overall monitor health
+
+### Requirement: Executor counts every executed tick, unthrottled and persisted
+The executor SHALL count every executed tick (total, failed, and failures per action type with entity id and last error text) in hourly UTC buckets persisted in the `system_state` table under key `executor_tick_stats`, without a schema change.
+
+#### Scenario: What is a failed tick
+- **WHEN** any non-skipped action result failed or the tick raised
+- **THEN** the tick is counted failed once, and each failing action is counted under its type
+
+#### Scenario: Ticks that are not counted
+- **WHEN** the executor is disabled, or a tick is a per-write EV event (`source='ev_charger'`) or the EV zero-power heuristic
+- **THEN** no counter changes
+
+#### Scenario: Retention and safety
+- **WHEN** buckets are older than 25 hours
+- **THEN** they are pruned, and persistence failures never raise into the tick
+
+#### Scenario: Throttled log does not bias the rate
+- **WHEN** 1410 ticks execute, 82 fail and only 130 rows are written to `execution_log`
+- **THEN** the persisted counters read total 1410 and failed 82
+
+#### Scenario: Paused, shadow, override or stale-hold ticks
+- **WHEN** the executor is paused, in shadow mode, under manual override, or holding on a stale schedule
+- **THEN** no counter changes
+
+#### Scenario: Restart preserves the window
+- **WHEN** the executor restarts after 800 counted ticks within the last 24 h
+- **THEN** the counters resume from the persisted 800
+
+#### Scenario: HA down
+- **WHEN** a tick fails because HA cannot be reached
+- **THEN** it is counted failed under reason "HA unavailable"
+
+### Requirement: Command success names the failing actions
+The `command_success` invariant SHALL read the persisted tick counters over the trailing 24 h. It SHALL report skipped while fewer than 12 ticks are available (fresh install or reset) or the counters are absent or unreadable. On violation the detail SHALL state the rate, the failed/total counts and name up to two top failing actions with count, entity and last error text, e.g. `charge_discharge_power failed 83× on input_number.darkstar_power_rec_w: <HA error>`.
+
+#### Scenario: Violation names the action
+- **WHEN** 82 of 1410 ticks failed, 82 of them on action `charge_discharge_power` entity `input_number.darkstar_power_rec_w`
+- **THEN** the invariant reports violation with a detail containing "charge_discharge_power failed 82×" and the entity and error text
+
+#### Scenario: Too few ticks after restart
+- **WHEN** the counters contain 5 ticks
+- **THEN** the invariant reports skipped with the reason "only 5 ticks recorded"
+
+### Requirement: EV charge delivery invariant
+The monitors SHALL evaluate an `ev_charge_delivery` invariant from the `system_state` key `executor_ev_charge_notice`. It SHALL report violation with the notice message while a notice is active, pass when none is active, and skipped when no EV charger is configured or the key is absent. A notice older than 6 hours SHALL be ignored.
+
+#### Scenario: Charger draws no power
+- **WHEN** an EV charge-failure notice is active
+- **THEN** `ev_charge_delivery` reports violation with the commanded and actual power in the detail, and `command_success` is unaffected
+
+#### Scenario: No EV
+- **WHEN** no EV charger is configured
+- **THEN** `ev_charge_delivery` reports skipped

@@ -315,6 +315,9 @@ class Controller:
 
         # Planned grid export power (kW to W)
         export_power_w = slot.export_kw * 1000.0
+        max_discharge_power_w = self._max_discharge_power_w()
+        if max_discharge_power_w > 0:
+            export_power_w = min(export_power_w, max_discharge_power_w)
 
         # Calculate export_with_load_w for Fronius export mode
         # This adds house load to export power so battery delivers both
@@ -322,6 +325,8 @@ class Controller:
             step = self.profile.behavior.round_step_w if self.profile else 100.0
             raw_export_with_load = export_power_w + (slot.load_kw * 1000.0)
             export_with_load_w = round(raw_export_with_load / step) * step
+            if max_discharge_power_w > 0:
+                export_with_load_w = min(export_with_load_w, max_discharge_power_w)
         else:
             export_with_load_w = 0.0
 
@@ -460,6 +465,27 @@ class Controller:
             should_write = clamped >= min_a
 
             return clamped, should_write
+
+    def _max_discharge_power_w(self) -> float:
+        """Configured maximum battery discharge power in W; 0 when not positive (no clamp).
+
+        Same rule as `planner.battery_limits.resolve_battery_power_limits`
+        (W unit: `max_discharge_w`; A unit: `max_discharge_a` x nominal battery
+        voltage) but read from the typed executor config. The planner helper
+        takes the raw config dict, which the executor does not hold, and the
+        executor never imports planner code. The unit follows the profile
+        first, like the other clamps in `_follow_plan`.
+        """
+        unit = (
+            self.profile.behavior.control_unit
+            if self.profile
+            else self.inverter_config.control_unit
+        )
+        if unit == "W":
+            limit = self.config.max_discharge_w
+        else:
+            limit = self.config.max_discharge_a * self.config.nominal_voltage_v
+        return limit if limit > 0 else 0.0
 
     def _calculate_discharge_limit(self, slot: SlotPlan, state: SystemState) -> tuple[float, bool]:
         """

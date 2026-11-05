@@ -15,6 +15,7 @@ from executor.profiles import load_profile
 def make_dispatcher(*, enabled: bool = True, previous: str = "100") -> ActionDispatcher:
     ha = MagicMock(spec=HAClient)
     ha.get_state_value = AsyncMock(return_value=previous)
+    ha.get_state = AsyncMock(return_value={"state": previous, "attributes": {}})
     ha.set_number = AsyncMock(return_value=True)
     ha.set_select_option = AsyncMock(return_value=True)
     ha.set_switch = AsyncMock(return_value=True)

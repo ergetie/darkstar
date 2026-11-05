@@ -10,7 +10,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 import pytest
 
-from executor.actions import ActionResult, HACallError, HAClient
+from executor.actions import (
+    ActionDispatcher,
+    ActionResult,
+    HACallError,
+    HAClient,
+    _clamp_to_entity_range,
+)
+from executor.controller import ControllerDecision
+from executor.profiles import ModeAction, load_profile
 
 
 class TestActionResult:
@@ -470,6 +478,7 @@ class TestSetWaterTemp:
         # Mock HA client returns current temp = 50 (same as target)
         ha_client = MagicMock()
         ha_client.get_state_value = AsyncMock(return_value="50")
+        ha_client.get_state = AsyncMock(return_value={"state": "50", "attributes": {}})
 
         dispatcher = ActionDispatcher(
             ha_client=ha_client,
@@ -500,6 +509,7 @@ class TestSetWaterTemp:
         # Mock HA client returns current temp = 40
         ha_client = MagicMock()
         ha_client.get_state_value = AsyncMock(return_value="40")
+        ha_client.get_state = AsyncMock(return_value={"state": "40", "attributes": {}})
 
         dispatcher = ActionDispatcher(
             ha_client=ha_client,
@@ -559,7 +569,8 @@ class TestSetWaterTemp:
         # Mock HA client returns current temp = 40, set succeeds
         ha_client = MagicMock()
         ha_client.get_state_value = AsyncMock(return_value="40")
-        ha_client.set_input_number = AsyncMock(return_value=True)
+        ha_client.get_state = AsyncMock(return_value={"state": "40", "attributes": {}})
+        ha_client.set_number = AsyncMock(return_value=True)
 
         dispatcher = ActionDispatcher(
             ha_client=ha_client,
@@ -578,7 +589,7 @@ class TestSetWaterTemp:
         assert "Changed 40°C → 50°C" in result.message
 
         # Assert HA write was attempted
-        ha_client.set_input_number.assert_called_once_with("input_number.water_heater_target", 50.0)
+        ha_client.set_number.assert_called_once_with("input_number.water_heater_target", 50.0)
 
 
 class TestSetWaterSwitch:
@@ -681,6 +692,7 @@ class TestSetEvChargerCurrent:
 
         ha_client = MagicMock()
         ha_client.get_state_value = AsyncMock(side_effect=["6", "10"])  # before, then verify
+        ha_client.get_state = AsyncMock(return_value={"state": "6", "attributes": {}})
         ha_client.set_number = AsyncMock(return_value=True)
 
         dispatcher = ActionDispatcher(ha_client=ha_client, config=base_config, shadow_mode=False)
@@ -704,6 +716,7 @@ class TestSetEvChargerCurrent:
 
         ha_client = MagicMock()
         ha_client.get_state_value = AsyncMock(return_value="10")
+        ha_client.get_state = AsyncMock(return_value={"state": "10", "attributes": {}})
         ha_client.set_number = AsyncMock(return_value=True)
 
         dispatcher = ActionDispatcher(ha_client=ha_client, config=base_config, shadow_mode=False)
@@ -723,6 +736,7 @@ class TestSetEvChargerCurrent:
 
         ha_client = MagicMock()
         ha_client.get_state_value = AsyncMock(return_value="6")
+        ha_client.get_state = AsyncMock(return_value={"state": "6", "attributes": {}})
         ha_client.set_number = AsyncMock(return_value=True)
 
         dispatcher = ActionDispatcher(ha_client=ha_client, config=base_config, shadow_mode=True)
@@ -820,3 +834,283 @@ class TestVerificationReadBack:
 
         assert value is None
         assert ok is None
+
+
+class TestClampToEntityRange:
+    """Pure range/step clamp for numeric writes."""
+
+    def test_above_max(self):
+        value, note = _clamp_to_entity_range(18200.0, {"min": 0, "max": 17500, "step": 1})
+        assert value == 17500
+        assert note is not None and "max" in note
+
+    def test_below_negative_min(self):
+        value, note = _clamp_to_entity_range(
+            -18000.0, {"min": -17500, "max": 17500, "step": 100}
+        )
+        assert value == -17500
+        assert note is not None and "min" in note
+
+    def test_step_snaps_from_min(self):
+        value, _ = _clamp_to_entity_range(430.0, {"min": 50, "max": 1000, "step": 100})
+        assert value == 450
+
+    def test_half_step_rounds_up(self):
+        value, _ = _clamp_to_entity_range(250.0, {"min": 0, "max": 1000, "step": 100})
+        assert value == 300
+
+    def test_rounding_past_max_snaps_down(self):
+        value, _ = _clamp_to_entity_range(1040.0, {"min": 0, "max": 1050, "step": 100})
+        assert value == 1000
+
+    def test_rounding_below_min_snaps_up(self):
+        value, _ = _clamp_to_entity_range(52.0, {"min": 55, "max": 1000, "step": 100})
+        assert value == 55
+
+    def test_fractional_step_has_no_float_noise(self):
+        value, _ = _clamp_to_entity_range(0.34, {"min": 0, "max": 1, "step": 0.1})
+        assert value == 0.3
+
+    @pytest.mark.parametrize(
+        "attributes",
+        [
+            None,
+            {},
+            {"min": "unavailable", "max": "unknown", "step": "any"},
+            {"step": 0},
+            {"step": -5},
+            {"min": float("nan"), "max": float("inf")},
+            {"min": 100, "max": 0},
+        ],
+    )
+    def test_unusable_attributes_leave_value_unchanged(self, attributes):
+        value, note = _clamp_to_entity_range(18200.0, attributes)
+        assert value == 18200.0
+        assert note is None
+
+    def test_only_usable_bound_applied(self):
+        value, _ = _clamp_to_entity_range(18200.0, {"max": 17500, "min": "unavailable"})
+        assert value == 17500
+
+    def test_numeric_string_attributes(self):
+        value, _ = _clamp_to_entity_range(18200.0, {"min": "0", "max": "17500.0", "step": "100"})
+        assert value == 17500
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), True, "abc"])
+    def test_non_finite_or_non_numeric_value_unchanged(self, value):
+        result, note = _clamp_to_entity_range(value, {"min": 0, "max": 10, "step": 1})
+        assert result is value or (result != result and value != value)
+        assert note is None
+
+    def test_value_within_range_keeps_original_object(self):
+        value, note = _clamp_to_entity_range(5, {"min": 0, "max": 10, "step": 1})
+        assert value == 5 and isinstance(value, int)
+        assert note is None
+
+
+def _profile_dispatcher(
+    *, state: dict | None, set_number: AsyncMock | None = None
+) -> tuple[ActionDispatcher, MagicMock, ModeAction]:
+    """Dispatcher on the Fronius profile writing export_with_load_w to an input_number."""
+    from executor.config import ExecutorConfig, InverterConfig
+
+    ha = MagicMock(spec=HAClient)
+    ha.get_state = AsyncMock(return_value=state)
+    ha.get_state_value = AsyncMock(return_value=state["state"] if state else None)
+    ha.set_number = set_number or AsyncMock(return_value=True)
+    config = ExecutorConfig(
+        inverter=InverterConfig(
+            custom_entities={"grid_discharge_power": "input_number.darkstar_power_rec_w"}
+        )
+    )
+    dispatcher = ActionDispatcher(ha, config, shadow_mode=False, profile=load_profile("fronius"))
+    action = ModeAction(entity="grid_discharge_power", value="{{export_with_load_w}}")
+    return dispatcher, ha, action
+
+
+def _decision(export_with_load_w: float) -> ControllerDecision:
+    return ControllerDecision(
+        mode_intent="export",
+        export_power_w=export_with_load_w,
+        export_with_load_w=export_with_load_w,
+    )
+
+
+class TestProfilePathClamp:
+    @pytest.mark.asyncio
+    async def test_writes_clamped_value_and_reports_it(self):
+        state = {"state": "10000", "attributes": {"min": 0, "max": 17500, "step": 100}}
+        dispatcher, ha, action = _profile_dispatcher(state=state)
+        with patch("executor.actions.asyncio.sleep", new_callable=AsyncMock):
+            result = await dispatcher._execute_action(action, _decision(18200.0), "export")
+        ha.set_number.assert_awaited_once_with("input_number.darkstar_power_rec_w", 17500.0)
+        assert result.new_value == 17500
+        assert "requested 18200" in result.message
+
+    @pytest.mark.asyncio
+    async def test_entity_at_limit_is_skipped(self):
+        state = {"state": "17500", "attributes": {"min": 0, "max": 17500, "step": 100}}
+        dispatcher, ha, action = _profile_dispatcher(state=state)
+        result = await dispatcher._execute_action(action, _decision(18200.0), "export")
+        assert result.skipped is True
+        assert "Already at" in result.message
+        ha.set_number.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_state_unavailable_writes_unclamped(self):
+        dispatcher, ha, action = _profile_dispatcher(state=None)
+        with patch("executor.actions.asyncio.sleep", new_callable=AsyncMock):
+            result = await dispatcher._execute_action(action, _decision(18200.0), "export")
+        ha.set_number.assert_awaited_once_with("input_number.darkstar_power_rec_w", 18200.0)
+        assert result.new_value == 18200.0
+
+    @pytest.mark.asyncio
+    async def test_clamp_warning_logged_once_per_hour(self, caplog):
+        state = {"state": "10000", "attributes": {"min": 0, "max": 17500}}
+        dispatcher, _, action = _profile_dispatcher(state=state)
+        clock = [1000.0]
+        with (
+            patch("executor.actions.time.monotonic", side_effect=lambda: clock[0]),
+            patch("executor.actions.asyncio.sleep", new_callable=AsyncMock),
+            caplog.at_level("DEBUG", logger="executor.actions"),
+        ):
+            for _ in range(12):
+                clock[0] += 60.0
+                await dispatcher._execute_action(action, _decision(18200.0), "export")
+            warnings = [r for r in caplog.records if r.levelname == "WARNING" and "Clamped" in r.message]
+            assert len(warnings) == 1
+            clock[0] += 3600.0
+            await dispatcher._execute_action(action, _decision(18200.0), "export")
+        warnings = [r for r in caplog.records if r.levelname == "WARNING" and "Clamped" in r.message]
+        assert len(warnings) == 2
+
+
+class TestProfilePathErrorText:
+    @pytest.mark.asyncio
+    async def test_http_error_populates_error_details_and_message(self):
+        state = {"state": "10000", "attributes": {}}
+        set_number = AsyncMock(
+            side_effect=HACallError(
+                "HA service call failed", status_code=400, response_body="value out of range"
+            )
+        )
+        dispatcher, _, action = _profile_dispatcher(state=state, set_number=set_number)
+        result = await dispatcher._execute_action(action, _decision(18200.0), "export")
+        assert result.success is False
+        assert result.error_details is not None
+        assert "HTTP 400" in result.error_details
+        assert "value out of range" in result.error_details
+        assert result.message.startswith("Failed to set input_number.darkstar_power_rec_w: ")
+        assert "value out of range" in result.message
+        assert result.ha_unavailable is False
+
+    @pytest.mark.asyncio
+    async def test_statusless_error_marks_ha_unavailable(self):
+        state = {"state": "10000", "attributes": {}}
+        set_number = AsyncMock(
+            side_effect=HACallError("retries exhausted", exception_type="ClientConnectorError")
+        )
+        dispatcher, _, action = _profile_dispatcher(state=state, set_number=set_number)
+        result = await dispatcher._execute_action(action, _decision(18200.0), "export")
+        assert result.success is False
+        assert result.ha_unavailable is True
+
+
+class TestWriteEntityClamp:
+    """Non-profile numeric writes go through `_write_entity` and are clamped too."""
+
+    @pytest.mark.asyncio
+    async def test_write_entity_clamps_fetching_state_once(self):
+        state = {"state": "1", "attributes": {"min": 0, "max": 17500}}
+        dispatcher, ha, _ = _profile_dispatcher(state=state)
+        ok = await dispatcher._write_entity("number.max_export", 18200.0, "number")
+        assert ok is True
+        ha.get_state.assert_awaited_once_with("number.max_export")
+        ha.set_number.assert_awaited_once_with("number.max_export", 17500.0)
+
+    @pytest.mark.asyncio
+    async def test_supplied_state_is_not_refetched(self):
+        dispatcher, ha, _ = _profile_dispatcher(state=None)
+        await dispatcher._write_entity(
+            "number.max_export",
+            18200.0,
+            "number",
+            entity_state={"state": "1", "attributes": {"max": 100}},
+        )
+        ha.get_state.assert_not_awaited()
+        ha.set_number.assert_awaited_once_with("number.max_export", 100.0)
+
+    @pytest.mark.asyncio
+    async def test_non_number_domains_do_not_fetch_state(self):
+        dispatcher, ha, _ = _profile_dispatcher(state=None)
+        ha.set_switch = AsyncMock(return_value=True)
+        await dispatcher._write_entity("switch.x", "1", "switch")
+        ha.get_state.assert_not_awaited()
+
+
+class TestClampedNonProfileWritesVerifyAgainstClamp:
+    """A clamped non-profile numeric write is skipped, written and verified at the clamped value."""
+
+    @staticmethod
+    def _dispatcher(entity_state: dict, verify_state: str):
+        from executor.config import ExecutorConfig, InverterConfig, WaterHeaterConfig
+
+        ha = MagicMock(spec=HAClient)
+        ha.get_state = AsyncMock(return_value=entity_state)
+        ha.get_state_value = AsyncMock(return_value=verify_state)
+        ha.set_number = AsyncMock(return_value=True)
+        config = ExecutorConfig(
+            inverter=InverterConfig(grid_max_export_power="number.max_export"),
+            water_heater=WaterHeaterConfig(temp_off=40),
+        )
+        return ActionDispatcher(ha, config, shadow_mode=False), ha
+
+    @pytest.mark.asyncio
+    async def test_water_temp_clamped_write_verifies_clamped_value(self):
+        dispatcher, ha = self._dispatcher(
+            {"state": "40", "attributes": {"min": 35, "max": 60, "step": 1}}, verify_state="60"
+        )
+        result = await dispatcher.set_water_temp(75, "number.water_target")
+
+        assert result.success is True
+        assert result.new_value == 60
+        assert result.verification_success is True
+        assert result.verified_value == 60
+        ha.set_number.assert_awaited_once_with("number.water_target", 60.0)
+
+    @pytest.mark.asyncio
+    async def test_water_temp_already_at_limit_is_skipped(self):
+        dispatcher, ha = self._dispatcher(
+            {"state": "60", "attributes": {"min": 35, "max": 60, "step": 1}}, verify_state="60"
+        )
+        result = await dispatcher.set_water_temp(75, "number.water_target")
+
+        assert result.skipped is True
+        assert result.success is True
+        ha.set_number.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_max_export_power_clamped_write_verifies_clamped_value(self):
+        dispatcher, ha = self._dispatcher(
+            {"state": "5000", "attributes": {"min": 0, "max": 17500, "step": 100}},
+            verify_state="17500",
+        )
+        result = await dispatcher._set_max_export_power(18200.0)
+
+        assert result is not None
+        assert result.success is True
+        assert result.new_value == 17500
+        assert result.verification_success is True
+        ha.set_number.assert_awaited_once_with("number.max_export", 17500)
+
+    @pytest.mark.asyncio
+    async def test_ev_current_clamped_write_verifies_clamped_value(self):
+        dispatcher, ha = self._dispatcher(
+            {"state": "6", "attributes": {"min": 6, "max": 16, "step": 1}}, verify_state="16"
+        )
+        result = await dispatcher.set_ev_charger_current("number.ev_current", 20)
+
+        assert result.success is True
+        assert result.new_value == 16
+        assert result.verification_success is True
+        ha.set_number.assert_awaited_once_with("number.ev_current", 16.0)

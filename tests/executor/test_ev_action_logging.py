@@ -292,6 +292,7 @@ class TestDispatcherFailureWording:
         )
         ha = MagicMock()
         ha.get_state_value = AsyncMock(return_value="16")
+        ha.get_state = AsyncMock(return_value={"state": "16", "attributes": {}})
         ha.set_number = AsyncMock(side_effect=HACallError("HTTP 500", status_code=500))
         ha.set_select_option = AsyncMock(side_effect=HACallError("HTTP 400", status_code=400))
         return ActionDispatcher(ha_client=ha, config=config, shadow_mode=False)
@@ -305,7 +306,7 @@ class TestDispatcherFailureWording:
         assert "number.goe_current" in result.message
         assert "6A" in result.message
         assert "set to" not in result.message
-        line = next(m for m in caplog.messages if "number.goe_current" in m)
+        line = next(m for m in caplog.messages if "number.goe_current" in m and "6A" in m)
         assert "6A" in line
         assert "HTTP 500" in line
 

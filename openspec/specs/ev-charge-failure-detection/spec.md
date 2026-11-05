@@ -3,7 +3,7 @@
 Detect when an EV charger silently fails to deliver scheduled power — for example, when a wallbox rejects a charge command — and surface the failure through the error notification path so it does not go unnoticed.
 ## Requirements
 ### Requirement: Executor detects EV charge failure when actual power stays zero
-The executor SHALL track consecutive ticks where the commanded EV charging level implies active charging but actual EV power is below 0.1 kW. After 5 consecutive zero-power ticks under an active command, the executor SHALL raise an error through the existing "On Error" notification path and mark the execution record's success field as 0 (failed). Detection SHALL compare against the commanded level, not the raw scheduled kW.
+The executor SHALL track consecutive ticks where the commanded EV charging level implies active charging but actual EV power is below 0.1 kW. After 5 consecutive zero-power ticks under an active command, the executor SHALL raise an error through the existing "On Error" notification path and record an EV charge-failure notice (persisted for the monitors) without marking the execution record failed. Detection SHALL compare against the commanded level, not the raw scheduled kW.
 
 #### Scenario: Active command definition
 - **WHEN** the executor evaluates whether the commanded level implies active charging
@@ -20,7 +20,8 @@ The executor SHALL track consecutive ticks where the commanded EV charging level
 - **WHEN** the executor has commanded charging (switch ON or setpoint ≥ minimum current)
 - **AND** actual EV power remains below 0.1 kW for 5 consecutive executor ticks
 - **THEN** the executor sends an error notification via `dispatcher.notify_error()` with message including commanded and actual power
-- **AND THEN** the execution record for that tick has `success = 0`
+- **AND THEN** the execution record for that tick keeps its `success` value, determined only by action results
+- **AND** an EV charge-failure notice with the commanded and actual power is persisted under `system_state` key `executor_ev_charge_notice`
 
 #### Scenario: EV charger ramps up within threshold
 
@@ -53,6 +54,14 @@ The executor SHALL track consecutive ticks where the commanded EV charging level
 - **WHEN** the executor no longer commands charging (slot ended, or balancer/schedule stopped it)
 - **THEN** the zero-power tick counter resets to 0
 - **AND THEN** the failure-notified flag resets to false
+
+#### Scenario: Notice clears on recovery
+- **WHEN** actual EV power reaches 0.1 kW or more, or the executor no longer commands charging
+- **THEN** the persisted EV charge-failure notice is cleared
+
+#### Scenario: No EV configured
+- **WHEN** no EV charger is configured
+- **THEN** no notice is written
 
 ### Requirement: Charge failure and recovery trigger a replan
 When EV charge failure is first detected in an EV charging period, and again when actual EV power first exceeds 0.1 kW after a detected failure, the executor SHALL request an immediate replan. These requests SHALL use their own cooldown of 5 minutes between failure/recovery replans, their own rate limit only.

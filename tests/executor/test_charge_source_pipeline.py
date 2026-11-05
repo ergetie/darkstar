@@ -82,6 +82,11 @@ async def test_solver_charging_source_reaches_profile_actions(
 
     ha = MagicMock(spec=HAClient)
     ha.get_state_value = AsyncMock(side_effect=lambda entity_id: states.get(entity_id))
+    ha.get_state = AsyncMock(
+        side_effect=lambda entity_id: (
+            {"state": states[entity_id], "attributes": {}} if entity_id in states else None
+        )
+    )
     ha.set_select_option = AsyncMock(side_effect=write)
     ha.set_number = AsyncMock(side_effect=write)
     ha.set_switch = AsyncMock(side_effect=write)

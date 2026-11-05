@@ -42,7 +42,11 @@ def _ha_client() -> MagicMock:
         written[entity_id] = value
         return True
 
+    async def get_state(entity_id: str) -> dict[str, object]:
+        return {"state": await get_state_value(entity_id), "attributes": {}}
+
     ha.get_state_value = AsyncMock(side_effect=get_state_value)
+    ha.get_state = AsyncMock(side_effect=get_state)
     ha.set_number = AsyncMock(side_effect=set_number)
     ha.send_notification = AsyncMock(return_value=True)
     return ha

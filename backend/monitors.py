@@ -33,7 +33,16 @@ evidence phase (openspec/changes/stabilization-review-2/findings.md):
   2.5-3.7 % daily failure episodes) still trips it within hours. Raised from
   the original 0.99, which false-alarmed on beta installs whose first-boot
   placeholder config produced a short failure burst (fix-beta-monitor-false-
-  alarms, 2026-07-18).
+  alarms, 2026-07-18). The basis is the executor's unthrottled tick counters
+  (system_state key executor_tick_stats, hourly UTC buckets), not
+  execution_log, which is throttled and over-weights failures. The window sums
+  whole hourly buckets starting after now-24 h, so it spans 24-25 h.
+  COMMAND_SUCCESS_MIN_TICKS = 12 keeps a
+  fresh install or counter reset from alerting on a handful of ticks.
+- ev_charge_delivery: violation while the executor's EV zero-power notice
+  (system_state key executor_ev_charge_notice) is active; a notice older than
+  EV_NOTICE_MAX_AGE_HOURS = 6 is ignored as stale. The notice no longer fails
+  the tick, so it does not affect command_success.
 - Forecast sanity ceiling: computed at evaluation time as
   ``sum(system.solar_arrays[].kwp) * 0.25`` kWh per 15-min slot, from the
   configured system rather than a hardcoded constant — the previous
@@ -50,13 +59,14 @@ evidence phase (openspec/changes/stabilization-review-2/findings.md):
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytz
 import yaml
@@ -70,6 +80,9 @@ ENERGY_VIOLATION_COUNT = 3
 SOC_MARGIN_PERCENT = 5.0
 PLAN_AGE_MAX_HOURS = 3.0
 COMMAND_SUCCESS_MIN = 0.95
+COMMAND_SUCCESS_MIN_TICKS = 12
+COMMAND_SUCCESS_TOP_ACTIONS = 2
+EV_NOTICE_MAX_AGE_HOURS = 6.0
 DATA_QUALITY_MAX_BAD_FRACTION = 0.05
 PV_FORECAST_CEILING_KWH_PER_KWP = 0.25  # kWh per 15-min slot per kWp configured
 
@@ -83,6 +96,7 @@ INVARIANT_NAMES = [
     "command_success",
     "forecast_sanity",
     "data_quality",
+    "ev_charge_delivery",
 ]
 
 
@@ -252,35 +266,86 @@ class InvariantMonitors:
             )
         return InvariantResult("plan_freshness", "pass", f"last plan write {age_h:.1f} h ago")
 
+    @staticmethod
+    def _read_system_state(con: sqlite3.Connection, key: str) -> dict[str, Any] | None:
+        """Parse a JSON-object system_state value; None when absent or unreadable."""
+        row = con.execute("SELECT value FROM system_state WHERE key = ?", (key,)).fetchone()
+        if not row or not row[0]:
+            return None
+        try:
+            parsed: Any = json.loads(row[0])
+        except ValueError:
+            return None
+        return cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else None
+
     def _eval_command_success(self, con: sqlite3.Connection, now: datetime) -> InvariantResult:
-        # universal-load-balancing 5.3: execution_log is throttled (one row per
-        # change or 15-min heartbeat, not one row per tick), so `total` here is
-        # "logged ticks" rather than "all ticks". A record with success=0 is
-        # never throttled away (see engine._should_log_execution, which always
-        # logs when record_success is false — this covers both a genuinely
-        # failed/non-skipped action_result and cases like ev_charge_failed,
-        # which sets success=0 without producing one), so a real problem still
-        # shows up immediately; a sustained failure streak logs every tick
-        # while healthy ticks log once per slot, which only ever makes this
-        # ratio look worse than reality, never better — a safe bias for a
-        # violation check.
-        start = now - timedelta(hours=24)
-        row = con.execute(
-            "SELECT COUNT(*), SUM(success = 1) FROM execution_log WHERE executed_at >= ?",
-            (start.isoformat(),),
-        ).fetchone()
-        total, ok = row[0], row[1] or 0
-        if not total:
-            return InvariantResult("command_success", "skipped", "no ticks in window")
-        rate = ok / total
+        # Basis: the executor's unthrottled per-tick counters (execution_log is
+        # throttled and cannot give a true rate). Whole hourly UTC buckets
+        # starting after now-24 h are summed, so the window is 24-25 h.
+        data = self._read_system_state(con, "executor_tick_stats")
+        raw_buckets: Any = data.get("buckets") if data else None
+        if not isinstance(raw_buckets, dict):
+            return InvariantResult("command_success", "skipped", "no tick statistics recorded")
+        buckets = cast("dict[str, Any]", raw_buckets)
+        cutoff = now.astimezone(UTC) - timedelta(hours=24)
+        total = failed = 0
+        actions: dict[str, dict[str, Any]] = {}
+        try:
+            for key, bucket in buckets.items():
+                start = datetime.strptime(key, "%Y-%m-%dT%H").replace(tzinfo=UTC)
+                if start <= cutoff:
+                    continue
+                total += int(bucket["t"])
+                failed += int(bucket["f"])
+                for action, entry in cast("dict[str, Any]", bucket.get("a") or {}).items():
+                    agg = actions.setdefault(action, {"n": 0, "entity": None, "err": ""})
+                    agg["n"] += int(entry["n"])
+                    agg["entity"] = entry.get("entity") or agg["entity"]
+                    agg["err"] = entry.get("err") or agg["err"]
+        except (ValueError, TypeError, KeyError, AttributeError):
+            return InvariantResult("command_success", "skipped", "tick statistics unreadable")
+        if total < COMMAND_SUCCESS_MIN_TICKS:
+            return InvariantResult("command_success", "skipped", f"only {total} ticks recorded")
+        rate = (total - failed) / total
         if rate < COMMAND_SUCCESS_MIN:
-            return InvariantResult(
-                "command_success",
-                "violation",
-                f"tick success {rate:.2%} over 24 h ({total - ok}/{total} failed)",
-            )
+            top = sorted(actions.items(), key=lambda item: item[1]["n"], reverse=True)
+            parts: list[str] = []
+            for action, agg in top[:COMMAND_SUCCESS_TOP_ACTIONS]:
+                part = f"{action} failed {agg['n']}\u00d7"
+                if agg["entity"]:
+                    part += f" on {agg['entity']}"
+                if agg["err"]:
+                    part += f": {agg['err']}"
+                parts.append(part)
+            detail = f"tick success {rate:.2%} over 24 h ({failed}/{total} failed)"
+            if parts:
+                detail += ": " + "; ".join(parts)
+            return InvariantResult("command_success", "violation", detail)
         return InvariantResult(
             "command_success", "pass", f"tick success {rate:.2%} ({total} ticks)"
+        )
+
+    def _eval_ev_charge_delivery(self, con: sqlite3.Connection, now: datetime) -> InvariantResult:
+        notice = self._read_system_state(con, "executor_ev_charge_notice")
+        if notice is None:
+            return InvariantResult("ev_charge_delivery", "skipped", "no EV charge notice recorded")
+        if not notice.get("active"):
+            return InvariantResult("ev_charge_delivery", "pass", "EV charging delivers power")
+        try:
+            since = datetime.fromisoformat(str(notice["since"]))
+            if since.tzinfo is None:
+                since = since.replace(tzinfo=UTC)
+        except (KeyError, ValueError):
+            return InvariantResult("ev_charge_delivery", "skipped", "EV charge notice unreadable")
+        age_h = (now.astimezone(UTC) - since.astimezone(UTC)).total_seconds() / 3600.0
+        if age_h > EV_NOTICE_MAX_AGE_HOURS:
+            return InvariantResult(
+                "ev_charge_delivery", "pass", f"EV charge notice is stale ({age_h:.1f} h old)"
+            )
+        return InvariantResult(
+            "ev_charge_delivery",
+            "violation",
+            str(notice.get("message") or "EV commanded to charge but draws no power"),
         )
 
     def _eval_forecast_sanity(self, con: sqlite3.Connection, now: datetime) -> InvariantResult:
@@ -356,6 +421,7 @@ class InvariantMonitors:
                 "command_success": self._eval_command_success,
                 "forecast_sanity": self._eval_forecast_sanity,
                 "data_quality": self._eval_data_quality,
+                "ev_charge_delivery": self._eval_ev_charge_delivery,
             }
             healthy = True
             for name, fn in evaluators.items():

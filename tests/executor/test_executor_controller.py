@@ -670,6 +670,81 @@ class TestExportWithLoadCalculation:
         assert decision.export_with_load_w == 3000.0
 
 
+class TestExportPowerClamp:
+    """export_power_w / export_with_load_w never exceed the configured max discharge power."""
+
+    def test_export_with_load_clamped_to_max_discharge_w(self):
+        """12 kW export + 6 kW load against max_discharge_w=17500 -> 17500."""
+        controller = Controller(
+            ControllerConfig(max_discharge_w=17500.0), InverterConfig(control_unit="W")
+        )
+        decision = controller._follow_plan(SlotPlan(export_kw=12.0, load_kw=6.0), SystemState())
+
+        assert decision.export_power_w == 12000.0
+        assert decision.export_with_load_w == 17500.0
+
+    def test_export_power_clamped_to_max_discharge_w(self):
+        controller = Controller(
+            ControllerConfig(max_discharge_w=10000.0), InverterConfig(control_unit="W")
+        )
+        decision = controller._follow_plan(SlotPlan(export_kw=12.0, load_kw=0.0), SystemState())
+
+        assert decision.export_power_w == 10000.0
+        assert decision.export_with_load_w == 10000.0
+
+    def test_ampere_unit_uses_current_times_nominal_voltage(self):
+        """40 A x 230 V = 9200 W."""
+        controller = Controller(
+            ControllerConfig(max_discharge_a=40.0, nominal_voltage_v=230.0),
+            InverterConfig(control_unit="A"),
+        )
+        decision = controller._follow_plan(SlotPlan(export_kw=12.0, load_kw=1.0), SystemState())
+
+        assert decision.export_power_w == 9200.0
+        assert decision.export_with_load_w == 9200.0
+
+    def test_profile_control_unit_wins_over_inverter_config(self):
+        profile = InverterProfile(
+            metadata=ProfileMetadata(name="t", version="1", description="t"),
+            behavior=ProfileBehavior(control_unit="W", round_step_w=100.0),
+        )
+        controller = Controller(
+            ControllerConfig(max_discharge_w=7000.0, max_discharge_a=40.0, nominal_voltage_v=230.0),
+            InverterConfig(control_unit="A"),
+            profile=profile,
+        )
+        decision = controller._follow_plan(SlotPlan(export_kw=12.0, load_kw=0.0), SystemState())
+
+        assert decision.export_power_w == 7000.0
+
+    def test_zero_export_stays_zero(self):
+        controller = Controller(
+            ControllerConfig(max_discharge_w=17500.0), InverterConfig(control_unit="W")
+        )
+        decision = controller._follow_plan(SlotPlan(export_kw=0.0, load_kw=6.0), SystemState())
+
+        assert decision.export_power_w == 0.0
+        assert decision.export_with_load_w == 0.0
+
+    def test_step_rounding_then_clamp(self):
+        """16.46 kW + 1.0 kW rounds to 17500 (step 100) and the clamp is not exceeded."""
+        controller = Controller(
+            ControllerConfig(max_discharge_w=17450.0), InverterConfig(control_unit="W")
+        )
+        decision = controller._follow_plan(SlotPlan(export_kw=16.46, load_kw=1.0), SystemState())
+
+        # 17460 rounds to 17500, then the clamp lowers it to 17450.
+        assert decision.export_with_load_w == 17450.0
+
+    def test_non_positive_limit_disables_clamp(self):
+        controller = Controller(
+            ControllerConfig(max_discharge_w=0.0), InverterConfig(control_unit="W")
+        )
+        decision = controller._follow_plan(SlotPlan(export_kw=12.0, load_kw=6.0), SystemState())
+
+        assert decision.export_with_load_w == 18000.0
+
+
 class TestMakeDecisionConvenience:
     """Test the make_decision convenience function."""
 
