@@ -13,7 +13,6 @@ import {
 import Card from './Card'
 import {
     Api,
-    type EVChargerState,
     type ConfigResponse,
     type LoadBalancerStatusResponse,
     type CostSeriesResponse,
@@ -21,6 +20,7 @@ import {
     type BatteryBenchmarkResponse,
 } from '../lib/api'
 import { useSocket } from '../lib/hooks'
+import { useEvChargers } from '../lib/useEvChargers'
 import EVChargerCard from './EVChargingCard'
 import CostSeriesChart from './CostSeriesChart'
 import { buildExclusionNotes } from '../lib/costExclusion'
@@ -932,66 +932,17 @@ export function ResourcesDomain({
                 </div>
             ) : (
                 <div className="relative z-10 flex-1 flex flex-col min-h-0 lg:min-h-[320px]">
-                    <EVTabContent config={config ?? null} />
+                    <EVTabContent config={config ?? null} enabled={hasEvCharger} />
                 </div>
             )}
         </Card>
     )
 }
 
-function EVTabContent({ config }: { config: ConfigResponse | null }) {
-    const [chargers, setChargers] = useState<EVChargerState[]>([])
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-    const fetchSeqRef = React.useRef(0)
-
-    const fetchChargers = useCallback(async () => {
-        const seq = ++fetchSeqRef.current
-        setLoading(true)
-        try {
-            const data = await Api.ev.chargers()
-            if (seq !== fetchSeqRef.current) return // a newer request has since started/resolved
-            setChargers(data)
-            setError(null)
-        } catch (err) {
-            if (seq !== fetchSeqRef.current) return
-            console.error('Failed to fetch EV chargers', err)
-            setError('Failed to load chargers')
-        } finally {
-            if (seq === fetchSeqRef.current) setLoading(false)
-        }
-    }, [])
-
-    useEffect(() => {
-        let active = true
-        const run = async () => {
-            await Promise.resolve()
-            if (active) {
-                fetchChargers()
-            }
-        }
-        run()
-        return () => {
-            active = false
-        }
-    }, [fetchChargers])
-
-    useSocket('ev_schedule_changed', () => {
-        fetchChargers()
-    })
-
-    useSocket('ev_manual_charge_updated', () => {
-        fetchChargers()
-    })
-
-    useSocket('schedule_updated', () => {
-        fetchChargers()
-    })
-
-    // A failed goal-triggered replan clears plan_pending server-side.
-    useSocket('planner_error', () => {
-        fetchChargers()
-    })
+function EVTabContent({ config, enabled }: { config: ConfigResponse | null; enabled: boolean }) {
+    // Own hook instance (the Dashboard has another): the extra GET per event is cheap and
+    // keeps this card self-contained. Reconnect refetch lives in the hook.
+    const { chargers, loading, error, refresh: fetchChargers } = useEvChargers(enabled)
 
     const [loadBalancing, setLoadBalancing] = useState<LoadBalancerStatusResponse | null>(null)
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { GridDomain, ResourcesDomain } from './CommandDomains'
 import { Api } from '../lib/api'
@@ -17,8 +17,14 @@ vi.mock('../lib/api', () => ({
     },
 }))
 
+vi.mock('./EVChargingCard', () => ({
+    default: ({ charger }: { charger: { name: string } }) => <div>{`charger-${charger.name}`}</div>,
+}))
+
+const socketStatus = vi.hoisted(() => ({ value: 'connected' }))
 vi.mock('../lib/hooks', () => ({
     useSocket: vi.fn(),
+    useSocketStatus: () => socketStatus.value,
 }))
 
 const baseProps = {
@@ -48,6 +54,7 @@ function makeMemoryStorage(): Storage {
 
 beforeEach(() => {
     vi.stubGlobal('localStorage', makeMemoryStorage())
+    socketStatus.value = 'connected'
     vi.mocked(Api.ev.chargers).mockResolvedValue([])
     vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue({
         enabled: false,
@@ -79,6 +86,27 @@ describe('ResourcesDomain EV-tab lockout (7.1)', () => {
         render(<ResourcesDomain {...baseProps} hasEvCharger={true} />)
 
         expect(await screen.findByText(/No EV chargers enabled or configured/)).toBeInTheDocument()
+    })
+
+    it('refetches chargers once when the socket reconnects, and not on the initial connect', async () => {
+        localStorage.setItem('darkstar-resources-tab', 'ev')
+        vi.mocked(Api.ev.chargers).mockClear()
+
+        const { rerender } = render(<ResourcesDomain {...baseProps} hasEvCharger={true} />)
+        await screen.findByText(/No EV chargers enabled or configured/)
+        expect(Api.ev.chargers).toHaveBeenCalledTimes(1)
+
+        socketStatus.value = 'offline'
+        rerender(<ResourcesDomain {...baseProps} hasEvCharger={true} />)
+        expect(Api.ev.chargers).toHaveBeenCalledTimes(1)
+
+        vi.mocked(Api.ev.chargers).mockResolvedValue([
+            { id: 'tesla', name: 'Tesla', externally_controlled: false } as never,
+        ])
+        socketStatus.value = 'connected'
+        rerender(<ResourcesDomain {...baseProps} hasEvCharger={true} />)
+        await waitFor(() => expect(Api.ev.chargers).toHaveBeenCalledTimes(2))
+        expect(await screen.findByText('charger-Tesla')).toBeInTheDocument()
     })
 })
 
