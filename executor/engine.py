@@ -41,6 +41,7 @@ from backend.core.ev_live_state import (
     stale_soc_episodes,
 )
 from backend.core.ev_plug import is_unreachable_state
+from backend.core.exception_text import describe_exception
 from backend.core.ha_timestamps import reading_timestamp
 
 # Import existing HA config loader
@@ -990,7 +991,7 @@ class ExecutorEngine:
             )
             logger.info("Pause reminder notification sent")
         except Exception as e:
-            logger.error("Failed to send pause reminder: %s", e)
+            logger.error("Failed to send pause reminder: %s", describe_exception(e))
 
     async def send_notification(
         self, title: str, message: str, data: dict[str, Any] | None = None
@@ -1009,7 +1010,7 @@ class ExecutorEngine:
                 )
             return True
         except Exception as e:
-            logger.error("Failed to send notification: %s", e)
+            logger.error("Failed to send notification: %s", describe_exception(e))
             return False
 
     # --- Water Boost ---
@@ -2216,7 +2217,7 @@ class ExecutorEngine:
                             decision.charge_value if decision.mode_intent == "charge" else 0.0,
                         )
                 except Exception as e:
-                    logger.error("Failed to execute async actions: %s", e)
+                    logger.error("Failed to execute async actions: %s", describe_exception(e))
                     # Append a failed result for the log (do not replace existing results)
                     action_results.append(
                         ActionResult(
@@ -4663,7 +4664,7 @@ class ExecutorEngine:
             try:
                 await self.dispatcher.notify_plug_in_reminder(message)
             except Exception as e:
-                logger.warning("Failed to send plug-in reminder: %s", e)
+                logger.warning("Failed to send plug-in reminder: %s", describe_exception(e))
 
     async def _check_ev_soc_stale(self) -> None:
         """Notify once per stale-SoC episode (ev-soc-staleness).
@@ -4699,7 +4700,7 @@ class ExecutorEngine:
             try:
                 await self.dispatcher.notify_ev_soc_stale(message)
             except Exception as e:
-                logger.warning("Failed to send stale-SoC notification: %s", e)
+                logger.warning("Failed to send stale-SoC notification: %s", describe_exception(e))
 
     def _request_soc_recovery_replan(self) -> None:
         """Replan once per stale-SoC episode that ended with a valid reading."""
@@ -4894,7 +4895,9 @@ class ExecutorEngine:
                     dev_state.charging_slot_end = now + timedelta(minutes=15)
 
             except Exception as e:
-                logger.error("Failed to control EV charger %s: %s", charger_id, e)
+                logger.error(
+                    "Failed to control EV charger %s: %s", charger_id, describe_exception(e)
+                )
 
     @staticmethod
     def _charger_switch_values(charger_cfg: EVChargerDeviceConfig) -> tuple[str, str]:
@@ -5253,7 +5256,9 @@ class ExecutorEngine:
             dev_state.charging_slot_end = now + timedelta(minutes=15)
 
         except Exception as e:
-            logger.error("Failed to control EV charger %s (current): %s", charger_id, e)
+            logger.error(
+                "Failed to control EV charger %s (current): %s", charger_id, describe_exception(e)
+            )
 
     async def _stop_current_charger(
         self,

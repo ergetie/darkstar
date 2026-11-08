@@ -8,6 +8,7 @@ import pytz
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.core.exception_text import describe_exception
 from backend.core.ha_client import get_ha_entity_state, get_ha_http_client, make_ha_headers
 from backend.core.secrets import (
     load_home_assistant_config,
@@ -110,7 +111,7 @@ async def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
         return round(total_weighted_sum / total_duration_sec, 2)
 
     except Exception as e:
-        logger.warning(f"Error fetching HA history for {entity_id}: {e}")
+        logger.warning(f"Error fetching HA history for {entity_id}: {describe_exception(e)}")
         return 0.0
 
 
@@ -256,7 +257,7 @@ async def get_ha_entities() -> dict[str, list[dict[str, Any]]]:
                     )
             return {"entities": entities}
     except Exception as e:
-        logger.warning(f"Error fetching HA entities: {e}")
+        logger.warning(f"Error fetching HA entities: {describe_exception(e)}")
 
     return {"entities": []}
 
@@ -290,7 +291,7 @@ async def get_ha_services() -> dict[str, list[str]]:
                     services.append(f"{domain}.{service_name}")
             return {"services": sorted(services)}
     except Exception as e:
-        logger.warning(f"Error fetching HA services: {e}")
+        logger.warning(f"Error fetching HA services: {describe_exception(e)}")
 
     return {"services": []}
 

@@ -1,15 +1,21 @@
 import asyncio
+import json
 import logging
+import math
 import threading
+import time
 from bisect import bisect_right
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, cast
+from pathlib import Path
+from typing import Any, Literal, cast
 
 import httpx
 import pytz
 
 from backend.core import secrets
+from backend.core.atomic_json import write_json_atomic
 from backend.core.ev_live_state import (
     ResolvedSoc,
     discard_soc_recovery,
@@ -23,13 +29,15 @@ from backend.core.ev_plug import (
     remember_plug_state,
     resolve_plug_state,
 )
+from backend.core.exception_text import describe_exception
 from backend.core.ha_timestamps import reading_timestamp
+from backend.core.open_meteo_retry import retry_async
 from backend.core.water_heating import (
     DEFAULT_IDLE_POWER_THRESHOLD_KW,
     normalize_active_power_kw,
     validate_water_heating_config,
 )
-from backend.health import set_load_forecast_status
+from backend.health import clear_ha_load_profile_status, set_load_forecast_status
 
 logger = logging.getLogger("darkstar.core.ha_client")
 
@@ -112,7 +120,7 @@ async def close_ha_action_clients() -> None:
         try:
             await client.close()
         except Exception as exc:
-            logger.warning("Error closing HA action client: %s", exc)
+            logger.warning("Error closing HA action client: %s", describe_exception(exc))
 
 
 def make_ha_headers(token: str) -> dict[str, str]:
@@ -180,7 +188,7 @@ async def get_ha_entity_state(entity_id: str) -> dict[str, Any] | None:
         data = response.json()
         return data
     except Exception as exc:
-        logger.warning("Could not fetch HA entity %s: %s", entity_id, exc)
+        logger.warning("Could not fetch HA entity %s: %s", entity_id, describe_exception(exc))
         return None
 
 
@@ -360,17 +368,61 @@ def integrate_power_points(
     return None if integrated is None else (integrated[0], integrated[1])
 
 
+# Opt-in retry of a history request (``attempts`` > 1): wait before attempt 2 and 3.
+_HISTORY_RETRY_BACKOFF_S: tuple[float, ...] = (1.0, 3.0)
+
+
+class HistoryDeadlineExceeded(Exception):
+    """The caller's overall deadline passed before a history attempt could start."""
+
+
+def _is_transient_history_error(exc: BaseException) -> bool:
+    """Classify an httpx error from a history request as transient (worth a retry)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return status >= 500 or status == 429
+    return isinstance(exc, httpx.TimeoutException | httpx.NetworkError | httpx.RemoteProtocolError)
+
+
+def _monotonic() -> float:
+    return time.monotonic()
+
+
+async def _history_sleep(delay: float) -> None:
+    await asyncio.sleep(delay)
+
+
+def _cap_timeout(timeout: float | httpx.Timeout, remaining: float) -> float | httpx.Timeout:
+    """Limit every component of ``timeout`` to ``remaining`` seconds."""
+    if isinstance(timeout, httpx.Timeout):
+        return httpx.Timeout(
+            connect=None if timeout.connect is None else min(timeout.connect, remaining),
+            read=None if timeout.read is None else min(timeout.read, remaining),
+            write=None if timeout.write is None else min(timeout.write, remaining),
+            pool=None if timeout.pool is None else min(timeout.pool, remaining),
+        )
+    return min(timeout, remaining)
+
+
 async def get_power_history_batch(
     entity_ids: list[str],
     start: datetime,
     end: datetime,
-    timeout: float = 12.0,
+    timeout: float | httpx.Timeout = 12.0,
+    attempts: int = 1,
+    *,
+    deadline: float | None = None,
 ) -> dict[str, list[dict[str, Any]]] | None:
     """Fetch the HA history of several entities in ONE request.
 
     Returns raw history states per requested entity (an entity HA returned nothing
     for maps to an empty list), or None when the request failed or HA is not
     configured. A failure is logged once.
+
+    By default one attempt is made. ``attempts`` > 1 retries transient errors
+    (timeouts, connection errors, HTTP 5xx and 429) with a short backoff; other
+    errors are never retried. ``deadline`` (a monotonic clock value) caps every
+    attempt's timeout and ends the retries when it has passed.
     """
     ha_config = secrets.load_home_assistant_config()
     url = ha_config.get("url")
@@ -392,15 +444,42 @@ async def get_power_history_batch(
         "minimal_response": "true",
     }
 
-    try:
+    async def _request() -> Any:
+        attempt_timeout = timeout
+        if deadline is not None:
+            remaining = deadline - _monotonic()
+            if remaining <= 0:
+                raise HistoryDeadlineExceeded("overall deadline reached")
+            attempt_timeout = _cap_timeout(timeout, remaining)
         client = get_ha_http_client()
         response = await client.get(
-            api_url, headers=make_ha_headers(token), params=params, timeout=timeout
+            api_url, headers=make_ha_headers(token), params=params, timeout=attempt_timeout
         )
         response.raise_for_status()
-        data = response.json()
+        return response.json()
+
+    async def _backoff(delay: float) -> None:
+        if deadline is not None:
+            delay = min(delay, max(deadline - _monotonic(), 0.0))
+        await _history_sleep(delay)
+
+    try:
+        if attempts > 1:
+            data = await retry_async(
+                _request,
+                label="history request",
+                is_transient=_is_transient_history_error,
+                sleep=_backoff,
+                attempts=attempts,
+                backoff=_HISTORY_RETRY_BACKOFF_S,
+                source="Home Assistant",
+            )
+        else:
+            data = await _request()
     except Exception as exc:
-        logger.warning("get_power_history_batch(%d entities): %s", len(entities), exc)
+        logger.warning(
+            "get_power_history_batch(%d entities): %s", len(entities), describe_exception(exc)
+        )
         return None
 
     result: dict[str, list[dict[str, Any]]] = {entity: [] for entity in entities}
@@ -499,6 +578,23 @@ async def get_ha_bool(entity_id: str, connected_states: Any = None) -> bool:
     return is_true
 
 
+DEFAULT_TIMEZONE = "Europe/Stockholm"
+
+
+def _configured_timezone(config: dict[str, Any]) -> Any:
+    """Timezone from ``config['timezone']`` (same default as the rest of the codebase).
+
+    An unknown zone name is logged and replaced by the default rather than failing
+    the whole call.
+    """
+    name = str(config.get("timezone", DEFAULT_TIMEZONE))
+    try:
+        return pytz.timezone(name)
+    except pytz.UnknownTimeZoneError:
+        logger.warning("Unknown timezone %r in config, using %s", name, DEFAULT_TIMEZONE)
+        return pytz.timezone(DEFAULT_TIMEZONE)
+
+
 def parse_ha_datetime_state(raw_value: Any, tz: pytz.BaseTzInfo) -> datetime | None:
     """Parse a raw Home Assistant ``input_datetime`` state string.
 
@@ -538,11 +634,9 @@ async def get_ha_datetime(entity_id: str) -> datetime | None:
 
     raw_value = state.get("state")
     try:
-        config = secrets.load_yaml("config.yaml")
-        tz_name = config.get("timezone", "Europe/Stockholm")
-        tz = pytz.timezone(tz_name)
+        tz = _configured_timezone(secrets.load_yaml("config.yaml"))
     except Exception:
-        tz = pytz.timezone("Europe/Stockholm")
+        tz = pytz.timezone(DEFAULT_TIMEZONE)
 
     dt = parse_ha_datetime_state(raw_value, tz)
     if dt is None:
@@ -940,7 +1034,429 @@ def _coverage_averaged_profile(
     return profile, len(anchors)
 
 
-async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
+# --- Load profile fetch resilience -------------------------------------------------
+# A normal one-day history request takes about 3 s. A loaded Home Assistant can stall
+# for much longer, so each attempt gets six times that to read (and 5 s to connect),
+# and a stalled chunk gets two more attempts after 1 s and 3 s.
+_LOAD_HISTORY_ATTEMPTS = 3
+_LOAD_HISTORY_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
+# Hard bound on the whole 7-day build, so a planner run never waits longer than this.
+_LOAD_PROFILE_DEADLINE_S = 60.0
+# Two chunks in a row that exhausted their retries mean HA is down: stop asking.
+_LOAD_PROFILE_ABORT_AFTER_FAILED_CHUNKS = 2
+# A majority of the window. Below it the sample is too thin to beat a stored profile.
+_LOAD_PROFILE_MIN_DAYS = math.ceil(_LOAD_PROFILE_DAYS / 2)
+# The profile summarises 7 days; an older stored one shares no day with a fresh window.
+_LOAD_PROFILE_MAX_AGE = timedelta(days=_LOAD_PROFILE_DAYS)
+# Bounds an outage to one deadline per window while letting the next planner cycle after
+# recovery fetch live (a planner run needs only a baseline, and the profile moves slowly).
+_LOAD_PROFILE_COOLDOWN_S = 300.0
+# Daily total above which a profile is treated as implausible (also bounds a stored one).
+_LOAD_PROFILE_MAX_DAILY_KWH = 500.0
+_LOAD_PROFILE_STORE_VERSION = 1
+_LOAD_PROFILE_STORE_PATH = Path("data/load_profile_last_good.json")
+
+_load_profile_lock = threading.Lock()
+# Sensor and monotonic time of the last build that ended without a usable profile.
+_load_profile_failure: tuple[str, float] | None = None
+# The last profile built from live history, kept in memory as well as on disk.
+_load_profile_last_good: dict[str, Any] | None = None
+# One shared build per (event loop, sensor): a task cannot be awaited across loops.
+_load_profile_in_flight: dict[tuple[asyncio.AbstractEventLoop, str], asyncio.Task[list[float]]] = {}
+
+
+def reset_load_profile_state() -> None:
+    """Forget the failure memo, in-flight builds and the in-memory last good profile."""
+    global _load_profile_failure, _load_profile_last_good
+    with _load_profile_lock:
+        _load_profile_failure = None
+        _load_profile_last_good = None
+        _load_profile_in_flight.clear()
+
+
+@dataclass(frozen=True)
+class _LoadProfileBuild:
+    """Outcome of one 7-day build.
+
+    ``live``: a profile from fetched history (``days_used`` of 7 days). ``data``: the
+    history was fetched but is unusable, ``profile`` is the demo or synthetic fallback
+    already chosen. ``transient``: too few days could be fetched, ``reason`` says why.
+    """
+
+    kind: Literal["live", "data", "transient"]
+    profile: list[float] | None = None
+    days_used: int = 0
+    reason: str = ""
+
+
+def _format_age(age: timedelta) -> str:
+    minutes = int(age.total_seconds() // 60)
+    if minutes < 60:
+        return f"{max(minutes, 1)} min"
+    if minutes < 48 * 60:
+        return f"{minutes // 60} h"
+    return f"{minutes // (24 * 60)} days"
+
+
+def _valid_stored_profile(payload: Any, entity: str, now: datetime) -> dict[str, Any] | None:
+    """Return the stored profile as ``{sensor, built_at, days_used, profile}`` if usable."""
+    if not isinstance(payload, dict):
+        return None
+    data = cast("dict[str, Any]", payload)
+    if data.get("version") != _LOAD_PROFILE_STORE_VERSION or data.get("sensor") != entity:
+        return None
+    values = data.get("profile")
+    if not isinstance(values, list) or len(cast("list[Any]", values)) != 96:
+        return None
+    profile: list[float] = []
+    for value in cast("list[Any]", values):
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return None
+        if not math.isfinite(value) or value < 0:
+            return None
+        profile.append(float(value))
+    if not 0 < sum(profile) <= _LOAD_PROFILE_MAX_DAILY_KWH:
+        return None
+    try:
+        built_at = datetime.fromisoformat(str(data.get("built_at")))
+    except ValueError:
+        return None
+    if built_at.tzinfo is None or built_at > now or now - built_at > _LOAD_PROFILE_MAX_AGE:
+        return None
+    return {
+        "sensor": entity,
+        "built_at": built_at,
+        "days_used": data.get("days_used"),
+        "profile": profile,
+    }
+
+
+def _stored_load_profile(entity: str) -> dict[str, Any] | None:
+    """The last good profile for ``entity`` (memory first, then the file), if still valid."""
+    global _load_profile_last_good
+    now = datetime.now(pytz.UTC)
+    with _load_profile_lock:
+        remembered = _load_profile_last_good
+    if remembered is not None:
+        valid = _valid_stored_profile(
+            {
+                "version": _LOAD_PROFILE_STORE_VERSION,
+                "sensor": remembered["sensor"],
+                "built_at": remembered["built_at"].isoformat(),
+                "profile": remembered["profile"],
+            },
+            entity,
+            now,
+        )
+        if valid is not None:
+            valid["days_used"] = remembered["days_used"]
+            return valid
+    try:
+        payload = json.loads(_LOAD_PROFILE_STORE_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        logger.warning(
+            "Ignoring stored load profile %s: %s", _LOAD_PROFILE_STORE_PATH, describe_exception(exc)
+        )
+        return None
+    valid = _valid_stored_profile(payload, entity, now)
+    if valid is None:
+        logger.warning(
+            "Ignoring stored load profile %s: not valid for '%s' (age, sensor, format or range)",
+            _LOAD_PROFILE_STORE_PATH,
+            entity,
+        )
+        return None
+    with _load_profile_lock:
+        _load_profile_last_good = valid
+    return valid
+
+
+def _remember_good_load_profile(entity: str, profile: list[float], days_used: int) -> None:
+    """Keep a live profile as the last good one, in memory and on disk."""
+    global _load_profile_last_good
+    built_at = datetime.now(pytz.UTC)
+    with _load_profile_lock:
+        _load_profile_last_good = {
+            "sensor": entity,
+            "built_at": built_at,
+            "days_used": days_used,
+            "profile": list(profile),
+        }
+    try:
+        write_json_atomic(
+            _LOAD_PROFILE_STORE_PATH,
+            {
+                "version": _LOAD_PROFILE_STORE_VERSION,
+                "sensor": entity,
+                "built_at": built_at.isoformat(),
+                "days_used": days_used,
+                "days_total": _LOAD_PROFILE_DAYS,
+                "profile": profile,
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "Could not store load profile %s: %s", _LOAD_PROFILE_STORE_PATH, describe_exception(exc)
+        )
+
+
+def _set_failure_memo(entity: str) -> None:
+    global _load_profile_failure
+    with _load_profile_lock:
+        _load_profile_failure = (entity, _monotonic())
+
+
+def _clear_failure_memo() -> None:
+    global _load_profile_failure
+    with _load_profile_lock:
+        _load_profile_failure = None
+
+
+def _in_cooldown(entity: str) -> bool:
+    with _load_profile_lock:
+        failure = _load_profile_failure
+    if failure is None or failure[0] != entity:
+        return False
+    return _monotonic() - failure[1] < _LOAD_PROFILE_COOLDOWN_S
+
+
+def _transient_fallback(config: dict[str, Any], entity: str, reason: str) -> list[float]:
+    """Fallback chain for a transient fetch failure: stored profile, else demo/synthetic."""
+    stored = _stored_load_profile(entity)
+    if stored is not None:
+        age = _format_age(datetime.now(pytz.UTC) - stored["built_at"])
+        logger.warning(
+            "Load profile for %s not fetched (%s); using stored profile from %s ago",
+            entity,
+            reason,
+            age,
+        )
+        set_load_forecast_status(
+            "degraded",
+            "stale",
+            detail=(
+                f"Stored load profile from {age} ago for '{entity}' is in use because its "
+                "history could not be fetched from Home Assistant"
+            ),
+        )
+        return list(stored["profile"])
+    logger.warning("Load profile for %s not fetched (%s); using fallback profile", entity, reason)
+    return get_dummy_load_profile(
+        config,
+        discard_reason=f"'{entity}' history could not be fetched from Home Assistant ({reason})",
+    )
+
+
+async def _build_load_profile(config: dict[str, Any], entity: str) -> _LoadProfileBuild:
+    """Fetch the 7 daily history chunks and build the 96-slot profile from them.
+
+    Order of the rules, each applied only if the previous one passed:
+    1. Fetch completeness: fewer than ``_LOAD_PROFILE_MIN_DAYS`` chunks fetched is a
+       transient failure. The count of days fetched is used for this and nothing else.
+    2. Data quality on what was fetched, exactly as for a complete window: no valid
+       point, fewer than ``_MIN_SUPPORTED_SLOTS`` of 96 slots with enough valid data,
+       and the plausibility bounds each return the demo or synthetic fallback.
+    A chunk that failed adds neither energy nor covered seconds, so the per-slot
+    coverage average over the days fetched needs no scaling by the day count.
+    """
+    end_time = datetime.now(pytz.UTC)
+    start_time = end_time - timedelta(days=_LOAD_PROFILE_DAYS)
+
+    logger.info("Fetching %s history from Home Assistant", entity)
+    # Convert to local timezone for processing
+    local_tz = _configured_timezone(config)
+
+    # Energy per local time-of-day slot, summed over the fetched days
+    slot_sums = [0.0] * 96
+    # Seconds of valid (non-gap) data per local time-of-day slot over the fetched days
+    slot_covered = [0.0] * 96
+    valid_points = 0
+    days_fetched = 0
+    failed_in_a_row = 0
+    deadline = _monotonic() + _LOAD_PROFILE_DEADLINE_S
+
+    # One request per day keeps each response bounded (a power sensor reporting
+    # every few seconds yields ~16k states per day).
+    for day in range(_LOAD_PROFILE_DAYS):
+        if _monotonic() >= deadline:
+            logger.warning(
+                "Load profile fetch for %s hit its %.0f s deadline",
+                entity,
+                _LOAD_PROFILE_DEADLINE_S,
+            )
+            break
+        day_start = start_time + timedelta(days=day)
+        day_end = day_start + timedelta(days=1)
+        history = await get_power_history_batch(
+            [entity],
+            day_start,
+            day_end,
+            timeout=_LOAD_HISTORY_TIMEOUT,
+            attempts=_LOAD_HISTORY_ATTEMPTS,
+            deadline=deadline,
+        )
+        if history is None:
+            failed_in_a_row += 1
+            if failed_in_a_row >= _LOAD_PROFILE_ABORT_AFTER_FAILED_CHUNKS:
+                logger.warning(
+                    "Load profile fetch for %s stopped after %d failed chunks in a row",
+                    entity,
+                    failed_in_a_row,
+                )
+                break
+            continue
+        failed_in_a_row = 0
+        days_fetched += 1
+
+        points = parse_power_states(history[entity], entity)
+        valid_points += sum(1 for _ts, value in points if value is not None)
+        slot_start = day_start
+        while slot_start < day_end:
+            slot_end = min(slot_start + timedelta(seconds=_SLOT_SECONDS), day_end)
+            integrated = integrate_power_points_covered(points, slot_start, slot_end)
+            if integrated is not None:
+                positive_kwh, _negative_kwh, covered_seconds = integrated
+                # Energy and covered time are apportioned identically, so each
+                # local slot keeps the interval's mean power over its valid time.
+                for target, amount in (
+                    (slot_sums, positive_kwh),
+                    (slot_covered, covered_seconds),
+                ):
+                    _distribute_interval_energy(
+                        target,
+                        slot_start,
+                        slot_end,
+                        amount,
+                        local_tz,
+                        window_start=start_time,
+                        window_end=end_time,
+                    )
+            slot_start = slot_end
+
+    if days_fetched < _LOAD_PROFILE_MIN_DAYS:
+        return _LoadProfileBuild(
+            "transient",
+            reason=(
+                f"only {days_fetched} of {_LOAD_PROFILE_DAYS} days could be fetched, "
+                f"at least {_LOAD_PROFILE_MIN_DAYS} are needed"
+            ),
+        )
+
+    if valid_points == 0:
+        logger.warning("No history received from Home Assistant for %s", entity)
+        return _LoadProfileBuild(
+            "data",
+            get_dummy_load_profile(
+                config,
+                discard_reason=f"'{entity}' has no history in the last {_LOAD_PROFILE_DAYS} days",
+            ),
+        )
+
+    # Average each slot over the time it was actually measured (not over 7 days), so
+    # a sensor outage or a chunk that was not fetched never counts as zero load.
+    daily_profile, supported_slots = _coverage_averaged_profile(slot_sums, slot_covered)
+    if supported_slots < _MIN_SUPPORTED_SLOTS:
+        logger.warning(
+            "Only %d of 96 slots of %s have enough valid history, using dummy profile",
+            supported_slots,
+            entity,
+        )
+        return _LoadProfileBuild(
+            "data",
+            get_dummy_load_profile(
+                config,
+                discard_reason=(
+                    f"'{entity}' has valid data for only {supported_slots} of 96 "
+                    f"time-of-day slots in the last {_LOAD_PROFILE_DAYS} days"
+                ),
+            ),
+        )
+
+    # Validate and clean the profile
+    total_daily = sum(daily_profile)
+    if total_daily > _LOAD_PROFILE_MAX_DAILY_KWH:
+        logger.warning(
+            "Daily total %.1f kWh/day for %s exceeds 500 kWh sanity bound, using dummy profile",
+            total_daily,
+            entity,
+        )
+        return _LoadProfileBuild(
+            "data",
+            get_dummy_load_profile(
+                config,
+                discard_reason=(
+                    f"'{entity}' data discarded: {total_daily:.1f} kWh/day exceeds the "
+                    "500 kWh/day plausibility bound"
+                ),
+            ),
+        )
+    if total_daily <= 0:
+        logger.warning("No valid energy consumption data found for %s", entity)
+        return _LoadProfileBuild(
+            "data",
+            get_dummy_load_profile(
+                config, discard_reason=f"'{entity}' returned no valid (positive) power data"
+            ),
+        )
+
+    logger.info(
+        "Successfully loaded HA data: %.2f kWh/day average from %d of %d days",
+        total_daily,
+        days_fetched,
+        _LOAD_PROFILE_DAYS,
+    )
+
+    # Ensure all values are positive and reasonable
+    for i in range(96):
+        if daily_profile[i] < 0:
+            daily_profile[i] = 0
+        elif daily_profile[i] > 10:  # Cap at 10kW per 15min
+            daily_profile[i] = 10
+
+    return _LoadProfileBuild("live", daily_profile, days_used=days_fetched)
+
+
+async def _build_and_settle_load_profile(config: dict[str, Any], entity: str) -> list[float]:
+    """One full build plus its bookkeeping: memo, last good profile and status."""
+    try:
+        build = await _build_load_profile(config, entity)
+    except Exception as e:
+        logger.warning(
+            "Error processing Home Assistant data for %s: %s", entity, describe_exception(e)
+        )
+        return get_dummy_load_profile(config)
+
+    if build.kind == "data":
+        # History was fetched, so this is a data problem and not an outage.
+        _clear_failure_memo()
+        return cast("list[float]", build.profile)
+    if build.kind == "transient":
+        _set_failure_memo(entity)
+        return _transient_fallback(config, entity, build.reason)
+
+    # A usable live profile, full or partial: not an outage.
+    profile = cast("list[float]", build.profile)
+    _clear_failure_memo()
+    _remember_good_load_profile(entity, profile, build.days_used)
+    if build.days_used < _LOAD_PROFILE_DAYS:
+        set_load_forecast_status(
+            "degraded",
+            "partial",
+            detail=(
+                f"Load profile built from {build.days_used} of {_LOAD_PROFILE_DAYS} days of "
+                f"'{entity}' history; the other days could not be fetched from Home Assistant"
+            ),
+        )
+    else:
+        clear_ha_load_profile_status()
+    return profile
+
+
+async def get_load_profile_from_ha(
+    config: dict[str, Any], *, force_refresh: bool = False
+) -> list[float]:
     """Build the average daily load profile from 7 days of ``load_power`` history (Async).
 
     The power history is step-integrated per 15-minute slot and spread over the 96
@@ -948,6 +1464,11 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
     slot is the mean power over the time it was validly measured, so sensor gaps are
     not zero load; slots never measured are interpolated, and a profile with too few
     measured slots is discarded.
+
+    A transient fetch failure (too few days fetched) falls back to the last good
+    profile, then to the demo or synthetic profile, and starts a cooldown during which
+    calls skip fetching. Concurrent calls in one event loop share one build.
+    ``force_refresh`` ignores the cooldown.
     """
     ha_config = secrets.load_home_assistant_config()
     url: str | None = cast("str | None", ha_config.get("url"))
@@ -966,117 +1487,27 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         return get_dummy_load_profile(config)
 
     entity = cast("str", entity_id)
-    end_time = datetime.now(pytz.UTC)
-    start_time = end_time - timedelta(days=_LOAD_PROFILE_DAYS)
+    if not force_refresh and _in_cooldown(entity):
+        return _transient_fallback(
+            config, entity, "history fetch failed recently, not retrying during the cooldown"
+        )
 
-    try:
-        logger.info("Fetching %s history from Home Assistant", entity)
-        # Convert to local timezone for processing
-        local_tz = pytz.timezone("Europe/Stockholm")
+    loop = asyncio.get_running_loop()
+    key = (loop, entity)
+    with _load_profile_lock:
+        task = _load_profile_in_flight.get(key)
+        if task is None:
+            task = loop.create_task(_build_and_settle_load_profile(config, entity))
+            _load_profile_in_flight[key] = task
+            task.add_done_callback(lambda done, k=key: _drop_in_flight(k, done))
+    # Shielded so one cancelled caller does not cancel the build the others wait for.
+    return list(await asyncio.shield(task))
 
-        # Energy per local time-of-day slot, summed over the 7-day window
-        slot_sums = [0.0] * 96
-        # Seconds of valid (non-gap) data per local time-of-day slot over the window
-        slot_covered = [0.0] * 96
-        valid_points = 0
 
-        # One request per day keeps each response bounded (a power sensor reporting
-        # every few seconds yields ~16k states per day).
-        for day in range(_LOAD_PROFILE_DAYS):
-            day_start = start_time + timedelta(days=day)
-            day_end = day_start + timedelta(days=1)
-            history = await get_power_history_batch([entity], day_start, day_end)
-            if history is None:
-                return get_dummy_load_profile(
-                    config,
-                    discard_reason=f"'{entity}' history could not be fetched from Home Assistant",
-                )
-
-            points = parse_power_states(history[entity], entity)
-            valid_points += sum(1 for _ts, value in points if value is not None)
-            slot_start = day_start
-            while slot_start < day_end:
-                slot_end = min(slot_start + timedelta(seconds=_SLOT_SECONDS), day_end)
-                integrated = integrate_power_points_covered(points, slot_start, slot_end)
-                if integrated is not None:
-                    positive_kwh, _negative_kwh, covered_seconds = integrated
-                    # Energy and covered time are apportioned identically, so each
-                    # local slot keeps the interval's mean power over its valid time.
-                    for target, amount in (
-                        (slot_sums, positive_kwh),
-                        (slot_covered, covered_seconds),
-                    ):
-                        _distribute_interval_energy(
-                            target,
-                            slot_start,
-                            slot_end,
-                            amount,
-                            local_tz,
-                            window_start=start_time,
-                            window_end=end_time,
-                        )
-                slot_start = slot_end
-
-        if valid_points == 0:
-            logger.warning("No history received from Home Assistant for %s", entity)
-            return get_dummy_load_profile(
-                config,
-                discard_reason=(f"'{entity}' has no history in the last {_LOAD_PROFILE_DAYS} days"),
-            )
-
-        # Average each slot over the time it was actually measured (not over 7 days), so
-        # a sensor outage never counts as zero load.
-        daily_profile, supported_slots = _coverage_averaged_profile(slot_sums, slot_covered)
-        if supported_slots < _MIN_SUPPORTED_SLOTS:
-            logger.warning(
-                "Only %d of 96 slots of %s have enough valid history, using dummy profile",
-                supported_slots,
-                entity,
-            )
-            return get_dummy_load_profile(
-                config,
-                discard_reason=(
-                    f"'{entity}' has valid data for only {supported_slots} of 96 "
-                    f"time-of-day slots in the last {_LOAD_PROFILE_DAYS} days"
-                ),
-            )
-
-        # Validate and clean the profile
-        total_daily = sum(daily_profile)
-        if total_daily > 500:
-            logger.warning(
-                "Daily total %.1f kWh/day for %s exceeds 500 kWh sanity bound, using dummy profile",
-                total_daily,
-                entity,
-            )
-            return get_dummy_load_profile(
-                config,
-                discard_reason=(
-                    f"'{entity}' data discarded: {total_daily:.1f} kWh/day exceeds the "
-                    "500 kWh/day plausibility bound"
-                ),
-            )
-        if total_daily <= 0:
-            logger.warning("No valid energy consumption data found for %s", entity)
-            return get_dummy_load_profile(
-                config,
-                discard_reason=f"'{entity}' returned no valid (positive) power data",
-            )
-
-        logger.info("Successfully loaded HA data: %.2f kWh/day average", total_daily)
-
-        # Ensure all values are positive and reasonable
-        for i in range(96):
-            if daily_profile[i] < 0:
-                daily_profile[i] = 0
-            elif daily_profile[i] > 10:  # Cap at 10kW per 15min
-                daily_profile[i] = 10
-
-        return daily_profile
-
-    except Exception as e:
-        logger.warning("Error processing Home Assistant data for %s: %s", entity, e)
-        return get_dummy_load_profile(config)
+def _drop_in_flight(key: tuple[asyncio.AbstractEventLoop, str], done: asyncio.Task[Any]) -> None:
+    with _load_profile_lock:
+        if _load_profile_in_flight.get(key) is done:
+            del _load_profile_in_flight[key]
 
 
 def get_dummy_load_profile(

@@ -218,3 +218,45 @@ async def test_async_permanent_single_call():
         )
     assert calls == 1
     assert sleeps.calls == []
+
+
+@pytest.mark.asyncio
+async def test_async_custom_attempts_and_backoff():
+    sleeps = _Sleeps()
+    calls = 0
+
+    async def fn():
+        nonlocal calls
+        calls += 1
+        raise OpenMeteoSolarForecastConnectionError(f"503 #{calls}")
+
+    with pytest.raises(OpenMeteoSolarForecastConnectionError, match="#4"):
+        await retry_async(
+            fn,
+            label="history",
+            is_transient=is_transient_pv_error,
+            sleep=sleeps.async_,
+            attempts=4,
+            backoff=(1.0, 3.0),
+        )
+    assert calls == 4
+    assert sleeps.calls == [1.0, 3.0, 3.0]
+
+
+@pytest.mark.asyncio
+async def test_async_retry_log_names_empty_message_exception():
+    sleeps = _Sleeps()
+    calls = 0
+
+    async def fn():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise TimeoutError()
+        return "ok"
+
+    with patch.object(open_meteo_retry, "logger") as mock_logger:
+        await retry_async(
+            fn, label="weather", is_transient=is_transient_pv_error, sleep=sleeps.async_
+        )
+    assert any("TimeoutError" in m for m in _warning_messages(mock_logger))

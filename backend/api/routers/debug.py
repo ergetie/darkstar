@@ -181,7 +181,7 @@ async def debug_load_profile() -> dict[str, Any]:
     try:
         conf = load_yaml("config.yaml") or {}
         try:
-            profile = await get_load_profile_from_ha(conf)
+            profile = await get_load_profile_from_ha(conf, force_refresh=True)
             return {
                 "source": "ha",
                 "profile_sum": sum(profile),

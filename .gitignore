@@ -49,6 +49,7 @@ planner_learning.db
 
 data/scheduler_status.json
 data/recorder_state.json
+data/load_profile_last_good.json
 data/installation_stats.*.json
 telemetry_receiver/.env
 telemetry_receiver/*.sqlite3*

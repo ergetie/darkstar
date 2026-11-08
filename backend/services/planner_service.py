@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.core.cache import cache
+from backend.core.exception_text import describe_exception
 from backend.core.websockets import ws_manager
 from planner.errors import (
     PlannerError,
@@ -415,7 +416,7 @@ class PlannerService:
                 result.duration_ms,
             )
         except Exception as e:
-            logger.warning(f"Failed to notify success: {e}")
+            logger.warning(f"Failed to notify success: {describe_exception(e)}")
 
     async def _notify_error(self, result: PlannerResult) -> None:
         """Emit WebSocket error event on failure."""
@@ -436,7 +437,7 @@ class PlannerService:
             )
             logger.error("Planner failed: %s", result.error)
         except Exception as e:
-            logger.warning(f"Failed to notify error: {e}")
+            logger.warning(f"Failed to notify error: {describe_exception(e)}")
 
 
 # Global singleton

@@ -20,6 +20,8 @@ from open_meteo_solar_forecast.exceptions import (
     OpenMeteoSolarForecastRatelimitError,
 )
 
+from backend.core.exception_text import describe_exception
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -29,7 +31,7 @@ MAX_ATTEMPTS = 3
 # Wait before attempt 2 and attempt 3; total retry wait is 6 s (< 10 s cap).
 BACKOFF_S: tuple[float, ...] = (2.0, 4.0)
 
-_LOG_FMT = "Open-Meteo %s failed (attempt %d/%d): %s; retrying in %.0fs"
+_LOG_FMT = "%s %s failed (attempt %d/%d): %s; retrying in %.0fs"
 
 
 def _is_transient_status(status: int | None) -> bool:
@@ -56,8 +58,8 @@ def is_transient_http_error(exc: BaseException) -> bool:
     return isinstance(exc, requests.ConnectionError | requests.Timeout)
 
 
-def _delay_for(attempt: int) -> float:
-    return BACKOFF_S[min(attempt - 1, len(BACKOFF_S) - 1)]
+def _delay_for(attempt: int, backoff: tuple[float, ...] = BACKOFF_S) -> float:
+    return backoff[min(attempt - 1, len(backoff) - 1)]
 
 
 async def retry_async[T](
@@ -66,17 +68,26 @@ async def retry_async[T](
     label: str,
     is_transient: Callable[[BaseException], bool],
     sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
+    attempts: int = MAX_ATTEMPTS,
+    backoff: tuple[float, ...] = BACKOFF_S,
+    source: str = "Open-Meteo",
 ) -> T:
-    """Await `fn()` with bounded retries on transient errors; re-raise the last error."""
+    """Await `fn()` with bounded retries on transient errors; re-raise the last error.
+
+    ``attempts`` and ``backoff`` (wait before attempt 2, 3, ...; the last value repeats)
+    default to the Open-Meteo policy; ``source`` names the service in the retry log.
+    """
     attempt = 1
     while True:
         try:
             return await fn()
         except Exception as exc:
-            if attempt >= MAX_ATTEMPTS or not is_transient(exc):
+            if attempt >= attempts or not is_transient(exc):
                 raise
-            delay = _delay_for(attempt)
-            logger.warning(_LOG_FMT, label, attempt, MAX_ATTEMPTS, exc, delay)
+            delay = _delay_for(attempt, backoff)
+            logger.warning(
+                _LOG_FMT, source, label, attempt, attempts, describe_exception(exc), delay
+            )
         await sleep(delay)
         attempt += 1
 
@@ -101,6 +112,8 @@ def retry_sync[T](
             if attempt >= MAX_ATTEMPTS or not is_transient(exc):
                 raise
             delay = _delay_for(attempt)
-            logger.warning(_LOG_FMT, label, attempt, MAX_ATTEMPTS, exc, delay)
+            logger.warning(
+                _LOG_FMT, "Open-Meteo", label, attempt, MAX_ATTEMPTS, describe_exception(exc), delay
+            )
         sleep(delay)
         attempt += 1

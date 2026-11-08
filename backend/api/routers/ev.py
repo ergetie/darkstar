@@ -36,6 +36,7 @@ from backend.core.ev_plug import (
 )
 from backend.core.ev_power import charger_disabled_reason, charger_max_kw, nominal_voltage_v
 from backend.core.ev_state import read_ev_state, update_ev_state
+from backend.core.exception_text import describe_exception
 from backend.core.ha_client import (
     get_ha_entity_state,
     get_ha_sensor_float,
@@ -75,7 +76,7 @@ def _get_ha_client() -> Any:
     try:
         return get_ha_action_client()
     except Exception as exc:
-        logger.warning("Could not obtain HA action client: %s", exc)
+        logger.warning("Could not obtain HA action client: %s", describe_exception(exc))
         return None
 
 
@@ -102,7 +103,11 @@ async def sync_goal_to_ha(
             logger.info("Syncing target SoC %d to HA entity %s", target_soc, ha_target_soc_entity)
             await ha.set_input_number(ha_target_soc_entity, float(target_soc))
         except Exception as e:
-            logger.warning("Failed to sync target SoC to HA entity %s: %s", ha_target_soc_entity, e)
+            logger.warning(
+                "Failed to sync target SoC to HA entity %s: %s",
+                ha_target_soc_entity,
+                describe_exception(e),
+            )
 
     # Sync ready-by
     if ha_ready_by_entity and ready_by_dt is not None:
@@ -110,7 +115,11 @@ async def sync_goal_to_ha(
             logger.info("Syncing ready-by %s to HA entity %s", ready_by_dt, ha_ready_by_entity)
             await ha.set_input_datetime(ha_ready_by_entity, ready_by_dt)
         except Exception as e:
-            logger.warning("Failed to sync ready-by to HA entity %s: %s", ha_ready_by_entity, e)
+            logger.warning(
+                "Failed to sync ready-by to HA entity %s: %s",
+                ha_ready_by_entity,
+                describe_exception(e),
+            )
 
 
 @router.post(
@@ -481,7 +490,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
         try:
             return await get_ha_sensor_float(entity_id)
         except Exception as exc:
-            logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
+            logger.warning("Failed to read HA sensor %s: %s", entity_id, describe_exception(exc))
             return None
 
     async def _safe_kw(entity_id: str) -> float | None:
@@ -490,7 +499,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
         try:
             return await get_ha_sensor_kw_normalized(entity_id)
         except Exception as exc:
-            logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
+            logger.warning("Failed to read HA sensor %s: %s", entity_id, describe_exception(exc))
             return None
 
     async def _safe_raw_state(entity_id: str) -> Any:
@@ -499,7 +508,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
         try:
             state = await get_ha_entity_state(entity_id)
         except Exception as exc:
-            logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
+            logger.warning("Failed to read HA sensor %s: %s", entity_id, describe_exception(exc))
             return None
         return state.get("state") if isinstance(state, dict) else None
 

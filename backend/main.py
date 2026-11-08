@@ -1,3 +1,4 @@
+from backend.core.exception_text import describe_exception
 from backend.core.logging import setup_logging
 
 setup_logging()
@@ -204,7 +205,7 @@ async def lifespan(app: FastAPI):
 
         await close_ha_http_client()
     except Exception as e:
-        logger.error("Failed to close HA HTTP client: %s", e)
+        logger.error("Failed to close HA HTTP client: %s", describe_exception(e))
 
     # Close backend-owned HA action clients (goal sync writes)
     try:
@@ -212,7 +213,7 @@ async def lifespan(app: FastAPI):
 
         await close_ha_action_clients()
     except Exception as e:
-        logger.error("Failed to close HA action clients: %s", e)
+        logger.error("Failed to close HA action clients: %s", describe_exception(e))
 
     await benchmark_service.stop()
 

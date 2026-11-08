@@ -110,7 +110,9 @@ def set_load_forecast_status(status: str, reason: str = "", detail: str = "") ->
     Args:
         status: "ok" or "degraded"
         reason: "ml" (ML models working), "baseline" (using baseline avg),
-                "demo" (using demo data), "no_ml" (ML unavailable but data exists)
+                "demo" (using demo data), "no_ml" (ML unavailable but data exists),
+                "stale" (stored load profile used, history could not be fetched),
+                "partial" (load profile built from only some of the history days)
         detail: optional specifics, e.g. which sensor's data was discarded and why
                 (distinguishes "sensor not configured" from "sensor configured but
                 data discarded as implausible")
@@ -142,6 +144,21 @@ def clear_load_forecast_status() -> None:
         _load_forecast_status = "ok"
         _load_forecast_reason = ""
         _load_forecast_detail = ""
+
+
+# Reasons set by the Home Assistant load-profile path (``get_load_profile_from_ha``).
+# The ML forecast owns the others ("baseline", "no_ml") and must not be cleared by it.
+_HA_LOAD_PROFILE_REASONS = frozenset({"stale", "partial", "demo"})
+
+
+def clear_ha_load_profile_status() -> None:
+    """Clear a degraded status set by the HA load-profile path, leaving ML-owned ones."""
+    global _load_forecast_status, _load_forecast_reason, _load_forecast_detail
+    with _load_forecast_lock:
+        if _load_forecast_reason in _HA_LOAD_PROFILE_REASONS:
+            _load_forecast_status = "ok"
+            _load_forecast_reason = ""
+            _load_forecast_detail = ""
 
 
 @dataclass
@@ -1212,6 +1229,30 @@ class HealthChecker:
                             ),
                         )
                     )
+            elif reason == "stale":
+                issues.append(
+                    HealthIssue(
+                        category="forecast",
+                        severity="warning",
+                        message="Load forecast using a stored load profile",
+                        guidance=(
+                            f"{detail}. This resolves automatically once Home Assistant "
+                            "returns the history again."
+                        ),
+                    )
+                )
+            elif reason == "partial":
+                issues.append(
+                    HealthIssue(
+                        category="forecast",
+                        severity="info",
+                        message="Load profile built from part of the history",
+                        guidance=(
+                            f"{detail}. This resolves automatically once all days can "
+                            "be fetched from Home Assistant."
+                        ),
+                    )
+                )
             elif reason == "baseline":
                 issues.append(
                     HealthIssue(

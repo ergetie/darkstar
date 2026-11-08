@@ -9,6 +9,7 @@ from open_meteo_solar_forecast import OpenMeteoSolarForecast
 from sqlalchemy.exc import OperationalError
 
 from backend.core import ha_client, prices
+from backend.core.exception_text import describe_exception
 from backend.core.open_meteo_retry import is_transient_pv_error, retry_async
 from backend.exceptions import PVForecastError
 from ml.api import get_forecast_slots
@@ -745,7 +746,7 @@ async def _get_forecast_data_async(
     try:
         load_profile = await ha_client.get_load_profile_from_ha(config)
     except Exception as exc:
-        logger.warning("Failed to get HA load profile, using dummy: %s", exc)
+        logger.warning("Failed to get HA load profile, using dummy: %s", describe_exception(exc))
         load_profile = ha_client.get_dummy_load_profile(config)
 
     daily_load_total = sum(load_profile)

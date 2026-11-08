@@ -9,6 +9,8 @@ import logging
 
 import requests
 
+from backend.core.exception_text import describe_exception
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,7 +87,7 @@ def _send_ha_notification(
         response.raise_for_status()
         return True
     except requests.RequestException as e:
-        logger.warning("HA notification failed: %s", e)
+        logger.warning("HA notification failed: %s", describe_exception(e))
         return False
 
 
@@ -116,5 +118,5 @@ def _send_discord_notification(
         response.raise_for_status()
         return True
     except requests.RequestException as e:
-        logger.warning("Discord notification failed: %s", e)
+        logger.warning("Discord notification failed: %s", describe_exception(e))
         return False

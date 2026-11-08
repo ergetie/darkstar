@@ -208,3 +208,18 @@ def reset_ha_http_client():
     ha_client._ha_http_clients.clear()
     yield
     ha_client._ha_http_clients.clear()
+
+
+@pytest.fixture(autouse=True)
+def isolated_load_profile_state(monkeypatch, tmp_path):
+    """Per-test load profile failure memo, in-flight builds and last good profile file.
+
+    The last good profile is written after every successful live build, so tests must
+    never touch the real data/ file or inherit another test's cooldown.
+    """
+    from backend.core import ha_client
+
+    monkeypatch.setattr(ha_client, "_LOAD_PROFILE_STORE_PATH", tmp_path / "load_profile_last_good.json")
+    ha_client.reset_load_profile_state()
+    yield
+    ha_client.reset_load_profile_state()

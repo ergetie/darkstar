@@ -177,6 +177,9 @@ async def _retry_with_backoff(
         HACallError: If all retries are exhausted
         Exception: If the error is not retryable
     """
+    # Imported lazily like the other ``backend`` imports of this module.
+    from backend.core.exception_text import describe_exception
+
     last_exception = None
 
     for attempt in range(max_retries + 1):
@@ -197,17 +200,20 @@ async def _retry_with_backoff(
             # Calculate delay with exponential backoff
             delay = min(base_delay * (backoff_factor**attempt), max_delay)
             logger.warning(
-                "HA API call failed (attempt %d/%d): %s. Retrying in %.1fs...",
+                "HA API call failed (attempt %d/%d): %s; retrying in %.1fs",
                 attempt + 1,
                 max_retries + 1,
-                e,
+                describe_exception(e),
                 delay,
             )
             await asyncio.sleep(delay)
 
     # All retries exhausted
     raise HACallError(
-        message=f"HA API call failed after {max_retries + 1} attempts",
+        message=(
+            f"HA API call failed after {max_retries + 1} attempts"
+            + (f": {describe_exception(last_exception)}" if last_exception else "")
+        ),
         exception_type=type(last_exception).__name__ if last_exception else "Unknown",
     ) from last_exception
 
@@ -709,6 +715,9 @@ class ActionDispatcher:
         Returns:
             True if successful
         """
+        # Imported lazily like the other ``backend`` imports of this module.
+        from backend.core.exception_text import describe_exception
+
         try:
             if domain in NUMBER_DOMAINS:
                 if entity_state is None:
@@ -726,7 +735,7 @@ class ActionDispatcher:
                 logger.error("Unknown entity domain: %s", domain)
                 return False
         except HACallError as e:
-            logger.error("Failed to write to %s: %s", entity_id, e)
+            logger.error("Failed to write to %s: %s", entity_id, describe_exception(e))
             if raise_errors:
                 raise
             return False
@@ -851,7 +860,11 @@ class ActionDispatcher:
         try:
             mode_def = self.profile.get_mode(mode_intent)
         except Exception as e:
-            logger.error("Failed to get mode '%s' from profile: %s", mode_intent, e)
+            from backend.core.exception_text import describe_exception
+
+            logger.error(
+                "Failed to get mode '%s' from profile: %s", mode_intent, describe_exception(e)
+            )
             return [
                 ActionResult(
                     action_type="error",
@@ -1810,7 +1823,9 @@ class ActionDispatcher:
                 message,
             )
         except Exception as e:
-            logger.warning("Failed to send notification: %s", e)
+            from backend.core.exception_text import describe_exception
+
+            logger.warning("Failed to send notification: %s", describe_exception(e))
 
     async def notify_balancer_intervention(self, message: str) -> None:
         """Balancer intervention notification (load-balancing-completion 5.1).
@@ -1824,13 +1839,15 @@ class ActionDispatcher:
             logger.info("[SHADOW] Would send balancer notification: %s", message)
             return
 
+        from backend.core.exception_text import describe_exception
+
         sent = False
         try:
             sent = await self.ha.send_notification(
                 self.config.notifications.service, title, message
             )
         except Exception as e:
-            logger.warning("Balancer HA notification failed: %s", e)
+            logger.warning("Balancer HA notification failed: %s", describe_exception(e))
 
         if not sent:
             try:
@@ -1852,7 +1869,7 @@ class ActionDispatcher:
                         message,
                     )
             except Exception as e:
-                logger.warning("Balancer Discord fallback failed: %s", e)
+                logger.warning("Balancer Discord fallback failed: %s", describe_exception(e))
 
     async def notify_plug_in_reminder(self, message: str) -> None:
         """Car-not-plugged-in reminder (ev-plug-in-reminder).

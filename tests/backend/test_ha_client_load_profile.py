@@ -128,6 +128,38 @@ class TestLoadProfileFromPower:
             assert profile[slot] == pytest.approx(expected, abs=1e-6)
 
     @pytest.mark.asyncio
+    async def test_slots_follow_the_configured_timezone(self):
+        """The same 16:00-17:00 UTC burst is 18:00 in Stockholm (CEST) but 01:00 next
+        day in Tokyo (UTC+9), so the configured timezone decides the slots."""
+        points: list[tuple[datetime, float]] = [(FIXED_NOW - timedelta(days=9), 0.0)]
+        for day in range(-1, 8):
+            base = datetime(2026, 9, 20, 16, 0, tzinfo=pytz.UTC) - timedelta(days=day)
+            points += [(base, 4.0), (base + timedelta(hours=1), 0.0)]
+        tokyo = {**CONFIG, "timezone": "Asia/Tokyo"}
+        profile = await _profile(_FakeHA(points), tokyo)
+        for slot in range(96):
+            expected = 1.0 if 4 <= slot <= 7 else 0.0
+            assert profile[slot] == pytest.approx(expected, abs=1e-6)
+
+    @pytest.mark.asyncio
+    async def test_missing_timezone_defaults_to_stockholm(self):
+        points: list[tuple[datetime, float]] = [(FIXED_NOW - timedelta(days=9), 0.0)]
+        for day in range(-1, 8):
+            base = datetime(2026, 9, 20, 16, 0, tzinfo=pytz.UTC) - timedelta(days=day)
+            points += [(base, 4.0), (base + timedelta(hours=1), 0.0)]
+        no_tz = {"input_sensors": {"load_power": ENTITY}}
+        profile = await _profile(_FakeHA(points), no_tz)
+        for slot in range(96):
+            expected = 1.0 if 72 <= slot <= 75 else 0.0
+            assert profile[slot] == pytest.approx(expected, abs=1e-6)
+
+    @pytest.mark.asyncio
+    async def test_unknown_timezone_falls_back_to_stockholm(self):
+        bad = {**CONFIG, "timezone": "Mars/Olympus"}
+        profile = await _profile(_FakeHA(_constant(1.0)), bad)
+        assert sum(profile) == pytest.approx(24.0)
+
+    @pytest.mark.asyncio
     async def test_burst_across_local_midnight_wraps_into_slots_95_and_0(self):
         # 4 kW from 23:50 to 00:05 local on 2026-09-17 (CEST = UTC+2)
         start = datetime(2026, 9, 17, 21, 50, tzinfo=pytz.UTC)

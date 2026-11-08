@@ -8,6 +8,7 @@ from typing import Any
 import websockets
 
 from backend.core.ev_plug import resolve_plug_state
+from backend.core.exception_text import describe_exception
 from backend.core.secrets import load_home_assistant_config, load_yaml
 from backend.core.water_heating import active_water_heaters
 
@@ -331,7 +332,7 @@ class HAWebSocketClient:
                                 self._handle_state_change(entity_id, new_state)
 
             except Exception as e:
-                logger.error(f"HA WebSocket error: {e}")
+                logger.error(f"HA WebSocket error: {describe_exception(e)}")
                 await asyncio.sleep(5)
 
     def _sync_ev_schedules_on_startup(self, results: list[dict[str, Any]]) -> None:
