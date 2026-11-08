@@ -186,6 +186,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
         export_revenue_sek: number
         grid_charge_cost_sek: number
         self_consumption_savings_sek: number
+        fixed_fees_sek: number
         net_cost_sek: number
         battery_wear_cost_sek: number
         net_cost_incl_wear_sek: number
@@ -265,6 +266,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                         export_revenue_sek: data.export_revenue_sek,
                         grid_charge_cost_sek: data.grid_charge_cost_sek,
                         self_consumption_savings_sek: data.self_consumption_savings_sek,
+                        fixed_fees_sek: data.fixed_fees_sek ?? 0,
                         net_cost_sek: data.net_cost_sek,
                         battery_wear_cost_sek: data.battery_wear_cost_sek,
                         net_cost_incl_wear_sek: data.net_cost_incl_wear_sek,
@@ -712,6 +714,17 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                                 </span>
                             </div>
                         )}
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
+                        <span
+                            className="text-muted cursor-help"
+                            title="Grid subscription and supplier yearly fee incl. VAT, prorated per day. Included in Net."
+                        >
+                            Fixed fees
+                        </span>
+                        <span className="text-bad font-medium tabular-nums whitespace-nowrap">
+                            {`-${rangeData.fixed_fees_sek.toFixed(1)} kr`}
+                        </span>
                     </div>
                     <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
                         <span className="text-muted">Export Rev</span>

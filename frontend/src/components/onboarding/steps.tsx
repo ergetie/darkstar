@@ -521,7 +521,7 @@ function LocationStep(props: StepProps) {
                     config={props.config}
                     update={props.update}
                     path="pricing.energy_tax_sek"
-                    label="Energy tax"
+                    label="Energy tax (excl. VAT, default 0.36)"
                     type="number"
                     min={0}
                     step={0.001}
@@ -532,7 +532,7 @@ function LocationStep(props: StepProps) {
                     config={props.config}
                     update={props.update}
                     path="pricing.grid_transfer_fee_sek"
-                    label="Grid transfer fee"
+                    label="Grid transfer fee (excl. VAT)"
                     type="number"
                     min={0}
                     step={0.001}

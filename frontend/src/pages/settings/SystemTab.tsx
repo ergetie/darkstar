@@ -12,6 +12,7 @@ import { AdditionalAdvancedNotice, GlobalAdvancedLockedNotice } from './componen
 import { UnsavedChangesBanner } from './components/UnsavedChangesBanner'
 import { NavigationBlockerDialog } from './components/NavigationBlockerDialog'
 import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard'
+import { RecalculateCostsPanel } from './components/RecalculateCostsPanel'
 import { ProfileSetupHelper } from './components/ProfileSetupHelper'
 import { ProfileSetupNotice } from '../../components/ProfileSetupNotice'
 import { useDismissedNotices } from '../../lib/useDismissedNotices'
@@ -326,6 +327,9 @@ export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }
                                                                                     )}
                                                                             </AnimatePresence>
                                                                         </div>
+                                                                        {subKey === 'Electricity supplier' && (
+                                                                            <RecalculateCostsPanel disabled={isDirty} />
+                                                                        )}
                                                                     </div>
                                                                 ) : (
                                                                     <div className="grid gap-4 sm:grid-cols-2 mb-4">

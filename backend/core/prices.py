@@ -142,6 +142,7 @@ async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, 
 
 
 DEFAULT_GRID_TRANSFER_FEE_SEK = 0.2456
+DEFAULT_ENERGY_TAX_SEK = 0.36
 TRANSFER_FEE_MODE_FLAT = "flat"
 TRANSFER_FEE_MODE_TOU = "time_of_use"
 
@@ -235,14 +236,15 @@ def calculate_import_export_prices(
     grid_transfer_fee_sek = resolve_transfer_fee(
         slot_start, pricing_config, config.get("timezone", "Europe/Stockholm")
     )
-    energy_tax_sek = pricing_config.get("energy_tax_sek", 0.439)
+    energy_tax_sek = pricing_config.get("energy_tax_sek", DEFAULT_ENERGY_TAX_SEK)
+    supplier_markup_sek = float(pricing_config.get("supplier_markup_sek_kwh", 0.0) or 0.0)
 
     spot_price_sek_kwh = spot_price_mwh / 1000.0
     export_price_sek_kwh = spot_price_sek_kwh
 
-    import_price_sek_kwh = (spot_price_sek_kwh + grid_transfer_fee_sek + energy_tax_sek) * (
-        1 + vat_percent / 100.0
-    )
+    import_price_sek_kwh = (
+        spot_price_sek_kwh + grid_transfer_fee_sek + energy_tax_sek + supplier_markup_sek
+    ) * (1 + vat_percent / 100.0)
 
     return import_price_sek_kwh, export_price_sek_kwh
 

@@ -54,6 +54,8 @@ function useIsMobile(): boolean {
 export interface PricingBreakdownConfig {
     vat: number
     energyTax: number
+    /** Supplier markup per kWh excl. VAT (counted as a fee, not spot). */
+    supplierMarkup?: number
     transferFee: TransferFeeConfig
     /** Configured IANA timezone (`config.timezone`); the backend matches rules in this zone. */
     timezone: string
@@ -70,6 +72,7 @@ export function pricingBreakdownFromConfig(config: ConfigResponse): PricingBreak
     return {
         vat: p.vat_percent ?? 25,
         energyTax: p.energy_tax_sek ?? 0,
+        supplierMarkup: p.supplier_markup_sek_kwh ?? 0,
         transferFee: transferFeeConfigFromPricing(p),
         timezone: config.timezone || DEFAULT_TIMEZONE,
     }
@@ -77,7 +80,7 @@ export function pricingBreakdownFromConfig(config: ConfigResponse): PricingBreak
 
 /** Splits a total SEK/kWh price into spot and fees+VAT parts.
  * Total = (Spot + Fees) * (1 + VAT/100); Spot = (Total / (1 + VAT/100)) - Fees.
- * Fees = energy tax + the transfer fee for the slot. In time-of-use mode the fee
+ * Fees = energy tax + supplier markup + the transfer fee for the slot. In time-of-use mode the fee
  * is resolved from `slotStartIso` (wall-clock in the configured timezone); without a
  * slot time the flat fee is used, like the backend. */
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
@@ -94,7 +97,7 @@ export function splitPriceBreakdown(
         pricing.transferFee,
         slotStartIso ? wallClockParts(slotStartIso, pricing.timezone) : null,
     )
-    const spot = Math.max(0, basePrice - (pricing.energyTax + transferFee))
+    const spot = Math.max(0, basePrice - (pricing.energyTax + (pricing.supplierMarkup ?? 0) + transferFee))
     const feesAndVat = value - spot
     return { spot, feesAndVat }
 }

@@ -684,6 +684,23 @@ def _migrate_pv_residual_bound(config: dict[str, Any]) -> tuple[dict[str, Any], 
     return config, True
 
 
+def _migrate_energy_tax(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Rewrite ``pricing.energy_tax_sek`` from the old default 0.439 to 0.36.
+
+    Only an exact 0.439 is rewritten; any user-customised value is kept.
+    """
+    pricing_raw: Any = config.get("pricing")
+    if not isinstance(pricing_raw, dict):
+        return config, False
+    pricing = cast("dict[str, Any]", pricing_raw)
+    value: Any = pricing.get("energy_tax_sek")
+    if isinstance(value, bool) or not isinstance(value, int | float) or float(value) != 0.439:
+        return config, False
+    pricing["energy_tax_sek"] = 0.36
+    logger.info("🔄 Migrated pricing.energy_tax_sek: 0.439 (old default) -> 0.36")
+    return config, True
+
+
 def _migrate_target_margin(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     """Replace ``load_balancing.resume_margin_percent`` with ``target_margin_percent``.
 
@@ -1373,6 +1390,11 @@ def _migrate_config(config_path: str, default_path: str, strict_validation: bool
     # 2.1a1b Replace load_balancing.resume_margin_percent with target_margin_percent
     user_config, margin_changes = _migrate_target_margin(user_config)
     if margin_changes:
+        pre_merge_changes = True
+
+    # 2.1a1b1 Lower the old energy tax default (0.439) to 0.36
+    user_config, energy_tax_changes = _migrate_energy_tax(user_config)
+    if energy_tax_changes:
         pre_merge_changes = True
 
     # 2.1a1b2 Raise the old PV residual bound default (0.25) to 1.0

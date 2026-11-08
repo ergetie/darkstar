@@ -500,3 +500,24 @@ def test_summary_totals_cover_scored_days_only():
     assert totals["by_reason"] == {"not_clean_recording": 1, "solver_not_optimal": 1}
     assert totals["by_warning"] == {"capacity_mismatch": 1}
     assert summarize([records[2]])["score"] is None
+
+
+def test_fixed_fees_never_enter_benchmark(monkeypatch):
+    """Hindsight benchmark is energy-only: results are identical with non-zero fixed fees."""
+    import inspect
+
+    import backend.battery_benchmark as module
+    from backend.core import fixed_fees
+
+    baseline = _run(_day_rows(DAY)) | {"solve_seconds": 0}
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("fixed fees must not be read by the battery benchmark")
+
+    monkeypatch.setattr(fixed_fees, "fixed_fees_for_range", _boom)
+    assert _run(_day_rows(DAY)) | {"solve_seconds": 0} == baseline
+
+    source = inspect.getsource(module)
+    assert "fixed_fee" not in source
+    assert "subscription_fee" not in source
+    assert "supplier_fee" not in source

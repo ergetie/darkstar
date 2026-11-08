@@ -173,3 +173,23 @@ def test_config_save_invalidates_price_cache_on_pricing_change(
             assert saved["transfer_fee_rules"] == []
     finally:
         cache_sync.invalidate(NORDPOOL_CACHE_KEY)
+
+
+def test_supplier_markup_inside_vat_bracket_and_export_unchanged():
+    config = {
+        "pricing": {
+            "vat_percent": 25.0,
+            "grid_transfer_fee_sek": 0.2584,
+            "energy_tax_sek": 0.36,
+            "supplier_markup_sek_kwh": 0.1132,
+        }
+    }
+    imp, exp = calculate_import_export_prices(500.0, config)
+    assert imp == pytest.approx((0.5 + 0.2584 + 0.36 + 0.1132) * 1.25)
+    assert imp == pytest.approx(1.5395, abs=1e-4)
+    assert exp == pytest.approx(0.5)
+
+
+def test_energy_tax_fallback_and_markup_default():
+    imp, _ = calculate_import_export_prices(500.0, {"pricing": {"grid_transfer_fee_sek": 0.25}})
+    assert imp == pytest.approx((0.5 + 0.25 + 0.36) * 1.25)

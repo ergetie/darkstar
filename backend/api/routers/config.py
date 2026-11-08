@@ -550,6 +550,35 @@ def _validate_transfer_fee_rules(config: dict[str, Any]) -> list[dict[str, str]]
     return issues
 
 
+FIXED_FEE_KEYS = (
+    "subscription_fee_sek_per_month",
+    "supplier_fee_sek_per_year",
+    "supplier_markup_sek_kwh",
+)
+
+
+def _validate_fixed_fees(config: dict[str, Any]) -> list[dict[str, str]]:
+    """Validate that the fixed fee and supplier markup keys are non-negative numbers."""
+    pricing: Any = config.get("pricing")
+    if not isinstance(pricing, dict):
+        return []
+    pricing = cast("dict[str, Any]", pricing)
+    issues: list[dict[str, str]] = []
+    for key in FIXED_FEE_KEYS:
+        value: Any = pricing.get(key)
+        if value is None:
+            continue
+        if not _is_number(value) or float(value) < 0:
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"pricing.{key} must be a non-negative number (got {value!r})",
+                    "guidance": "Enter the amount excl. VAT, or 0 to disable it.",
+                }
+            )
+    return issues
+
+
 def _is_number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
 
@@ -971,6 +1000,7 @@ def _validate_config_for_save(
 
     issues.extend(_validate_ev_planning(config))
     issues.extend(_validate_transfer_fee_rules(config))
+    issues.extend(_validate_fixed_fees(config))
 
     # Nominal grid voltage: ERROR outside 100-260 V (single value for all kW<->A conversion)
     raw_voltage: Any = None

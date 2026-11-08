@@ -4,8 +4,11 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from backend.api.deps import get_learning_store
+from backend.core.fixed_fees import fixed_fees_for_range
+from backend.core.prices import calculate_import_export_prices
 from backend.core.secrets import load_yaml
 from backend.grid_only_comparison import GridOnlyObservation, build_grid_only_comparison
 from backend.learning.store import LearningStore
@@ -115,6 +118,7 @@ async def get_energy_today(
     ev_cost_sek = range_data.get("ev_cost_sek", 0.0)
     ev_solar_share = range_data.get("ev_solar_share")
     water_kwh = range_data.get("water_heating_kwh", 0.0)
+    fixed_fees = range_data.get("fixed_fees_sek", 0.0)
     net_cost = range_data.get("net_cost_sek", 0.0)
     battery_wear_cost = range_data.get("battery_wear_cost_sek", 0.0)
     net_cost_incl_wear = range_data.get("net_cost_incl_wear_sek", 0.0)
@@ -149,6 +153,7 @@ async def get_energy_today(
         "ev_cost_sek": round(ev_cost_sek, 2),
         "ev_solar_share": ev_solar_share,
         "water_heating_kwh": round(water_kwh, 2),
+        "fixed_fees_sek": round(fixed_fees, 2),
         "net_cost_sek": round(net_cost, 2),
         "battery_wear_cost_sek": round(battery_wear_cost, 2),
         "net_cost_incl_wear_sek": round(net_cost_incl_wear, 2),
@@ -315,7 +320,10 @@ async def get_energy_range(
             round(ev_solar_kwh / ev_attributed_kwh, 3) if ev_attributed_kwh > 0 else None
         )
 
-        net_cost = import_cost - export_rev
+        # Fixed fees are added only here, after the energy cost: comparisons,
+        # benchmarks, learning and /energy/cost-series stay energy-only.
+        fixed_fees_sek = fixed_fees_for_range(query_start, query_end, config)
+        net_cost = import_cost - export_rev + fixed_fees_sek
 
         battery_cycle_cost_kwh = float(
             config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0)
@@ -346,6 +354,7 @@ async def get_energy_range(
             "export_revenue_sek": round(export_rev, 2),
             "grid_charge_cost_sek": round(grid_charge_cost, 2),
             "self_consumption_savings_sek": round(self_cons_savings, 2),
+            "fixed_fees_sek": round(fixed_fees_sek, 2),
             "net_cost_sek": round(net_cost, 2),
             "battery_wear_cost_sek": round(battery_wear_cost_sek, 2),
             "net_cost_incl_wear_sek": round(net_cost_incl_wear_sek, 2),
@@ -373,6 +382,7 @@ async def get_energy_range(
             "export_revenue_sek": 0.0,
             "grid_charge_cost_sek": 0.0,
             "self_consumption_savings_sek": 0.0,
+            "fixed_fees_sek": 0.0,
             "net_cost_sek": 0.0,
             "battery_wear_cost_sek": 0.0,
             "net_cost_incl_wear_sek": 0.0,
@@ -592,4 +602,78 @@ async def get_battery_benchmark(
         "end_date": end.isoformat(),
         "days": records,
         "totals": summarize(records),
+    }
+
+
+class RecalculatePricesRequest(BaseModel):
+    from_date: date
+
+
+@router.post(
+    "/energy/recalculate-prices",
+    summary="Recalculate Historical Import Prices",
+    description=(
+        "Reprice slot_observations.import_price_sek_kwh from the stored raw spot "
+        "(export_price_sek_kwh) with the current pricing settings, from a local date. "
+        "Rows without a stored spot price are skipped. slot_plans are not touched."
+    ),
+)
+async def recalculate_prices(
+    request: RecalculatePricesRequest,
+    store: LearningStore = Depends(get_learning_store),
+) -> dict[str, Any]:
+    """Reprice historical import prices from the stored spot price (export price)."""
+    import pytz
+    from sqlalchemy import Table, bindparam, select, update
+
+    from backend.learning.models import SlotObservation
+
+    obs_table = cast("Table", SlotObservation.__table__)
+    config = load_yaml("config.yaml")
+    tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
+    start_iso = tz.localize(
+        datetime(request.from_date.year, request.from_date.month, request.from_date.day)
+    ).isoformat()
+
+    updates: list[dict[str, Any]] = []
+    skipped = 0
+    async with store.AsyncSession() as session:
+        result = await session.execute(
+            select(SlotObservation.slot_start, SlotObservation.export_price_sek_kwh).where(
+                SlotObservation.slot_start >= start_iso
+            )
+        )
+        for slot_start, spot_sek_kwh in result.all():
+            if spot_sek_kwh is None:
+                skipped += 1
+                continue
+            try:
+                slot_dt = datetime.fromisoformat(slot_start)
+            except ValueError:
+                skipped += 1
+                continue
+            import_price, _ = calculate_import_export_prices(
+                float(spot_sek_kwh) * 1000.0, config, slot_dt
+            )
+            updates.append({"b_slot_start": slot_start, "b_import_price": import_price})
+
+        if updates:
+            await session.execute(
+                update(obs_table)
+                .where(obs_table.c.slot_start == bindparam("b_slot_start"))
+                .values(import_price_sek_kwh=bindparam("b_import_price")),
+                updates,
+            )
+        await session.commit()
+
+    logger.info(
+        "Recalculated import prices from %s: %d repriced, %d skipped",
+        request.from_date,
+        len(updates),
+        skipped,
+    )
+    return {
+        "from_date": request.from_date.isoformat(),
+        "repriced": len(updates),
+        "skipped": skipped,
     }

@@ -8,6 +8,9 @@ import pytz
 import requests
 import yaml
 
+sys.path.insert(0, str(Path.cwd()))
+from backend.core.prices import calculate_import_export_prices
+
 # Constants
 VATTENFALL_API = "https://www.vattenfall.se/api/price/spot/pricearea/{start}/{end}/{area}"
 
@@ -22,23 +25,16 @@ def get_db_path(config: dict[str, Any]) -> str:
     return config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
 
 
-def calculate_final_prices(spot_ore: float, config: dict[str, Any]) -> tuple[float, float]:
+def calculate_final_prices(
+    spot_ore: float, config: dict[str, Any], slot_start: datetime | None = None
+) -> tuple[float, float]:
     """
-    Convert Spot (öre/kWh) to Import/Export (SEK/kWh) using config taxes.
+    Convert Spot (öre/kWh) to Import/Export (SEK/kWh) via the shared price formula.
     """
-    pricing: dict[str, Any] = config.get("pricing", {}) or {}
-    vat_percent: float = pricing.get("vat_percent", 25.0)
-    grid_fee: float = pricing.get("grid_transfer_fee_sek", 0.2456)
-    energy_tax: float = pricing.get("energy_tax_sek", 0.439)
-
-    spot_sek: float = spot_ore / 100.0
-
-    # Import: (Spot + Grid + Tax) * VAT
-    import_price: float = (spot_sek + grid_fee + energy_tax) * (1.0 + (vat_percent / 100.0))
-
-    # Export: Spot
-    export_price: float = spot_sek
-
+    spot_sek_mwh = spot_ore * 10.0  # öre/kWh -> SEK/MWh
+    import_price, export_price = calculate_import_export_prices(
+        spot_sek_mwh, config, slot_start=slot_start
+    )
     return round(import_price, 4), round(export_price, 4)
 
 
@@ -93,7 +89,7 @@ def backfill_vattenfall(start_date_str: str, end_date_str: str, area: str = "SN4
                         dt_end_local = dt_local + timedelta(hours=1)
 
                         # Calculate prices
-                        imp, exp = calculate_final_prices(float(val_ore), config)
+                        imp, exp = calculate_final_prices(float(val_ore), config, dt_local)
 
                         rows_to_insert.append(
                             (dt_local.isoformat(), dt_end_local.isoformat(), imp, exp)

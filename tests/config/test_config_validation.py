@@ -1318,3 +1318,38 @@ def test_transfer_fee_tou_without_rules_warns():
     issues = _transfer_issues(_pricing_config(transfer_fee_mode="time_of_use", transfer_fee_rules=[]))
     assert [i["severity"] for i in issues] == ["warning"]
     assert "no rules" in issues[0]["message"]
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["subscription_fee_sek_per_month", "supplier_fee_sek_per_year", "supplier_markup_sek_kwh"],
+)
+def test_validate_fixed_fee_keys_reject_negative_and_non_numbers(key):
+    for bad in (-1, "510", True):
+        issues = _validate_config_for_save({"pricing": {key: bad}})
+        assert any(i["severity"] == "error" and key in i["message"] for i in issues)
+
+
+def test_validate_fixed_fee_keys_accept_zero_and_positive():
+    config = {
+        "pricing": {
+            "subscription_fee_sek_per_month": 510,
+            "supplier_fee_sek_per_year": 0,
+            "supplier_markup_sek_kwh": 0.1132,
+        }
+    }
+    issues = _validate_config_for_save(config)
+    assert not any("pricing." in i["message"] and i["severity"] == "error" for i in issues)
+
+
+def test_default_config_pricing_keys():
+    from pathlib import Path
+
+    import yaml
+
+    default = Path(__file__).resolve().parents[2] / "config.default.yaml"
+    pricing = yaml.safe_load(default.read_text(encoding="utf-8"))["pricing"]
+    assert pricing["energy_tax_sek"] == 0.36
+    assert pricing["subscription_fee_sek_per_month"] == 0
+    assert pricing["supplier_fee_sek_per_year"] == 0
+    assert pricing["supplier_markup_sek_kwh"] == 0

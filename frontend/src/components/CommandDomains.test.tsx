@@ -205,6 +205,29 @@ describe('GridDomain EV sub-row under Grid Import', () => {
     })
 })
 
+describe('GridDomain fixed fees row', () => {
+    it('shows Fixed fees between Grid Import and Export Rev with the range amount', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse({ fixed_fees_sek: 678.26 }))
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        const fees = await screen.findByText('Fixed fees')
+        const gridImport = screen.getByText('Grid Import')
+        const exportRev = screen.getByText('Export Rev')
+        expect(gridImport.compareDocumentPosition(fees) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(fees.compareDocumentPosition(exportRev) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(fees.parentElement).toHaveTextContent('-678.3 kr')
+    })
+
+    it('shows zero fixed fees when the backend omits the field', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        expect((await screen.findByText('Fixed fees')).parentElement).toHaveTextContent('-0.0 kr')
+    })
+})
+
 const gridOnlyAxis = {
     timezone: 'Europe/Stockholm',
     start: '2026-10-05T00:00:00+02:00',

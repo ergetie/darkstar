@@ -261,3 +261,35 @@ async def test_invalid_custom_range_keeps_existing_error_response(store):
     assert series["points"] == []
     assert "error" in series
     assert "grid_only_comparison" not in series
+
+
+@pytest.mark.asyncio
+async def test_cost_series_stays_energy_only_with_fixed_fees(store, monkeypatch):
+    _freeze_day_after(monkeypatch, NORMAL_DAY)
+    rows = [
+        {"import_kwh": 1.0, "load_kwh": 1.0},
+        {"import_kwh": 1.0, "load_kwh": 2.0},
+        {"export_kwh": 2.0, "export_price_sek_kwh": 0.5, "load_kwh": 3.0},
+        {"import_kwh": 0.5, "load_kwh": 0.5},
+    ]
+    await _add(store, rows, day=NORMAL_DAY)
+    fee_config = CONFIG | {
+        "pricing": {
+            "vat_percent": 25.0,
+            "subscription_fee_sek_per_month": 510.0,
+            "supplier_fee_sek_per_year": 384.0,
+        }
+    }
+    with patch("backend.api.routers.energy.load_yaml", return_value=CONFIG):
+        plain = await get_cost_series(period="yesterday", store=store)
+        plain_range = await get_energy_range(period="yesterday", store=store)
+    with patch("backend.api.routers.energy.load_yaml", return_value=fee_config):
+        with_fees = await get_cost_series(period="yesterday", store=store)
+        fee_range = await get_energy_range(period="yesterday", store=store)
+
+    assert with_fees == plain
+    assert plain_range["fixed_fees_sek"] == 0.0
+    assert fee_range["fixed_fees_sek"] > 0
+    assert fee_range["net_cost_sek"] == pytest.approx(
+        plain_range["net_cost_sek"] + fee_range["fixed_fees_sek"], abs=0.01
+    )

@@ -1210,3 +1210,27 @@ def test_first_failing_check_wins():
         "ev",
     )
     assert _reason(row(START, import_price_sek_kwh=None, load_kwh=None)) == ("missing_price", None)
+
+
+def test_fixed_fees_never_enter_grid_only_comparison(monkeypatch):
+    """Grid-only comparison is energy-only: results are identical with non-zero fixed fees."""
+    import inspect
+
+    import backend.grid_only_comparison as module
+    from backend.core import fixed_fees
+
+    starts = [TZ.localize(datetime(2026, 10, 5, 10)) + i * SLOT for i in range(4)]
+    rows = [row(s, import_kwh=1.0, load_kwh=1.0) for s in starts]
+    baseline = compare(rows, starts)
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("fixed fees must not be read by the grid-only comparison")
+
+    monkeypatch.setattr(fixed_fees, "fixed_fees_for_range", _boom)
+    with_fees = compare(rows, starts)
+
+    assert with_fees == baseline
+    source = inspect.getsource(module)
+    assert "fixed_fee" not in source
+    assert "subscription_fee" not in source
+    assert "supplier_fee" not in source

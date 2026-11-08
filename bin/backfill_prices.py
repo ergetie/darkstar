@@ -11,6 +11,8 @@ from nordpool.elspot import Prices
 sys.path.insert(0, str(Path.cwd()))
 from learning import LearningEngine  # type: ignore[reportUnknownVariableType]
 
+from backend.core.prices import calculate_import_export_prices
+
 
 def load_config(path: str = "config.yaml") -> dict[str, Any]:
     with Path(path).open(encoding="utf-8") as f:
@@ -57,11 +59,7 @@ def backfill_prices(days: int, config_path: str = "config.yaml") -> None:
         return
 
     # Process and Store
-    # Re-use logic from inputs.py _process_nordpool_data but simplified for storage
-    pricing_config: dict[str, Any] = config.get("pricing", {}) or {}
-    vat_percent: float = pricing_config.get("vat_percent", 25.0)
-    grid_transfer_fee_sek: float = pricing_config.get("grid_transfer_fee_sek", 0.2456)
-    energy_tax_sek: float = pricing_config.get("energy_tax_sek", 0.439)
+    # Prices come from the shared formula (VAT, transfer fee rules, tax, supplier markup)
     local_tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
 
     records: list[dict[str, Any]] = []
@@ -70,10 +68,8 @@ def backfill_prices(days: int, config_path: str = "config.yaml") -> None:
         start_time = entry["start"].astimezone(local_tz)
         end_time = entry["end"].astimezone(local_tz)
 
-        spot_price_sek_kwh = entry["value"] / 1000.0
-        export_price_sek_kwh = spot_price_sek_kwh
-        import_price_sek_kwh = (spot_price_sek_kwh + grid_transfer_fee_sek + energy_tax_sek) * (
-            1 + vat_percent / 100.0
+        import_price_sek_kwh, export_price_sek_kwh = calculate_import_export_prices(
+            entry["value"], config, slot_start=start_time
         )
 
         records.append(

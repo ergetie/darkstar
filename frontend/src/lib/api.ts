@@ -130,6 +130,7 @@ export type ConfigResponse = {
             fee_sek: number
         }[]
         energy_tax_sek?: number
+        supplier_markup_sek_kwh?: number
     }
     input_sensors?: {
         vacation_mode?: string
@@ -1213,11 +1214,19 @@ export type EnergyRangeResponse = {
     export_revenue_sek: number
     grid_charge_cost_sek: number
     self_consumption_savings_sek: number
+    // Grid subscription + supplier yearly fee incl. VAT, prorated per day; included in net_cost_sek and net_cost_incl_wear_sek
+    fixed_fees_sek?: number
     net_cost_sek: number
     battery_wear_cost_sek: number
     net_cost_incl_wear_sek: number
     slot_count: number
     error?: string
+}
+
+export type RecalculatePricesResponse = {
+    from_date: string
+    repriced: number
+    skipped: number
 }
 
 export type ThemeResponse = {
@@ -1586,6 +1595,8 @@ export const Api = {
         }
         return data as ConfigSaveResponse
     },
+    recalculatePrices: (fromDate: string) =>
+        getJSON<RecalculatePricesResponse>('/api/energy/recalculate-prices', 'POST', { from_date: fromDate }),
     configReset: () => getJSON<{ status: string }>('/api/config/reset', 'POST'),
     setTheme: (payload: { theme: string; accent_index?: number | null }) =>
         getJSON<ThemeSetResponse>('/api/theme', 'POST', payload),
