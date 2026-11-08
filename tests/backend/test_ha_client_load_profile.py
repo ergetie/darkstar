@@ -143,8 +143,11 @@ class TestLoadProfileFromPower:
 
     @pytest.mark.asyncio
     async def test_dst_fall_back_repeats_the_hour_in_wall_clock_slots(self):
-        """On 2026-10-25 (25 h day) 02:00-03:00 occurs twice, so its slots get 8 samples
-        in the window where every other slot gets 7; no energy is lost."""
+        """On 2026-10-25 (25 h day) 02:00-03:00 occurs twice, so its slots are sampled 8
+        times in the window where every other slot is sampled 7 times. Each slot is the
+        mean over its covered time, so the repeated hour is not inflated (a constant
+        1 kW load stays 0.25 kWh in every slot); no energy is lost.
+        """
         now = datetime(2026, 10, 27, 12, 0, tzinfo=pytz.UTC)
 
         class _DstNow(datetime):
@@ -156,8 +159,8 @@ class TestLoadProfileFromPower:
         with patch("backend.core.ha_client.datetime", _DstNow):
             profile = await _profile(fake)
 
-        assert sum(profile) * 7 == pytest.approx(7 * 24.0)
-        assert profile[9] == pytest.approx(0.25 * 8 / 7)
+        assert sum(profile) == pytest.approx(24.0)
+        assert profile[9] == pytest.approx(0.25)
         assert profile[60] == pytest.approx(0.25)
 
 
@@ -268,3 +271,126 @@ class TestDegradedMessaging:
         assert issues
         assert "load_power" in issues[0].guidance
         assert "total_load_consumption" not in issues[0].guidance
+
+
+def _daily(values: dict[int, object], days: range = range(-1, 9)) -> list[tuple[datetime, object]]:
+    """Repeat a UTC time-of-day pattern (``{second_of_day: value}``) on every day.
+
+    ``value`` may be the string ``"unavailable"`` to open a sensor gap.
+    """
+    midnight = datetime(2026, 9, 20, tzinfo=pytz.UTC)
+    return [
+        (midnight - timedelta(days=day) + timedelta(seconds=sec), value)
+        for day in days
+        for sec, value in values.items()
+    ]
+
+
+HOUR = 3600
+
+
+class TestPerSlotCoverageAveraging:
+    """fix-load-profile-coverage-averaging: a slot is averaged only over valid time."""
+
+    @pytest.mark.asyncio
+    async def test_six_hour_outage_on_one_day_does_not_lower_the_profile(self):
+        # 2 kW 00-12 UTC, 1 kW 12-24 UTC every day: a non-flat reference profile.
+        pattern = _daily({0: 2.0, 12 * HOUR: 1.0})
+        reference = await _profile(_FakeHA(pattern))
+
+        # Same pattern, but on 2026-09-16 the sensor is unavailable 03:00-09:00 UTC.
+        outage_start = datetime(2026, 9, 16, 3, 0, tzinfo=pytz.UTC)
+        gap = [(outage_start, "unavailable"), (outage_start + timedelta(hours=6), 2.0)]
+        profile = await _profile(_FakeHA(pattern + gap))
+
+        assert profile == [pytest.approx(v) for v in reference]
+        # 05:00-11:00 local (slots 20-43) keep 2 kW (0.5 kWh), not 6/7 of it.
+        assert profile[20] == pytest.approx(0.5)
+        assert profile[43] == pytest.approx(0.5)
+
+    @pytest.mark.asyncio
+    async def test_partial_slot_outage_is_exact(self):
+        # 1 kW all week. On 2026-09-16 the sensor is unavailable 03:00-03:10 UTC and
+        # reads 3 kW for the last 5 minutes of that slot (local slot 20, 05:00 CEST).
+        t = datetime(2026, 9, 16, 3, 0, tzinfo=pytz.UTC)
+        points = [
+            *_constant(1.0),
+            (t, "unavailable"),
+            (t + timedelta(minutes=10), 3.0),
+            (t + timedelta(minutes=15), 1.0),
+        ]
+        profile = await _profile(_FakeHA(points))
+
+        energy = 6 * 0.25 + 3.0 * 5 / 60  # kWh actually measured in the slot
+        covered = 6 * 900 + 300  # seconds of valid data in the slot
+        assert profile[20] == pytest.approx(energy / covered * 900)
+        assert profile[19] == pytest.approx(0.25)
+        assert profile[21] == pytest.approx(0.25)
+
+    @pytest.mark.asyncio
+    async def test_fully_covered_days_are_the_plain_mean(self):
+        # Each of the 7 request windows (12:00 UTC to 12:00 UTC) holds 1..7 kW, so every
+        # slot is sampled once per window and its mean is 4 kW, i.e. 1 kWh per slot.
+        window_start = FIXED_NOW - timedelta(days=7)
+        points = [(window_start - timedelta(days=1), 1.0)] + [
+            (window_start + timedelta(days=i), float(i + 1)) for i in range(7)
+        ]
+        profile = await _profile(_FakeHA(points))
+        assert profile == [pytest.approx(1.0)] * 96
+
+    @pytest.mark.asyncio
+    async def test_slot_never_covered_is_interpolated_from_neighbours(self):
+        # Every day: 2 kW, sensor unavailable 22:00-23:00 UTC (local slots 0-3), then
+        # 1 kW from 23:00 UTC (local slot 4) until the next 00:00 UTC.
+        pattern = _daily({0: 2.0, 22 * HOUR: "unavailable", 23 * HOUR: 1.0})
+        profile = await _profile(_FakeHA(pattern))
+
+        assert profile[95] == pytest.approx(0.5)
+        assert profile[4] == pytest.approx(0.25)
+        for slot in range(4):
+            expected = 0.5 + (0.25 - 0.5) * (slot + 1) / 5
+            assert profile[slot] == pytest.approx(expected)
+        assert get_load_forecast_status()["status"] != "degraded"
+
+    @pytest.mark.asyncio
+    async def test_mostly_uncovered_profile_is_insufficient(self):
+        # Valid data only 18:00-24:00 UTC every day (24 of 96 slots): below the floor.
+        pattern = _daily({0: "unavailable", 18 * HOUR: 1.0})
+        profile = await _profile(_FakeHA(pattern))
+        assert profile == [0.5] * 96
+        status = get_load_forecast_status()
+        assert status["status"] == "degraded"
+        assert ENTITY in status["detail"]
+        assert "24 of 96" in status["detail"]
+
+    @pytest.mark.asyncio
+    async def test_total_outage_is_empty_history_not_zero_load(self):
+        pattern = _daily({0: "unavailable"})
+        profile = await _profile(_FakeHA(pattern))
+        assert profile == [0.5] * 96
+        assert get_load_forecast_status()["status"] == "degraded"
+
+    @pytest.mark.asyncio
+    async def test_plausibility_bound_still_applies_after_coverage_averaging(self):
+        pattern = _daily({0: 25.0, 3 * HOUR: "unavailable", 4 * HOUR: 25.0})
+        profile = await _profile(_FakeHA(pattern))
+        assert profile == [0.5] * 96
+        assert "500 kWh/day" in get_load_forecast_status()["detail"]
+
+    def test_integration_reports_covered_seconds(self):
+        from backend.core.ha_client import integrate_power_points_covered, parse_power_states
+
+        start = datetime(2026, 9, 20, 3, 0, tzinfo=pytz.UTC)
+        end = start + timedelta(minutes=15)
+        states = [
+            _state(2.0, start),
+            {**_state(0.0, start + timedelta(minutes=5)), "state": "unavailable"},
+            _state(2.0, start + timedelta(minutes=10)),
+        ]
+        result = integrate_power_points_covered(parse_power_states(states, ENTITY), start, end)
+        assert result is not None
+        positive, negative, covered = result
+        assert covered == pytest.approx(600.0)
+        assert positive == pytest.approx(2.0 * 10 / 60)
+        assert negative == 0.0
+        assert integrate_power_points_covered([], start, end) is None

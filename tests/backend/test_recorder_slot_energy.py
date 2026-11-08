@@ -641,9 +641,9 @@ class TestWaterFlagWinsOverStaleHeaters:
         assert water["method"] == "disabled_zero"
         assert row["water_kwh"] == 0.0
 
-        from backend.grid_only_comparison import _recording_is_eligible
+        from backend.grid_only_comparison import _recording_exclusion
 
-        assert _recording_is_eligible(row["quality_flags"], battery_present=False)
+        assert _recording_exclusion(row["quality_flags"], battery_present=False) is None
 
     @pytest.mark.asyncio
     async def test_flag_on_with_sensorless_heater_stays_unknown(self):

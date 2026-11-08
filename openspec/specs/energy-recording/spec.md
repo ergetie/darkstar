@@ -19,8 +19,31 @@ The `get_load_profile_from_ha` function SHALL build the 7-day load profile by st
 - **WHEN** `load_power` reports a constant `1.0 kW` over the 7-day window
 - **THEN** every slot of the profile SHALL be `0.25 kWh` and the daily total `24 kWh`
 
+### Requirement: Load Profile Averages Over Measured Time
+The 7-day load profile SHALL average each of the 96 local time-of-day slots only over the time it had a valid reading: summed energy divided by covered duration, scaled to the 15-minute slot length. A sensor outage SHALL NOT count as zero load. Slots without enough valid data SHALL be interpolated, or the profile discarded when too few slots have data.
+
+#### Scenario: Whole-slot outage on one day
+- **WHEN** `load_power` is unavailable for 6 h on one of the 7 days and every other day has valid data for those slots
+- **THEN** the profile for those slots SHALL equal the mean of the other days, not 6/7 of it
+
+#### Scenario: Partial-slot outage
+- **WHEN** a slot has valid data for 6 full days and 5 of its 15 minutes on a seventh day
+- **THEN** its value SHALL be the energy measured in it divided by `6 x 900 + 300` seconds, times 900 s
+
+#### Scenario: Fully covered window is unchanged
+- **WHEN** every slot has valid data on every day
+- **THEN** the profile SHALL equal the energy summed per slot divided by 7, as before
+
+#### Scenario: Slot never measured
+- **WHEN** a slot has less than 15 minutes of valid data over the whole window but enough slots around it do
+- **THEN** its value SHALL be interpolated linearly between the nearest measured slots before and after it, wrapping over midnight
+
+#### Scenario: Too little measured data
+- **WHEN** fewer than 48 of the 96 slots have at least 15 minutes of valid data
+- **THEN** the fallback profile SHALL be returned and the degraded message SHALL name the sensor and the number of slots with data
+
 ### Requirement: HA History API Power-to-Energy Conversion
-The system SHALL provide a generic function that fetches power sensor history from the HA History API for a given time window and computes energy by **time-weighted (step) integration** of the power samples over the window: `Σ powerᵢ · Δtᵢ`, where each sample's power is held constant from its `last_changed` timestamp until the next sample (zero-order hold), clipped to the requested `[start, end]` window. The function SHALL NOT use an unweighted sample mean.
+The system SHALL provide a generic function that fetches power sensor history from the HA History API and computes energy by **time-weighted (step) integration** `Σ powerᵢ · Δtᵢ`, each sample held until the next and clipped to `[start, end]`. A state that is not a usable reading (`unavailable`, `unknown`, empty, non-numeric) SHALL end the hold and add no energy. It SHALL NOT use an unweighted mean, and SHALL return `None` when no valid interval overlaps the window.
 
 #### Scenario: Step integration over irregular updates
 - **WHEN** the function is called for `sensor.ev_power` from `03:00` to `03:15`
@@ -55,7 +78,23 @@ The system SHALL provide a generic function that fetches power sensor history fr
 
 #### Scenario: Non-numeric and unavailable states are excluded
 - **WHEN** the HA History API returns states including "unknown", "unavailable", or non-numeric values
-- **THEN** the function SHALL exclude those samples, and hold the previous valid power across the excluded interval
+- **THEN** the function SHALL treat each as a gap that ends the hold, and add no energy until the next valid sample
+
+#### Scenario: Unavailable or unknown state ends the hold
+- **WHEN** the HA History API returns `2.0 kW` at `03:00` and `unavailable` (or `unknown`) at `03:00:26`, for the window `03:00` to `03:15`
+- **THEN** the function SHALL return about `0.0144 kWh` (`2.0 × 26/3600`), NOT `0.5 kWh`
+
+#### Scenario: Sensor returns part-way through the window
+- **WHEN** the window is `03:00` to `03:15`, the sensor is `unavailable` from `03:00` and reports `2.0 kW` at `03:10`
+- **THEN** the function SHALL integrate `2.0 kW` over `[03:10, 03:15]` only and return `0.1667 kWh`
+
+#### Scenario: Several interruptions in one window
+- **WHEN** valid and unavailable periods alternate within the window
+- **THEN** the function SHALL add only the valid periods, each held until the next state
+
+#### Scenario: Window without a valid interval
+- **WHEN** the sensor is unavailable for the whole window, or its first valid sample is after the window
+- **THEN** the function SHALL return `None`
 
 ### Requirement: Unit Propagation in Power History Integration
 The `get_energy_from_power_history` function SHALL propagate the `unit_of_measurement` from the first HA history state entry to all subsequent entries that lack attributes, and SHALL apply the resolved unit when converting each state's power value to kilowatts.
@@ -655,3 +694,70 @@ The history request SHALL express its intent in terms HA actually honours: all s
 #### Scenario: Request parameters
 - **WHEN** power history is requested
 - **THEN** `significant_changes_only` SHALL be "0" and no boolean `False` SHALL be sent for either flag
+
+### Requirement: Every integration caller ignores unavailable periods alike
+The recorder (every metric), backfill, the load profile, `get_energy_from_power_history` and the water heating progress SHALL integrate power history through the same gap-aware rule, with no per-metric exception. A slot whose water sensor is unavailable for only part of the slot SHALL stay `power_history`, and under `derived_history` its stored `load_kwh + water_kwh + ev_charging_kwh` SHALL equal the integrated total load.
+
+#### Scenario: Water unavailable partway through a slot
+- **GIVEN** a 2 kW water sensor valid for 26 s of a slot and then unavailable, and a constant 3 kW total load
+- **WHEN** the recorder stores the slot
+- **THEN** `water_kwh` is about 0.0144, the water component is `power_history`
+- **AND** `load_kwh + water_kwh + ev_charging_kwh` equals 0.75 and the grid-only comparison includes the slot with grid-only cost `0.75 × price`
+
+### Requirement: Unavailable water sensor keeps recorder-owned unknown provenance
+When every water power source of a slot is unavailable (no history in the slot window and no usable snapshot), the recorder SHALL store the slot with `quality_flags.recording.components.water` set to method `unknown` and owner `recorder`, and SHALL NOT store a measured water value. The stored provenance SHALL NOT be replaced by an owner of `unknown` because the value is absent, whether the slot row is new or already exists.
+
+#### Scenario: Fully unavailable water sensor, whole slot
+- **GIVEN** the configured water sensor reports `unavailable` for a whole 15-minute slot and the load is derived from history
+- **WHEN** the recorder stores the slot
+- **THEN** the water component is method `unknown`, owner `recorder`
+- **AND** the water energy is not recorded as measured
+- **AND** the grid-only comparison includes the slot and counts it in `coverage.water_unmeasured_slots`
+
+#### Scenario: Slot row already exists
+- **GIVEN** a stored row for the slot whose water component has no metadata or `owner: unknown`
+- **WHEN** the recorder stores the slot with an unavailable water sensor
+- **THEN** the water component becomes method `unknown`, owner `recorder`
+
+#### Scenario: Partly unavailable boundary slot
+- **GIVEN** the water sensor becomes available again part-way through a slot, so history exists in the slot window
+- **WHEN** the recorder stores the slot
+- **THEN** the water component is method `power_history`, owner `recorder`, integrated over the valid part of the slot only
+- **AND** the slot is eligible for the comparison without a water note
+
+#### Scenario: Measured water is never downgraded
+- **GIVEN** a stored slot whose water component is a measured method with a value
+- **WHEN** a later recorder write for the same slot has every water source unavailable
+- **THEN** the stored water value and its provenance are unchanged
+
+#### Scenario: Guards still reject unsafe slots
+- **GIVEN** a slot with recorder-owned `unknown` water
+- **WHEN** the load method is `snapshot` or `mixed`, or `ev_charging_kwh` is above 0 with `load_kwh` equal to 0, or EV or load is `unknown`
+- **THEN** the grid-only comparison excludes the slot
+
+#### Scenario: Backfill still cannot overwrite recorder data
+- **WHEN** a non-authoritative write targets a slot whose water component is owned by the recorder
+- **THEN** the recorder's water value and provenance are kept
+
+### Requirement: Backfill writes a slot only with measured core data
+Backfill SHALL NOT write a slot observation unless every configured core energy metric (PV, load, grid import, grid export) has at least one valid history interval in that slot. A source that is not configured or is disabled records a real `0.0` and does not block the slot. Backfill SHALL NOT store a missing value as `0` for any of these NOT NULL columns, and SHALL leave nullable metrics (battery charge/discharge, SoC) NULL when they have no history. This does not change the recorder.
+
+#### Scenario: Every sensor unavailable
+- **GIVEN** every sensor reports `unavailable` for the whole backfill window
+- **WHEN** backfill runs
+- **THEN** no slot observation is written
+
+#### Scenario: Partly unavailable day
+- **GIVEN** the load sensor is unavailable for the first slots of the day and valid afterwards
+- **WHEN** backfill runs
+- **THEN** only the slots with a valid load interval are written, and no skipped slot exists as a row
+
+#### Scenario: Configured PV sensor without history
+- **GIVEN** the load is measured but the configured PV sensor has no valid interval in a slot
+- **WHEN** backfill runs
+- **THEN** that slot is not written, so `pv_kwh` is never stored as a fabricated 0
+
+#### Scenario: Unmeasured water with measured core data
+- **GIVEN** pv, load and grid are measured and the water sensor is unavailable for the slot
+- **WHEN** backfill runs
+- **THEN** the slot is written with water provenance `unknown`

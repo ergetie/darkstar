@@ -8,6 +8,7 @@ load energy) and the per-slot plausibility ceiling.
 
 from datetime import datetime, timedelta
 
+import pytest
 import pytz
 
 from backend.core.ha_client import integrate_power_points, parse_power_states
@@ -30,15 +31,15 @@ def integrate(states: list[dict]) -> tuple[float, float] | None:
 
 
 class TestPowerHistoryAnomalies:
-    def test_unavailable_gap_holds_the_last_good_value(self):
-        """An 'unavailable' blip is skipped, not integrated as zero or garbage."""
+    def test_unavailable_gap_ends_the_hold(self):
+        """An 'unavailable' blip adds no energy: 2 kW for 5 min + 2 kW for 5 min, not 15."""
         positive, negative = integrate([state("2.0", 0), state("unavailable", 5), state("2.0", 10)])
-        assert positive == 0.5
+        assert positive == pytest.approx(2.0 * 10 / 60)
         assert negative == 0.0
 
-    def test_garbage_state_is_ignored(self):
+    def test_garbage_state_ends_the_hold(self):
         positive, _ = integrate([state("2.0", 0), state("not-a-number", 7)])
-        assert positive == 0.5
+        assert positive == pytest.approx(2.0 * 7 / 60)
 
     def test_sensor_dead_for_the_whole_slot_yields_no_value(self):
         """No valid sample at all -> None, so the recorder uses its snapshot fallback."""

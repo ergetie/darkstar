@@ -275,8 +275,8 @@ class TestGetEnergyFromPowerHistory:
         assert result == pytest.approx(1.0, abs=0.001)
 
     @pytest.mark.asyncio
-    async def test_mixed_unavailable_states_hold_previous_valid_power(self):
-        """unavailable/unknown samples do not reset the previous held power."""
+    async def test_mixed_unavailable_states_end_the_hold(self):
+        """unavailable/unknown samples end the hold: no energy until the next valid sample."""
         states = [
             _make_state("4.0", ts=START),
             _make_state("unknown", ts=START + timedelta(minutes=5)),
@@ -303,7 +303,7 @@ class TestGetEnergyFromPowerHistory:
 
             result = await get_energy_from_power_history("sensor.ev_power", START, END)
 
-        assert result == pytest.approx((4.0 * 10 / 60) + (6.0 * 5 / 60), abs=0.001)
+        assert result == pytest.approx((4.0 * 5 / 60) + (6.0 * 2 / 60), abs=0.001)
 
     @pytest.mark.asyncio
     async def test_all_unavailable_returns_none(self):

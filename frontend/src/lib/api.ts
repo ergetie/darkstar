@@ -606,6 +606,18 @@ export type CostSeriesCoverage = {
     /** Included slots whose water was not measured (counted as 0, load still contains it) */
     water_unmeasured_slots: number
     water_unmeasured_hours: number
+    /** Excluded slots per machine reason code; absent on older backends */
+    excluded_by_reason?: Record<string, number>
+}
+
+/** A maximal run of contiguous excluded slots sharing one reason (end exclusive). */
+export type ExcludedSpan = {
+    start: string
+    end: string
+    slots: number
+    /** Machine reason code; map to words with `exclusionPhrase`, never show raw */
+    reason: string
+    component: string | null
 }
 
 export type CostSeriesTimeAxis = {
@@ -645,6 +657,8 @@ type GridOnlyComparisonBase = {
     method_version: 'grid-only-bill-v1'
     coverage: CostSeriesCoverage
     time_axis: CostSeriesTimeAxis
+    /** Absent on older backends or when the field is malformed */
+    excluded_spans?: ExcludedSpan[]
 }
 
 export type GridOnlyComparison = GridOnlyComparisonBase &
@@ -791,6 +805,68 @@ function withinMoneyRoundingBound(residual: number, roundedValues: number, arith
     return Math.abs(residual) <= roundingBound + floatingPointBound
 }
 
+/** Optional exclusion-reason fields: anything missing or malformed is dropped, never fatal. */
+function parseExcludedByReason(value: unknown): Record<string, number> | undefined {
+    if (!isRecord(value)) return undefined
+    const result: Record<string, number> = {}
+    for (const [reason, slots] of Object.entries(value)) {
+        if (!integer(slots) || slots < 0) return undefined
+        result[reason] = slots
+    }
+    return result
+}
+
+function parseExcludedSpans(value: unknown): ExcludedSpan[] | undefined {
+    if (!Array.isArray(value)) return undefined
+    const spans: ExcludedSpan[] = []
+    for (const raw of value) {
+        if (!isRecord(raw)) return undefined
+        const start = zonedTimestamp(raw.start)
+        const end = zonedTimestamp(raw.end)
+        if (
+            start === null ||
+            end === null ||
+            end <= start ||
+            !integer(raw.slots) ||
+            raw.slots <= 0 ||
+            typeof raw.reason !== 'string' ||
+            raw.reason === '' ||
+            (raw.component !== null && raw.component !== undefined && typeof raw.component !== 'string')
+        ) {
+            return undefined
+        }
+        spans.push({
+            start: raw.start as string,
+            end: raw.end as string,
+            slots: raw.slots,
+            reason: raw.reason,
+            component: (raw.component as string | null | undefined) ?? null,
+        })
+    }
+    return spans
+}
+
+function withComparisonExtras(
+    value: Record<string, unknown>,
+    actualPoints: CostSeriesPoint[],
+    comparison: Record<string, unknown>,
+    coverage: Record<string, unknown>,
+): CostSeriesResponse {
+    const { excluded_by_reason: rawByReason, ...coverageRest } = coverage
+    const { excluded_spans: rawSpans, ...comparisonRest } = comparison
+    const byReason = parseExcludedByReason(rawByReason)
+    const spans = parseExcludedSpans(rawSpans)
+    return {
+        ...value,
+        points: actualPoints,
+        grid_only_comparison: {
+            ...comparisonRest,
+            coverage: byReason ? { ...coverageRest, excluded_by_reason: byReason } : coverageRest,
+            ...(spans ? { excluded_spans: spans } : {}),
+        },
+    } as unknown as CostSeriesResponse
+}
+
 /** Validate the changed financial contract at the JSON boundary. */
 export function parseCostSeriesResponse(value: unknown): CostSeriesResponse {
     if (!isRecord(value) || typeof value.period !== 'string' || !['hour', 'day'].includes(String(value.bucket))) {
@@ -863,7 +939,7 @@ export function parseCostSeriesResponse(value: unknown): CostSeriesResponse {
         ) {
             return invalidCostSeries()
         }
-        return { ...value, points: actualPoints } as unknown as CostSeriesResponse
+        return withComparisonExtras(value, actualPoints, comparison, coverage)
     }
 
     if (
@@ -1113,7 +1189,7 @@ export function parseCostSeriesResponse(value: unknown): CostSeriesResponse {
     ) {
         return invalidCostSeries()
     }
-    return { ...value, points: actualPoints } as unknown as CostSeriesResponse
+    return withComparisonExtras(value, actualPoints, comparison, coverage)
 }
 
 export type EnergyRangeResponse = {

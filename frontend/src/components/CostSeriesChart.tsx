@@ -1,5 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { BatteryBenchmarkResponse, CostSeriesPoint, CostSeriesResponse, GridOnlyBucketPoint } from '../lib/api'
+import { compactAxisLabel, layoutAxisTicks, type AxisTick } from '../lib/costAxisTicks'
+import { exclusionPhrase } from '../lib/costExclusion'
+import { useElementWidth } from '../lib/useElementWidth'
 
 interface Props {
     series: CostSeriesResponse | null
@@ -24,7 +27,15 @@ type Bar = {
     start: string
     end: string
 }
-type AxisTick = { x: number; label: string; row: 0 | 1; align: 'start' | 'center' | 'end' }
+type ExcludedBand = {
+    left: number
+    width: number
+    startMs: number
+    endMs: number
+    slots: number
+    reason: string
+    component: string | null
+}
 
 export interface CostChartGeometry {
     slots: number
@@ -36,6 +47,8 @@ export interface CostChartGeometry {
     hindsightSegments: PlotPoint[][]
     hindsightArea: SavingShape[]
     hindsightExcluded: { left: number; width: number }[]
+    /** Slots left out of the comparison, positioned on the full period axis (epoch ms based) */
+    excludedBands: ExcludedBand[]
     ticks: AxisTick[]
     zeroY: number
     hasComparison: boolean
@@ -140,6 +153,7 @@ function buildTicks(axisStart: number, axisEnd: number, hourly: boolean, timezon
             return {
                 x: position(tick.time),
                 label,
+                repeated,
                 row: repeated ? ((repeatedIndex % 2) as 0 | 1) : tick.time === axisEnd && totalHours > 24 ? 0 : 1,
                 align:
                     repeated && repeatedIndex === 1
@@ -151,13 +165,6 @@ function buildTicks(axisStart: number, axisEnd: number, hourly: boolean, timezon
                             : 'center',
             }
         })
-}
-
-function compactAxisLabel(label: string): string {
-    const repeatedHour = /^(\d{2}):\d{2} ([+−-])(\d{2}):(\d{2})$/.exec(label)
-    if (!repeatedHour) return label
-    const [, hour, sign, offsetHour, offsetMinute] = repeatedHour
-    return `${hour}${sign}${offsetMinute === '00' ? Number(offsetHour) : `${Number(offsetHour)}:${offsetMinute}`}`
 }
 
 function splitDsAtZero(points: PlotPoint[]): { tone: 'good' | 'bad'; points: PlotPoint[] }[] {
@@ -349,6 +356,27 @@ export function computeCostChartGeometry(
         }
     }
 
+    // Excluded spans arrive as offset-qualified ISO strings; epoch ms keeps DST days exact.
+    const excludedBands: ExcludedBand[] = []
+    if (hasComparison && comparison) {
+        for (const span of comparison.excluded_spans ?? []) {
+            const startMs = Date.parse(span.start)
+            const endMs = Date.parse(span.end)
+            const from = Math.max(startMs, axisStart)
+            const to = Math.min(endMs, axisEnd)
+            if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) continue
+            excludedBands.push({
+                left: xOf(from),
+                width: xOf(to) - xOf(from),
+                startMs,
+                endMs,
+                slots: span.slots,
+                reason: span.reason,
+                component: span.component,
+            })
+        }
+    }
+
     const high = Math.max(0, ...values)
     const low = Math.min(0, ...values)
     const span = high - low || 1
@@ -389,6 +417,7 @@ export function computeCostChartGeometry(
         hindsightSegments,
         hindsightArea,
         hindsightExcluded,
+        excludedBands,
         ticks: buildTicks(axisStart, axisEnd, series.bucket === 'hour', timezone),
         zeroY,
         hasComparison,
@@ -405,6 +434,9 @@ function pathOf(points: Pick<PlotPoint, 'x' | 'y'>[]): string {
 
 export default function CostSeriesChart({ series, benchmark = null, loading, seriesError = false }: Props) {
     const [hover, setHover] = useState<number | null>(null)
+    // Pointer type of the press in progress; null when the click came from the keyboard.
+    const pressType = useRef<string | null>(null)
+    const [axisRef, axisWidth] = useElementWidth<HTMLDivElement>()
     const hasComparisonPoints =
         !!series?.grid_only_comparison &&
         (series.grid_only_comparison.status === 'available' || series.grid_only_comparison.status === 'partial') &&
@@ -463,6 +495,18 @@ export default function CostSeriesChart({ series, benchmark = null, loading, ser
               )
             : formatDay(Date.parse(hovered.start), timezone)
         : null
+    const hoveredStartMs = hovered ? Date.parse(hovered.start) : null
+    const hoveredEndMs = hovered ? Date.parse(hovered.end) : null
+    const hoveredExclusions =
+        hoveredStartMs === null || hoveredEndMs === null
+            ? []
+            : geometry.excludedBands.filter((band) => band.startMs < hoveredEndMs && band.endMs > hoveredStartMs)
+    const clock = (timestamp: number) =>
+        formatHour(timestamp, timezone, (repeatedHours.get(hourKey(timestamp, timezone)) ?? 0) > 1)
+    const spanRange = (band: ExcludedBand) =>
+        series.bucket === 'hour'
+            ? `${clock(band.startMs)}–${clock(band.endMs)}`
+            : `${formatDay(band.startMs, timezone)} ${clock(band.startMs)}–${formatDay(band.endMs, timezone)} ${clock(band.endMs)}`
     const lineTone = series.points[series.points.length - 1]?.cumulative_net_cost_sek ?? 0
     const actualTone = lineTone <= 0 ? 'stroke-good' : 'stroke-bad'
     const compareBarItems = geometry.bars
@@ -494,6 +538,15 @@ export default function CostSeriesChart({ series, benchmark = null, loading, ser
                                 <span className="text-text">{formatKr(hovered.actualRunning ?? 0)}</span>
                             </>
                         )}
+                        {hoveredExclusions.map((band) => (
+                            <div
+                                key={`${band.startMs}-${band.reason}-${band.component}`}
+                                className="text-warn"
+                                data-testid="cost-chart-excluded-readout"
+                            >
+                                Not compared: {exclusionPhrase(band.reason, band.component)} ({spanRange(band)})
+                            </div>
+                        ))}
                     </div>
                 ) : (
                     <div className="flex min-h-4 flex-wrap items-center gap-x-3 gap-y-0.5 text-muted">
@@ -530,6 +583,16 @@ export default function CostSeriesChart({ series, benchmark = null, loading, ser
                 className="relative flex-1 min-h-[90px] rounded-ds-md bg-surface2/30 overflow-hidden"
                 onMouseLeave={() => setHover(null)}
             >
+                {geometry.excludedBands.map((band) => (
+                    <div
+                        key={`excluded-${band.startMs}-${band.reason}-${band.component}`}
+                        data-testid="cost-excluded-span"
+                        data-reason={band.reason}
+                        aria-hidden="true"
+                        className="cost-chart-excluded"
+                        style={{ left: `${band.left}%`, width: `${band.width}%` }}
+                    />
+                ))}
                 <svg
                     className="absolute inset-0 h-full w-full cost-chart-reveal"
                     viewBox="0 0 100 100"
@@ -657,16 +720,33 @@ export default function CostSeriesChart({ series, benchmark = null, loading, ser
                             aria-label={`${series.bucket === 'hour' ? 'Hour' : 'Day'} ${series.bucket === 'hour' ? formatHour(Date.parse(bar.start), timezone, (repeatedHours.get(hourKey(Date.parse(bar.start), timezone)) ?? 0) > 1) : formatDay(Date.parse(bar.start), timezone)} cost details`}
                             className={`absolute top-0 h-full ${hover === bar.index ? 'bg-text/5' : ''}`}
                             style={{ left: `${bar.left}%`, width: `${Math.max(bar.width, 0.25)}%` }}
-                            onMouseEnter={() => setHover(bar.index)}
-                            onFocus={() => setHover(bar.index)}
-                            onBlur={() => setHover(null)}
-                            onClick={() => setHover((current) => (current === bar.index ? null : bar.index))}
+                            // Hover is for mouse/pen only. A touch tap also fires emulated mouseenter and
+                            // focus, which would open the readout and let the click toggle it straight back.
+                            onPointerEnter={(e) => e.pointerType !== 'touch' && setHover(bar.index)}
+                            onPointerDown={(e) => {
+                                pressType.current = e.pointerType
+                            }}
+                            onFocus={() => {
+                                if (pressType.current === null) setHover(bar.index)
+                            }}
+                            onBlur={() => {
+                                pressType.current = null
+                                setHover(null)
+                            }}
+                            onClick={() => {
+                                const type = pressType.current
+                                pressType.current = null
+                                // Only a touch tap toggles. Mouse and keyboard already show the readout via
+                                // hover/focus, so their click keeps it open instead of flickering it shut.
+                                if (type === 'touch') setHover((current) => (current === bar.index ? null : bar.index))
+                                else setHover(bar.index)
+                            }}
                         />
                     ))}
                 </div>
             </div>
-            <div className="relative h-8 text-[10px] text-muted tabular-nums mt-1">
-                {geometry.ticks.map((tick, index) => (
+            <div ref={axisRef} className="relative h-8 text-[10px] text-muted tabular-nums mt-1">
+                {layoutAxisTicks(geometry.ticks, axisWidth).map((tick, index) => (
                     <span
                         key={`${tick.x}-${tick.label}-${index}`}
                         title={tick.label}

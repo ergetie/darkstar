@@ -367,4 +367,87 @@ describe('computeCostChartGeometry', () => {
             expect(geometry.hindsightArea).toEqual([])
         })
     })
+    describe('excluded spans', () => {
+        const midday = {
+            start: '2026-10-05T08:15:00+02:00',
+            end: '2026-10-05T12:15:00+02:00',
+            slots: 16,
+            reason: 'unknown_component',
+            component: 'water',
+        }
+
+        it('positions a mid-day band on the full period axis', () => {
+            const geometry = computeCostChartGeometry(series(comparison({ excluded_spans: [midday] })))
+            expect(geometry.excludedBands).toHaveLength(1)
+            expect(geometry.excludedBands[0].left).toBeCloseTo((8.25 / 24) * 100, 6)
+            expect(geometry.excludedBands[0].width).toBeCloseTo((4 / 24) * 100, 6)
+            expect(geometry.excludedBands[0]).toMatchObject({
+                reason: 'unknown_component',
+                component: 'water',
+                slots: 16,
+            })
+        })
+
+        it('positions a band on a fall-back day by elapsed time', () => {
+            const axis = {
+                timezone: 'Europe/Stockholm',
+                start: '2026-10-25T00:00:00+02:00',
+                end: '2026-10-26T00:00:00+01:00',
+            }
+            const dst = comparison({
+                time_axis: axis,
+                excluded_spans: [
+                    {
+                        start: '2026-10-25T02:30:00+02:00',
+                        end: '2026-10-25T02:30:00+01:00',
+                        slots: 4,
+                        reason: 'missing_slot',
+                        component: null,
+                    },
+                ],
+            })
+            const geometry = computeCostChartGeometry(series(dst))
+            expect(geometry.slots).toBe(25)
+            expect(geometry.excludedBands[0].left).toBeCloseTo((2.5 / 25) * 100, 6)
+            expect(geometry.excludedBands[0].width).toBeCloseTo((1 / 25) * 100, 6)
+        })
+
+        it('clips a span to the period axis and drops spans entirely outside it', () => {
+            const geometry = computeCostChartGeometry(
+                series(
+                    comparison({
+                        excluded_spans: [
+                            { ...midday, start: '2026-10-04T23:00:00+02:00', end: '2026-10-05T06:00:00+02:00' },
+                            { ...midday, start: '2026-10-06T01:00:00+02:00', end: '2026-10-06T02:00:00+02:00' },
+                        ],
+                    }),
+                ),
+            )
+            expect(geometry.excludedBands).toHaveLength(1)
+            expect(geometry.excludedBands[0].left).toBe(0)
+            expect(geometry.excludedBands[0].width).toBeCloseTo((6 / 24) * 100, 6)
+        })
+
+        it.each([[[]], [undefined]])('has no band when the list is %j', (spans) => {
+            const geometry = computeCostChartGeometry(series(comparison({ excluded_spans: spans })))
+            expect(geometry.excludedBands).toEqual([])
+        })
+
+        it('leaves DS and Grid-only geometry identical with and without spans', () => {
+            const without = computeCostChartGeometry(series(comparison()))
+            const withSpans = computeCostChartGeometry(series(comparison({ excluded_spans: [midday] })))
+            expect(withSpans.dsSegments).toEqual(without.dsSegments)
+            expect(withSpans.gridSegments).toEqual(without.gridSegments)
+            expect(withSpans.saving).toEqual(without.saving)
+            expect(withSpans.bars).toEqual(without.bars)
+            expect(withSpans.zeroY).toBe(without.zeroY)
+        })
+
+        it('draws no band without an amount-bearing comparison', () => {
+            const geometry = computeCostChartGeometry(
+                series({ ...unavailable(), excluded_spans: [midday] } as GridOnlyComparison),
+            )
+            expect(geometry.excludedBands).toEqual([])
+        })
+    })
 })

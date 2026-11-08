@@ -23,6 +23,7 @@ import {
 import { useSocket } from '../lib/hooks'
 import EVChargerCard from './EVChargingCard'
 import CostSeriesChart from './CostSeriesChart'
+import { buildExclusionNotes } from '../lib/costExclusion'
 
 // --- Types ---
 interface GridCardProps {
@@ -327,6 +328,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
               hourCycle: 'h23',
           }).format(new Date(comparison.through))
         : null
+    const exclusionNotes = buildExclusionNotes(comparison?.excluded_spans)
 
     const hindsight = period !== 'today' && benchmark && benchmark.totals.days_total > 0 ? benchmark.totals : null
     const excludedDays = benchmark?.days.filter((day) => day.status !== 'scored') ?? []
@@ -531,6 +533,14 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                                         ? ` (${comparison.coverage.excluded_slots} excluded)`
                                         : ''}
                                 </div>
+                                {exclusionNotes.lines.length > 0 && (
+                                    <div className="mt-1 text-warn" data-testid="excluded-reason-notes">
+                                        {exclusionNotes.lines.map((line) => (
+                                            <div key={line}>{line}</div>
+                                        ))}
+                                        {exclusionNotes.more && <div>{exclusionNotes.more}</div>}
+                                    </div>
+                                )}
                                 {comparison.coverage.water_unmeasured_slots > 0 && (
                                     <div className="mt-1 text-warn" data-testid="water-unmeasured-note">
                                         {`Water not measured for ${Number(comparison.coverage.water_unmeasured_hours.toFixed(2))} h, included`}

@@ -1,7 +1,7 @@
 """Selected-period metered and grid-only cost-series API contract tests."""
 
-from datetime import UTC, datetime, timedelta
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -29,7 +29,9 @@ NORMAL_DAY = datetime(2026, 10, 5).date()
 
 
 def _freeze_day_after(monkeypatch, day):
-    fixed_now = datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=UTC).replace(hour=12)
+    fixed_now = datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=UTC).replace(
+        hour=12
+    )
 
     class FrozenDateTime(datetime):
         @classmethod
@@ -62,7 +64,9 @@ async def _add(store: LearningStore, rows: list[dict], *, day=None) -> list[date
             session.add(
                 SlotObservation(
                     slot_start=start.isoformat(),
-                    slot_end=(start.astimezone(pytz.UTC) + timedelta(minutes=15)).astimezone(TZ).isoformat(),
+                    slot_end=(start.astimezone(pytz.UTC) + timedelta(minutes=15))
+                    .astimezone(TZ)
+                    .isoformat(),
                     **(fields | row),
                 )
             )
@@ -71,7 +75,9 @@ async def _add(store: LearningStore, rows: list[dict], *, day=None) -> list[date
 
 
 @pytest.mark.asyncio
-async def test_metered_hourly_points_keep_actual_accounting_and_grid_comparison_is_separate(store, monkeypatch):
+async def test_metered_hourly_points_keep_actual_accounting_and_grid_comparison_is_separate(
+    store, monkeypatch
+):
     _freeze_day_after(monkeypatch, NORMAL_DAY)
     rows = [
         {"import_kwh": 1.0, "load_kwh": 1.0},
@@ -92,7 +98,14 @@ async def test_metered_hourly_points_keep_actual_accounting_and_grid_comparison_
     assert series["points"][-1]["cumulative_net_cost_sek"] == pytest.approx(totals["net_cost_sek"])
     comparison = series["grid_only_comparison"]
     assert comparison["status"] == "partial"
-    assert comparison["coverage"] == {"covered_slots": 5, "total_slots": 96, "excluded_slots": 91, "water_unmeasured_slots": 0, "water_unmeasured_hours": 0.0}
+    assert comparison["coverage"] == {
+        "covered_slots": 5,
+        "total_slots": 96,
+        "excluded_slots": 91,
+        "water_unmeasured_slots": 0,
+        "water_unmeasured_hours": 0.0,
+        "excluded_by_reason": {"missing_slot": 91},
+    }
     assert comparison["grid_only_cost_sek"] == pytest.approx(13.0)
     assert comparison["ds_cost_sek"] == pytest.approx(4.0)
     assert comparison["saving_sek"] == pytest.approx(9.0)
@@ -137,7 +150,9 @@ async def test_per_slot_prices_controlled_loads_gross_flows_and_unrelated_batter
 
 
 @pytest.mark.asyncio
-async def test_missing_hour_keeps_other_eligible_slots_and_exposes_exact_internal_gap(store, monkeypatch):
+async def test_missing_hour_keeps_other_eligible_slots_and_exposes_exact_internal_gap(
+    store, monkeypatch
+):
     _freeze_day_after(monkeypatch, NORMAL_DAY)
     rows = [{"load_kwh": 1.0, "import_kwh": 0.5} for _ in range(8)]
     rows[3] = {
@@ -149,7 +164,19 @@ async def test_missing_hour_keeps_other_eligible_slots_and_exposes_exact_interna
     with patch("backend.api.routers.energy.load_yaml", return_value=CONFIG):
         series = await get_cost_series(period="yesterday", store=store)
     comparison = series["grid_only_comparison"]
-    assert comparison["coverage"] == {"covered_slots": 7, "total_slots": 96, "excluded_slots": 89, "water_unmeasured_slots": 0, "water_unmeasured_hours": 0.0}
+    assert comparison["coverage"] == {
+        "covered_slots": 7,
+        "total_slots": 96,
+        "excluded_slots": 89,
+        "water_unmeasured_slots": 0,
+        "water_unmeasured_hours": 0.0,
+        "excluded_by_reason": {"user_excluded": 1, "missing_slot": 88},
+    }
+    assert [(span["reason"], span["slots"]) for span in comparison["excluded_spans"]] == [
+        ("user_excluded", 1),
+        ("missing_slot", 88),
+    ]
+    assert sum(span["slots"] for span in comparison["excluded_spans"]) == 89
     assert len(comparison["segments"]) == 2
     assert comparison["segments"][0]["end"] < comparison["segments"][1]["start"]
     assert len(comparison["points"]) == 2
@@ -163,11 +190,22 @@ async def test_empty_and_unusable_periods_have_coverage_but_no_amounts(store, mo
         empty = await get_cost_series(period="yesterday", store=store)
     comparison = empty["grid_only_comparison"]
     assert comparison["status"] == "no_data"
-    assert comparison["coverage"] == {"covered_slots": 0, "total_slots": 96, "excluded_slots": 96, "water_unmeasured_slots": 0, "water_unmeasured_hours": 0.0}
+    assert comparison["coverage"] == {
+        "covered_slots": 0,
+        "total_slots": 96,
+        "excluded_slots": 96,
+        "water_unmeasured_slots": 0,
+        "water_unmeasured_hours": 0.0,
+        "excluded_by_reason": {"missing_slot": 96},
+    }
     assert "saving_sek" not in comparison
     assert "points" not in comparison
     assert "segments" not in comparison
-    await _add(store, [{"quality_flags": json.dumps({"source": "recorder", "exclude": True})}], day=NORMAL_DAY)
+    await _add(
+        store,
+        [{"quality_flags": json.dumps({"source": "recorder", "exclude": True})}],
+        day=NORMAL_DAY,
+    )
     with patch("backend.api.routers.energy.load_yaml", return_value=CONFIG):
         unusable = await get_cost_series(period="yesterday", store=store)
     comparison = unusable["grid_only_comparison"]

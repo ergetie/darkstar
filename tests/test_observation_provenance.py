@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
+import pandas as pd
 import pytest
+import pytz
 
+from backend.learning.models import Base
+from backend.learning.store import LearningStore
+from backend.measurement_provenance import ENERGY_SEMANTICS
 from backend.observation_provenance import (
     RecordedObservation,
     calibration_eligible,
     observation_value_digest,
     trusted_row_provenance,
 )
-from backend.measurement_provenance import ENERGY_SEMANTICS
 
 
 def trusted_flags() -> dict:
@@ -177,3 +183,156 @@ def test_malformed_provenance_values_are_unknown_without_crashing(target, value)
         flags["recording"][target] = value
     assert trusted_row_provenance(replace(row, quality_flags=flags)) is None
     assert not calibration_eligible(replace(row, quality_flags=flags))
+
+
+# --- Recorder-owned unknown water provenance (store merge) ---------------------
+
+_TZ = pytz.timezone("Europe/Stockholm")
+_SLOT = _TZ.localize(datetime(2026, 11, 5, 9, 0))
+_DEVICE_UNMEASURED = {
+    "schema_version": 1,
+    "semantics": "active-water-energy-v1",
+    "devices": {
+        "tank": {
+            "energy_kwh": None,
+            "source": "unavailable",
+            "idle_power_threshold_kw": 0.1,
+            "coverage": "unavailable",
+        }
+    },
+}
+
+
+def _water_flags(method: str, owner: str, source: str = "recorder") -> dict:
+    flags = trusted_flags()
+    flags["source"] = source
+    flags["recording"]["components"]["water"] = {"method": method, "owner": owner}
+    return flags
+
+
+def _record(water_kwh, flags: dict, **extra) -> dict:
+    return {
+        "slot_start": _SLOT,
+        "slot_end": _SLOT + timedelta(minutes=15),
+        "import_kwh": 1.0,
+        "export_kwh": 0.0,
+        "pv_kwh": 0.0,
+        "load_kwh": 1.0,
+        "water_kwh": water_kwh,
+        "ev_charging_kwh": 0.0,
+        "quality_flags": flags,
+        **extra,
+    }
+
+
+async def _new_store(tmp_path) -> LearningStore:
+    store = LearningStore(str(tmp_path / "learning.db"), _TZ)
+    async with store.async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    return store
+
+
+def _water(flags: dict) -> dict:
+    water = flags["recording"]["components"].get("water", {})
+    return {key: water.get(key) for key in ("method", "owner")}
+
+
+def _stored(tmp_path) -> tuple[float, dict]:
+    with sqlite3.connect(tmp_path / "learning.db") as conn:
+        value, flags = conn.execute(
+            "SELECT water_kwh, quality_flags FROM slot_observations"
+        ).fetchone()
+    return value, json.loads(flags)
+
+
+def _unavailable_flags() -> dict:
+    flags = _water_flags("unknown", "recorder")
+    flags["water_heater_energy"] = _DEVICE_UNMEASURED
+    return flags
+
+
+@pytest.mark.asyncio
+async def test_unavailable_water_on_new_row_keeps_recorder_unknown(tmp_path):
+    store = await _new_store(tmp_path)
+    await store.store_slot_observations(pd.DataFrame([_record(None, _unavailable_flags())]))
+    await store.close()
+    value, flags = _stored(tmp_path)
+    assert value == 0.0
+    assert _water(flags) == {"method": "unknown", "owner": "recorder"}
+
+
+@pytest.mark.parametrize("existing_water", [None, {"method": "unknown", "owner": "unknown"}])
+@pytest.mark.asyncio
+async def test_unavailable_water_on_existing_row_takes_recorder_owner(tmp_path, existing_water):
+    store = await _new_store(tmp_path)
+    old = trusted_flags()
+    if existing_water is None:
+        del old["recording"]["components"]["water"]
+    else:
+        old["recording"]["components"]["water"] = existing_water
+    await store.store_slot_observations(pd.DataFrame([_record(None, old)]), authoritative=False)
+    await store.store_slot_observations(pd.DataFrame([_record(None, _unavailable_flags())]))
+    await store.close()
+    value, flags = _stored(tmp_path)
+    assert value == 0.0
+    assert _water(flags) == {"method": "unknown", "owner": "recorder"}
+
+
+@pytest.mark.asyncio
+async def test_measured_water_is_never_downgraded_by_unavailable_write(tmp_path):
+    store = await _new_store(tmp_path)
+    await store.store_slot_observations(
+        pd.DataFrame([_record(0.4, _water_flags("power_history", "recorder"))])
+    )
+    await store.store_slot_observations(pd.DataFrame([_record(None, _unavailable_flags())]))
+    await store.close()
+    value, flags = _stored(tmp_path)
+    assert value == 0.4
+    assert _water(flags) == {"method": "power_history", "owner": "recorder"}
+
+
+@pytest.mark.asyncio
+async def test_backfill_cannot_overwrite_recorder_owned_water(tmp_path):
+    store = await _new_store(tmp_path)
+    await store.store_slot_observations(
+        pd.DataFrame([_record(0.4, _water_flags("power_history", "recorder"))])
+    )
+    await store.store_slot_observations(
+        pd.DataFrame([_record(0.9, _water_flags("power_history", "backfill", "backfill"))]),
+        authoritative=False,
+    )
+    # Backfill must not claim recorder ownership of an unknown water component either.
+    await store.store_slot_observations(
+        pd.DataFrame([_record(None, _unavailable_flags())]), authoritative=False
+    )
+    await store.close()
+    value, flags = _stored(tmp_path)
+    assert value == 0.4
+    assert _water(flags) == {"method": "power_history", "owner": "recorder"}
+
+
+@pytest.mark.asyncio
+async def test_non_authoritative_unknown_water_does_not_become_recorder_owned(tmp_path):
+    store = await _new_store(tmp_path)
+    await store.store_slot_observations(
+        pd.DataFrame([_record(None, _unavailable_flags())]), authoritative=False
+    )
+    await store.close()
+    _, flags = _stored(tmp_path)
+    assert _water(flags)["owner"] != "recorder"
+
+
+@pytest.mark.asyncio
+async def test_unmeasured_water_per_device_metadata_is_stored_and_readable(tmp_path):
+    store = await _new_store(tmp_path)
+    await store.store_slot_observations(pd.DataFrame([_record(None, _unavailable_flags())]))
+    rows = await store.get_water_heater_energy_range(
+        _SLOT - timedelta(hours=1), _SLOT + timedelta(hours=1)
+    )
+    await store.close()
+    _, flags = _stored(tmp_path)
+    device = flags["water_heater_energy"]["devices"]["tank"]
+    assert device["energy_kwh"] is None
+    assert device["coverage"] is False
+    assert rows[0]["energy"]["tank"]["energy_kwh"] is None
+    assert rows[0]["coverage"] == "unknown"

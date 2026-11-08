@@ -42,6 +42,7 @@ def _history_energy(
     valid_by_time = {
         local_time: value
         for timestamp, value in parse_power_states(states, entity_id)
+        if value is not None
         if (local_time := _as_local_datetime(timestamp, timezone)) is not None
     }
     transitions: list[tuple[datetime, float | None]] = []

@@ -73,6 +73,11 @@ def constant_history(values: dict[str, float]):
     return fake
 
 
+def with_core(values: dict[str, float]) -> dict[str, float]:
+    """Add measured PV and grid history: backfill skips slots without core (pv/load/grid) data."""
+    return {"sensor.pv": 0.0, "sensor.load": 1.0, "sensor.grid": 0.0, **values}
+
+
 @pytest.fixture
 def make_engine():
     def build(config: dict, last_obs: datetime | None):
@@ -152,7 +157,7 @@ async def test_gap_is_filled_from_power_history_including_battery(make_engine):
 @pytest.mark.asyncio
 async def test_load_isolation_clamps_negative_base_load(make_engine):
     engine, learning_engine = make_engine(make_config(), TZ.localize(datetime(2026, 10, 1, 10, 0)))
-    await run(engine, constant_history({"sensor.load": 2.0, "sensor.ev": 8.0}))
+    await run(engine, constant_history(with_core({"sensor.load": 2.0, "sensor.ev": 8.0})))
     assert stored(learning_engine).iloc[0]["load_kwh"] == 0.0
 
 
@@ -162,7 +167,7 @@ async def test_inversion_flags_apply(make_engine):
         input_sensors={"grid_power_inverted": True, "battery_power_inverted": True}
     )
     engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10, 0)))
-    await run(engine, constant_history({"sensor.grid": -3.0, "sensor.batt": 2.0}))
+    await run(engine, constant_history(with_core({"sensor.grid": -3.0, "sensor.batt": 2.0})))
     row = stored(learning_engine).iloc[0]
     assert row["import_kwh"] == pytest.approx(0.75)
     assert row["export_kwh"] == 0.0
@@ -174,7 +179,7 @@ async def test_inversion_flags_apply(make_engine):
 async def test_spike_is_filtered_with_config_threshold(make_engine):
     config = make_config(system={"grid": {"max_power_kw": 10.0}})  # 5 kWh per slot
     engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10, 0)))
-    await run(engine, constant_history({"sensor.pv": 100.0, "sensor.load": 4.0}))
+    await run(engine, constant_history(with_core({"sensor.pv": 100.0, "sensor.load": 4.0})))
     row = stored(learning_engine).iloc[0]
     assert row["pv_kwh"] == 0.0
     assert row["load_kwh"] == pytest.approx(1.0)
@@ -185,7 +190,7 @@ async def test_spike_is_filtered_with_config_threshold(make_engine):
 async def test_disabled_battery_is_not_requested(make_engine):
     config = make_config(system={"has_battery": False})
     engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10, 0)))
-    history_mock = await run(engine, constant_history({"sensor.batt": -2.0, "sensor.load": 1.0}))
+    history_mock = await run(engine, constant_history(with_core({"sensor.batt": -2.0, "sensor.load": 1.0})))
     assert "sensor.batt" not in history_mock.await_args.args[0]
     row = stored(learning_engine).iloc[0]
     assert row["batt_charge_kwh"] == 0.0
@@ -195,10 +200,24 @@ async def test_disabled_battery_is_not_requested(make_engine):
 @pytest.mark.asyncio
 async def test_entity_without_history_is_not_measured(make_engine):
     engine, learning_engine = make_engine(make_config(), TZ.localize(datetime(2026, 10, 1, 10, 0)))
-    await run(engine, constant_history({"sensor.load": 1.0}))
+    await run(engine, constant_history(with_core({"sensor.load": 1.0})))
     row = stored(learning_engine).iloc[0]
-    assert pd.isna(row["pv_kwh"])
     assert row["load_kwh"] == pytest.approx(0.25)
+    # Non-core metrics without history are not written as measured zeros
+    assert pd.isna(row["batt_charge_kwh"])
+    assert pd.isna(row["batt_discharge_kwh"])
+    assert pd.isna(row["soc_end_percent"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["sensor.pv", "sensor.load", "sensor.grid"])
+async def test_slots_without_core_history_are_not_stored(make_engine, missing):
+    """A configured pv/load/grid sensor without history would be stored as 0: skip the slot."""
+    engine, learning_engine = make_engine(make_config(), TZ.localize(datetime(2026, 10, 1, 10, 0)))
+    values = with_core({"sensor.batt": 1.0, "sensor.soc": 50.0})
+    del values[missing]
+    await run(engine, constant_history(values))
+    learning_engine.store_slot_observations.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -206,7 +225,7 @@ async def test_requests_are_batched_one_per_local_day(make_engine):
     # 3-day gap ending 11:07 on 10-01: days 09-28, 09-29, 09-30, 10-01 are touched
     last_obs = TZ.localize(datetime(2026, 9, 28, 20, 0))
     engine, learning_engine = make_engine(make_config(), last_obs)
-    history_mock = await run(engine, constant_history({"sensor.load": 1.0}))
+    history_mock = await run(engine, constant_history(with_core({"sensor.load": 1.0})))
 
     assert history_mock.await_count == 4
     for call in history_mock.await_args_list:
@@ -221,7 +240,7 @@ async def test_requests_are_batched_one_per_local_day(make_engine):
 @pytest.mark.asyncio
 async def test_gap_older_than_ten_days_is_capped(make_engine):
     engine, learning_engine = make_engine(make_config(), NOW - timedelta(days=14))
-    history_mock = await run(engine, constant_history({"sensor.load": 1.0}))
+    history_mock = await run(engine, constant_history(with_core({"sensor.load": 1.0})))
     df = stored(learning_engine)
     assert min(df["slot_start"]) >= NOW - timedelta(days=10)
     assert min(df["slot_start"]) < NOW - timedelta(days=10) + timedelta(minutes=15)
@@ -231,7 +250,7 @@ async def test_gap_older_than_ten_days_is_capped(make_engine):
 @pytest.mark.asyncio
 async def test_empty_database_backfills_seven_days(make_engine):
     engine, learning_engine = make_engine(make_config(), None)
-    await run(engine, constant_history({"sensor.load": 1.0}))
+    await run(engine, constant_history(with_core({"sensor.load": 1.0})))
     df = stored(learning_engine)
     assert min(df["slot_start"]) >= NOW - timedelta(days=7)
     assert min(df["slot_start"]) < NOW - timedelta(days=7) + timedelta(minutes=15)
@@ -274,7 +293,7 @@ async def test_unconfigured_enabled_device_taints_backfill_aggregate_and_derived
         ]
     )
     engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10, 0)))
-    await run(engine, constant_history({"sensor.load": 4.0, "sensor.ev": 1.0, "sensor.wh": 0.0}))
+    await run(engine, constant_history(with_core({"sensor.load": 4.0, "sensor.ev": 1.0, "sensor.wh": 0.0})))
     row = stored(learning_engine).iloc[0]
     components = row["quality_flags"]["recording"]["components"]
     assert components["ev"]["method"] == "mixed"
@@ -289,7 +308,7 @@ async def test_all_disabled_devices_have_disabled_zero_backfill_provenance(make_
         water_heaters=[{"id": "wh", "enabled": False}],
     )
     engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10, 0)))
-    await run(engine, constant_history({"sensor.load": 4.0}))
+    await run(engine, constant_history(with_core({"sensor.load": 4.0})))
     row = stored(learning_engine).iloc[0]
     components = row["quality_flags"]["recording"]["components"]
     assert row["ev_charging_kwh"] == row["water_kwh"] == 0.0
@@ -309,7 +328,7 @@ async def test_water_cutoff_backfill_retains_idle_load_and_truthful_coverage(
     engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10)))
     await run(
         engine,
-        constant_history({"sensor.load": 4, "sensor.wh": 0.06, "sensor.ev": 0, "sensor.grid": 4}),
+        constant_history(with_core({"sensor.load": 4, "sensor.wh": 0.06, "sensor.ev": 0, "sensor.grid": 4})),
     )
     row = stored(learning_engine).iloc[0]
     assert row["water_kwh"] == 0

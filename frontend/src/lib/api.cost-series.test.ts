@@ -253,4 +253,91 @@ describe('parseCostSeriesResponse', () => {
             }),
         ).toThrow('Invalid cost-series response')
     })
+
+    describe('exclusion reasons', () => {
+        const span = {
+            start: '2026-10-05T08:15:00+02:00',
+            end: '2026-10-05T12:15:00+02:00',
+            slots: 16,
+            reason: 'unknown_component',
+            component: 'water',
+        }
+
+        function withReasons(value: ReturnType<typeof validResponse>, spans: unknown, byReason: unknown) {
+            const comparison = value.grid_only_comparison as Record<string, unknown>
+            comparison.excluded_spans = spans
+            ;(comparison.coverage as Record<string, unknown>).excluded_by_reason = byReason
+            return value
+        }
+
+        it('passes valid spans and per-reason totals through', () => {
+            const parsed = parseCostSeriesResponse(withReasons(validResponse(), [span], { unknown_component: 16 }))
+            const comparison = parsed.grid_only_comparison
+            expect(comparison?.excluded_spans).toEqual([span])
+            expect(comparison?.coverage.excluded_by_reason).toEqual({ unknown_component: 16 })
+        })
+
+        it('treats a missing component as null', () => {
+            const noComponent: Record<string, unknown> = { ...span }
+            delete noComponent.component
+            const parsed = parseCostSeriesResponse(withReasons(validResponse(), [noComponent], {}))
+            expect(parsed.grid_only_comparison?.excluded_spans?.[0].component).toBeNull()
+        })
+
+        it('leaves an older backend response without the fields untouched', () => {
+            const parsed = parseCostSeriesResponse(validResponse())
+            expect(parsed.grid_only_comparison).not.toHaveProperty('excluded_spans')
+            expect(parsed.grid_only_comparison?.coverage).not.toHaveProperty('excluded_by_reason')
+        })
+
+        it.each([
+            ['not an array', { start: span.start }],
+            ['non-record entry', [null]],
+            ['bad timestamp', [{ ...span, start: 'yesterday' }]],
+            ['end before start', [{ ...span, end: '2026-10-05T08:00:00+02:00' }]],
+            ['zero slots', [{ ...span, slots: 0 }]],
+            ['fractional slots', [{ ...span, slots: 1.5 }]],
+            ['empty reason', [{ ...span, reason: '' }]],
+            ['numeric reason', [{ ...span, reason: 7 }]],
+            ['numeric component', [{ ...span, component: 3 }]],
+        ])('ignores malformed spans (%s) without invalidating the chart', (_name, spans) => {
+            const parsed = parseCostSeriesResponse(withReasons(validResponse(), spans, { missing_slot: 1 }))
+            expect(parsed.grid_only_comparison).not.toHaveProperty('excluded_spans')
+            expect(parsed.grid_only_comparison?.status).toBe('available')
+            expect(parsed.grid_only_comparison?.coverage.excluded_by_reason).toEqual({ missing_slot: 1 })
+        })
+
+        it.each([
+            ['array', [1]],
+            ['negative total', { missing_slot: -1 }],
+            ['fractional total', { missing_slot: 0.5 }],
+            ['string total', { missing_slot: '4' }],
+            ['null', null],
+        ])('ignores malformed per-reason totals (%s)', (_name, byReason) => {
+            const parsed = parseCostSeriesResponse(withReasons(validResponse(), [span], byReason))
+            expect(parsed.grid_only_comparison?.coverage).not.toHaveProperty('excluded_by_reason')
+            expect(parsed.grid_only_comparison?.excluded_spans).toEqual([span])
+        })
+
+        it('keeps the spans of an unavailable comparison', () => {
+            const value = {
+                ...validResponse(),
+                grid_only_comparison: {
+                    status: 'no_data',
+                    reason: 'no_completed_observations',
+                    method_version: 'grid-only-bill-v1',
+                    coverage: {
+                        covered_slots: 0,
+                        total_slots: 4,
+                        excluded_slots: 4,
+                        excluded_by_reason: { missing_slot: 4 },
+                    },
+                    time_axis: { ...axis },
+                    excluded_spans: [{ ...span, reason: 'missing_slot', component: null, slots: 4 }],
+                },
+            }
+            const parsed = parseCostSeriesResponse(value)
+            expect(parsed.grid_only_comparison?.excluded_spans).toHaveLength(1)
+        })
+    })
 })

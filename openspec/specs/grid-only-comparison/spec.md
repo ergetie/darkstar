@@ -102,7 +102,7 @@ The comparison SHALL be available for any installation with eligible recorded in
 - **THEN** comparison saving is zero within rounding
 
 ### Requirement: Both sides share completed-slot coverage
-Only completed timezone-aware 15-minute recorded slots SHALL enter the comparison. Required household/water/EV and import/export energies SHALL be finite and nonnegative; required import/export prices SHALL be finite. Missing required values SHALL NOT be filled with zero. Legitimately disabled demand components SHALL use their recorded zero values.
+Only completed timezone-aware 15-minute recorded slots SHALL enter the comparison. Required household/water/EV and import/export energies SHALL be finite and nonnegative; required import/export prices SHALL be finite. Missing required values SHALL NOT be filled with zero. Legitimately disabled demand components SHALL use their recorded zero values. Every completed expected slot that does not enter the comparison SHALL be reported with exactly one machine reason code, never as an unexplained gap.
 
 #### Scenario: Unmeasured water exception
 - **WHEN** a water component's recorder method is `unknown` because the water heater is unmeasured (enabled heater with no sensor, or configured water sensor unavailable)
@@ -126,6 +126,7 @@ Only completed timezone-aware 15-minute recorded slots SHALL enter the compariso
 - **THEN** the same eligible slots SHALL enter both sides
 - **AND** missing or rejected slots SHALL increase `excluded_slots` and SHALL NOT invalidate other eligible slots or require a SoC restart anchor
 - **AND** coverage SHALL count expected completed slots in elapsed UTC time and satisfy `covered_slots + excluded_slots = total_slots`
+- **AND** `coverage.excluded_by_reason` SHALL map each reason code to its slot count and sum to `excluded_slots`
 - **AND** the ongoing and future slots SHALL NOT count toward expected completed coverage
 
 #### Scenario: through and partial results
@@ -237,3 +238,39 @@ The response SHALL include `coverage.water_unmeasured_slots` and `coverage.water
 #### Scenario: Note absent
 - **WHEN** no included slot has unmeasured water
 - **THEN** both fields are 0 and no note is rendered
+
+### Requirement: Excluded spans are returned with a reason
+The comparison SHALL return `excluded_spans`, a chronological list of maximal runs of contiguous excluded slots sharing one reason, each with offset-qualified local ISO `start`, exclusive `end`, `slots`, a machine `reason` code and an optional `component`. The field SHALL be additive and always present (empty when nothing is excluded), and existing fields SHALL be unchanged. The sum of `slots` SHALL equal `coverage.excluded_slots`.
+
+#### Scenario: Unmeasured EV for two hours
+- **GIVEN** eight consecutive completed slots whose EV component method is `unknown`
+- **THEN** one span is returned with `slots` 8, reason `unknown_component` and component `ev`
+- **AND** `coverage.excluded_by_reason.unknown_component` is 8
+
+#### Scenario: Adjacent slots with different reasons
+- **WHEN** an hour of `missing_slot` is followed directly by an hour of `missing_price`
+- **THEN** two separate spans are returned, each with its own reason
+
+#### Scenario: Nothing excluded
+- **WHEN** every expected slot is eligible
+- **THEN** `excluded_spans` is an empty list and `coverage.excluded_by_reason` is an empty object
+
+#### Scenario: Older clients
+- **WHEN** a client ignores the new fields
+- **THEN** all previously documented fields keep their names, types and values
+
+### Requirement: One reason per excluded slot by check order
+Each excluded slot SHALL carry the first failing check of a fixed order that follows the eligibility checks, so the reason is deterministic and never a combination.
+
+#### Scenario: Check order and codes
+- **THEN** the order and codes are: no row (`missing_slot`); more than one row (`ambiguous_rows`); invalid battery wear cost (`battery_cost_invalid`); not recorder-owned, placeholder or backfill (`not_recorder`); user exclusion or exclude-from-comparison annotation (`user_excluded`); unsupported provenance schema (`unsupported_provenance`)
+- **AND** then per relevant component in the order import, export, load, water, ev, battery charge, battery discharge: unconfigured (`unconfigured_sensor`), snapshot or mixed (`estimated_component`), unknown or not recorder-owned (`unknown_component`), disabled battery flow (`battery_disabled_zero`)
+- **AND** then missing or invalid price (`missing_price`), missing or invalid energy (`missing_energy_value`), suspected base-load clamp (`clamp_hidden_demand`) and nonzero energy on a disabled component (`disabled_nonzero`)
+
+#### Scenario: First failing check wins
+- **GIVEN** a slot that is a backfill row with an unknown water component and a missing price
+- **THEN** its reason is `not_recorder`
+
+#### Scenario: Eligibility is unchanged
+- **WHEN** the reasons are added
+- **THEN** exactly the same slots are eligible and excluded as before, and amounts, segments and coverage counts are unchanged

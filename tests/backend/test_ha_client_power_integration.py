@@ -35,6 +35,52 @@ def _integrate(states: list[dict]) -> tuple[float, float] | None:
     return integrate_power_points(parse_power_states(states), START, END)
 
 
+class TestUnavailableEndsTheHold:
+    """A state that is not a reading ends the hold; only valid intervals add energy."""
+
+    @pytest.mark.parametrize("gap_state", ["unavailable", "unknown", "", "n/a"])
+    def test_valid_then_unavailable_mid_slot(self, gap_state):
+        """08:00 shape: 2 kW valid for 26 s, then no reading to the end of the slot."""
+        result = _integrate([_state("2.0", 0), _state(gap_state, 26 / 60)])
+        assert result == (pytest.approx(2.0 * 26 / 3600), 0.0)
+        assert result[0] == pytest.approx(0.0144, abs=1e-4)
+
+    @pytest.mark.parametrize("gap_state", ["unavailable", "unknown"])
+    def test_unavailable_then_valid_mid_slot(self, gap_state):
+        """12:15 shape: unavailable at the slot start, back after 518 s."""
+        result = _integrate([_state(gap_state, 0), _state("2.0", 518 / 60)])
+        assert result == (pytest.approx(2.0 * (900 - 518) / 3600), 0.0)
+
+    def test_multiple_flaps_add_only_valid_intervals(self):
+        states = [
+            _state("1.0", 0),
+            _state("unavailable", 2),
+            _state("3.0", 5),
+            _state("unknown", 8),
+            _state("unavailable", 9),
+            _state("2.0", 12),
+        ]
+        # 1 kW x 2 min + 3 kW x 3 min + 2 kW x 3 min
+        assert _integrate(states) == (pytest.approx((1 * 2 + 3 * 3 + 2 * 3) / 60), 0.0)
+
+    def test_negative_energy_is_not_held_across_a_gap_either(self):
+        result = _integrate([_state("-4.0", 0), _state("unavailable", 3)])
+        assert result == (0.0, pytest.approx(4.0 * 3 / 60))
+
+    def test_window_inside_an_unavailable_period_has_no_value(self):
+        """A pre-window valid value is not held through a later unavailable state."""
+        points = parse_power_states([_state("2.0", -30), _state("unavailable", -10)])
+        assert integrate_power_points(points, START, END) is None
+
+    def test_gap_state_keeps_learning_the_unit(self):
+        points = parse_power_states([_state("unavailable", 0, unit="W"), _state("1500", 5, None)])
+        assert [value for _ts, value in points] == [None, 1.5]
+
+    def test_gap_markers_are_time_sorted_with_valid_points(self):
+        points = parse_power_states([_state("2.0", 10), _state("unavailable", 5), _state("1.0", 0)])
+        assert [value for _ts, value in points] == [1.0, None, 2.0]
+
+
 class TestIntegratePowerPoints:
     def test_positive_and_negative_split_by_sample_interval(self):
         """+2 kW for 5 min then -4 kW for 10 min."""
@@ -51,6 +97,12 @@ class TestIntegratePowerPoints:
     def test_pre_window_state_is_held_from_window_start(self):
         result = _integrate([_state("6.0", -30), _state("0.0", 5)])
         assert result == (pytest.approx(0.5), 0.0)
+
+    def test_unchanged_sensor_holds_start_of_window_state_for_the_whole_window(self):
+        """HA returns only the start-of-window state when nothing changed: not a gap."""
+        assert _integrate([_state("2.0", -600)]) == (pytest.approx(0.5), 0.0)
+        assert _integrate([_state("0.0", -600)]) == (0.0, 0.0)
+        assert _integrate([_state("-4.0", -600)]) == (0.0, pytest.approx(1.0))
 
     def test_state_after_window_is_ignored(self):
         result = _integrate([_state("1.0", 0), _state("9.0", 20)])
@@ -70,8 +122,9 @@ class TestIntegratePowerPoints:
         assert _integrate([_state("unavailable", 0), _state("unknown", 5), _state("x", 6)]) is None
         assert _integrate([]) is None
 
-    def test_points_only_after_window_integrate_to_zero(self):
-        assert _integrate([_state("5.0", 30)]) == (0.0, 0.0)
+    def test_points_only_after_window_have_no_value(self):
+        """No valid interval overlaps the window, so there is nothing to report."""
+        assert _integrate([_state("5.0", 30)]) is None
 
     def test_many_windows_over_one_series_use_each_pre_window_state(self):
         points = parse_power_states([_state("4.0", -10), _state("8.0", 15)])
@@ -104,7 +157,11 @@ class TestParsePowerStatesUnitLearning:
     def test_unit_learned_from_leading_non_numeric_state(self):
         """A chunk starting `unavailable` (unit on it) keeps W for the unitless states after."""
         for leading in ("unavailable", "unknown"):
-            states = [_state(leading, 0, unit="W"), _state("1000", 5, None), _state("2000", 10, None)]
+            states = [
+                _state(leading, 0, unit="W"),
+                _state("1000", 5, None),
+                _state("2000", 10, None),
+            ]
             result = _integrate(states)
             assert result is not None
             assert result[0] == pytest.approx(1.0 * 5 / 60 + 2.0 * 5 / 60)
@@ -145,7 +202,11 @@ class TestGetPowerHistoryBatch:
         client = _mock_client([series])
         secrets_patch, client_patch = _patched(client)
         state_mock = AsyncMock(return_value={"attributes": {"unit_of_measurement": "W"}})
-        with secrets_patch, client_patch, patch.object(ha_client, "get_ha_entity_state", state_mock):
+        with (
+            secrets_patch,
+            client_patch,
+            patch.object(ha_client, "get_ha_entity_state", state_mock),
+        ):
             history = await get_power_history_batch(["sensor.a"], START, END)
         assert history is not None
         state_mock.assert_awaited_once_with("sensor.a")
@@ -161,7 +222,11 @@ class TestGetPowerHistoryBatch:
         client = _mock_client([[_state("1000", 0, "W", "sensor.a")]])
         secrets_patch, client_patch = _patched(client)
         state_mock = AsyncMock()
-        with secrets_patch, client_patch, patch.object(ha_client, "get_ha_entity_state", state_mock):
+        with (
+            secrets_patch,
+            client_patch,
+            patch.object(ha_client, "get_ha_entity_state", state_mock),
+        ):
             await get_power_history_batch(["sensor.a"], START, END)
         state_mock.assert_not_awaited()
 
@@ -300,7 +365,9 @@ class TestLoadProfileAfterOutage:
         class FrozenDateTime(datetime):
             @classmethod
             def now(cls, tz=None):
-                return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+                return (
+                    fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+                )
 
         monkeypatch.setattr(ha_client, "datetime", FrozenDateTime)
 
@@ -330,6 +397,7 @@ class TestLoadProfileAfterOutage:
             profile = await ha_client.get_load_profile_from_ha(config)
 
         assert len(profile) == 96
-        # Constant 1 kW is 24 kWh/day minus the 1 s `unavailable` lead of each of the 7
-        # chunks (7 s / 7 days = 1 s/day -> 24 - 1/3600 kWh); the 1000x bug gives 24000.
-        assert sum(profile) == pytest.approx(24.0 - 1 / 3600, abs=1e-6)
+        # Constant 1 kW is 24 kWh/day: slots are averaged over their valid time, so the
+        # 1 s `unavailable` lead of each chunk is excluded, not counted as zero load
+        # (the old divide-by-7 gave 24 - 1/3600). The 1000x unit bug would give 24000.
+        assert sum(profile) == pytest.approx(24.0, abs=1e-9)

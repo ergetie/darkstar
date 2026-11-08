@@ -181,6 +181,15 @@ class LearningStore:
                     recording["components"] = {}
                     recording["soc"] = {}
 
+                def recorder_unmeasured_water(container: dict[str, Any]) -> bool:
+                    water_meta = metadata_object(
+                        metadata_object(container.get("components")).get("water")
+                    )
+                    return (
+                        water_meta.get("method") == "unknown"
+                        and water_meta.get("owner") == "recorder"
+                    )
+
                 def field_metadata(
                     container: dict[str, Any], component: str, endpoint: str
                 ) -> dict[str, Any]:
@@ -221,6 +230,7 @@ class LearningStore:
                 changed_measurement = False
                 accepted_measurement = False
                 accepted_water_measurement = False
+                recorded_unmeasured_water = False
                 for column, component in field_components.items():
                     incoming_present = has_measurement(column)
                     incoming_value = record.get(column)
@@ -261,6 +271,24 @@ class LearningStore:
                                 recording["soc"][endpoint] = metadata
                             else:
                                 recording["components"][component] = metadata
+                    elif (
+                        component == "water"
+                        and recording is not None
+                        and authoritative
+                        and recorder_unmeasured_water(new_recording)
+                        and old_meta.get("method") in (None, "unknown")
+                    ):
+                        # Every water source was unavailable: keep the stored value (0.0
+                        # for a new row) and the recorder's own `unknown` provenance, so
+                        # the owner is not downgraded to `unknown` just because the value
+                        # is absent. This is not a measurement. A measured stored water
+                        # component never reaches this branch.
+                        recorded_unmeasured_water = True
+                        values[column] = old_value if existing else 0.0
+                        metadata = field_metadata(new_recording, component, endpoint)
+                        metadata["method"] = "unknown"
+                        metadata["owner"] = source
+                        recording["components"][component] = metadata
                     elif existing:
                         values[column] = old_value
                         if recording is not None:
@@ -339,6 +367,9 @@ class LearningStore:
                     if authoritative or old_flags.get("source") == "recorder"
                     else "backfill"
                 )
+                if recorded_unmeasured_water and incoming_water_energy is not None:
+                    # Per-device record stays truthful: no energy, coverage unavailable.
+                    merged_flags["water_heater_energy"] = incoming_water_energy
                 if accepted_water_measurement:
                     if incoming_water_energy is None:
                         merged_flags.pop("water_heater_energy", None)

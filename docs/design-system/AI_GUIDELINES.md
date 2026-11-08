@@ -138,6 +138,10 @@ Horizontal capacity bar split into layers (`.battery-stack*`, used by the Batter
 ### Cost Chart
 `components/CostSeriesChart.tsx` draws the running net cost (green when earning, red when paying) over faint import/export bars, from `/api/energy/cost-series`. Animations (`.cost-chart-reveal`, `.cost-chart-area`, `.cost-chart-bar`) are switched off under `prefers-reduced-motion`.
 
+Slots left out of the DS versus grid-only comparison are marked with `.cost-chart-excluded`: a muted, diagonally hatched band with dashed edges over the excluded span, drawn under the lines (`data-testid="cost-excluded-span"`), so the exclusion never relies on colour alone. DS and Grid-only lines stay unconnected across it. Hovering or focusing a bucket that overlaps a band adds a `text-warn` readout line ("Not compared: EV charger not measured (08:15–12:15)"). In the coverage text of the bill details, one `text-warn` line per reason group follows the "N excluded" count (largest first, two groups, then "and N more reasons"). Reason codes from the backend are never shown raw; `lib/costExclusion.ts` maps them to fixed phrases, with "not compared" as the fallback.
+
+Axis labels are laid out against the measured chart width (`lib/costAxisTicks.ts`): a label that would overlap another moves to the other row or is omitted, with the axis ends and the repeated-hour labels (`02+2`, `02+1` on a DST fall-back day) placed first, so labels never overlap at any width. Time ranges use an en dash without spaces (`08:15–12:15`).
+
 ### Charts On Canvas
 Canvas charts cannot use Tailwind classes. Read colours from the tokens at draw time with `lib/chartTokens.ts` (`token('good', alpha)`), and redraw when the `.dark` class on `<html>` changes. Glows (`shadowBlur`) only in dark mode. Times on axes and readouts are always 24h.
 

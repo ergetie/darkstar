@@ -145,6 +145,15 @@ export default function DesignSystem() {
             water_unmeasured_hours: 0,
         },
         time_axis: axis,
+        excluded_spans: [
+            {
+                start: '2026-10-05T00:15:00+02:00',
+                end: '2026-10-05T00:30:00+02:00',
+                slots: 1,
+                reason: 'unknown_component',
+                component: 'ev',
+            },
+        ],
         through: '2026-10-05T01:00:00+02:00',
         grid_only_cost_sek: 3,
         grid_only_wear_cost_sek: 0,
@@ -276,7 +285,7 @@ export default function DesignSystem() {
     const costChartFixtures: { label: string; comparison: GridOnlyComparison }[] = [
         { label: 'Complete · positive difference', comparison: completeComparison(8, 10) },
         { label: 'Complete · negative difference', comparison: completeComparison(10, 8) },
-        { label: 'Partial · covered segments', comparison: gapComparison },
+        { label: 'Partial · excluded span band', comparison: gapComparison },
         { label: 'Unavailable · no usable inputs', comparison: unavailableComparison },
         { label: 'Fall-back · repeated 02:00 offsets', comparison: fallBackComparison },
     ]

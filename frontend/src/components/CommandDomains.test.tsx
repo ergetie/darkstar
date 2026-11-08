@@ -384,6 +384,82 @@ describe('GridDomain grid-only comparison', () => {
         expect(screen.getByTestId('water-unmeasured-note')).toHaveTextContent('Water not measured for 0.75 h, included')
     })
 
+    describe('excluded reason notes', () => {
+        const spanOf = (reason: string, slots: number, component: string | null = null) => ({
+            start: '2026-10-05T08:00:00+02:00',
+            end: '2026-10-05T09:00:00+02:00',
+            slots,
+            reason,
+            component,
+        })
+        const partial = (spans?: ReturnType<typeof spanOf>[]) => {
+            const excluded = spans ? spans.reduce((sum, span) => sum + span.slots, 0) : 8
+            return gridOnlyComparison({
+                status: 'partial',
+                reason: 'partial_coverage',
+                coverage: { ...waterCoverage(0, excluded) },
+                ...(spans ? { excluded_spans: spans } : {}),
+            })
+        }
+        const open = async (comparison: ReturnType<typeof partial>) => {
+            vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+            vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(comparison))
+            render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+            await screen.findByText(/of the period/)
+            openPanel()
+        }
+
+        it('explains a single reason in words under the coverage line', async () => {
+            await open(partial([spanOf('unknown_component', 8, 'ev')]))
+            const notes = screen.getByTestId('excluded-reason-notes')
+            expect(notes).toHaveTextContent('2 h not compared: EV charger not measured')
+            expect(notes).toHaveClass('text-warn')
+            expect(notes).not.toHaveTextContent('unknown_component')
+            const dialog = screen.getByRole('dialog')
+            expect(dialog.textContent?.indexOf('(8 excluded)')).toBeLessThan(
+                dialog.textContent?.indexOf('2 h not compared') ?? -1,
+            )
+        })
+
+        it('names the two largest of several reasons and counts the rest', async () => {
+            await open(
+                partial([
+                    spanOf('missing_slot', 2),
+                    spanOf('unknown_component', 8, 'ev'),
+                    spanOf('missing_price', 4),
+                    spanOf('user_excluded', 1),
+                ]),
+            )
+            const notes = screen.getByTestId('excluded-reason-notes')
+            expect(notes).toHaveTextContent('2 h not compared: EV charger not measured')
+            expect(notes).toHaveTextContent('1 h not compared: price missing')
+            expect(notes).toHaveTextContent('and 2 more reasons')
+            expect(notes).not.toHaveTextContent('not recorded')
+        })
+
+        it('shows no reason note when nothing is excluded', async () => {
+            vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+            vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(gridOnlyComparison({ excluded_spans: [] })))
+            render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+            await screen.findByText('+10.00 kr')
+            openPanel()
+            expect(screen.queryByTestId('excluded-reason-notes')).toBeNull()
+        })
+
+        it('keeps the existing coverage text and shows no note for an older backend', async () => {
+            await open(partial())
+            expect(screen.getByRole('dialog')).toHaveTextContent('(8 excluded)')
+            expect(screen.queryByTestId('excluded-reason-notes')).toBeNull()
+        })
+
+        it('wraps the notes in block lines so a narrow card never overflows', async () => {
+            await open(partial([spanOf('unknown_component', 8, 'ev'), spanOf('missing_price', 4)]))
+            const notes = screen.getByTestId('excluded-reason-notes')
+            expect([...notes.children].map((child) => child.tagName)).toEqual(['DIV', 'DIV'])
+            expect(screen.getByRole('dialog')).toHaveClass('max-w-full')
+        })
+    })
+
     it('shows a plain unavailable reason without an amount or details panel', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(

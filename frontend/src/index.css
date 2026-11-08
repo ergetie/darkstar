@@ -405,6 +405,25 @@ body::before {
         animation: cost-chart-grow 0.5s ease-out both;
     }
 
+    /* Slots left out of the comparison: muted hatched band with dashed edges, so the
+       exclusion is not conveyed by colour alone. Sits under the SVG lines. */
+    .cost-chart-excluded {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        min-width: 2px;
+        background-color: rgb(var(--color-muted) / 0.1);
+        background-image: repeating-linear-gradient(
+            -45deg,
+            rgb(var(--color-muted) / 0.28) 0,
+            rgb(var(--color-muted) / 0.28) 1px,
+            transparent 1px,
+            transparent 6px
+        );
+        border-inline: 1px dashed rgb(var(--color-muted) / 0.5);
+        pointer-events: none;
+    }
+
     @keyframes cost-chart-reveal {
         from {
             clip-path: inset(0 100% 0 0);

@@ -221,7 +221,8 @@ async def get_ha_sensor_kw_normalized(entity_id: str) -> float | None:
         return None
 
 
-PowerPoint = tuple[datetime, float]
+# ``(timestamp, kW)``; ``None`` marks a state that is not a usable reading (a gap).
+PowerPoint = tuple[datetime, float | None]
 
 
 def _state_timestamp(state: dict[str, Any]) -> datetime | None:
@@ -252,7 +253,10 @@ def parse_power_states(
 ) -> list[PowerPoint]:
     """Parse HA history states of one power sensor into time-sorted ``(timestamp, kW)`` points.
 
-    States without a timestamp or numeric value are skipped. A state lacking a unit
+    States without a timestamp are skipped. A state without a usable numeric value
+    (``unavailable``, ``unknown``, empty, non-numeric) is kept as a gap marker
+    ``(timestamp, None)`` so that integration ends the hold there instead of carrying
+    the previous valid value across the period. A state lacking a unit
     inherits the last unit seen earlier in the series (HA often reports it only on the
     first state, which may be a non-numeric one, so the unit is learned from every
     state before its value is skipped). A numeric series with no unit anywhere is read
@@ -270,45 +274,51 @@ def parse_power_states(
 
         state_val = state.get("state", "")
         if state_val in ("unknown", "unavailable", "", None):
+            points.append((ts, None))
             continue
         try:
             value = float(state_val)
         except (TypeError, ValueError):
+            points.append((ts, None))
             continue
 
         if unit is None or unit == "":
             unit = cached_unit
         if unit is None:
             _warn_unknown_unit_once(entity_id)
-        normalized = normalize_active_power_kw(value, unit)
-        if normalized is not None:
-            points.append((ts, normalized))
+        points.append((ts, normalize_active_power_kw(value, unit)))
     return points
 
 
-def integrate_power_points(
+def integrate_power_points_covered(
     points: list[PowerPoint],
     start: datetime,
     end: datetime,
-) -> tuple[float, float] | None:
+) -> tuple[float, float, float] | None:
     """Step-integrate (zero-order hold) parsed power points over ``[start, end]``.
 
-    Returns ``(positive_kwh, negative_kwh)``, where each sample interval is added to
-    one side by the sign of its held value (negative energy is returned as a magnitude).
-    The last state at or before ``start`` is the pre-window value. Returns None when
-    there are no valid points at all.
+    Returns ``(positive_kwh, negative_kwh, covered_seconds)``. Each sample interval is
+    added to one side by the sign of its held value (negative energy is returned as a
+    magnitude); ``covered_seconds`` is the time inside the window that had a valid
+    held value. The last state at or before ``start`` is the pre-window value. A gap
+    marker (``None`` value) ends the hold: nothing is accumulated, and no coverage is
+    counted, until the next valid point. Returns None when no valid interval overlaps
+    the window.
     """
     if not points:
         return None
 
     positive = 0.0
     negative = 0.0
+    covered_seconds = 0.0
     current_kw: float | None = None
     cursor = start
 
     def accumulate(kw: float, until: datetime) -> None:
-        nonlocal positive, negative
-        kwh = kw * ((until - cursor).total_seconds() / 3600.0)
+        nonlocal positive, negative, covered_seconds
+        seconds = (until - cursor).total_seconds()
+        covered_seconds += seconds
+        kwh = kw * (seconds / 3600.0)
         if kwh >= 0:
             positive += kwh
         else:
@@ -332,7 +342,22 @@ def integrate_power_points(
     if current_kw is not None and cursor < end:
         accumulate(current_kw, end)
 
-    return positive, negative
+    return (positive, negative, covered_seconds) if covered_seconds > 0 else None
+
+
+def integrate_power_points(
+    points: list[PowerPoint],
+    start: datetime,
+    end: datetime,
+) -> tuple[float, float] | None:
+    """Step-integrate parsed power points over ``[start, end]``.
+
+    Returns ``(positive_kwh, negative_kwh)`` as :func:`integrate_power_points_covered`
+    does, without the covered duration. Returns None when no valid interval overlaps
+    the window.
+    """
+    integrated = integrate_power_points_covered(points, start, end)
+    return None if integrated is None else (integrated[0], integrated[1])
 
 
 async def get_power_history_batch(
@@ -830,6 +855,14 @@ async def get_initial_state(
 
 _SLOT_SECONDS = 15 * 60
 _LOAD_PROFILE_DAYS = 7
+# A time-of-day slot is only trusted when its valid data adds up to at least one full
+# slot length over the whole window; below that the mean rests on less than one slot's
+# worth of observation and the slot is filled from its neighbours instead.
+_MIN_SLOT_COVERAGE_SECONDS = _SLOT_SECONDS
+# Interpolating across gaps is only sensible while most of the day is measured. With
+# fewer than half of the 96 slots supported the shape of the day is guesswork (the
+# widest hole could exceed 12 h), so the profile is treated as insufficient instead.
+_MIN_SUPPORTED_SLOTS = 48
 
 
 def _distribute_interval_energy(
@@ -852,8 +885,7 @@ def _distribute_interval_energy(
     offsets are multiples of 15 minutes, so UTC and local slot boundaries align.
 
     Energy is apportioned over the full interval duration; only the part that
-    overlaps [window_start, window_end) is recorded, keeping the caller's
-    fixed 7-day averaging denominator honest.
+    overlaps [window_start, window_end) is recorded.
     """
     total_seconds = (interval_end - interval_start).total_seconds()
     if total_seconds <= 0 or energy_kwh <= 0:
@@ -879,11 +911,43 @@ def _distribute_interval_energy(
         next_boundary = next_boundary + timedelta(seconds=_SLOT_SECONDS)
 
 
+def _coverage_averaged_profile(
+    slot_sums: list[float], slot_covered: list[float]
+) -> tuple[list[float], int]:
+    """Turn per-slot energy and covered seconds into a 96-slot kWh-per-slot profile.
+
+    A supported slot (valid data of at least ``_MIN_SLOT_COVERAGE_SECONDS``) gets its
+    mean power over the covered time scaled to the slot length, which is exact for
+    slots measured only in part. Other slots are filled by linear interpolation
+    between the nearest supported slots around the clock (wrapping over midnight).
+    Returns the profile and the number of supported slots; with none, all zeros.
+    """
+    supported = [covered >= _MIN_SLOT_COVERAGE_SECONDS for covered in slot_covered]
+    profile = [
+        slot_sums[i] / slot_covered[i] * _SLOT_SECONDS if supported[i] else 0.0 for i in range(96)
+    ]
+    anchors = [i for i in range(96) if supported[i]]
+    if not anchors:
+        return profile, 0
+    for i in range(96):
+        if supported[i]:
+            continue
+        before = next(j for j in range(1, 97) if supported[(i - j) % 96])
+        after = next(j for j in range(1, 97) if supported[(i + j) % 96])
+        low = profile[(i - before) % 96]
+        high = profile[(i + after) % 96]
+        profile[i] = low + (high - low) * before / (before + after)
+    return profile, len(anchors)
+
+
 async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
     """Build the average daily load profile from 7 days of ``load_power`` history (Async).
 
     The power history is step-integrated per 15-minute slot and spread over the 96
-    local time-of-day slots. This is total load, as recorded by the load sensor.
+    local time-of-day slots. This is total load, as recorded by the load sensor. Each
+    slot is the mean power over the time it was validly measured, so sensor gaps are
+    not zero load; slots never measured are interpolated, and a profile with too few
+    measured slots is discarded.
     """
     ha_config = secrets.load_home_assistant_config()
     url: str | None = cast("str | None", ha_config.get("url"))
@@ -912,6 +976,8 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
 
         # Energy per local time-of-day slot, summed over the 7-day window
         slot_sums = [0.0] * 96
+        # Seconds of valid (non-gap) data per local time-of-day slot over the window
+        slot_covered = [0.0] * 96
         valid_points = 0
 
         # One request per day keeps each response bounded (a power sensor reporting
@@ -927,21 +993,28 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
                 )
 
             points = parse_power_states(history[entity], entity)
-            valid_points += len(points)
+            valid_points += sum(1 for _ts, value in points if value is not None)
             slot_start = day_start
             while slot_start < day_end:
                 slot_end = min(slot_start + timedelta(seconds=_SLOT_SECONDS), day_end)
-                integrated = integrate_power_points(points, slot_start, slot_end)
-                if integrated is not None and integrated[0] > 0:
-                    _distribute_interval_energy(
-                        slot_sums,
-                        slot_start,
-                        slot_end,
-                        integrated[0],
-                        local_tz,
-                        window_start=start_time,
-                        window_end=end_time,
-                    )
+                integrated = integrate_power_points_covered(points, slot_start, slot_end)
+                if integrated is not None:
+                    positive_kwh, _negative_kwh, covered_seconds = integrated
+                    # Energy and covered time are apportioned identically, so each
+                    # local slot keeps the interval's mean power over its valid time.
+                    for target, amount in (
+                        (slot_sums, positive_kwh),
+                        (slot_covered, covered_seconds),
+                    ):
+                        _distribute_interval_energy(
+                            target,
+                            slot_start,
+                            slot_end,
+                            amount,
+                            local_tz,
+                            window_start=start_time,
+                            window_end=end_time,
+                        )
                 slot_start = slot_end
 
         if valid_points == 0:
@@ -951,8 +1024,22 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
                 discard_reason=(f"'{entity}' has no history in the last {_LOAD_PROFILE_DAYS} days"),
             )
 
-        # Create average daily profile from the 7 days of data (divide by 7 days)
-        daily_profile = [slot_sum / float(_LOAD_PROFILE_DAYS) for slot_sum in slot_sums]
+        # Average each slot over the time it was actually measured (not over 7 days), so
+        # a sensor outage never counts as zero load.
+        daily_profile, supported_slots = _coverage_averaged_profile(slot_sums, slot_covered)
+        if supported_slots < _MIN_SUPPORTED_SLOTS:
+            logger.warning(
+                "Only %d of 96 slots of %s have enough valid history, using dummy profile",
+                supported_slots,
+                entity,
+            )
+            return get_dummy_load_profile(
+                config,
+                discard_reason=(
+                    f"'{entity}' has valid data for only {supported_slots} of 96 "
+                    f"time-of-day slots in the last {_LOAD_PROFILE_DAYS} days"
+                ),
+            )
 
         # Validate and clean the profile
         total_daily = sum(daily_profile)

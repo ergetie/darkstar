@@ -162,10 +162,12 @@ def compute_slot_energy(
         energy.ev[sensor] = positive(sensor)
     for _, sensor in sources.water_heaters:
         cutoff = sources.water_idle_power_thresholds_kw.get(sensor, DEFAULT_IDLE_POWER_THRESHOLD_KW)
-        active_points = [
+        active_points: list[PowerPoint] = [
             (
                 timestamp,
-                max(0.0, normalize_active_power_kw(value, "kW", cutoff) or 0.0),
+                None
+                if value is None
+                else max(0.0, normalize_active_power_kw(value, "kW", cutoff) or 0.0),
             )
             for timestamp, value in series.get(sensor, [])
         ]

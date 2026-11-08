@@ -29,6 +29,10 @@ from backend.validation import get_max_energy_per_slot, validate_energy_values
 logger = logging.getLogger(__name__)
 
 SLOT_MINUTES = 15
+# Columns that are NOT NULL DEFAULT 0 in slot_observations and feed training and stats.
+# A slot whose value for one of them has no valid history interval is never written:
+# the store would persist the missing value as 0.0, which is fabricated data.
+CORE_ENERGY_FIELDS = ("pv_kwh", "load_kwh", "import_kwh", "export_kwh")
 MAX_BACKFILL_DAYS = 10
 # A day of high-rate power history for all entities is a large response
 HISTORY_TIMEOUT_SECONDS = 60.0
@@ -233,7 +237,12 @@ class BackfillEngine:
     ) -> list[dict[str, Any]]:
         """Integrate one day's batched history into one record per slot (CPU-bound)."""
         series = {entity: parse_power_states(states, entity) for entity, states in history.items()}
-        if not any(series.get(entity) for entity in sources.entity_ids()):
+        # Gap markers (value None) are not data: no valid point at all means nothing to write.
+        if not any(
+            value is not None
+            for entity in sources.entity_ids()
+            for _, value in series.get(entity, [])
+        ):
             return []
         soc_points = series.get(soc_entity, []) if soc_entity else []
 
@@ -244,8 +253,15 @@ class BackfillEngine:
             max_kwh = None
 
         records: list[dict[str, Any]] = []
+        skipped = 0
         for slot_start in slot_starts:
             record = self._build_record(sources, series, soc_points, slot_start)
+            # Unconfigured or disabled sources integrate to a real 0.0 (provenance
+            # `*_zero`), so None here always means a configured sensor had no valid
+            # interval in the slot. Never fabricate that as 0 in NOT NULL columns.
+            if any(record.get(field) is None for field in CORE_ENERGY_FIELDS):
+                skipped += 1
+                continue
             if max_kwh is not None:
                 original_record = record
                 record = validate_energy_values(record, max_kwh)
@@ -264,6 +280,8 @@ class BackfillEngine:
                             "method"
                         ] = "unknown"
             records.append(record)
+        if skipped:
+            logger.info(f"Backfill skipped {skipped} slots without measured core history.")
         return records
 
     async def run(self) -> None:
