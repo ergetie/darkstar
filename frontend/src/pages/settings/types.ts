@@ -663,6 +663,17 @@ export const parameterSections: SettingsSection[] = [
                 min: 10,
                 max: 600,
             },
+            {
+                key: 'kepler.solver_threads',
+                label: 'Solver Threads',
+                helper: 'CPU threads used by the planner solver. 0 = automatic (all CPU cores available to Darkstar), 1-64 sets the count explicitly. Multi-threaded runs can differ slightly between solves.',
+                path: ['kepler', 'solver_threads'],
+                type: 'number',
+                subsection: 'Advanced Tuning',
+                isAdvanced: true,
+                min: 0,
+                max: 64,
+            },
         ],
     },
     {

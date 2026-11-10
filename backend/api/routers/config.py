@@ -979,9 +979,24 @@ def _validate_config_for_save(
                 {
                     "severity": "error",
                     "message": f"kepler.solver_time_limit_s must be between 10 and 600 seconds (got {raw_time_limit})",
-                    "guidance": "Set the solver time limit to a value from 10 to 600 seconds (default 60).",
+                    "guidance": "Set the solver time limit to a value from 10 to 600 seconds (default 90).",
                 }
             )
+
+    # Kepler solver threads: ERROR unless an integer 0-64 (0 = auto)
+    raw_threads: Any = kepler_cfg.get("solver_threads")
+    if raw_threads is not None and (
+        isinstance(raw_threads, bool)
+        or not isinstance(raw_threads, int)
+        or not 0 <= raw_threads <= 64
+    ):
+        issues.append(
+            {
+                "severity": "error",
+                "message": f"kepler.solver_threads must be an integer between 0 and 64 (got {raw_threads})",
+                "guidance": "Set the solver thread count to 0 (auto) or an integer from 1 to 64.",
+            }
+        )
 
     # EV shortfall penalty: ERROR when not a positive number
     raw_penalty: Any = kepler_cfg.get("ev_shortfall_penalty_sek_per_kwh")

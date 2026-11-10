@@ -380,7 +380,11 @@ kepler:
   ev_shortfall_penalty_sek_per_kwh: 50.0
   # Solver time limit (advanced, seconds, 10-600). When a solve runs into the
   # limit the planner logs a warning and flags the plan (time_limit_hit).
-  solver_time_limit_s: 60
+  solver_time_limit_s: 90
+  # CBC solver threads (advanced). 0 = auto: use the CPU cores available to the
+  # process (affinity / container quota). 1-64 sets the count explicitly.
+  # Multi-threaded solves are slightly nondeterministic (~1-2 SEK run to run).
+  solver_threads: 0
 
 # =============================================================================
 # Home Assistant Integration

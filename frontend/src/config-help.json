@@ -128,5 +128,6 @@
     "appliances.dishwasher.label": "Display name in UI",
     "appliances.dishwasher.duration_hours": "Typical run duration",
     "ev_chargers": "Add and configure EV chargers. Current-type chargers require a Charging Control Entity: Darkstar sets it to the enabled value to start and to the disabled value to stop, and only writes amps between min and max current.",
-    "kepler.solver_time_limit_s": "Maximum solver run time in seconds (10-600, default 60). Hitting the limit flags the plan and logs a warning; the plan may be suboptimal."
+    "kepler.solver_time_limit_s": "Maximum solver run time in seconds (10-600, default 90). Hitting the limit flags the plan and logs a warning; the plan may be suboptimal.",
+    "kepler.solver_threads": "CPU threads used by the planner solver. 0 = automatic (all CPU cores available to Darkstar), 1-64 sets the count explicitly. Multi-threaded solves can differ slightly between runs."
 }

@@ -1059,7 +1059,9 @@ class KeplerSolver:
             prob.solve(solver_cmd)  # type: ignore[reportUnknownMemberType]
         except Exception:
             # Fall back to CBC if GLPK not available, also with timeout
-            solver_cmd: Any = pulp.PULP_CBC_CMD(msg=False, timeLimit=time_limit_s)
+            threads: int = max(1, config.solver_threads)
+            logger.info("CBC solve: %d thread(s), time limit %ds", threads, time_limit_s)
+            solver_cmd: Any = pulp.PULP_CBC_CMD(msg=False, timeLimit=time_limit_s, threads=threads)
             prob.solve(solver_cmd)  # type: ignore[reportUnknownMemberType]
 
         solve_end: float = time.time()

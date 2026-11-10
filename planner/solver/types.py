@@ -112,7 +112,8 @@ class KeplerConfig:
     ramping_cost_sek_per_kw: float = 0.0  # Penalty for power changes
     export_threshold_sek_per_kwh: float = 0.0  # Min spread to export
     grid_import_limit_kw: float | None = None  # Soft constraint
-    solver_time_limit_s: int = 60  # CBC/GLPK time limit (kepler.solver_time_limit_s)
+    solver_time_limit_s: int = 90  # CBC/GLPK time limit (kepler.solver_time_limit_s)
+    solver_threads: int = 1  # CBC threads (kepler.solver_threads; adapter resolves auto)
     # Per-device water heater inputs (replaces scalar water fields)
     water_heaters: list[WaterHeaterInput] = field(default_factory=lambda: [])
 

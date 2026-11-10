@@ -6,7 +6,10 @@ Migrated from backend/kepler/adapter.py during Rev K13 modularization.
 """
 
 import logging
+import math
+import os
 from datetime import datetime  # noqa: TC003
+from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
@@ -461,13 +464,13 @@ def _apply_bulk_mode_override(params: dict[str, float]) -> dict[str, float]:
     return params
 
 
-SOLVER_TIME_LIMIT_DEFAULT_S = 60
+SOLVER_TIME_LIMIT_DEFAULT_S = 90
 SOLVER_TIME_LIMIT_MIN_S = 10
 SOLVER_TIME_LIMIT_MAX_S = 600
 
 
 def resolve_solver_time_limit_s(kepler_section: dict[str, Any]) -> int:
-    """Read ``kepler.solver_time_limit_s`` (default 60 s, range 10-600 s).
+    """Read ``kepler.solver_time_limit_s`` (default 90 s, range 10-600 s).
 
     Config saves are validated against the range; a hand-edited out-of-range
     or non-numeric value is clamped/defaulted here with a warning.
@@ -494,6 +497,91 @@ def resolve_solver_time_limit_s(kepler_section: dict[str, Any]) -> int:
             clamped,
         )
     return clamped
+
+
+SOLVER_THREADS_MAX = 64
+_CGROUP_V2_CPU_MAX = Path("/sys/fs/cgroup/cpu.max")
+_CGROUP_V1_QUOTA = Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")
+_CGROUP_V1_PERIOD = Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+
+
+def _read_text(path: Path) -> str | None:
+    """Read a small cgroup file, returning None when unreadable."""
+    try:
+        return path.read_text().strip()
+    except (OSError, ValueError):
+        return None
+
+
+def _cgroup_cpu_limit() -> int | None:
+    """CPU cores allowed by a cgroup quota (rounded up), or None when unlimited/unknown."""
+    quota: float | None = None
+    period: float | None = None
+
+    v2 = _read_text(_CGROUP_V2_CPU_MAX)
+    if v2 is not None:
+        parts = v2.split()
+        if len(parts) == 2 and parts[0] != "max":
+            try:
+                quota, period = float(parts[0]), float(parts[1])
+            except ValueError:
+                quota = period = None
+    else:
+        raw_quota = _read_text(_CGROUP_V1_QUOTA)
+        raw_period = _read_text(_CGROUP_V1_PERIOD)
+        if raw_quota is not None and raw_period is not None:
+            try:
+                quota, period = float(raw_quota), float(raw_period)
+            except ValueError:
+                quota = period = None
+
+    if quota is None or period is None or quota <= 0 or period <= 0:
+        return None
+    return max(1, math.ceil(quota / period))
+
+
+def available_cpu_count() -> int:
+    """CPU cores usable by this process (affinity, capped by cgroup quota; min 1)."""
+    try:
+        count = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        count = os.cpu_count() or 1
+    count = max(1, count)
+    limit = _cgroup_cpu_limit()
+    if limit is not None:
+        count = min(count, limit)
+    return max(1, count)
+
+
+def resolve_solver_threads(kepler_section: dict[str, Any]) -> int:
+    """Read ``kepler.solver_threads`` (absent/0 = auto, 1-64 explicit).
+
+    Auto uses the CPU cores available to the process. A hand-edited invalid
+    value logs a warning and falls back to auto. Always returns a concrete int.
+    """
+    raw = kepler_section.get("solver_threads")
+    if raw is None:
+        return min(available_cpu_count(), SOLVER_THREADS_MAX)
+    value: int | None = None
+    if not isinstance(raw, bool):
+        try:
+            as_float = float(raw)
+            if as_float == int(as_float):
+                value = int(as_float)
+        except (TypeError, ValueError, OverflowError):
+            value = None
+    if value is None or not 0 <= value <= SOLVER_THREADS_MAX:
+        auto = min(available_cpu_count(), SOLVER_THREADS_MAX)
+        logger.warning(
+            "kepler.solver_threads=%r is not an integer 0-%d; using auto (%d)",
+            raw,
+            SOLVER_THREADS_MAX,
+            auto,
+        )
+        return auto
+    if value == 0:
+        return min(available_cpu_count(), SOLVER_THREADS_MAX)
+    return value
 
 
 def config_to_kepler_config(
@@ -604,6 +692,7 @@ def config_to_kepler_config(
         ),
         export_threshold_sek_per_kwh=get_val("export_threshold_sek_per_kwh", 0.0),
         solver_time_limit_s=resolve_solver_time_limit_s(planner_config.get("kepler", {})),
+        solver_threads=resolve_solver_threads(planner_config.get("kepler", {})),
         # Per-device water heater inputs
         water_heaters=water_inputs,
         # Global water heating settings

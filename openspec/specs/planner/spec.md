@@ -604,11 +604,11 @@ The wear cost the solver uses (`wear_cost_sek_per_kwh`) SHALL never be lower tha
 - **AND** the battery SHALL never be modelled as free to cycle
 
 ### Requirement: Configurable solver time limit
-The Kepler solver time limit SHALL be read from `kepler.solver_time_limit_s` (default 60, valid range 10–600) and applied to both CBC and GLPK. The value SHALL be editable in the settings UI with help text. The non-optimal timeout classification SHALL use the configured limit instead of a hardcoded value.
+The Kepler solver time limit SHALL be read from `kepler.solver_time_limit_s` (default 90, valid range 10–600) and applied to both CBC and GLPK. The value SHALL be editable in the settings UI with help text. The non-optimal timeout classification SHALL use the configured limit instead of a hardcoded value.
 
 #### Scenario: Default limit
 - **WHEN** `kepler.solver_time_limit_s` is absent from config
-- **THEN** the solver SHALL run with a 60 s time limit
+- **THEN** the solver SHALL run with a 90 s time limit
 
 #### Scenario: Out-of-range value
 - **WHEN** a user saves `solver_time_limit_s: 5`

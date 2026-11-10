@@ -49,9 +49,9 @@ def _config(**overrides) -> KeplerConfig:
 
 
 class TestConfigPlumbing:
-    def test_default_is_60_when_absent(self):
-        assert resolve_solver_time_limit_s({}) == 60.0
-        assert KeplerConfig.solver_time_limit_s == 60.0
+    def test_default_is_90_when_absent(self):
+        assert resolve_solver_time_limit_s({}) == 90.0
+        assert KeplerConfig.solver_time_limit_s == 90.0
 
     def test_configured_value_reaches_kepler_config(self):
         planner_cfg = {
@@ -62,13 +62,13 @@ class TestConfigPlumbing:
         cfg = config_to_kepler_config(planner_cfg)
         assert cfg.solver_time_limit_s == 120.0
 
-    def test_default_yaml_ships_60(self):
+    def test_default_yaml_ships_90(self):
         path = Path(__file__).parent.parent.parent / "config.default.yaml"
         with path.open() as f:
             default_cfg = yaml.safe_load(f)
-        assert default_cfg["kepler"]["solver_time_limit_s"] == 60
+        assert default_cfg["kepler"]["solver_time_limit_s"] == 90
 
-    @pytest.mark.parametrize(("raw", "expected"), [(5, 10.0), (900, 600.0), ("abc", 60.0)])
+    @pytest.mark.parametrize(("raw", "expected"), [(5, 10.0), (900, 600.0), ("abc", 90.0)])
     def test_out_of_range_or_invalid_is_clamped(self, raw, expected):
         assert resolve_solver_time_limit_s({"solver_time_limit_s": raw}) == expected
 
