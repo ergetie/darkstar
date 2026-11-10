@@ -20,7 +20,11 @@ from backend.health import clear_load_forecast_status, set_load_forecast_status
 from backend.learning import LearningEngine, get_learning_engine
 from backend.learning.pv_cleaning import total_solar_kwp
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
-from ml.train import _build_time_features  # type: ignore[reportPrivateUsage]
+from ml.load_clean import LOAD_SCHEMA_VERSION, load_level_7d, slot_means_7d
+from ml.train import (
+    _build_time_features,  # type: ignore[reportPrivateUsage]
+    load_clean_load_observations,
+)
 from ml.weather import async_get_weather_series
 from utils.time_utils import dst_safe_date_range
 
@@ -216,7 +220,7 @@ async def _fetch_openmeteo_baseline_series(
     return series
 
 
-_EXPECTED_LOAD_FEATURES = [
+_EXPECTED_BASE_FEATURES = [
     "hour",
     "day_of_week",
     "month",
@@ -229,7 +233,54 @@ _EXPECTED_LOAD_FEATURES = [
     "vacation_mode_flag",
     "alarm_armed_flag",
 ]
-_EXPECTED_PV_FEATURES = [*_EXPECTED_LOAD_FEATURES, "physics_forecast_kwh"]
+_EXPECTED_LOAD_FEATURES = [*_EXPECTED_BASE_FEATURES, "load_level_7d"]
+_EXPECTED_PV_FEATURES = [*_EXPECTED_BASE_FEATURES, "physics_forecast_kwh"]
+
+# Post-model blend of the load middle forecast with the recent same-slot mean.
+# Code constants on purpose (not user configuration).
+LOAD_BLEND_MODEL_WEIGHT = 0.4
+LOAD_BLEND_SLOT_WEIGHT = 0.6
+LOAD_FLOOR_KWH = 0.01
+LOAD_CEILING_KWH = 16.0
+# History needed for load_level_7d / slot_mean_7d: 7 days before today plus margin.
+LOAD_HISTORY_DAYS = 8
+
+# Set when a load model was rejected because of its schema/features; the scheduler
+# consumes it to start a retrain (rate limited there).
+_load_retrain_requested = False
+
+
+def load_retrain_requested() -> bool:
+    """True when a load model was rejected for schema mismatch and needs a retrain."""
+    return _load_retrain_requested
+
+
+def clear_load_retrain_request() -> None:
+    global _load_retrain_requested
+    _load_retrain_requested = False
+
+
+def blend_load_predictions(
+    predictions: dict[str, pd.Series],
+    slot_mean: pd.Series,
+) -> None:
+    """Blend the load p50 with ``slot_mean`` in place and shift p10/p90 by the same delta.
+
+    Slots without a finite ``slot_mean`` keep the model values. Values are clamped to the
+    load floor/ceiling; storage later repairs ordering.
+    """
+    if "load_p50" not in predictions:
+        return
+    p50 = predictions["load_p50"]
+    mean = slot_mean.reindex(p50.index)
+    blended = LOAD_BLEND_MODEL_WEIGHT * p50 + LOAD_BLEND_SLOT_WEIGHT * mean
+    delta = (blended - p50).where(np.isfinite(mean), 0.0).fillna(0.0)
+    for q in ("p10", "p50", "p90"):
+        key = f"load_{q}"
+        if key in predictions:
+            predictions[key] = (predictions[key] + delta).clip(
+                lower=LOAD_FLOOR_KWH, upper=LOAD_CEILING_KWH
+            )
 
 
 def _load_models(models_dir: str = "data/ml/models") -> dict[str, lgb.Booster]:
@@ -244,7 +295,32 @@ def _load_models(models_dir: str = "data/ml/models") -> dict[str, lgb.Booster]:
 
     models: dict[str, lgb.Booster] = {}
 
+    def _validate_load_schema(model_path: str) -> bool:
+        """Load models need a sidecar with the current schema version and features."""
+        global _load_retrain_requested
+        features_file = _Path(model_path).with_suffix(".features.json")
+        try:
+            sidecar: dict[str, Any] = json.loads(features_file.read_text())
+            version: Any = sidecar.get("schema_version")
+            stored: list[str] = list(sidecar.get("feature_names", []))
+        except Exception:
+            version, stored = None, []
+        if version == LOAD_SCHEMA_VERSION and sorted(stored) == sorted(_EXPECTED_LOAD_FEATURES):
+            return True
+        logger.warning(
+            "Feature mismatch for %s (load schema): version=%s (expected %s), features=%s; "
+            "falling back to baseline and requesting a retrain",
+            model_path,
+            version,
+            LOAD_SCHEMA_VERSION,
+            stored,
+        )
+        _load_retrain_requested = True
+        return False
+
     def _validate_features(model_path: str, model_key: str) -> bool:
+        if model_key.startswith("load"):
+            return _validate_load_schema(model_path)
         features_file = _Path(model_path).with_suffix(".features.json")
         if not features_file.exists():
             return True
@@ -252,7 +328,7 @@ def _load_models(models_dir: str = "data/ml/models") -> dict[str, lgb.Booster]:
             stored = json.loads(features_file.read_text()).get("feature_names", [])
         except Exception:
             return True
-        expected = _EXPECTED_PV_FEATURES if model_key.startswith("pv") else _EXPECTED_LOAD_FEATURES
+        expected = _EXPECTED_PV_FEATURES
         if sorted(stored) != sorted(expected):
             logger.warning(
                 "Feature mismatch for %s: stored=%s expected=%s; falling back to baseline",
@@ -404,23 +480,10 @@ async def generate_forward_slots(
 
     df = _build_time_features(df)
 
-    # All 11 features required by trained models - we ensure all columns exist above
-    feature_cols = [
-        "hour",
-        "day_of_week",
-        "month",
-        "is_weekend",
-        "hour_sin",
-        "hour_cos",
-        "temp_c",
-        "cloud_cover_pct",
-        "shortwave_radiation_w_m2",
-        "vacation_mode_flag",
-        "alarm_armed_flag",
-    ]
+    # All base features required by trained models - we ensure all columns exist above
+    feature_cols = list(_EXPECTED_BASE_FEATURES)
 
     logger.info("   Running LightGBM inference (Probabilistic)...")
-    X = df[feature_cols]
     models = _load_models()
 
     quantiles = ["p10", "p50", "p90"]
@@ -440,14 +503,33 @@ async def generate_forward_slots(
 
     # --- LOAD INFERENCE (or fallback) ---
     if has_load_models:
+        # Recent clean history feeds load_level_7d and the post-model slot blend.
+        history = pd.DataFrame()
+        try:
+            history_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+                days=LOAD_HISTORY_DAYS
+            )
+            history, _ = load_clean_load_observations(engine, start_time=history_start)
+        except Exception as exc:
+            logger.warning("Load history unavailable (%s); no level feature and no blend", exc)
+        X_load = df[feature_cols].copy()
+        if history.empty:
+            X_load["load_level_7d"] = float("nan")
+        else:
+            X_load["load_level_7d"] = load_level_7d(history, df["slot_start"])
         for q in quantiles:
             model_key = f"load_{q}"
             if model_key in models:
-                raw_pred: Any = models[model_key].predict(X)  # type: ignore[reportUnknownMemberType]
+                raw_pred: Any = models[model_key].predict(X_load)  # type: ignore[reportUnknownMemberType]
                 # Apply guardrails (same for all bands)
                 # Floor at 0.01, Ceiling at 16kW
-                cleaned = [max(0.01, min(float(x), 16.0)) for x in raw_pred]
+                cleaned = [max(LOAD_FLOOR_KWH, min(float(x), LOAD_CEILING_KWH)) for x in raw_pred]
                 predictions[model_key] = pd.Series(cleaned, index=df.index)
+        if not history.empty:
+            blend_load_predictions(
+                predictions,
+                slot_means_7d(history, df["slot_start"], pd.Timestamp(now)),
+            )
         # REV F65 Phase 5b: Clear degraded status when ML models working
         clear_load_forecast_status()
     elif aurora_load_enabled:

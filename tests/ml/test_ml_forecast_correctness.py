@@ -343,6 +343,7 @@ class TestFeatureSymmetry:
         """A model whose persisted feature names match inference expectations loads normally."""
         import lightgbm as lgb
         from ml.forward import _EXPECTED_LOAD_FEATURES, _load_models  # type: ignore[reportPrivateUsage]
+        from ml.load_clean import LOAD_SCHEMA_VERSION
 
         models_dir = tmp_path / "models"
         models_dir.mkdir()
@@ -358,7 +359,11 @@ class TestFeatureSymmetry:
 
         # Write matching feature names
         features_path = models_dir / "load_model_p50.features.json"
-        features_path.write_text(json.dumps({"feature_names": _EXPECTED_LOAD_FEATURES}))
+        features_path.write_text(
+            json.dumps(
+                {"feature_names": _EXPECTED_LOAD_FEATURES, "schema_version": LOAD_SCHEMA_VERSION}
+            )
+        )
 
         models = _load_models(models_dir=str(models_dir))
 

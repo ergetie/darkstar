@@ -620,14 +620,6 @@ export const parameterSections: SettingsSection[] = [
                 type: 'number',
                 isAdvanced: true,
             },
-            {
-                key: 'forecasting.load_safety_margin_percent',
-                label: 'Load Safety Margin (%)',
-                helper: '100 = neutral. >100 = expect more load than predicted (safer).',
-                path: ['forecasting', 'load_safety_margin_percent'],
-                type: 'number',
-                isAdvanced: true,
-            },
         ],
     },
     {
@@ -712,13 +704,6 @@ export const parameterSections: SettingsSection[] = [
                 key: 'learning.max_daily_param_change.future_price_guard_buffer_sek',
                 label: 'Future guard buffer change (SEK)',
                 path: ['learning', 'max_daily_param_change', 'future_price_guard_buffer_sek'],
-                type: 'number',
-                isAdvanced: true,
-            },
-            {
-                key: 'learning.max_daily_param_change.load_safety_margin_percent',
-                label: 'Load safety change (%)',
-                path: ['learning', 'max_daily_param_change', 'load_safety_margin_percent'],
                 type: 'number',
                 isAdvanced: true,
             },

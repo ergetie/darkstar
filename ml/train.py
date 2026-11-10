@@ -27,6 +27,12 @@ from backend.learning.pv_cleaning import (
 )
 from backend.validation import get_max_energy_per_slot
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
+from ml.load_clean import (
+    LOAD_SCHEMA_VERSION,
+    clean_load_observations,
+    empty_clean_stats,
+    load_level_7d,
+)
 from ml.weather import get_historical_weather_series
 
 
@@ -108,12 +114,45 @@ def _compute_sample_weights(
     return weights.values
 
 
-def _load_slot_observations(
+def _load_slot_observations(  # type: ignore[reportUnusedFunction]
     engine: LearningEngine,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
 ) -> pd.DataFrame:
     """Load slot observations, strictly filtering out zero-artifacts and sensor spikes.
+
+    Thin wrapper over ``_load_raw_slot_observations`` that drops near-zero load rows
+    (``load_kwh > 0.001``). Use ``load_clean_load_observations`` for load training and
+    load inference, which also applies the load data-quality rules.
+    """
+    df = _load_raw_slot_observations(engine, start_time, end_time)
+    if df.empty:
+        return df
+    return df[df["load_kwh"] > 0.001].reset_index(drop=True)
+
+
+def load_clean_load_observations(
+    engine: LearningEngine,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Observations cleaned for load use (backfill and clamp-day rules, then load > 0.001)."""
+    raw = _load_raw_slot_observations(engine, start_time, end_time)
+    if raw.empty:
+        return raw, empty_clean_stats()
+    clean, stats = clean_load_observations(raw)
+    return clean[clean["load_kwh"] > 0.001].reset_index(drop=True), stats
+
+
+def _load_raw_slot_observations(
+    engine: LearningEngine,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+) -> pd.DataFrame:
+    """Load slot observations incl. near-zero load rows, filtering sensor spikes.
+
+    Near-zero (but non-negative) load rows are kept because the clamp-day detector in
+    ``ml/load_clean.py`` needs them; callers apply ``load_kwh > 0.001`` afterwards.
 
     If start_time is None, loads all available data from the earliest record.
     If end_time is None, loads up to the current time.
@@ -135,12 +174,15 @@ def _load_slot_observations(
                 o.pv_kwh,
                 o.soc_end_percent,
                 o.export_kwh,
+                o.import_kwh,
+                o.batt_discharge_kwh,
+                o.quality_flags,
                 f.openmeteo_pv_forecast_kwh
             FROM slot_observations o
             LEFT JOIN slot_forecasts f
               ON o.slot_start = f.slot_start
              AND f.forecast_version = 'aurora'
-            WHERE o.load_kwh > 0.001
+            WHERE o.load_kwh >= 0
               AND o.load_kwh <= ?
               AND o.pv_kwh <= ?
               AND (o.quality_flags IS NULL OR o.quality_flags NOT LIKE '%"exclude": true%')
@@ -157,13 +199,16 @@ def _load_slot_observations(
                 o.pv_kwh,
                 o.soc_end_percent,
                 o.export_kwh,
+                o.import_kwh,
+                o.batt_discharge_kwh,
+                o.quality_flags,
                 f.openmeteo_pv_forecast_kwh
             FROM slot_observations o
             LEFT JOIN slot_forecasts f
               ON o.slot_start = f.slot_start
              AND f.forecast_version = 'aurora'
             WHERE o.slot_start < ?
-              AND o.load_kwh > 0.001
+              AND o.load_kwh >= 0
               AND o.load_kwh <= ?
               AND o.pv_kwh <= ?
               AND (o.quality_flags IS NULL OR o.quality_flags NOT LIKE '%"exclude": true%')
@@ -180,6 +225,9 @@ def _load_slot_observations(
                 o.pv_kwh,
                 o.soc_end_percent,
                 o.export_kwh,
+                o.import_kwh,
+                o.batt_discharge_kwh,
+                o.quality_flags,
                 f.openmeteo_pv_forecast_kwh
             FROM slot_observations o
             LEFT JOIN slot_forecasts f
@@ -187,7 +235,7 @@ def _load_slot_observations(
              AND f.forecast_version = 'aurora'
             WHERE o.slot_start >= ?
               AND o.slot_start < ?
-              AND o.load_kwh > 0.001
+              AND o.load_kwh >= 0
               AND o.load_kwh <= ?
               AND o.pv_kwh <= ?
               AND (o.quality_flags IS NULL OR o.quality_flags NOT LIKE '%"exclude": true%')
@@ -203,6 +251,9 @@ def _load_slot_observations(
                 o.pv_kwh,
                 o.soc_end_percent,
                 o.export_kwh,
+                o.import_kwh,
+                o.batt_discharge_kwh,
+                o.quality_flags,
                 f.openmeteo_pv_forecast_kwh
             FROM slot_observations o
             LEFT JOIN slot_forecasts f
@@ -210,7 +261,7 @@ def _load_slot_observations(
              AND f.forecast_version = 'aurora'
             WHERE o.slot_start >= ?
               AND o.slot_start < ?
-              AND o.load_kwh > 0.001
+              AND o.load_kwh >= 0
               AND o.load_kwh <= ?
               AND o.pv_kwh <= ?
               AND (o.quality_flags IS NULL OR o.quality_flags NOT LIKE '%"exclude": true%')
@@ -309,7 +360,10 @@ def _train_regressor(
 
 
 def _save_model(
-    model: lgb.LGBMRegressor, path: Path, feature_names: list[str] | None = None
+    model: lgb.LGBMRegressor,
+    path: Path,
+    feature_names: list[str] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> None:
     """Save a LightGBM model to disk in native format."""
     import json
@@ -318,7 +372,9 @@ def _save_model(
     booster = model.booster_
     booster.save_model(str(path))
     if feature_names is not None:
-        path.with_suffix(".features.json").write_text(json.dumps({"feature_names": feature_names}))
+        path.with_suffix(".features.json").write_text(
+            json.dumps({"feature_names": feature_names, **(extra or {})})
+        )
     print(f"Saved model to {path}")
 
 
@@ -353,7 +409,24 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
         f"with recency weighting (half-life={cfg.recency_half_life_days} days).",
     )
 
-    observations = _load_slot_observations(engine, end_time=now)
+    raw_observations = _load_raw_slot_observations(engine, end_time=now)
+    # Load data rule (backfill rows, clamp-signature days) needs the near-zero rows, so it
+    # runs on the raw frame; the load_kwh > 0.001 filter is applied afterwards.
+    if raw_observations.empty:
+        load_clean_index: pd.Index = raw_observations.index
+        load_clean_stats = empty_clean_stats()
+    else:
+        clean_raw, load_clean_stats = clean_load_observations(raw_observations)
+        load_clean_index = clean_raw.index
+    observations = raw_observations[raw_observations["load_kwh"] > 0.001].copy()
+    observations["load_clean"] = observations.index.isin(load_clean_index)
+    observations = observations.reset_index(drop=True)
+    print(
+        "Load data rule dropped "
+        f"{load_clean_stats['dropped_backfill_rows']} backfill rows and "
+        f"{load_clean_stats['dropped_clamp_days']} clamp-signature days "
+        f"({load_clean_stats['dropped_clamp_rows']} rows)."
+    )
     if observations.empty:
         print("Error: No valid (non-zero load) observations found.")
         print("Action: Check if the recorder has run or if sensors are reporting 0.")
@@ -445,11 +518,18 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
 
     # Quantiles to train
     quantiles = {"p10": 0.1, "p50": 0.5, "p90": 0.9}
+    load_sidecar_extra: dict[str, Any] = {
+        "schema_version": LOAD_SCHEMA_VERSION,
+        "training_stats": load_clean_stats,
+    }
 
     # --- Train Load Models ---
-    load_df = observations[observations["load_kwh"] > 0.001].copy()
+    load_df = observations[observations["load_clean"] & (observations["load_kwh"] > 0.001)].copy()
+    load_feature_cols = [*feature_cols, "load_level_7d"]
     if not load_df.empty:
-        X_load = load_df[feature_cols]
+        # Level of the previous clean days, strictly before each slot's local day.
+        load_df["load_level_7d"] = load_level_7d(load_df, load_df["slot_start"])
+        X_load = load_df[load_feature_cols]
         y_load = load_df["load_kwh"].astype(float)
         # Extract sample weights for load training samples (label-safe .loc)
         load_weights = sample_weights.loc[load_df.index].to_numpy()
@@ -463,11 +543,19 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
             if model is not None:
                 suffix = f"_{q_name}"
                 filename = cfg.load_model_name.replace(".lgb", f"{suffix}.lgb")
-                _save_model(model, cfg.models_dir / filename, feature_names=feature_cols)
+                _save_model(
+                    model,
+                    cfg.models_dir / filename,
+                    feature_names=load_feature_cols,
+                    extra=load_sidecar_extra,
+                )
 
                 if q_name == "p50":
                     _save_model(
-                        model, cfg.models_dir / cfg.load_model_name, feature_names=feature_cols
+                        model,
+                        cfg.models_dir / cfg.load_model_name,
+                        feature_names=load_feature_cols,
+                        extra=load_sidecar_extra,
                     )
     else:
         print("Warning: No valid load_kwh samples found; skipping load models.")
@@ -546,6 +634,8 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
         run_metrics = {
             "load_models_trained": not load_df.empty,
             "pv_models_trained": not pv_df.empty,
+            "load_schema_version": LOAD_SCHEMA_VERSION,
+            **load_clean_stats,
         }
         run_params = {
             "recency_half_life_days": cfg.recency_half_life_days,

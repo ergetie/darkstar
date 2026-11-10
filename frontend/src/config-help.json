@@ -60,7 +60,6 @@
     "pricing.energy_tax_sek": "Energy tax per kWh, excl. VAT (default 0.36)",
     "pricing.subscription_fee_sek_per_month": "Grid operator fixed monthly fee, excl. VAT. Added to actual cost, prorated per calendar day, with VAT",
     "forecasting.pv_confidence_percent": "PV forecast scaling (100 = trust forecast fully)",
-    "forecasting.load_safety_margin_percent": "Load forecast scaling (>100 = expect more load)",
     "grid.import_limit_kw": "Soft limit for effekttariff (breached with high penalty)",
     "kepler.ramping_cost_sek_per_kw": "Penalty for power changes between slots (reduces sawtooth)",
     "input_sensors.alarm_state": "Alarm panel for occupancy detection (ML feature)",

@@ -1,5 +1,6 @@
 """Tests for the quality_flags exclusion filter in _load_slot_observations (fix-observability-gaps #8)."""
 
+import json
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta
@@ -217,3 +218,127 @@ def test_training_without_weather_still_saves_models(training_env, capsys):
     assert (models / "pv_model.lgb").exists()
     assert (models / "load_model.lgb").exists()
     assert "training continues without weather" in capsys.readouterr().out
+
+
+def _insert_legacy_clamp_day(db_path: str) -> None:
+    """2026-06-11: 50 clamp slots (load 0, import 0.3) and 46 normal ones, no provenance."""
+    with sqlite3.connect(db_path) as conn:
+        for i in range(96):
+            start = TZ.localize(datetime(2026, 6, 11, i // 4, 15 * (i % 4)))
+            load, imp = (0.0, 0.3) if i < 50 else (0.5, 0.2)
+            conn.execute(
+                "INSERT INTO slot_observations "
+                "(slot_start, load_kwh, pv_kwh, soc_end_percent, export_kwh, import_kwh) "
+                "VALUES (?,?,?,?,?,?)",
+                (start.isoformat(), load, 0.0, 50.0, 0.0, imp),
+            )
+
+
+def _db_path() -> str:
+    return str(Path("learning.db").resolve())
+
+
+def test_clamp_day_dropped_before_zero_load_filter(training_env):
+    """The detector must see the near-zero rows: the day's 46 normal slots go too."""
+    _insert_legacy_clamp_day(_db_path())
+    captured: dict[str, pd.DataFrame] = {}
+
+    def fake_regressor(features, target, min_samples, alpha=0.5, sample_weight=None):
+        key = "pv" if "physics_forecast_kwh" in features.columns else "load"
+        captured.setdefault(key, features)
+        return None
+
+    with (
+        patch("ml.train.get_historical_weather_series", return_value=pd.DataFrame()),
+        patch("ml.train._train_regressor", side_effect=fake_regressor),
+    ):
+        train_models(min_samples=20)
+
+    assert len(captured["load"]) == 4 * 96  # nothing from 2026-06-11
+
+
+def test_load_level_feature_is_load_only_and_leak_free(training_env):
+    captured: dict[str, pd.DataFrame] = {}
+
+    def fake_regressor(features, target, min_samples, alpha=0.5, sample_weight=None):
+        key = "pv" if "physics_forecast_kwh" in features.columns else "load"
+        captured.setdefault(key, features)
+        return None
+
+    with (
+        patch("ml.train.get_historical_weather_series", return_value=pd.DataFrame()),
+        patch("ml.train._train_regressor", side_effect=fake_regressor),
+    ):
+        train_models(min_samples=20)
+
+    assert "load_level_7d" not in captured["pv"].columns
+    level = captured["load"]["load_level_7d"]
+    # June 12..14 have fewer than 3 clean prior days, June 15 sees 3 days of 0.5 x 96.
+    assert level.iloc[: 3 * 96].isna().all()
+    assert level.iloc[3 * 96 :].round(6).eq(48.0).all()
+
+
+def test_training_stores_schema_version_and_drop_counts(training_env):
+    _insert_legacy_clamp_day(_db_path())
+    with sqlite3.connect(_db_path()) as conn:
+        conn.execute(
+            "CREATE TABLE learning_runs (id INTEGER PRIMARY KEY, started_at TEXT, "
+            "completed_at TEXT, status TEXT, params_json TEXT, result_metrics_json TEXT, "
+            "training_type TEXT, partial_failure INTEGER)"
+        )
+
+    with patch("ml.train.get_historical_weather_series", return_value=pd.DataFrame()):
+        train_models(min_samples=20)
+
+    sidecar = json.loads(Path("data/ml/models/load_model_p50.features.json").read_text())
+    assert sidecar["schema_version"] == 2
+    assert "load_level_7d" in sidecar["feature_names"]
+    assert sidecar["training_stats"]["dropped_clamp_days"] == 1
+    assert sidecar["training_stats"]["dropped_clamp_rows"] == 96
+    pv_sidecar = json.loads(Path("data/ml/models/pv_model_p50.features.json").read_text())
+    assert "schema_version" not in pv_sidecar
+    assert "load_level_7d" not in pv_sidecar["feature_names"]
+
+    with sqlite3.connect(_db_path()) as conn:
+        metrics = json.loads(conn.execute("SELECT result_metrics_json FROM learning_runs").fetchone()[0])
+    assert metrics["dropped_clamp_days"] == 1
+    assert metrics["dropped_clamp_rows"] == 96
+    assert metrics["dropped_backfill_rows"] == 0
+
+
+def _weather_frame(days: list[int]) -> pd.DataFrame:
+    index = pd.DatetimeIndex(
+        [
+            TZ.localize(datetime(2026, 6, day, i // 4, 15 * (i % 4)))
+            for day in days
+            for i in range(96)
+        ]
+    )
+    return pd.DataFrame(
+        {"temp_c": 12.0, "cloud_cover_pct": 40.0, "shortwave_radiation_w_m2": 100.0},
+        index=index,
+    )
+
+
+@pytest.mark.parametrize(
+    ("weather_days", "expected_weather_rows"),
+    [([12, 13, 14, 15], 4 * 96), ([], 0), ([12, 13], 2 * 96)],
+    ids=["full", "empty", "partial"],
+)
+def test_load_training_uses_historical_weather(training_env, weather_days, expected_weather_rows):
+    captured: dict[str, pd.DataFrame] = {}
+
+    def fake_regressor(features, target, min_samples, alpha=0.5, sample_weight=None):
+        key = "pv" if "physics_forecast_kwh" in features.columns else "load"
+        captured.setdefault(key, features)
+        return None
+
+    weather = _weather_frame(weather_days) if weather_days else pd.DataFrame()
+    with (
+        patch("ml.train.get_historical_weather_series", return_value=weather),
+        patch("ml.train._train_regressor", side_effect=fake_regressor),
+    ):
+        train_models(min_samples=20)
+
+    assert len(captured["load"]) == 4 * 96
+    assert captured["load"]["temp_c"].notna().sum() == expected_weather_rows

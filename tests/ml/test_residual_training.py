@@ -219,6 +219,8 @@ class TestSpikeFiltering(unittest.TestCase):
                         pv_kwh REAL,
                         soc_end_percent REAL,
                         export_kwh REAL,
+                        import_kwh REAL,
+                        batt_discharge_kwh REAL,
                         quality_flags TEXT
                     )
                 """)

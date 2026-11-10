@@ -33,6 +33,9 @@ POST_PUBLICATION_EARLIEST_HOUR = 12
 POST_PUBLICATION_CHECK_INTERVAL = timedelta(minutes=10)
 _SLOT = timedelta(minutes=15)
 
+# A load model rejected for schema mismatch triggers a retrain, at most once per interval.
+LOAD_SCHEMA_RETRAIN_MIN_INTERVAL = timedelta(hours=1)
+
 # Goal-change replan requests are collapsed over this window so a burst of goal
 # edits (e.g. HA writing target SoC and ready-by as two events) yields one run.
 GOAL_CHANGE_DEBOUNCE_S = 2.0
@@ -90,6 +93,7 @@ class SchedulerService:
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._last_post_publication_check: datetime | None = None
         self._post_publication_wait_logged_for: date | None = None
+        self._last_schema_retrain_at: datetime | None = None
 
     def _log_skip(self, reason: str, due_at: datetime | None) -> None:
         """Log a planning skip immediately on reason changes and periodically after."""
@@ -267,6 +271,10 @@ class SchedulerService:
                     ):
                         await self._run_ml_training(config["ml_training"])
 
+                # Retrain after a load model was rejected for schema mismatch
+                if self._status.current_task == "idle":
+                    await self._check_load_schema_retrain()
+
                 # Check Daily Price Forecast (runs independently at 06:00)
                 if self._status.price_forecast_enabled:
                     now = datetime.now(UTC)
@@ -287,6 +295,41 @@ class SchedulerService:
             except Exception as e:
                 logger.exception(f"Scheduler loop error: {e}")
                 await asyncio.sleep(60)  # Back off on error
+
+    async def _check_load_schema_retrain(self) -> None:
+        """Start training when inference rejected a load model for schema mismatch.
+
+        Rate limited to once per LOAD_SCHEMA_RETRAIN_MIN_INTERVAL so a failing retrain
+        cannot loop. Runs regardless of the scheduled-training setting because without
+        a compatible load model the forecast stays on the degraded baseline.
+        """
+        from ml.forward import clear_load_retrain_request, load_retrain_requested
+
+        if not load_retrain_requested():
+            return
+        now = datetime.now(UTC)
+        if (
+            self._last_schema_retrain_at is not None
+            and now - self._last_schema_retrain_at < LOAD_SCHEMA_RETRAIN_MIN_INTERVAL
+        ):
+            return
+
+        from ml.training_orchestrator import train_all_models
+
+        self._last_schema_retrain_at = now
+        clear_load_retrain_request()
+        self._status.current_task = "ml_training"
+        logger.info("Load model schema mismatch detected; starting retrain")
+        try:
+            result = await train_all_models(training_type="automatic")
+            self._status.last_training_at = datetime.now(UTC)
+            self._status.last_training_status = result.get("status", "unknown")
+            logger.info("Load schema retrain finished: %s", result.get("status"))
+        except Exception:
+            logger.exception("Load schema retrain failed")
+            self._status.last_training_status = "error"
+        finally:
+            self._status.current_task = "idle"
 
     async def _run_scheduled(self, config: dict[str, Any]) -> None:
         """Execute a scheduled planner run."""

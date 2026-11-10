@@ -701,6 +701,33 @@ def _migrate_energy_tax(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     return config, True
 
 
+def _remove_dead_load_safety_margin(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Drop the dead ``load_safety_margin_percent`` keys (nothing reads them).
+
+    Removes ``forecasting.load_safety_margin_percent`` and
+    ``learning.max_daily_param_change.load_safety_margin_percent``; other keys are kept.
+    Runs before the template merge, which no longer supplies them. Idempotent.
+    """
+    changed = False
+    forecasting_raw: Any = config.get("forecasting")
+    if isinstance(forecasting_raw, dict):
+        forecasting = cast("dict[str, Any]", forecasting_raw)
+        if "load_safety_margin_percent" in forecasting:
+            del forecasting["load_safety_margin_percent"]
+            changed = True
+    learning_raw: Any = config.get("learning")
+    if isinstance(learning_raw, dict):
+        limits_raw: Any = cast("dict[str, Any]", learning_raw).get("max_daily_param_change")
+        if isinstance(limits_raw, dict):
+            limits = cast("dict[str, Any]", limits_raw)
+            if "load_safety_margin_percent" in limits:
+                del limits["load_safety_margin_percent"]
+                changed = True
+    if changed:
+        logger.info("🔄 Removed unused load_safety_margin_percent setting(s)")
+    return config, changed
+
+
 def _migrate_target_margin(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     """Replace ``load_balancing.resume_margin_percent`` with ``target_margin_percent``.
 
@@ -1390,6 +1417,11 @@ def _migrate_config(config_path: str, default_path: str, strict_validation: bool
     # 2.1a1b Replace load_balancing.resume_margin_percent with target_margin_percent
     user_config, margin_changes = _migrate_target_margin(user_config)
     if margin_changes:
+        pre_merge_changes = True
+
+    # 2.1a1b0 Drop the unused load_safety_margin_percent keys
+    user_config, dead_margin_changes = _remove_dead_load_safety_margin(user_config)
+    if dead_margin_changes:
         pre_merge_changes = True
 
     # 2.1a1b1 Lower the old energy tax default (0.439) to 0.36

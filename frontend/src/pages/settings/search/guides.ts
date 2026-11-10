@@ -358,7 +358,6 @@ The Reflex loop (on the Advanced tab) is a related learning feature: it makes sm
         relatedFieldKeys: [
             'learning.reflex_enabled',
             'forecasting.pv_confidence_percent',
-            'forecasting.load_safety_margin_percent',
             'learning.min_sample_threshold',
         ],
     },
