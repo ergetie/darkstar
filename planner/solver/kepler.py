@@ -7,7 +7,8 @@ Migrated from backend/kepler/solver.py during Rev K13 modularization.
 
 import logging
 from collections import defaultdict
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, cast
 
 import pulp  # type: ignore[import,no-redef]
@@ -80,6 +81,152 @@ def min_soc_floor_kwh(
         if k < T:
             elapsed_h += slot_hours[k]
     return floors
+
+
+@dataclass(frozen=True)
+class WaterFlowPlan:
+    """Per-heater structure of the water flow graph (mirrors the water rules exactly)."""
+
+    spacing_slots: int  # S: off slots required before a block start (0 = rule off)
+    gap_active: bool  # cumulative gap-comfort penalty applies
+    cap_slots: int  # block cap in slots
+    flow_overshoot: bool  # block overshoot priced by an over-cap state
+    window_overshoot: bool  # block overshoot priced by sliding-window rows
+    start_penalty: float
+
+    @property
+    def needs_flow(self) -> bool:
+        return (
+            self.spacing_slots > 0
+            or self.start_penalty > 0
+            or self.gap_active
+            or self.flow_overshoot
+        )
+
+
+def plan_water_flow(
+    heater: WaterHeaterInput, config: KeplerConfig, avg_slot_hours: float
+) -> WaterFlowPlan:
+    """Decide which water rules a heater models in the flow graph.
+
+    Per-window overshoot equals per-slot overshoot (L - cap)+ per block only when no
+    window of cap+1 slots can hold two blocks, i.e. spacing >= cap. Otherwise the
+    heater keeps the sliding-window overshoot rows.
+    """
+    spacing = (
+        max(1, int(heater.min_spacing_hours / avg_slot_hours))
+        if heater.min_spacing_hours > 0
+        else 0
+    )
+    gap_active = (
+        config.water_heating_max_gap_hours > 0
+        and heater.max_hours_between_heating > 0
+        and config.water_gap_penalty_sek > 0
+    )
+    cap = max(1, int(config.max_block_hours / avg_slot_hours))
+    priced = config.water_block_penalty_sek > 0
+    flow_overshoot = priced and spacing >= cap
+    return WaterFlowPlan(
+        spacing_slots=spacing,
+        gap_active=gap_active,
+        cap_slots=cap,
+        flow_overshoot=flow_overshoot,
+        window_overshoot=priced and not flow_overshoot,
+        start_penalty=config.water_block_start_penalty_sek,
+    )
+
+
+def build_water_flow(
+    prob: Any,
+    name: str,
+    heat: dict[int, Any],
+    slot_hours: list[float],
+    flow_plan: WaterFlowPlan,
+    gap_penalty: float,
+    max_gap_hours: float,
+    block_penalty: float,
+) -> tuple[list[tuple[Any, float]], dict[int, list[Any]]]:
+    """Add the state-expanded arc-flow DAG of one heater to ``prob``.
+
+    A unit of flow traverses the slots; ``heat[t]`` (binary) equals the flow entering
+    any on-state at slot t and arc flows are continuous in [0, 1]. States:
+    N(t) never heated (off since plan start), F(t, k) k off slots since the last heat
+    (uncapped while the gap rule is active because its cost is cumulative, otherwise
+    saturating at max(spacing, 1)), O(t, l) on with block length l (l = cap + 1 is an
+    absorbing over-cap state when overshoot is priced by flow, otherwise a single
+    on-state). An off-to-on arc is allowed from N or from F(k >= spacing).
+
+    Returns the (flow variable, cost) terms of the arcs with a positive cost and the
+    flow variables entering the off-to-on arcs per slot (block starts).
+    """
+    spacing = flow_plan.spacing_slots
+    gap_active = flow_plan.gap_active
+    cap = flow_plan.cap_slots
+    flow_overshoot = flow_plan.flow_overshoot
+    start_penalty = flow_plan.start_penalty
+    T = len(slot_hours)
+    on_levels = cap + 1 if flow_overshoot else 1
+    max_off = T if gap_active else max(spacing, 1)
+    cum_hours = [0.0]
+    for hours in slot_hours:
+        cum_hours.append(cum_hours[-1] + hours)
+
+    def gap_cost(off_hours: float) -> float:
+        return gap_penalty * max(0.0, off_hours - max_gap_hours) if gap_active else 0.0
+
+    # Node ids: ("S",) source, ("N", t), ("F", t, k), ("O", t, l); value = arc cost.
+    arcs: dict[tuple[tuple[Any, ...], tuple[Any, ...]], float] = {}
+    starts: set[tuple[tuple[Any, ...], tuple[Any, ...]]] = set()
+
+    def add(src: tuple[Any, ...], dst: tuple[Any, ...], cost: float, *, start: bool = False):
+        arcs[(src, dst)] = cost
+        if start:
+            starts.add((src, dst))
+
+    add(("S",), ("N", 0), gap_cost(cum_hours[1]))
+    add(("S",), ("O", 0, 1), start_penalty, start=True)
+    for t in range(1, T):
+        add(("N", t - 1), ("N", t), gap_cost(cum_hours[t + 1]))
+        add(("N", t - 1), ("O", t, 1), start_penalty, start=True)
+        for k in range(1, min(t - 1, max_off) + 1):
+            src = ("F", t - 1, k)
+            if gap_active:
+                off = k + 1
+                add(src, ("F", t, off), gap_cost(cum_hours[t + 1] - cum_hours[t + 1 - off]))
+            else:
+                add(src, ("F", t, min(k + 1, max_off)), 0.0)
+            if k >= spacing:
+                add(src, ("O", t, 1), start_penalty, start=True)
+        for level in range(1, min(on_levels, t) + 1):
+            nxt = min(level + 1, on_levels)
+            over_cost = block_penalty if flow_overshoot and nxt == cap + 1 else 0.0
+            add(("O", t - 1, level), ("O", t, nxt), over_cost)
+            add(("O", t - 1, level), ("F", t, 1), gap_cost(slot_hours[t]))
+
+    flow_vars: dict[tuple[tuple[Any, ...], tuple[Any, ...]], Any] = {}
+    incoming: dict[tuple[Any, ...], list[Any]] = {}
+    outgoing: dict[tuple[Any, ...], list[Any]] = {}
+    for i, arc in enumerate(arcs):
+        var = pulp.LpVariable(f"flow_{name}_{i}", lowBound=0.0, upBound=1.0)
+        flow_vars[arc] = var
+        outgoing.setdefault(arc[0], []).append(var)
+        incoming.setdefault(arc[1], []).append(var)
+
+    prob += pulp.lpSum(outgoing[("S",)]) == 1
+    heat_inflow: dict[int, list[Any]] = {t: [] for t in range(T)}
+    for node, ins in incoming.items():
+        if node[0] == "O":
+            heat_inflow[node[1]].extend(ins)
+        if node[1] != T - 1:
+            prob += pulp.lpSum(ins) == pulp.lpSum(outgoing.get(node, []))
+    for t in range(T):
+        prob += heat[t] == pulp.lpSum(heat_inflow[t])
+
+    start_flows: dict[int, list[Any]] = {t: [] for t in range(T)}
+    for arc in starts:
+        start_flows[arc[1][1]].append(flow_vars[arc])
+    cost_terms = [(flow_vars[arc], cost) for arc, cost in arcs.items() if cost > 0]
+    return cost_terms, start_flows
 
 
 class KeplerSolver:
@@ -158,18 +305,16 @@ class KeplerSolver:
         water_heaters: list[WaterHeaterInput] = config.water_heaters
         water_enabled: bool = len(water_heaters) > 0
 
-        # Per-device indexed variables: water_heat[device_id][t], water_start[device_id][t]
+        # Per-device indexed variables: water_heat[device_id][t]. Start, spacing, gap
+        # and (cap-spaced) overshoot rules live in a per-heater flow graph.
         water_heat: dict[str, dict[int, Any]] = {}
-        water_start: dict[str, dict[int, Any]] = {}
+        water_flow: dict[str, WaterFlowPlan] = {}
         # Per-device boost variables: water_boost[device_id][t]
         water_boost: dict[str, dict[int, Any]] = {}
         boost_entry = next(
             (e for e in config.excess_pv_priority if e.type == "water_heater_boost"), None
         )
         boost_enabled = boost_entry is not None
-        # Per-device gap-comfort variables: discomfort[device_id][t], gap_over[device_id][t]
-        discomfort: dict[str, dict[int, Any]] = {}
-        gap_over: dict[str, dict[int, Any]] = {}
         if water_enabled:
             for heater in water_heaters:
                 d = heater.id
@@ -180,24 +325,6 @@ class KeplerSolver:
                 if boost_enabled:
                     water_boost[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
                         f"water_boost_{safe_d}", range(T), cat="Binary"
-                    )
-                needs_start = (
-                    heater.min_spacing_hours > 0 or config.water_block_start_penalty_sek > 0
-                )
-                if needs_start:
-                    water_start[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
-                        f"water_start_{safe_d}", range(T), cat="Binary"
-                    )
-                if (
-                    config.water_heating_max_gap_hours > 0
-                    and heater.max_hours_between_heating > 0
-                    and config.water_gap_penalty_sek > 0
-                ):
-                    discomfort[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
-                        f"discomfort_{safe_d}", range(T), lowBound=0.0
-                    )
-                    gap_over[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
-                        f"gap_over_{safe_d}", range(T), lowBound=0.0
                     )
 
         # EV Charging as deferrable load (per-device, multi-charger support)
@@ -325,16 +452,19 @@ class KeplerSolver:
                 ),
             )
 
-        # Discomfort variable removed.
-        # Per-device "Block Overshoot" variables (soft penalty for massive blocks)
+        # Per-device "Block Overshoot" variables (soft penalty for massive blocks), only
+        # for heaters whose overshoot is priced by sliding-window rows (spacing < cap).
+        avg_slot_hours: float = sum(slot_hours) / len(slot_hours) if slot_hours else 0.25
         block_overshoot: dict[str, dict[int, Any]] = {}
         if water_enabled:
             for heater in water_heaters:
                 d = heater.id
                 safe_d = d.replace("-", "_").replace(".", "_")
-                block_overshoot[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
-                    f"block_overshoot_{safe_d}", range(T), lowBound=0.0
-                )
+                water_flow[d] = plan_water_flow(heater, config, avg_slot_hours)
+                if water_flow[d].window_overshoot:
+                    block_overshoot[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
+                        f"block_overshoot_{safe_d}", range(T), lowBound=0.0
+                    )
 
         # Per-device slack variables for daily minimum soft constraints
         water_min_kwh_violation: dict[str, dict[int, Any]] = {}
@@ -627,16 +757,6 @@ class KeplerSolver:
                 == s.pv_kwh + discharge[t] + grid_import[t] + load_shedding[t]
             )
 
-            # Per-device block start detection (task 2.7)
-            if water_enabled:
-                for heater in water_heaters:
-                    d = heater.id
-                    if d in water_start:
-                        if t == 0:
-                            prob += water_start[d][t] == water_heat[d][t]
-                        else:
-                            prob += water_start[d][t] >= water_heat[d][t] - water_heat[d][t - 1]
-
             # Per-device mid-block locking (task 2.8)
             if water_enabled:
                 for heater in water_heaters:
@@ -879,12 +999,8 @@ class KeplerSolver:
 
         # Water Heating Constraints — per-device (tasks 2.4-2.6)
         sorted_days: list[Any] = []  # Initialize to avoid unbound error
-        gap_penalty_active: bool = (
-            config.water_heating_max_gap_hours > 0 and config.water_gap_penalty_sek > 0
-        )
+        flow_costs: list[tuple[Any, float]] = []
         if water_enabled:
-            avg_slot_hours: float = sum(slot_hours) / len(slot_hours) if slot_hours else 0.25
-
             # Each local-time bucket is shared by every heater and measured at
             # the same configured deferral boundary, including across DST.
             slots_by_day: defaultdict[Any, list[tuple[int, float]]] = defaultdict(list)
@@ -930,9 +1046,10 @@ class KeplerSolver:
                             >= day_min_kwh - water_min_kwh_violation[d][i]
                         )
 
-                # Constraint 2: Per-device soft block breaker (task 2.5)
-                if config.water_block_penalty_sek > 0:
-                    max_block_slots: int = max(1, int(config.max_block_hours / avg_slot_hours))
+                # Constraint 2: Per-device soft block breaker (task 2.5). Only for
+                # heaters with spacing < cap; otherwise the flow graph prices overshoot.
+                if d in block_overshoot:
+                    max_block_slots: int = water_flow[d].cap_slots
                     window_size: int = max_block_slots + 1
                     for t in range(T - window_size + 1):
                         prob += (  # type: ignore[operator]
@@ -940,35 +1057,21 @@ class KeplerSolver:
                             <= max_block_slots + block_overshoot[d][t]
                         )
 
-                # Constraint 3: Per-device hard spacing constraint (task 2.6)
-                if heater.min_spacing_hours > 0 and d in water_start:
-                    spacing_slots: int = max(1, int(heater.min_spacing_hours / avg_slot_hours))
-                    M: int = spacing_slots
-                    for t in range(T):
-                        start_idx: int = max(0, t - spacing_slots)
-                        prob += (  # type: ignore[operator]
-                            pulp.lpSum(water_heat[d][j] for j in range(start_idx, t))
-                            + water_start[d][t] * M  # type: ignore[operator]
-                            <= M
-                        )
-
-                # Constraint 4: Per-device gap-comfort deadband (Decision 1)
-                if gap_penalty_active and heater.max_hours_between_heating > 0:
-                    gap_m: float = 100.0
-                    for t in range(T):
-                        duration: float = slot_hours[t]
-                        if t == 0:
-                            prob += (  # type: ignore[operator]
-                                discomfort[d][t] >= duration - water_heat[d][t] * gap_m
-                            )
-                        else:
-                            prob += (  # type: ignore[operator]
-                                discomfort[d][t]
-                                >= discomfort[d][t - 1] + duration - water_heat[d][t] * gap_m
-                            )
-                        prob += (  # type: ignore[operator]
-                            gap_over[d][t] >= discomfort[d][t] - heater.max_hours_between_heating
-                        )
+                # Constraints 3-4: start penalty, hard spacing and gap-comfort deadband
+                # as an exact arc-flow graph over water_heat (see build_water_flow).
+                if water_flow[d].needs_flow:
+                    flow_costs.extend(
+                        build_water_flow(
+                            prob,
+                            d.replace("-", "_").replace(".", "_"),
+                            water_heat[d],
+                            slot_hours,
+                            water_flow[d],
+                            config.water_gap_penalty_sek,
+                            heater.max_hours_between_heating,
+                            config.water_block_penalty_sek,
+                        )[0]
+                    )
 
         # Terminal SoC Target (BIDIRECTIONAL soft constraint)
         # - min_soc violation: near-hard penalty (1000 SEK/kWh) below the per-state
@@ -986,25 +1089,13 @@ class KeplerSolver:
                 if export_floor_active
                 else 0.0
             )
-            # Per-device gap-comfort penalty (Decision 1)
-            + (
-                pulp.lpSum(gap_over[d][t] for d in gap_over for t in range(T))
-                * config.water_gap_penalty_sek
-                if water_enabled and gap_penalty_active
-                else 0.0
-            )
-            # Per-device block overshoot penalty (task 2.9)
+            # Per-device flow arc costs: gap comfort, block start, block overshoot
+            + (pulp.lpSum(var * cost for var, cost in flow_costs) if flow_costs else 0.0)
+            # Per-device window block overshoot penalty (heaters with spacing < cap)
             + (
                 pulp.lpSum(block_overshoot[d][t] for d in block_overshoot for t in range(T))
                 * config.water_block_penalty_sek
-                if water_enabled
-                else 0.0
-            )
-            # Per-device block start penalty (task 2.9)
-            + (
-                pulp.lpSum(water_start[d][t] for d in water_start for t in range(T))
-                * config.water_block_start_penalty_sek
-                if water_enabled and water_start and config.water_block_start_penalty_sek > 0
+                if block_overshoot
                 else 0.0
             )
             # Per-device symmetry breaker (task 2.9)
@@ -1094,8 +1185,13 @@ class KeplerSolver:
             )
 
         if not is_optimal:
-            prob.writeLP("kepler_debug.lp")  # type: ignore[reportUnknownMemberType]
-            logger.warning("Solver failed: %s. LP written to kepler_debug.lp", status)
+            # Write under the data dir, never the working directory (repo root in tests)
+            debug_lp = Path(__file__).resolve().parents[2] / "data" / "kepler_debug.lp"
+            try:
+                prob.writeLP(str(debug_lp))  # type: ignore[reportUnknownMemberType]
+                logger.warning("Solver failed: %s. LP written to %s", status, debug_lp)
+            except OSError as exc:
+                logger.warning("Solver failed: %s. Could not write debug LP: %s", status, exc)
 
             # Map PuLP status to structured PlannerError
             details = {"solver_status": status, "solve_duration_s": round(solve_duration, 3)}

@@ -5,7 +5,7 @@ The Kepler solver SHALL support per-device water heater scheduling, creating ind
 ## Requirements
 
 ### Requirement: Per-device MILP decision variables for water heaters
-The Kepler solver SHALL create separate decision variables for each enabled water heater: a binary `water_heat[d][t]` (heating on/off) and a binary `water_start[d][t]` (block start detection) indexed by device `d` and time slot `t`. Only enabled heaters with `power_kw > 0` SHALL get variables.
+The Kepler solver SHALL create separate decision variables for each enabled water heater: a binary `water_heat[d][t]` (heating on/off) indexed by device `d` and time slot `t`, plus the heater's flow-graph arc variables where its rules need them (block starts are the flow on off-to-on arcs). Only enabled heaters with `power_kw > 0` SHALL get variables.
 
 #### Scenario: Two enabled heaters get independent variables
 - **WHEN** two enabled water heaters are configured with power_kw > 0
@@ -57,14 +57,18 @@ The solver SHALL enforce a per-device daily minimum energy constraint for each h
 - **THEN** the minimum SHALL NOT act as an upper limit on heating
 
 ### Requirement: Per-device block duration constraint
-The solver SHALL enforce a per-device maximum block duration using a sliding window: for each heater `d`, `sum(water_heat[d][t:t+window]) <= max_block_slots + overshoot[d]`. The window size is determined by the global `max_block_hours` setting.
+The solver SHALL penalize per-device heating blocks longer than `max_block_hours` at `water_block_penalty_sek` per slot beyond the cap. When spacing is at least the cap in slots, an over-cap state in the heater's flow graph SHALL price the overshoot; otherwise the solver SHALL use sliding-window rows `sum(water_heat[d][t:t+window]) <= max_block_slots + overshoot[d]` for that heater.
 
 #### Scenario: Two heaters with different block patterns
 - **WHEN** heater A is scheduled for a 2-hour block and heater B needs a 1.5-hour block
 - **THEN** the solver SHALL allow each heater's blocks up to the max block duration independently
 
+#### Scenario: Block longer than the cap
+- **WHEN** a heater's block exceeds the cap by n slots and spacing >= cap
+- **THEN** the objective SHALL include `n * water_block_penalty_sek` for that block
+
 ### Requirement: Per-device spacing constraint
-The solver SHALL enforce a per-device minimum spacing between block starts: for each heater `d`, `sum(water_start[d][t:t+spacing_window]) <= 1`. The spacing window is determined by each heater's `min_spacing_hours`.
+The solver SHALL enforce a per-device minimum spacing between block starts: an off-to-on transition is allowed only after at least `spacing_slots = max(1, int(min_spacing_hours / avg_slot_hours))` off slots, or when the heater has not heated since the plan start. Spacing 0 disables the rule.
 
 #### Scenario: Two heaters with different spacing requirements
 - **WHEN** heater A has `water_min_spacing_hours: 4` and heater B has `water_min_spacing_hours: 6`
@@ -86,7 +90,7 @@ The solver SHALL support per-device mid-block locking: `water_heat[d][t] == 1` f
 - **AND** heater B SHALL have no forced-ON slots
 
 ### Requirement: Per-device block start penalty
-The solver objective SHALL include a per-device block start penalty: `sum(water_start[d][t] * block_start_penalty_sek for d, t)`. The penalty value is the global `water_block_start_penalty_sek`.
+The solver objective SHALL include a per-device block start penalty of `water_block_start_penalty_sek` for every block start of every heater, carried by the off-to-on arcs of the heater's flow graph.
 
 #### Scenario: Penalty discourages frequent starts per heater
 - **WHEN** `block_start_penalty_sek: 3.0` and two heaters are configured
@@ -144,12 +148,12 @@ The adapter SHALL create a `WaterHeaterInput` dataclass for each enabled water h
 - **THEN** the adapter SHALL NOT include that heater in the `WaterHeaterInput` list
 
 ### Requirement: Per-device gap-comfort penalty with deadband
-The Kepler solver SHALL bound the time between water-heating blocks per device using a soft, linear discomfort penalty with a deadband at the configured maximum gap. For each enabled heater `d`, the solver SHALL create non-negative variables `discomfort[d][t]` and `gap_over[d][t]` and enforce, for every slot `t` with `duration = slot_hours[t]` and a large constant `M` (100.0), `discomfort[d][0] >= duration - water_heat[d][0] * M`; see the scenarios below for the rest.
+The Kepler solver SHALL bound the time between water-heating blocks per device using a soft, linear discomfort penalty with a deadband at the configured maximum gap. For every off slot, the cost SHALL be `water_gap_penalty_sek * max(0, hours since last heat including that slot - max_hours_between_heating)`, i.e. cumulative over a long off run. The cost SHALL be carried by the off-state arcs of the heater's flow graph, using each slot's actual duration.
 
 #### Scenario: Gaps within the ceiling are free
 - **GIVEN** a heater with `max_hours_between_heating = 8` and a schedule where the longest gap between heating is 6 hours
 - **WHEN** the solver optimizes
-- **THEN** no `gap_over` overshoot is incurred and the gap penalty contributes 0 to the objective
+- **THEN** no gap penalty is incurred and the gap penalty contributes 0 to the objective
 
 #### Scenario: Gaps beyond the ceiling are penalized and broken up
 - **GIVEN** a heater with `max_hours_between_heating = 8`, `water_gap_penalty_sek > 0`, prices cheap overnight and expensive by day
@@ -159,12 +163,12 @@ The Kepler solver SHALL bound the time between water-heating blocks per device u
 #### Scenario: Gap penalty disabled in bulk mode and vacation
 - **GIVEN** `enable_top_ups: false` (bulk mode) or vacation mode active, which disable gap comfort globally
 - **WHEN** the solver optimizes
-- **THEN** no gap-comfort variables, constraints, or objective term SHALL be added
+- **THEN** no gap cost SHALL be added
 
 #### Scenario: Counter starts at zero at the horizon start
 - **GIVEN** any planning horizon
-- **WHEN** the solver builds the discomfort constraints
-- **THEN** `discomfort[d][0]` SHALL start from 0 (plus the first slot's duration, less any heating in that slot)
+- **WHEN** the solver builds the gap model
+- **THEN** the gap counter SHALL start from 0 (plus the first slot's duration, less any heating in that slot)
 
 #### Scenario: Different heater gaps are honored
 - **WHEN** heater A has maximum gap 28 hours and heater B has maximum gap 8 hours
@@ -173,14 +177,13 @@ The Kepler solver SHALL bound the time between water-heating blocks per device u
 
 #### Scenario: Gap penalty recurrence and objective term
 - **WHEN** the water-heating gap penalty is active for heater `d`
-- **THEN** the solver SHALL enforce `discomfort[d][t] >= discomfort[d][t-1] + duration - water_heat[d][t] * M` for `t > 0`
-- **AND** it SHALL enforce `gap_over[d][t] >= discomfort[d][t] - deadband`, where `deadband = heater.max_hours_between_heating` for device `d`
-- **AND** the objective SHALL include `sum over d,t of gap_over[d][t] * water_gap_penalty_sek`
-- **AND** the formulation SHALL be O(T) per heater (no sliding-window constraints)
+- **THEN** the hours since last heat SHALL accumulate by each slot's duration and reset on every heated slot
+- **AND** the objective SHALL include, per off slot, `water_gap_penalty_sek * max(0, accumulated hours - heater.max_hours_between_heating)`
+- **AND** no sliding-window gap constraints SHALL be used
 
 #### Scenario: Gap penalty activation conditions
 - **WHEN** a heater's `max_hours_between_heating` is not above 0, top-ups are disabled, vacation mode is active, or `water_gap_penalty_sek` is not above 0
-- **THEN** no gap variables, constraints, or objective term SHALL be added
+- **THEN** no gap cost SHALL be added
 - **AND** the penalty SHALL be active for a heater only when its `max_hours_between_heating > 0`, top-ups are enabled, vacation mode is inactive, AND `water_gap_penalty_sek > 0`
 
 ### Requirement: comfort_level scales the gap penalty weight, not the ceiling
@@ -238,3 +241,24 @@ Configuration load and settings save SHALL reject non-finite deferral and values
 - **WHEN** a per-heater `idle_power_threshold_kw` is configured
 - **THEN** it SHALL be configurable with explicit units and non-negative finite validation, default 0
 - **AND** the settings SHALL include guidance explaining active-energy filtering
+
+### Requirement: Water scheduling rules are modelled as an exact flow formulation
+The solver SHALL model start, spacing, gap and block-overshoot rules per heater as a state-expanded arc-flow graph with unit flow per slot, where `water_heat[d][t]` is binary and equals the flow into on-states. The penalty paid by any heat pattern under this formulation SHALL equal the penalty defined by the gap, start, overshoot and symmetry rules. Other water rules SHALL continue to act on `water_heat[d][t]`.
+
+#### Scenario: Fixed heat pattern pays the same penalty
+- **GIVEN** a fixed heat pattern for a heater
+- **WHEN** the penalty is evaluated in the flow formulation and in the previous start/spacing/discomfort/overshoot formulation
+- **THEN** both SHALL be equal for spacing >= block cap, spacing < cap, spacing 0, gap rule on and off, bulk mode, a shortened first slot, `heated_today > 0`, force_on slots and boost
+
+#### Scenario: Bulk mode reduces to start penalty only
+- **GIVEN** `enable_top_ups: false` (spacing 0, gap rule off, no block penalty)
+- **WHEN** the solver builds the water model
+- **THEN** the graph SHALL only account for block starts and the plan SHALL equal the previous model's plan
+
+#### Scenario: Initial state unchanged
+- **WHEN** the horizon starts
+- **THEN** the gap counter SHALL start at 0, spacing SHALL be truncated at slot 0, and `heated_today` SHALL NOT feed gap or spacing
+
+#### Scenario: Time-limit detection and result extraction unchanged
+- **WHEN** the solver finishes with the flow formulation
+- **THEN** per-heater results and `time_limit_hit` SHALL be extracted as before

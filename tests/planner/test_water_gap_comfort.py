@@ -121,7 +121,7 @@ def test_gaps_beyond_ceiling_without_penalty_exceed_it():
 
 def test_gaps_within_ceiling_are_free():
     """When the optimal plan already keeps gaps within the ceiling, raising the
-    gap penalty weight should not change the plan (gap_over stays at 0)."""
+    gap penalty weight should not change the plan (the gap cost stays at 0)."""
     solver = KeplerSolver()
     # Cheap hours spread out every 6h; daily minimum exactly consumes all cheap
     # capacity (8 slots * 0.5 kWh = 4.0 kWh) so heating is naturally spread

@@ -61,6 +61,7 @@ data/*.backup*
 temp_config_*.yaml
 temp_secrets.txt
 kepler_debug.lp
+data/kepler_debug.lp
 config_check.json
 energy_check.json
 logs.json
