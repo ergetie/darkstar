@@ -209,6 +209,91 @@ def _detect_mid_block_slots(
 
 
 MISSED_GOAL_GRACE_HOURS_DEFAULT = 4.0
+# Percentage points below the target within which a missed goal is not chased
+# by the grace window (0 = off). Applies only to the catch-up grace.
+MISSED_GOAL_TOLERANCE_PERCENT_DEFAULT = 5.0
+# SoC drop (percentage points) since the missed deadline that is still sensor
+# jitter; a larger drop means the car was driven (no plug continuity).
+EV_SOC_DROP_NOISE_PERCENT = 1.0
+
+
+def _missed_goal_grace_hours(charger_cfg: dict[str, Any]) -> float:
+    """Configured grace window in hours (absent/invalid -> default)."""
+    raw = charger_cfg.get("missed_goal_grace_hours")
+    try:
+        return float(raw) if raw is not None else MISSED_GOAL_GRACE_HOURS_DEFAULT
+    except (TypeError, ValueError):
+        return MISSED_GOAL_GRACE_HOURS_DEFAULT
+
+
+def _missed_goal_tolerance_percent(charger_cfg: dict[str, Any]) -> float:
+    """Configured tolerance in percentage points (absent/invalid -> default, negative -> 0)."""
+    raw = charger_cfg.get("missed_goal_tolerance_percent")
+    try:
+        value = float(raw) if raw is not None else MISSED_GOAL_TOLERANCE_PERCENT_DEFAULT
+    except (TypeError, ValueError):
+        return MISSED_GOAL_TOLERANCE_PERCENT_DEFAULT
+    if value != value:  # NaN
+        return MISSED_GOAL_TOLERANCE_PERCENT_DEFAULT
+    return max(0.0, value)
+
+
+def _soc_below_grace_threshold(charger_cfg: dict[str, Any], ha_state: dict[str, Any]) -> bool:
+    """True when a live, non-stale SoC is below ``target - tolerance``."""
+    current_soc = ha_state.get("soc_percent")
+    target_soc = charger_cfg.get("target_soc_percent")
+    if current_soc is None or target_soc is None or ha_state.get("soc_status") == "stale":
+        return False
+    return float(current_soc) < float(target_soc) - _missed_goal_tolerance_percent(charger_cfg)
+
+
+def resolve_ev_grace_missed_deadline(
+    charger_cfg: dict[str, Any],
+    ha_state: dict[str, Any],
+    now: datetime,
+    tz: pytz.BaseTzInfo,
+) -> datetime | None:
+    """The missed ready-by a grace window could apply to, or None.
+
+    Covers every grace precondition that does not depend on plug continuity:
+    grace enabled, plugged (or last known plugged), live non-stale SoC below
+    ``target - tolerance``, a previous ready-by inside the grace window, the
+    goal not saved after it, and the grace not reaching the next regular
+    ready-by.
+    """
+    from datetime import datetime as _datetime, timedelta
+
+    grace_h = _missed_goal_grace_hours(charger_cfg)
+    if grace_h <= 0 or not ha_state.get("plugged_in", False):
+        return None
+    if not _soc_below_grace_threshold(charger_cfg, ha_state):
+        return None
+
+    missed = resolve_previous_ready_by(charger_cfg, now, tz)
+    if missed is None:
+        return None
+    if now.tzinfo is None:
+        now = tz.localize(now)
+    grace_end = missed + timedelta(hours=grace_h)
+    if now >= grace_end:
+        return None
+
+    # A goal set after the deadline it would have "missed" never missed it.
+    last_updated = charger_cfg.get("last_updated")
+    if last_updated:
+        try:
+            updated_dt = _datetime.fromisoformat(str(last_updated))
+            if updated_dt.tzinfo is None:
+                updated_dt = tz.localize(updated_dt)
+            if updated_dt > missed:
+                return None
+        except (TypeError, ValueError):
+            pass
+
+    next_deadline = resolve_next_ready_by(charger_cfg, now, tz)
+    if next_deadline is not None and next_deadline <= grace_end:
+        return None
+    return missed
 
 
 def resolve_ev_effective_deadline(
@@ -221,54 +306,81 @@ def resolve_ev_effective_deadline(
 
     Returns ``(deadline, in_grace)``. Normally this is the goal's next regular
     ready-by. When the most recent ready-by has passed less than
-    ``missed_goal_grace_hours`` ago and the live SoC is still below target, the
-    goal stays active with ``missed + grace`` as the effective deadline, capped
-    at the next regular ready-by (ev-missed-goal-recovery). No grace applies
-    unless ``ha_state["plugged_in"]`` is true; an unreachable charger reports
-    its last known plug state there. ``missed_goal_grace_hours: 0`` disables
+    ``missed_goal_grace_hours`` ago, the live (non-stale) SoC is below
+    ``target - missed_goal_tolerance_percent`` and the charger was plugged in
+    continuously across that deadline, the goal stays active with
+    ``missed + grace`` as the effective deadline, capped at the next regular
+    ready-by (ev-missed-goal-recovery).
+
+    Continuity: a ``ha_state["plug_session_start"]`` later than ``missed`` is a
+    replug (car left and returned) and gets no grace. Otherwise (start
+    ``<= missed``, or unknown) ``ha_state["soc_at_missed_deadline"]`` decides: a
+    drop beyond ``EV_SOC_DROP_NOISE_PERCENT`` means the car was driven (a saved
+    session restored after a restart can look continuous even if the car left
+    while Darkstar was down); without that value the plugged state alone decides. An unreachable charger reports its last
+    known plug state in ``plugged_in``. ``missed_goal_grace_hours: 0`` disables
     the grace window.
     """
-    from datetime import datetime as _datetime, timedelta
-
     next_deadline = resolve_next_ready_by(charger_cfg, now, tz)
 
-    grace_raw = charger_cfg.get("missed_goal_grace_hours")
-    try:
-        grace_h = float(grace_raw) if grace_raw is not None else MISSED_GOAL_GRACE_HOURS_DEFAULT
-    except (TypeError, ValueError):
-        grace_h = MISSED_GOAL_GRACE_HOURS_DEFAULT
-    if grace_h <= 0 or not ha_state.get("plugged_in", False):
-        return next_deadline, False
-
-    current_soc = ha_state.get("soc_percent")
-    target_soc = charger_cfg.get("target_soc_percent")
-    if current_soc is None or target_soc is None or float(current_soc) >= float(target_soc):
-        return next_deadline, False
-
-    missed = resolve_previous_ready_by(charger_cfg, now, tz)
+    missed = resolve_ev_grace_missed_deadline(charger_cfg, ha_state, now, tz)
     if missed is None:
         return next_deadline, False
-    if now.tzinfo is None:
-        now = tz.localize(now)
-    grace_end = missed + timedelta(hours=grace_h)
-    if now >= grace_end:
+
+    session_start = ha_state.get("plug_session_start")
+    if session_start is not None:
+        if session_start.tzinfo is None:
+            session_start = tz.localize(session_start)
+        if session_start > missed:
+            return next_deadline, False
+    deadline_soc = ha_state.get("soc_at_missed_deadline")
+    if (
+        deadline_soc is not None
+        and float(deadline_soc) - float(ha_state["soc_percent"]) > EV_SOC_DROP_NOISE_PERCENT
+    ):
         return next_deadline, False
 
-    # A goal set after the deadline it would have "missed" never missed it.
-    last_updated = charger_cfg.get("last_updated")
-    if last_updated:
-        try:
-            updated_dt = _datetime.fromisoformat(str(last_updated))
-            if updated_dt.tzinfo is None:
-                updated_dt = tz.localize(updated_dt)
-            if updated_dt > missed:
-                return next_deadline, False
-        except (TypeError, ValueError):
-            pass
+    from datetime import timedelta
 
-    if next_deadline is not None and next_deadline <= grace_end:
-        return next_deadline, False
-    return grace_end, True
+    return missed + timedelta(hours=_missed_goal_grace_hours(charger_cfg)), True
+
+
+async def _load_soc_at_missed_deadline(
+    charger_cfg: dict[str, Any],
+    ha_state: dict[str, Any],
+    now: datetime,
+    tz: pytz.BaseTzInfo,
+) -> dict[str, Any]:
+    """Add ``soc_at_missed_deadline`` to ``ha_state`` when the grace decision needs it.
+
+    Only when a grace window would otherwise apply (a replug after the missed
+    deadline already denies it), so the common path makes no HA call. A failed or empty
+    history read leaves the key absent (legacy behaviour).
+    """
+    if "soc_at_missed_deadline" in ha_state:
+        return ha_state
+    soc_sensor = charger_cfg.get("soc_sensor")
+    if not soc_sensor:
+        return ha_state
+    missed = resolve_ev_grace_missed_deadline(charger_cfg, ha_state, now, tz)
+    if missed is None:
+        return ha_state
+    session_start = ha_state.get("plug_session_start")
+    if session_start is not None:
+        if session_start.tzinfo is None:
+            session_start = tz.localize(session_start)
+        if session_start > missed:
+            return ha_state
+    from backend.core.ha_client import get_sensor_value_at
+
+    try:
+        soc_then = await get_sensor_value_at(str(soc_sensor), missed)
+    except Exception as exc:
+        logger.warning("EV %s: SoC history read failed: %s", charger_cfg.get("id", ""), exc)
+        return ha_state
+    if soc_then is None:
+        return ha_state
+    return {**ha_state, "soc_at_missed_deadline": soc_then}
 
 
 def _ev_plannable(state: dict[str, Any]) -> bool:
@@ -404,6 +516,8 @@ def _resolve_ev_charger_plan_state(
         "required_kwh": required_kwh,
         "keep_on_after_target": keep_on_after_target,
         "missed_goal_grace": in_grace,
+        # Next regular ready-by: bounds the price window of a grace target's penalty.
+        "next_deadline": resolve_next_ready_by(ev_cfg_item, now_dt, tz) if in_grace else None,
         "deferral_tiers": [],
         "deferral_price_source": None,
         "effective_margin_percent": None,
@@ -555,9 +669,12 @@ def compute_ev_goal_diagnostics(
 
     Computed for every plugged-in charger with an active goal (required_kwh > 0
     and a deadline). When shortfall exceeds EV_SHORTFALL_EPS_KWH, the reason is
-    classified over the eligible slots (start >= now, end <= deadline):
+    classified over the eligible slots (end > now, end <= deadline; ``now`` is
+    the real time, not the floored slot start):
 
-    - ``deadline_too_close``: no eligible slot exists.
+    - ``deadline_too_close``: no eligible slot exists, or the eligible time
+      (the in-progress slot counts only its remaining time) at the charger's
+      maximum power, after charging efficiency, cannot cover the requirement.
     - ``grid_limit``: in every eligible slot the grid import headroom (max
       import minus house load, water heating and other EV energy) is below the
       charger's minimum energy per slot. Battery discharge is blocked while the
@@ -604,13 +721,25 @@ def compute_ev_goal_diagnostics(
         if shortfall_kwh > EV_SHORTFALL_EPS_KWH:
             cfg = cfg_by_id.get(charger_id, {})
             min_power_kw = charger_power_limits(cfg, voltage)[0]
-            eligible = [s for s in result.slots if s.start_time >= now and s.end_time <= deadline]
-            if not eligible:
+            max_power_kw = charger_power_limits(cfg, voltage)[1]
+            efficiency = float(cfg.get("charge_efficiency", 0.95))
+            # Real now: the in-progress slot is eligible with only its remaining
+            # time; the deadline must lie after now.
+            eligible: list[tuple[Any, float]] = []
+            for i, s in enumerate(result.slots):
+                if s.end_time <= now or s.end_time > deadline:
+                    continue
+                slot_h = (s.end_time - s.start_time).total_seconds() / 3600.0
+                if i == 0 and first_slot_remaining_h is not None:
+                    slot_h = min(slot_h, first_slot_remaining_h)
+                eligible.append((s, slot_h))
+            if not eligible or sum(h for _, h in eligible) * max_power_kw * efficiency < float(
+                required_kwh
+            ):
                 reason = "deadline_too_close"
             elif max_import_kw is not None and all(
-                _grid_headroom_kwh(s, charger_id, max_import_kw, load_by_start)
-                < min_power_kw * ((s.end_time - s.start_time).total_seconds() / 3600.0)
-                for s in eligible
+                _grid_headroom_kwh(s, charger_id, max_import_kw, load_by_start) < min_power_kw * h
+                for s, h in eligible
             ):
                 reason = "grid_limit"
             else:
@@ -624,6 +753,8 @@ def compute_ev_goal_diagnostics(
             "reason": reason,
             "deadline": deadline.isoformat(),
             "max_import_kw": max_import_kw,
+            # Shortfall of a grace target is grace shortfall, not a missed regular goal.
+            "missed_goal_grace": bool(state.get("missed_goal_grace", False)),
         }
 
     return diagnostics
@@ -645,6 +776,7 @@ def _warn_on_zero_scheduled_active_goals(
     ev_chargers_cfg: list[dict[str, Any]],
     diagnostics: dict[str, dict[str, Any]] | None = None,
     voltage: float = DEFAULT_NOMINAL_VOLTAGE_V,
+    first_slot_remaining_h: float | None = None,
 ) -> None:
     """Loudly report an active EV goal that produced zero planned energy.
 
@@ -687,7 +819,12 @@ def _warn_on_zero_scheduled_active_goals(
             continue
 
         cfg = cfg_by_id.get(charger_id, {})
-        min_chunk_kwh = charger_power_limits(cfg, voltage)[0] * 0.25
+        # A partial slot 0 is the only schedulable slot when little time remains,
+        # so its minimum chunk scales with the time left in it.
+        chunk_h = 0.25
+        if first_slot_remaining_h is not None and first_slot_remaining_h < chunk_h:
+            chunk_h = max(first_slot_remaining_h, 0.0)
+        min_chunk_kwh = charger_power_limits(cfg, voltage)[0] * chunk_h
         reason = ((diagnostics or {}).get(charger_id) or {}).get("reason") or "unknown"
         logger.warning(
             "EV %s: active goal (required=%.2f kWh, deadline=%s) produced ZERO "
@@ -808,6 +945,7 @@ def _persist_ev_multi_day_state(
     read the goals (not the floored slot time ``now``). The API treats a goal
     as pending while its wall-clock ``last_updated`` is later than this.
     """
+    from backend.core.ev_plug import EV_PLUG_SESSION_STATE_KEY
     from backend.core.ev_state import update_ev_state
 
     cfg_by_id = {str(c.get("id", "")): c for c in ev_chargers_cfg}
@@ -888,6 +1026,9 @@ def _persist_ev_multi_day_state(
             # this entry; it is not the planner's to drop.
             if "manual_charge" in existing_charger:
                 new_entry["manual_charge"] = existing_charger["manual_charge"]
+            # Likewise the plug session (ev-missed-goal-recovery plug continuity).
+            if EV_PLUG_SESSION_STATE_KEY in existing_charger:
+                new_entry[EV_PLUG_SESSION_STATE_KEY] = existing_charger[EV_PLUG_SESSION_STATE_KEY]
             existing_state[charger_id] = new_entry
 
     try:
@@ -1769,6 +1910,8 @@ class PlannerPipeline:
                     (s for s in ev_charger_states_raw if s.get("id") == charger_id),
                     default_state,
                 )
+                if ha_state.get("plugged_in"):
+                    ha_state = await _load_soc_at_missed_deadline(ev_cfg_item, ha_state, now_dt, tz)
                 ev_charger_states_with_goal.append(
                     _resolve_ev_charger_plan_state(
                         ev_cfg_item,
@@ -1796,7 +1939,7 @@ class PlannerPipeline:
             from planner.solver.adapter import build_ev_charger_inputs
 
             kepler_config.ev_chargers = build_ev_charger_inputs(
-                ev_chargers_cfg, ev_charger_states_with_goal, ev_voltage
+                ev_chargers_cfg, ev_charger_states_with_goal, ev_voltage, kepler_input.slots
             )
 
             # Rev K19: Vacation Mode Anti-Legionella
@@ -1920,7 +2063,7 @@ class PlannerPipeline:
                     ev_charger_states_with_goal,
                     ev_chargers_cfg,
                     kepler_config.max_import_power_kw,
-                    now_dt,
+                    real_now.to_pydatetime(),
                     kepler_input.first_slot_remaining_h,
                     ev_voltage,
                     result.ev_deferred_kwh,
@@ -1934,6 +2077,7 @@ class PlannerPipeline:
                 ev_chargers_cfg,
                 ev_goal_diagnostics,
                 ev_voltage,
+                kepler_input.first_slot_remaining_h,
             )
 
         if has_ev_charger:

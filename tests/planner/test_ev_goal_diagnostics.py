@@ -127,3 +127,55 @@ def test_zero_warning_includes_reason(caplog):
     with caplog.at_level(logging.WARNING, logger="darkstar.planner"):
         _warn_on_zero_scheduled_active_goals(result, [_state()], [GOE_CFG], diag)
     assert any("ZERO" in m and "reason=grid_limit" in m for m in caplog.messages)
+
+
+# ---- real now / partial slot (ev-goal-shortfall-diagnostics) -----------------
+REAL_NOW = NOW + timedelta(minutes=9)  # 17:54, 6 minutes left in slot 0
+PARTIAL_H = 0.1
+
+
+def test_partial_slot_requirement_beyond_remaining_time_is_deadline_too_close():
+    """11 kW x 0.1 h x 0.95 = 1.05 kWh < 3 kWh required."""
+    inputs, results = _slots(1, water_kw=0.0)
+    state = _state(deadline=NOW + SLOT, required_kwh=3.0)
+    diag = compute_ev_goal_diagnostics(
+        _Result(results, 3.0), inputs, [state], [GOE_CFG], None, REAL_NOW, PARTIAL_H
+    )
+    assert diag["goe"]["reason"] == "deadline_too_close"
+
+
+def test_partial_slot_within_remaining_capacity_keeps_cost_reason():
+    inputs, results = _slots(1, water_kw=0.0)
+    state = _state(deadline=NOW + SLOT, required_kwh=0.5)
+    diag = compute_ev_goal_diagnostics(
+        _Result(results, 0.5), inputs, [state], [GOE_CFG], None, REAL_NOW, PARTIAL_H
+    )
+    assert diag["goe"]["reason"] == "cost_tradeoff"
+
+
+def test_real_now_excludes_elapsed_slot():
+    """A slot that already ended before the real now is not eligible."""
+    inputs, results = _slots(3, water_kw=0.0)
+    late = NOW + timedelta(minutes=16)  # slot 0 over
+    state = _state(deadline=NOW + SLOT)  # only slot 0 lies before the deadline
+    diag = compute_ev_goal_diagnostics(_Result(results), inputs, [state], [GOE_CFG], None, late)
+    assert diag["goe"]["reason"] == "deadline_too_close"
+
+
+def test_grace_flag_reported():
+    inputs, results = _slots(3, water_kw=0.0)
+    diag = compute_ev_goal_diagnostics(
+        _Result(results), inputs, [_state(missed_goal_grace=True)], [GOE_CFG], None, NOW
+    )
+    assert diag["goe"]["missed_goal_grace"] is True
+
+
+def test_zero_warning_scales_min_chunk_for_partial_slot(caplog):
+    inputs, results = _slots(1)
+    result = _Result(results)
+    with caplog.at_level(logging.WARNING, logger="darkstar.planner"):
+        _warn_on_zero_scheduled_active_goals(
+            result, [_state()], [GOE_CFG], None, first_slot_remaining_h=PARTIAL_H
+        )
+    # minimum 4.18 kW x 0.1 h (a full slot would report 1.045)
+    assert any("min_chunk_kwh=0.418" in m for m in caplog.messages)

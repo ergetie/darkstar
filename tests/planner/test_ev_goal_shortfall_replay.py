@@ -36,6 +36,7 @@ GOAL = {
     "repeat": "none",
     "ready_by_date": "2026-09-24",
     "missed_goal_grace_hours": 4,
+    "missed_goal_tolerance_percent": 0,
 }
 
 
@@ -88,9 +89,9 @@ def _solve(slots, soc: float, deadline: datetime, remaining_h: float | None):
 
 @pytest.fixture(autouse=True)
 def _clear_plug_state():
-    ev_plug._last_known_plugged.clear()
+    ev_plug.reset_plug_memory()
     yield
-    ev_plug._last_known_plugged.clear()
+    ev_plug.reset_plug_memory()
 
 
 def test_unreachable_window_keeps_car_plugged_in():
@@ -138,3 +139,40 @@ def test_missed_goal_recovers_in_cheapest_grace_slots():
     assert energy[_at(12, 0)] + energy[_at(12, 15)] == pytest.approx(1.2, abs=1e-3)
     assert all(e == 0.0 for t, e in energy.items() if t >= _at(14, 30))
     assert result.ev_shortfall_kwh["goe"] == pytest.approx(0.0, abs=1e-3)
+
+
+def _day(hh: int, mm: int) -> datetime:
+    return TZ.localize(datetime(2026, 11, 10, hh, mm))
+
+
+def test_torleif_replug_after_missed_deadline_gets_no_grace():
+    """Unplugged 05:56 at 82% (goal 85% by 06:00), replugged 07:22 at 66%.
+
+    The car left and came back: no grace window, the goal resolves to its next
+    regular ready-by (tomorrow 06:00), where the cheap overnight slots serve it.
+    """
+    goal = {
+        "id": "goe",
+        "target_soc_percent": 85,
+        "ready_by": "06:00",
+        "repeat": "daily",
+        "missed_goal_grace_hours": 4,
+        "missed_goal_tolerance_percent": 5,
+    }
+    ev_plug.remember_plug_state("goe", True, _day(5, 50))
+    ev_plug.remember_plug_state("goe", False, _day(5, 56))
+    ev_plug.remember_plug_state("goe", True, _day(7, 22))
+    state = {
+        "soc_percent": 66.0,
+        "plugged_in": True,
+        "plug_session_start": ev_plug.plug_session_start("goe"),
+    }
+    now = TZ.localize(datetime(2026, 11, 10, 7, 30))
+    deadline, in_grace = resolve_ev_effective_deadline(goal, state, now, TZ)
+    assert in_grace is False
+    assert deadline == TZ.localize(datetime(2026, 11, 11, 6, 0))
+
+    # Within tolerance before the replug (82% vs 85%): no grace either.
+    assert resolve_ev_effective_deadline(
+        goal, {"soc_percent": 82.0, "plugged_in": True, "plug_session_start": _day(5, 0)}, now, TZ
+    ) == (deadline, False)

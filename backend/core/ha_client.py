@@ -26,6 +26,7 @@ from backend.core.ev_live_state import (
 from backend.core.ev_plug import (
     DEFAULT_EV_PLUGGED_IN_STATES,
     is_ev_plugged_in,
+    plug_session_start,
     remember_plug_state,
     resolve_plug_state,
 )
@@ -412,6 +413,7 @@ async def get_power_history_batch(
     attempts: int = 1,
     *,
     deadline: float | None = None,
+    fill_units: bool = True,
 ) -> dict[str, list[dict[str, Any]]] | None:
     """Fetch the HA history of several entities in ONE request.
 
@@ -422,7 +424,10 @@ async def get_power_history_batch(
     By default one attempt is made. ``attempts`` > 1 retries transient errors
     (timeouts, connection errors, HTTP 5xx and 429) with a short backoff; other
     errors are never retried. ``deadline`` (a monotonic clock value) caps every
-    attempt's timeout and ends the retries when it has passed.
+    attempt's timeout and ends the retries when it has passed. ``fill_units``
+    (default) gives unitless series the entity's current unit, which power
+    consumers need; callers reading unit-independent values (e.g. an EV SoC)
+    pass False to skip the extra state lookups.
     """
     ha_config = secrets.load_home_assistant_config()
     url = ha_config.get("url")
@@ -492,8 +497,50 @@ async def get_power_history_batch(
             result[entity_id] = series
         elif len(entities) == 1 and len(all_series) == 1:
             result[entities[0]] = series
-    await _fill_missing_units(result)
+    if fill_units:
+        await _fill_missing_units(result)
     return result
+
+
+# How far before an instant the history is searched for a numeric reading, so a
+# sensor momentarily unavailable at that instant still yields its last value.
+_SENSOR_AT_LOOKBACK = timedelta(minutes=30)
+
+
+async def get_sensor_value_at(entity_id: str, at: datetime) -> float | None:
+    """Numeric state of an HA entity at (just before) ``at``, from its history.
+
+    Returns the last numeric state recorded at or before ``at`` within the
+    preceding 30 minutes, or None when HA is unavailable, returned nothing or
+    only non-numeric states (unavailable/unknown).
+    """
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=pytz.UTC)
+    history = await get_power_history_batch(
+        [entity_id], at - _SENSOR_AT_LOOKBACK, at, fill_units=False
+    )
+    if not history:
+        return None
+    value: float | None = None
+    for state in history.get(entity_id, []):
+        stamp = state.get("last_changed") or state.get("last_updated")
+        if isinstance(stamp, str):
+            try:
+                changed = datetime.fromisoformat(stamp)
+            except ValueError:
+                changed = None
+            if changed is not None:
+                if changed.tzinfo is None:
+                    changed = changed.replace(tzinfo=pytz.UTC)
+                if changed > at:
+                    break
+        try:
+            parsed = float(str(state.get("state")).strip())
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(parsed):
+            value = parsed
+    return value
 
 
 def _unit_of(state: dict[str, Any]) -> str | None:
@@ -839,6 +886,7 @@ async def get_initial_state(
                     "soc_age_minutes": soc_age_minutes,
                     "plugged_in": plugged_in,
                     "unreachable": unreachable,
+                    "plug_session_start": plug_session_start(charger_id),
                     "power_kw": per_device_results.get(f"ev_power_{charger_id}"),
                 }
             )

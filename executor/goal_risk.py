@@ -49,6 +49,7 @@ def pause_puts_goal_at_risk(
       not at risk.
     - Diagnostics stale (goal edited after the last plan, or a different
       deadline): at risk — fail open so a real risk is never suppressed.
+    - Diagnostics of a missed-goal grace target (soft): not at risk.
     - Diagnostics report a shortfall: at risk.
     - The slot plans goal charging and the deadline is within 2 h: at risk.
     - No diagnostics entry in a plan newer than the goal: the planner
@@ -71,9 +72,15 @@ def pause_puts_goal_at_risk(
         diag_deadline = _parse_dt(diagnostics.get("deadline"))
         if diag_deadline is None or diag_deadline != deadline:
             return True, "plan diagnostics are out of date"
+        if diagnostics.get("missed_goal_grace"):
+            # Soft catch-up target (ev-missed-goal-recovery): not a missed real goal.
+            return False, "missed-goal grace (soft target)"
         shortfall = _float(diagnostics.get("shortfall_kwh")) or 0.0
         if shortfall > _SHORTFALL_EPS_KWH or diagnostics.get("reason"):
             return True, f"plan already short by {shortfall:.1f} kWh"
+
+    if goal.get("missed_goal_grace"):
+        return False, "missed-goal grace (soft target)"
 
     if slot_planned_kw > _PLANNED_KW_EPS and deadline - now <= GOAL_DEADLINE_RISK_WINDOW:
         minutes = int((deadline - now).total_seconds() // 60)

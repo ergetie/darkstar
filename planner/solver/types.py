@@ -69,6 +69,10 @@ class EVChargerInput:
     # Charger measured as charging at plan time: the first slot continuing it
     # is not a start.
     charging_now: bool = False
+    # Soft-target shortfall penalty (SEK/kWh) for this charger; None uses the
+    # global ``KeplerConfig.ev_shortfall_penalty_sek_per_kwh``. Set for the
+    # missed-goal grace target (price-derived, see adapter).
+    shortfall_penalty_sek_per_kwh: float | None = None
 
 
 @dataclass

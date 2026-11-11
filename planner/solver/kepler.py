@@ -870,7 +870,12 @@ class KeplerSolver:
                 pulp.lpSum(delivered_terms) + pulp.lpSum(deferred_vars) + ev_shortfall[d]
                 >= charger.required_kwh
             )
-            total_cost.append(ev_shortfall_penalty * ev_shortfall[d])
+            charger_penalty = (
+                charger.shortfall_penalty_sek_per_kwh
+                if charger.shortfall_penalty_sek_per_kwh is not None
+                else ev_shortfall_penalty
+            )
+            total_cost.append(charger_penalty * ev_shortfall[d])
 
         # Water Heating Constraints — per-device (tasks 2.4-2.6)
         sorted_days: list[Any] = []  # Initialize to avoid unbound error

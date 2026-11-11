@@ -8,7 +8,7 @@ Migrated from backend/kepler/adapter.py during Rev K13 modularization.
 import logging
 import math
 import os
-from datetime import datetime  # noqa: TC003
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -148,10 +148,50 @@ def resolve_max_phase_import_kw(planner_config: dict[str, Any]) -> float | None:
     return fuse * (margin / 100.0) * nominal_voltage_v(planner_config) / 1000.0
 
 
+# Missed-goal grace penalty (ev-missed-goal-recovery): the grace target is soft
+# and priced just above the cheapest slot before the next regular deadline.
+EV_GRACE_SPREAD_FRACTION = 0.25  # share of the price spread added to the cheapest price
+EV_GRACE_MIN_MARGIN_SEK = 0.05  # floor of that addition, so flat prices still charge
+EV_GRACE_PENALTY_FALLBACK_SEK = 2.0  # only when no import price exists to derive from
+
+
+def grace_shortfall_penalty(
+    slots: list[Any] | None,
+    next_deadline: datetime | None,
+    charge_efficiency: float = 1.0,
+) -> float:
+    """Shortfall penalty (SEK/kWh) of a missed-goal grace target, derived from prices.
+
+    ``max(min_price, 0) + max(EV_GRACE_SPREAD_FRACTION x spread, EV_GRACE_MIN_MARGIN_SEK)``
+    over the import prices of the slots ending by ``next_deadline`` (whole
+    horizon when None). The solver buys a slot only while its price is below
+    this, so grace charges only near the cheapest price the next regular goal
+    could also use, at any market price level. Shortfall is measured in energy
+    delivered to the car while import cost is per wall kWh, so the derived
+    value is divided by ``charge_efficiency`` (solver buys while
+    ``price / efficiency < penalty``, i.e. ``price < derived``; without it the
+    margin would vanish on flat expensive prices). Unknown prices give
+    ``EV_GRACE_PENALTY_FALLBACK_SEK``.
+    """
+    prices = [
+        float(s.import_price_sek_kwh)
+        for s in (slots or [])
+        if (next_deadline is None or s.end_time <= next_deadline)
+        and s.import_price_sek_kwh is not None
+        and math.isfinite(float(s.import_price_sek_kwh))
+    ]
+    if not prices:
+        return EV_GRACE_PENALTY_FALLBACK_SEK
+    low, high = min(prices), max(prices)
+    derived = max(low, 0.0) + max(EV_GRACE_SPREAD_FRACTION * (high - low), EV_GRACE_MIN_MARGIN_SEK)
+    return derived / charge_efficiency if 0.0 < charge_efficiency <= 1.0 else derived
+
+
 def build_ev_charger_inputs(
     ev_chargers_config: list[dict[str, Any]],
     ev_charger_states: list[dict[str, Any]] | None = None,
     voltage: float = DEFAULT_NOMINAL_VOLTAGE_V,
+    slots: list[Any] | None = None,
 ) -> list[EVChargerInput]:
     """
     Build per-device EVChargerInput list from ev_chargers[] config + HA state.
@@ -165,6 +205,9 @@ def build_ev_charger_inputs(
             If None or empty, HA state defaults are used (0% SoC, not plugged in).
         voltage: Nominal grid voltage for deriving current-charger power
             (see backend.core.ev_power).
+        slots: Solver input slots; their import prices price the soft target of
+            a charger in missed-goal grace (``missed_goal_grace`` state flag,
+            ``next_deadline`` bounds the price window).
 
     Returns:
         List of EVChargerInput objects for enabled chargers with derivable power.
@@ -227,6 +270,15 @@ def build_ev_charger_inputs(
                 start_loss_kwh=float(ev.get("start_loss_kwh", 0.15)),
                 charge_efficiency=float(ev.get("charge_efficiency", 0.95)),
                 charging_now=float(state.get("power_kw") or 0.0) > CHARGING_NOW_THRESHOLD_KW,
+                shortfall_penalty_sek_per_kwh=(
+                    grace_shortfall_penalty(
+                        slots,
+                        state.get("next_deadline"),
+                        float(ev.get("charge_efficiency", 0.95)),
+                    )
+                    if state.get("missed_goal_grace")
+                    else None
+                ),
             )
         )
 
@@ -637,7 +689,7 @@ def config_to_kepler_config(
     # ARC15: Load EV charging settings (per-device)
     if config_version >= 2 and ev_chargers:
         ev_inputs = build_ev_charger_inputs(
-            ev_chargers, ev_charger_states, nominal_voltage_v(planner_config)
+            ev_chargers, ev_charger_states, nominal_voltage_v(planner_config), slots
         )
     else:
         ev_inputs = []

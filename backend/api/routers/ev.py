@@ -31,6 +31,7 @@ from backend.core.ev_live_state import (
 )
 from backend.core.ev_plug import (
     DEFAULT_EV_PLUGGED_IN_STATES,
+    EV_PLUG_SESSION_STATE_KEY,
     is_unreachable_state,
     resolve_plug_state,
 )
@@ -206,9 +207,13 @@ async def set_ev_charger_schedule(
         nonlocal new_charger_state
         if body.target_soc_percent is None:
             # Clear the goal, keeping an active manual charge (ev-manual-charge)
-            manual_charge = state.get(id, {}).get("manual_charge")
-            if manual_charge is not None:
-                state[id] = {"manual_charge": manual_charge}
+            kept = {
+                k: v
+                for k, v in state.get(id, {}).items()
+                if k in ("manual_charge", EV_PLUG_SESSION_STATE_KEY)
+            }
+            if kept:
+                state[id] = kept
             else:
                 state.pop(id, None)
             new_charger_state = {}
@@ -420,10 +425,14 @@ def _active_goal_shortfall(
 
     Diagnostics are ignored (stale) when the goal was edited after the plan was
     made, the deadline differs, or the required energy differs by more than
-    DIAGNOSTICS_REQUIRED_TOLERANCE_KWH. Only a shortfall above
+    DIAGNOSTICS_REQUIRED_TOLERANCE_KWH. Grace-target diagnostics
+    (``missed_goal_grace``) are never at risk. Only a shortfall above
     AT_RISK_SHORTFALL_KWH is returned.
     """
     if not diagnostics:
+        return None
+    # A missed-goal grace target is soft: its shortfall is not a missed real goal.
+    if diagnostics.get("missed_goal_grace"):
         return None
     try:
         shortfall = float(diagnostics.get("shortfall_kwh") or 0.0)
@@ -557,7 +566,9 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
         manual_charge = _manual_charge_view(
             live_manual.get(charger_id) if live_manual is not None else entry.get("manual_charge")
         )
-        persisted = {k: v for k, v in entry.items() if k != "manual_charge"}
+        persisted = {
+            k: v for k, v in entry.items() if k not in ("manual_charge", EV_PLUG_SESSION_STATE_KEY)
+        }
 
         max_kw = charger_max_kw(ev, ev_voltage)
         # A charger whose power cannot be derived is disabled for planning;

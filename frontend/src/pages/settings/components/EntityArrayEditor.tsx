@@ -47,6 +47,7 @@ export interface EVChargerEntity {
     replan_on_plugin?: boolean
     replan_on_unplug?: boolean
     missed_goal_grace_hours?: number
+    missed_goal_tolerance_percent?: number
     /** Minutes the last valid SoC is carried when the SoC sensor is unavailable (default 15) */
     soc_stale_after_minutes?: number
     current_entity?: string
@@ -126,6 +127,7 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     replan_on_plugin: true,
     replan_on_unplug: false,
     missed_goal_grace_hours: 4,
+    missed_goal_tolerance_percent: 5,
     soc_stale_after_minutes: 15,
     current_entity: '',
     min_current_a: 6,
@@ -1157,6 +1159,33 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                 <p className="text-[10px] text-muted mt-1">
                                                                     Keep charging toward a missed goal while still
                                                                     plugged in. 0 = off
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                        {/* Missed-goal tolerance (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Missed Goal Tolerance (%)
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        (entity as EVChargerEntity)
+                                                                            .missed_goal_tolerance_percent ?? 5
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            missed_goal_tolerance_percent: Number(val),
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={1}
+                                                                    min={0}
+                                                                    max={20}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    Skip the catch-up when the car is within this many
+                                                                    points of the target. 0 = off
                                                                 </p>
                                                             </div>
                                                         )}
