@@ -34,7 +34,23 @@ Darkstar automatically retrains its forecasting models twice a week (default: Mo
 `🧠 Starting ML model retraining...`
 
 ### Updating Darkstar
-To update to the latest version:
+Docker installs can update from the UI: click the version in the sidebar (a dot appears when an update is available), pick a channel (`dev` = latest `main`, `stable` = latest `v*` release tag), then **Update**. Darkstar is rebuilt locally from git and restarted; a failed build leaves the running container untouched.
+
+An update is refused when tracked files were modified locally, or when the target does not contain your database's migration version (for example Dev to Stable). Downgrades are never automatic and there is no automatic backup.
+
+**Opt-in setup.** The updater is a separate `updater` container that only starts when enabled. Without it nothing changes and you can keep updating manually. To enable it, add these values to a `.env` file next to `docker-compose.yml`, then rebuild once:
+```bash
+echo "DARKSTAR_UPDATER_TOKEN=$(openssl rand -hex 32)" >> .env
+echo "DARKSTAR_REPO_DIR=$(pwd)" >> .env
+echo "COMPOSE_PROFILES=updater" >> .env
+git pull
+docker compose up -d --build
+```
+Later changes to the updater itself are not applied from the UI (the card shows a hint); run `docker compose up -d --build updater` after pulling them.
+
+**Security note.** The `updater` container mounts the Docker socket, which is root-equivalent on the host. It has no published port, only accepts requests carrying `DARKSTAR_UPDATER_TOKEN`, and only performs fixed operations (check, switch channel, update Darkstar). The Darkstar container itself never gets the socket. Keep `.env` private.
+
+**Manual update** (also the fallback when the UI is unavailable):
 ```bash
 git pull
 docker compose build

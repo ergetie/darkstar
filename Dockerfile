@@ -9,7 +9,6 @@ FROM python:3.12-slim
 
 ARG TARGETARCH
 ENV DARKSTAR_INSTALLATION_TYPE=docker \
-    DARKSTAR_RELEASE_CHANNEL=stable \
     DARKSTAR_ARCH=${TARGETARCH}
 
 LABEL maintainer="Darkstar Energy Manager"
@@ -82,6 +81,15 @@ RUN cd frontend && pnpm build
 # Copy Vite's index.html to templates folder (it has the correct asset hashes)
 RUN mkdir -p ./backend/templates && \
     cp ./backend/static/index.html ./backend/templates/index.html
+
+# Version/channel injected by the in-app updater (late, to keep dependency layers cached).
+# Defaults keep published (GHCR) images unchanged: VERSION file + stable channel.
+ARG DARKSTAR_VERSION=""
+ARG DARKSTAR_RELEASE_CHANNEL=stable
+ARG DARKSTAR_COMMIT=""
+ENV DARKSTAR_VERSION=${DARKSTAR_VERSION} \
+    DARKSTAR_RELEASE_CHANNEL=${DARKSTAR_RELEASE_CHANNEL} \
+    DARKSTAR_COMMIT=${DARKSTAR_COMMIT}
 
 # Create directories for runtime data
 RUN mkdir -p /data

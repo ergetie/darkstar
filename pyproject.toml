@@ -101,6 +101,7 @@ include = [
     "bin",
     "planner",    # Core planning engine
     "executor",   # Executor engine
+    "updater",    # In-app updater sidecar
     "*.py",       # Root level Python files
 ]
 

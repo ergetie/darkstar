@@ -8,6 +8,10 @@ import {
     Navigate,
 } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
+import { UpdateBanner } from './components/UpdateBanner'
+import { UpdateCard } from './components/UpdateCard'
+import { useUpdater } from './lib/useUpdater'
+import { updateReady } from './lib/updateReady'
 import ErrorBoundary from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
 import Debug from './pages/Debug'
@@ -28,6 +32,8 @@ function RootLayout() {
     const [healthStatus, setHealthStatus] = useState<HealthResponse | null>(null)
     const [configWarnings, setConfigWarnings] = useState<ConfigSaveResponse | null>(null)
     const [showWizard, setShowWizard] = useState(false)
+    const updater = useUpdater()
+    const [showUpdateCard, setShowUpdateCard] = useState(false)
     const [missingProfile, setMissingProfile] = useState(false)
     const [configLoaded, setConfigLoaded] = useState(false)
 
@@ -108,8 +114,15 @@ function RootLayout() {
 
     return (
         <>
-            <Sidebar />
+            <Sidebar
+                updateAvailable={updater.available && updateReady(updater.status)}
+                onVersionClick={updater.available ? () => setShowUpdateCard(true) : undefined}
+            />
+            {updater.available && showUpdateCard && (
+                <UpdateCard updater={updater} onClose={() => setShowUpdateCard(false)} />
+            )}
             <div className="lg:pl-[96px]">
+                <UpdateBanner updater={updater} onOpen={() => setShowUpdateCard(true)} />
                 {/* Show health alerts whenever issues exist (critical or warning) */}
                 {healthStatus && healthStatus.issues.length > 0 && <SystemAlert health={healthStatus} />}
 

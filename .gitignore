@@ -144,3 +144,6 @@ data/onboarding_state.json
 # Personal tooling, not part of the app
 ops/
 .claude/skills/discord-triage/
+
+# In-app updater token / repo path (secrets)
+.env

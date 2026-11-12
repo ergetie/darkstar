@@ -3,7 +3,13 @@
 
 services:
   darkstar:
-    build: .
+    build:
+      context: .
+      args:
+        # Set by the updater when it builds; empty/stable for a manual build.
+        DARKSTAR_VERSION: ${DARKSTAR_VERSION:-}
+        DARKSTAR_RELEASE_CHANNEL: ${DARKSTAR_RELEASE_CHANNEL:-stable}
+        DARKSTAR_COMMIT: ${DARKSTAR_COMMIT:-}
     container_name: darkstar
     ports:
       - "5000:5000"
@@ -17,6 +23,10 @@ services:
       - ./backups:/host_backups
     environment:
       - TZ=Europe/Stockholm
+      # In-app updates (Settings > System). Shared secret lives in .env.
+      # Opt-in: without a token the feature stays hidden and nothing changes.
+      - DARKSTAR_UPDATER_URL=http://updater:5001
+      - DARKSTAR_UPDATER_TOKEN=${DARKSTAR_UPDATER_TOKEN:-}
     restart: unless-stopped
     cap_add:
       - SYS_PTRACE
@@ -26,3 +36,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  # Updater sidecar: the only container with the Docker socket. Internal network only
+  # (no published port); Darkstar reaches it with the shared bearer token.
+  # Opt-in via COMPOSE_PROFILES=updater in .env; plain installs never start it.
+  updater:
+    profiles: ["updater"]
+    build:
+      context: .
+      dockerfile: updater/Dockerfile
+    container_name: darkstar-updater
+    restart: unless-stopped
+    environment:
+      # Empty values are refused by the updater entrypoint (defaults keep `compose config` valid without .env).
+      - DARKSTAR_UPDATER_TOKEN=${DARKSTAR_UPDATER_TOKEN:-}
+      # Absolute path of this repository on the host, mounted at the same path below
+      # because compose resolves build contexts and bind mounts as host paths.
+      - DARKSTAR_REPO_DIR=${DARKSTAR_REPO_DIR:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DARKSTAR_REPO_DIR:-/opt/darkstar-repo-unset}:${DARKSTAR_REPO_DIR:-/opt/darkstar-repo-unset}
+      - ./data:/data:ro
+      - updater-state:/state
+
+volumes:
+  updater-state:

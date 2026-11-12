@@ -273,6 +273,28 @@ export type ProgramTimesStatus = {
     mismatches: { entity_id: string; value: string }[]
 }
 
+export type UpdaterChannel = 'dev' | 'stable'
+export type UpdaterApplyState = 'idle' | 'building' | 'restarting' | 'done' | 'failed'
+
+export type UpdaterStatus = {
+    /** False when the updater sidecar cannot be reached (docker install). */
+    reachable: boolean
+    error?: string
+    channel?: UpdaterChannel
+    current?: { version: string | null; commit: string | null }
+    target?: { version: string; commit: string; ref: string } | null
+    update_available?: boolean
+    commits?: string[]
+    blocked?: string | null
+    dirty_files?: string[]
+    last_check?: { ok: boolean; at: string; error?: string } | null
+    last_success_at?: string | null
+    apply?: { state: UpdaterApplyState; message?: string; target_version?: string; log_tail?: string[] }
+    updater_outdated?: boolean
+}
+
+export type UpdaterLogChunk = { text: string; offset: number }
+
 export class ApiError extends Error {
     constructor(
         message: string,
@@ -1560,7 +1582,14 @@ export const Api = {
     status: () => getJSON<StatusResponse>('/api/status'),
     health: () => getJSON<HealthResponse>('/api/health'),
     acknowledgeHealthIssue: (id: string) => getJSON<{ id: string }>('/api/system/health/acknowledge', 'POST', { id }),
-    version: () => getJSON<{ version: string }>('/api/version'),
+    version: () => getJSON<{ version: string; commit?: string | null }>('/api/version'),
+    updater: {
+        status: () => getJSON<UpdaterStatus>('/api/updater/status'),
+        check: () => getJSON<UpdaterStatus>('/api/updater/check', 'POST'),
+        setChannel: (channel: UpdaterChannel) => getJSON<UpdaterStatus>('/api/updater/channel', 'PUT', { channel }),
+        apply: () => getJSON<UpdaterStatus>('/api/updater/apply', 'POST'),
+        log: (offset: number) => getJSON<UpdaterLogChunk>(`/api/updater/log?offset=${offset}`),
+    },
     horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
     config: () => getJSON<ConfigResponse>('/api/config'),
     // REV UI23: Validate config without saving

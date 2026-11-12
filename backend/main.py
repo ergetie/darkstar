@@ -33,6 +33,7 @@ from backend.api.routers import (
     setup,
     system,
     theme,
+    updater,
     water,
 )
 from backend.api.routers.analyst import router as analyst_router
@@ -325,6 +326,7 @@ def create_app() -> socketio.ASGIApp:
     # 4. Mount Routers
     app.include_router(dashboard.router)
     app.include_router(system.router)
+    app.include_router(updater.router)
     app.include_router(theme.router)
     app.include_router(schedule.router)
     app.include_router(forecast.router)

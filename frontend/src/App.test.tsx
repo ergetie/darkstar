@@ -18,6 +18,11 @@ vi.mock('./lib/api', () => ({
         },
         status: vi.fn(async () => ({})),
         health: vi.fn(async () => ({ issues: [] })),
+        updater: {
+            status: vi.fn(async () => {
+                throw new Error('updater not available in this test')
+            }),
+        },
     },
 }))
 vi.mock('./lib/socket', () => ({ getSocket: vi.fn() }))

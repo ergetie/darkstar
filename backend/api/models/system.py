@@ -9,6 +9,7 @@ class VersionResponse(BaseModel):
     """Response model for /api/version endpoint."""
 
     version: str
+    commit: str | None = None
 
 
 class StatusResponse(BaseModel):

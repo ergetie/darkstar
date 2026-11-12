@@ -45,7 +45,22 @@ const Item = ({
     )
 }
 
-export default function Sidebar() {
+const UpdateDot = ({ className = '' }: { className?: string }) => (
+    <span
+        aria-label="Update available"
+        title="Update available"
+        className={`inline-block h-2 w-2 rounded-full bg-accent shadow-[0_0_8px_rgba(255,206,89,0.6)] ${className}`}
+    />
+)
+
+type SidebarProps = {
+    /** An applicable update exists: shows the highlight dot next to the version. */
+    updateAvailable?: boolean
+    /** Opens the update card. Omitted when the update feature is not available. */
+    onVersionClick?: () => void
+}
+
+export default function Sidebar({ updateAvailable = false, onVersionClick }: SidebarProps) {
     const { pathname } = useLocation()
     const [mobileOpen, setMobileOpen] = useState(false)
     const connected = useSocketStatus()
@@ -103,12 +118,17 @@ export default function Sidebar() {
                             }
                         />
 
-                        <span
-                            className="text-[10px] text-muted/60 font-mono select-none tracking-widest whitespace-nowrap opacity-80 hover:opacity-100 transition"
+                        {updateAvailable && <UpdateDot />}
+                        <button
+                            type="button"
+                            disabled={!onVersionClick}
+                            onClick={onVersionClick}
+                            title={onVersionClick ? 'Updates' : undefined}
+                            className={`text-[10px] text-muted/60 font-mono select-none tracking-widest whitespace-nowrap opacity-80 transition ${onVersionClick ? 'hover:opacity-100 hover:text-accent cursor-pointer' : 'cursor-default'}`}
                             style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
                         >
                             darkstar {versionLabel}
-                        </span>
+                        </button>
                     </div>
 
                     {/* Theme Toggle */}
@@ -124,10 +144,11 @@ export default function Sidebar() {
                 <button
                     type="button"
                     aria-label="Open navigation"
-                    className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-line/70 bg-surface shadow-float text-muted hover:border-accent hover:text-accent transition-colors"
+                    className="relative inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-line/70 bg-surface shadow-float text-muted hover:border-accent hover:text-accent transition-colors"
                     onClick={() => setMobileOpen(true)}
                 >
                     <Menu className="h-6 w-6" />
+                    {updateAvailable && <UpdateDot className="absolute top-1.5 right-1.5" />}
                 </button>
             </div>
 
@@ -139,7 +160,18 @@ export default function Sidebar() {
                             <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-surface2 border border-line/60">
                                 <DarkstarLogo className="h-5 w-5 text-accent" />
                             </span>
-                            <span className="text-muted font-mono">darkstar {versionLabel}</span>
+                            <button
+                                type="button"
+                                disabled={!onVersionClick}
+                                className="flex items-center gap-2 text-muted font-mono"
+                                onClick={() => {
+                                    closeMobile()
+                                    onVersionClick?.()
+                                }}
+                            >
+                                darkstar {versionLabel}
+                                {updateAvailable && <UpdateDot />}
+                            </button>
                         </div>
                         <button
                             type="button"

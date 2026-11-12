@@ -50,7 +50,7 @@ def _get_learning_engine() -> Any:
 )
 async def get_version() -> VersionResponse:
     """Return the current system version."""
-    return VersionResponse(version=_get_git_version())
+    return VersionResponse(version=_get_git_version(), commit=os.getenv("DARKSTAR_COMMIT") or None)
 
 
 @router.get(
