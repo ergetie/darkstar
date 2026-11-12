@@ -39,7 +39,7 @@ Two channels SHALL exist: `dev` (HEAD of `origin/main`) and `stable` (highest `v
 - **THEN** the target is the latest `v*` tag and the UI shows it, even if it is older than the current commit (subject to the database gate)
 
 ### Requirement: Update check
-The updater SHALL run `git fetch --tags origin` and compare the checked-out commit with the channel target. Checks SHALL run automatically every 6 hours and on demand ("Check now"). The result SHALL include current version/commit, target version/commit, whether an update is available, and for `dev` a summary of up to 20 commit subjects between current and target. A failed fetch SHALL be reported as an error with the last successful check time retained.
+The updater SHALL run `git fetch --tags origin` and compare the checked-out commit with the channel target. Checks SHALL run automatically every 6 hours and on demand ("Check now"). The result SHALL include current version/commit, target version/commit, whether an update is available, and for `dev` a summary of up to 20 commit subjects between current and target. A failed fetch SHALL be reported as an error with the last successful check time retained. Git network operations SHALL use anonymous HTTPS (ssh GitHub origins are rewritten) and never prompt for credentials.
 
 #### Scenario: Dev behind
 - **WHEN** `origin/main` is ahead of the checkout

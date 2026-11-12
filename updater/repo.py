@@ -14,6 +14,15 @@ CHANNELS = ("dev", "stable")
 MAX_SUBJECTS = 20
 _REVISION_RE = re.compile(r"""^revision\s*(?::\s*str)?\s*=\s*['"]([^'"]+)""", re.MULTILINE)
 
+# The updater image has no ssh or keys and the repo is public: always fetch over anonymous HTTPS,
+# whatever form origin uses. Never prompt for credentials.
+_HTTPS_REWRITE = (
+    "-c",
+    "url.https://github.com/.insteadOf=git@github.com:",
+    "-c",
+    "url.https://github.com/.insteadOf=ssh://git@github.com/",
+)
+
 
 class GitError(RuntimeError):
     pass
@@ -43,9 +52,9 @@ class Repo:
         st = Path(self.path).stat()
         drop = st.st_uid != 0
         result = self._runner(
-            ["git", "-c", f"safe.directory={self.path}", *args],
+            ["git", "-c", f"safe.directory={self.path}", *_HTTPS_REWRITE, *args],
             cwd=self.path,
-            env={"HOME": self.path} if drop else None,
+            env={**({"HOME": self.path} if drop else {}), "GIT_TERMINAL_PROMPT": "0"},
             user=st.st_uid if drop else None,
             group=st.st_gid if drop else None,
         )

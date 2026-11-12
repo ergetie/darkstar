@@ -10,7 +10,7 @@ export function UpdateBanner({ updater, onOpen }: { updater: UseUpdater; onOpen:
     if (dismissedVersion === target || isUpdateDismissed(target)) return null
 
     return (
-        <div className="banner banner-info mx-4 mt-4 justify-between" role="status">
+        <div className="banner banner-info ml-16 mr-4 lg:mx-4 mt-4 justify-between" role="status">
             <span>Darkstar {target} is available.</span>
             <span className="flex items-center gap-2">
                 <button type="button" className="btn btn-secondary" onClick={onOpen}>

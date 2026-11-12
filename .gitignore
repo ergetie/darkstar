@@ -147,3 +147,6 @@ ops/
 
 # In-app updater token / repo path (secrets)
 .env
+
+# Local agent scratch output (lint logs, screenshots)
+logs/

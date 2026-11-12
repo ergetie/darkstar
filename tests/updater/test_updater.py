@@ -361,7 +361,7 @@ def test_git_runs_as_repo_owner(tmp_path: Path) -> None:
         assert calls[0]["user"] is None and calls[0]["group"] is None
     else:
         assert (calls[0]["user"], calls[0]["group"]) == (st.st_uid, st.st_gid)
-        assert calls[0]["env"] == {"HOME": str(tmp_path)}
+        assert calls[0]["env"] == {"HOME": str(tmp_path), "GIT_TERMINAL_PROMPT": "0"}
 
 
 @pytest.mark.parametrize(("uid", "gid", "dropped"), [(1234, 5678, True), (0, 0, False)])
@@ -383,3 +383,20 @@ def test_git_runs_as_repo_owner(
     assert seen[0]["user"] == (uid if dropped else None)
     assert seen[0]["group"] == (gid if dropped else None)
     assert seen[0]["cwd"] == "/repo"
+
+
+def test_git_rewrites_ssh_github_urls_to_https_and_never_prompts(tmp_path: Path) -> None:
+    from updater.repo import Repo
+
+    seen: list[tuple[list[str], Any]] = []
+
+    def runner(argv: Any, **kwargs: Any) -> CommandResult:
+        seen.append((list(argv), kwargs["env"]))
+        return CommandResult(0, "")
+
+    Repo(str(tmp_path), runner).fetch()
+    argv, env = seen[0]
+    assert "url.https://github.com/.insteadOf=git@github.com:" in argv
+    assert "url.https://github.com/.insteadOf=ssh://git@github.com/" in argv
+    assert argv.index("fetch") > max(i for i, a in enumerate(argv) if a == "-c")
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
