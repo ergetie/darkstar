@@ -4,6 +4,7 @@ Spec: ``ev-missed-goal-recovery`` — "Unreachable charger is distinct from
 unplugged".
 """
 
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,9 +17,9 @@ from backend.ha_socket import HAWebSocketClient
 
 @pytest.fixture(autouse=True)
 def _clear_last_known_plug_state():
-    ev_plug._last_known_plugged.clear()
+    ev_plug.reset_plug_memory()
     yield
-    ev_plug._last_known_plugged.clear()
+    ev_plug.reset_plug_memory()
 
 
 def _client(plugged_in: bool = True) -> HAWebSocketClient:
@@ -72,9 +73,19 @@ def test_websocket_unavailable_does_not_unplug_or_replan(raw):
     client._trigger_ev_replan.assert_not_called()
 
 
-def test_websocket_return_to_connected_triggers_plugin_replan():
+def test_websocket_short_outage_return_does_not_replan():
     client = _client(plugged_in=True)
     _change(client, "unavailable")
+    _change(client, "Charging")
+
+    assert client.latest_values["ev_chargers"][0]["unreachable"] is False
+    client._trigger_ev_replan.assert_not_called()
+
+
+def test_websocket_return_to_connected_after_long_outage_triggers_replan():
+    client = _client(plugged_in=True)
+    _change(client, "unavailable")
+    ev_plug._unreachable_since["goe"] -= timedelta(minutes=25)
     _change(client, "Charging")
 
     ev = client.latest_values["ev_chargers"][0]

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from backend.core.ev_plug import is_ev_plugged_in, is_unreachable_state, remember_plug_state
+from backend.core.ev_plug import is_unreachable_state, resolve_plug_with_grace
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -177,11 +177,15 @@ def interpret_ev_live_state(
     has_soc_sensor: bool,
     has_plug_sensor: bool,
     plugged_in_states: object = None,
+    plug_grace_minutes: float | None = None,
 ) -> EVLiveState:
     """Interpret raw HA states into an ``EVLiveState`` (no I/O).
 
     A valid plug reading is recorded as the charger's last known plug state,
-    which the dashboard shows while the charger is unreachable.
+    which the dashboard shows while the charger is unreachable. With
+    ``plug_grace_minutes`` set, an unreachable plug sensor keeps reporting its
+    last known state for that long (ev-plug-unreachable-grace); without it, an
+    unreachable sensor is ``unknown``.
     """
     soc = _interpret_soc(raw_soc) if has_soc_sensor else None
     if soc is not None:
@@ -191,12 +195,16 @@ def interpret_ev_live_state(
     if not has_plug_sensor:
         # No plug sensor → assumed plugged in (same as the planner).
         plug = "plugged"
-    elif raw_plug is None or is_unreachable_state(raw_plug):
+    elif raw_plug is None:
         plug = "unknown"
     else:
-        plugged_in = is_ev_plugged_in(raw_plug, plugged_in_states)
-        remember_plug_state(charger_id, plugged_in)
-        plug = "plugged" if plugged_in else "unplugged"
+        resolved = resolve_plug_with_grace(
+            charger_id, raw_plug, plugged_in_states, plug_grace_minutes or 0.0
+        )
+        if not resolved.plug_known:
+            plug = "unknown"
+        else:
+            plug = "plugged" if resolved.plugged_in else "unplugged"
 
     return EVLiveState(soc_percent=soc, plug=plug)
 
@@ -208,6 +216,7 @@ async def read_ev_live_state(
     soc_sensor: str | None,
     plug_sensor: str | None,
     plugged_in_states: object = None,
+    plug_grace_minutes: float | None = None,
 ) -> EVLiveState:
     """Read and interpret a charger's live SoC and plug state.
 
@@ -233,4 +242,5 @@ async def read_ev_live_state(
         has_soc_sensor=bool(soc_sensor),
         has_plug_sensor=bool(plug_sensor),
         plugged_in_states=plugged_in_states,
+        plug_grace_minutes=plug_grace_minutes,
     )

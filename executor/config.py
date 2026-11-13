@@ -14,6 +14,10 @@ from typing import Any, cast
 
 from ruamel.yaml import YAML
 
+from backend.core.ev_plug import (
+    DEFAULT_PLUG_UNREACHABLE_GRACE_MINUTES,
+    plug_unreachable_grace_minutes,
+)
 from backend.core.ev_power import DEFAULT_NOMINAL_VOLTAGE_V, nominal_voltage_v
 from backend.core.load_balancing_margin import (
     TARGET_MARGIN_RANGE,
@@ -157,6 +161,10 @@ class EVChargerDeviceConfig:
     # Hours a missed goal stays active while the car is still plugged in
     # (ev-missed-goal-recovery). 0 disables the grace window.
     missed_goal_grace_hours: float = 4.0
+
+    # Minutes the executor keeps the last known plug state while the plug sensor
+    # is unreachable (ev-plug-unreachable-grace). 0 disables the grace window.
+    plug_unreachable_grace_minutes: float = DEFAULT_PLUG_UNREACHABLE_GRACE_MINUTES
 
     # HA entities the charging goal (set in the dashboard, stored in
     # data/ev_multi_day_state.json) is mirrored to/from. The goal itself is
@@ -1172,6 +1180,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                     charger.get("replan_on_unplug", EVChargerDeviceConfig.replan_on_unplug)
                 ),
                 missed_goal_grace_hours=missed_goal_grace_hours,
+                plug_unreachable_grace_minutes=plug_unreachable_grace_minutes(charger),
                 ha_ready_by_entity=_str_or_none(charger.get("ha_ready_by_entity")),
                 ha_target_soc_entity=_str_or_none(charger.get("ha_target_soc_entity")),
                 type=str(charger.get("type", EVChargerDeviceConfig.type)).lower(),

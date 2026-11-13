@@ -87,3 +87,22 @@ def test_executor_config_parses_loss_fields(tmp_path):
     assert a.energy_added_sensor == "sensor.added"
     assert (b.charge_overhead_kw, b.start_loss_kwh, b.charge_efficiency) == (0.25, 0.15, 0.95)
     assert b.energy_added_sensor is None
+
+
+def test_executor_config_parses_plug_unreachable_grace(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        yaml.dump(
+            {
+                "executor": {"enabled": True},
+                "ev_chargers": [
+                    {"id": "a", "plug_unreachable_grace_minutes": 0},
+                    {"id": "b"},
+                    {"id": "c", "plug_unreachable_grace_minutes": "bad"},
+                ],
+            }
+        )
+    )
+    a, b, c = load_executor_config(str(path)).ev_chargers
+    assert (a.plug_unreachable_grace_minutes, b.plug_unreachable_grace_minutes) == (0.0, 10.0)
+    assert c.plug_unreachable_grace_minutes == 10.0

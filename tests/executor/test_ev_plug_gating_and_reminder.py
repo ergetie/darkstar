@@ -13,6 +13,7 @@ import pytest
 import pytz
 from sqlalchemy import create_engine
 
+from backend.core import ev_plug
 from backend.learning.models import Base
 from executor.config import (
     EVChargerDeviceConfig,
@@ -24,6 +25,13 @@ from executor.engine import ExecutorEngine
 from executor.override import SlotPlan
 
 TZ = pytz.timezone("Europe/Stockholm")
+
+
+@pytest.fixture(autouse=True)
+def _reset_plug_memory():
+    ev_plug.reset_plug_memory()
+    yield
+    ev_plug.reset_plug_memory()
 
 
 @pytest.fixture
@@ -151,6 +159,36 @@ async def test_unknown_plug_state_is_not_actionable(temp_schedule, temp_db):
     assert gated.ev_keep_on["ev1"] is False
     assert gated.ev_surplus_kw["ev1"] == 0.0
     assert eng._charger_should_be_on(gated, "ev1") is False
+
+
+@pytest.mark.asyncio
+async def test_short_plug_outage_keeps_plan(temp_schedule, temp_db):
+    plug_states: dict[str, str | None] = {"ev1": "on"}
+    eng = _engine(temp_schedule, temp_db, [_charger()], plug_states)
+    assert (await eng._read_ev_plug_states())["ev1"] == "plugged"
+
+    plug_states["ev1"] = "unavailable"
+    states = await eng._read_ev_plug_states()
+    assert states["ev1"] == "plugged"
+    slot = _slot()
+    assert eng._gate_ev_plan_on_plug_state(slot, states) is slot
+
+
+@pytest.mark.asyncio
+async def test_plug_outage_past_window_drops_plan(temp_schedule, temp_db):
+    plug_states: dict[str, str | None] = {"ev1": "on"}
+    eng = _engine(
+        temp_schedule, temp_db, [_charger(plug_unreachable_grace_minutes=10)], plug_states
+    )
+    await eng._read_ev_plug_states()
+
+    plug_states["ev1"] = "unavailable"
+    await eng._read_ev_plug_states()
+    ev_plug._unreachable_since["ev1"] -= timedelta(minutes=11)
+    states = await eng._read_ev_plug_states()
+    assert states["ev1"] == "unknown"
+    gated = eng._gate_ev_plan_on_plug_state(_slot(), states)
+    assert gated.ev_charger_plans["ev1"] == 0.0
 
 
 @pytest.mark.asyncio

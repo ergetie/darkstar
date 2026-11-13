@@ -50,6 +50,8 @@ export interface EVChargerEntity {
     missed_goal_tolerance_percent?: number
     /** Minutes the last valid SoC is carried when the SoC sensor is unavailable (default 15) */
     soc_stale_after_minutes?: number
+    /** Minutes the last plug state is kept when the plug sensor is unavailable (default 10) */
+    plug_unreachable_grace_minutes?: number
     current_entity?: string
     min_current_a?: number
     max_current_a?: number
@@ -129,6 +131,7 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     missed_goal_grace_hours: 4,
     missed_goal_tolerance_percent: 5,
     soc_stale_after_minutes: 15,
+    plug_unreachable_grace_minutes: 10,
     current_entity: '',
     min_current_a: 6,
     phases: [1, 2, 3],
@@ -1132,6 +1135,34 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                     Keep using the last SoC reading this long if the
                                                                     sensor drops out. After that, goal charging pauses
                                                                     until a reading returns
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                        {/* Plug-sensor outage grace window (EV only) */}
+                                                        {!isWaterHeater && (
+                                                            <div>
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                    Plug Unreachable Grace (minutes)
+                                                                </label>
+                                                                <NumberInput
+                                                                    value={
+                                                                        (entity as EVChargerEntity)
+                                                                            .plug_unreachable_grace_minutes ?? 10
+                                                                    }
+                                                                    onChange={(val) =>
+                                                                        updateEntity(index, {
+                                                                            plug_unreachable_grace_minutes: Number(val),
+                                                                        } as Partial<EVChargerEntity>)
+                                                                    }
+                                                                    disabled={disabled}
+                                                                    step={1}
+                                                                    min={0}
+                                                                    max={240}
+                                                                />
+                                                                <p className="text-[10px] text-muted mt-1">
+                                                                    Keep using the last plug state this long if the plug
+                                                                    sensor drops out. After that, charging is treated as
+                                                                    unplugged until a reading returns
                                                                 </p>
                                                             </div>
                                                         )}

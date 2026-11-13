@@ -18,7 +18,7 @@ import pytest
 import pytz
 from sqlalchemy import create_engine
 
-from backend.core import ev_state
+from backend.core import ev_plug, ev_state
 from backend.learning.models import Base
 from executor.config import EVChargerDeviceConfig, ExecutorConfig, LoadBalancingConfig
 from executor.engine import EV_MANUAL_CHARGE_STATE_KEY, ExecutorEngine, ManualCharge
@@ -112,6 +112,13 @@ def start(engine, charger_id="ev1", target=80, current_a=None, soc=49.0, plug="p
     return engine.set_ev_manual_charge(
         charger_id, target, current_a, current_soc_percent=soc, plug_state=plug
     )
+
+
+@pytest.fixture(autouse=True)
+def _reset_plug_memory():
+    ev_plug.reset_plug_memory()
+    yield
+    ev_plug.reset_plug_memory()
 
 
 @pytest.fixture(autouse=True)

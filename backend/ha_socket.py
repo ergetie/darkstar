@@ -7,7 +7,11 @@ from typing import Any
 
 import websockets
 
-from backend.core.ev_plug import resolve_plug_state
+from backend.core.ev_plug import (
+    last_outage_minutes,
+    plug_unreachable_grace_minutes,
+    resolve_plug_state,
+)
 from backend.core.exception_text import describe_exception
 from backend.core.secrets import load_home_assistant_config, load_yaml
 from backend.core.water_heating import active_water_heaters
@@ -580,11 +584,17 @@ class HAWebSocketClient:
                         f"keeping last known plug state plugged_in={is_plugged}, no re-plan"
                     )
                 elif was_unreachable and is_plugged and is_plugged == previous_plugged:
-                    logger.info(
-                        f"EV{ev_idx} ({charger_id}) reachable again and connected - "
-                        "triggering immediate re-plan"
-                    )
-                    self._trigger_ev_replan(charger_id=charger_id, plugged_in=True)
+                    if last_outage_minutes(charger_id) < plug_unreachable_grace_minutes(ev_config):
+                        logger.info(
+                            f"EV{ev_idx} ({charger_id}) reachable again within grace window - "
+                            "no re-plan"
+                        )
+                    else:
+                        logger.info(
+                            f"EV{ev_idx} ({charger_id}) reachable again and connected - "
+                            "triggering immediate re-plan"
+                        )
+                        self._trigger_ev_replan(charger_id=charger_id, plugged_in=True)
                 elif is_plugged != previous_plugged:
                     if is_plugged:
                         logger.info(

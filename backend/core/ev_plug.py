@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -47,6 +48,16 @@ _last_known_plugged: dict[str, bool] = {}
 _plug_session_start: dict[str, datetime] = {}
 # When the current not-plugged streak began, while a session is still pending.
 _first_unplugged_at: dict[str, datetime] = {}
+
+# Default window during which the executor trusts the last known plug state
+# while the plug sensor is unreachable (ev-plug-unreachable-grace).
+DEFAULT_PLUG_UNREACHABLE_GRACE_MINUTES = 10.0
+# Start of the current plug-sensor outage per charger; set on the first
+# unreachable reading, cleared by a valid one.
+_unreachable_since: dict[str, datetime] = {}
+# Length of the most recently ended outage per charger. Non-consuming, so every
+# caller sees it regardless of which one observed the recovery first.
+_last_outage_minutes: dict[str, float] = {}
 
 
 def _parse_ts(raw: object) -> datetime | None:
@@ -215,6 +226,76 @@ def reset_plug_memory() -> None:
         _last_known_plugged.clear()
         _plug_session_start.clear()
         _first_unplugged_at.clear()
+        _unreachable_since.clear()
+        _last_outage_minutes.clear()
+
+
+def plug_unreachable_grace_minutes(charger_cfg: dict[str, Any] | None) -> float:
+    """The charger's plug grace window (``plug_unreachable_grace_minutes``, default 10).
+
+    Non-numeric or negative values fall back to the default; 0 disables the grace.
+    """
+    raw = (charger_cfg or {}).get("plug_unreachable_grace_minutes")
+    try:
+        value = float(raw) if raw is not None else DEFAULT_PLUG_UNREACHABLE_GRACE_MINUTES
+    except (TypeError, ValueError):
+        return DEFAULT_PLUG_UNREACHABLE_GRACE_MINUTES
+    return value if value >= 0 else DEFAULT_PLUG_UNREACHABLE_GRACE_MINUTES
+
+
+def _track_reachability(charger_id: str, unreachable: bool, now: datetime) -> float:
+    """Update outage tracking for a reading; return the current outage length in minutes."""
+    with _last_known_lock:
+        if unreachable:
+            since = _unreachable_since.setdefault(charger_id, now)
+            return max(0.0, (now - since).total_seconds() / 60.0)
+        since = _unreachable_since.pop(charger_id, None)
+        if since is not None:
+            _last_outage_minutes[charger_id] = max(0.0, (now - since).total_seconds() / 60.0)
+        return 0.0
+
+
+def last_outage_minutes(charger_id: str) -> float:
+    """Length of the charger's most recently ended plug-sensor outage (0 if none)."""
+    with _last_known_lock:
+        return _last_outage_minutes.get(charger_id, 0.0)
+
+
+@dataclass(frozen=True)
+class PlugResolution:
+    """Plug state resolved with a bounded grace window for an unreachable sensor."""
+
+    plugged_in: bool
+    plug_known: bool
+    unreachable: bool
+    outage_minutes: float
+
+
+def resolve_plug_with_grace(
+    charger_id: str,
+    raw_state: object,
+    configured_states: object,
+    grace_minutes: float,
+    now: datetime | None = None,
+) -> PlugResolution:
+    """Resolve a raw plug reading, holding the last known state for ``grace_minutes``.
+
+    While unreachable for less than the window the last known state is used;
+    past it, or if no state was ever seen, the plug is unknown
+    (``plugged_in=False``, ``plug_known=False``).
+    """
+    moment = now or datetime.now(UTC)
+    if is_unreachable_state(raw_state):
+        outage = _track_reachability(charger_id, True, moment)
+        last = last_known_plug_state(charger_id)
+        if last is not None and outage < grace_minutes:
+            return PlugResolution(last, True, True, outage)
+        return PlugResolution(False, False, True, outage)
+    _track_reachability(charger_id, False, moment)
+    plugged_in = is_ev_plugged_in(raw_state, configured_states)
+    if raw_state is not None:
+        remember_plug_state(charger_id, plugged_in, moment)
+    return PlugResolution(plugged_in, True, False, 0.0)
 
 
 def last_known_plug_state(charger_id: str) -> bool | None:
@@ -233,9 +314,12 @@ def resolve_plug_state(
     seen) with ``unreachable=True``. Any other state is interpreted with the
     charger's plug vocabulary and remembered.
     """
+    now = datetime.now(UTC)
     if is_unreachable_state(raw_state):
+        _track_reachability(charger_id, True, now)
         last = last_known_plug_state(charger_id)
         return (bool(last), True)
+    _track_reachability(charger_id, False, now)
     plugged_in = is_ev_plugged_in(raw_state, configured_states)
     if raw_state is not None:
         remember_plug_state(charger_id, plugged_in)

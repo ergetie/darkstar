@@ -1384,6 +1384,7 @@ class ExecutorEngine:
                 soc_sensor=charger_cfg.soc_sensor,
                 plug_sensor=charger_cfg.plug_sensor,
                 plugged_in_states=charger_cfg.plugged_in_states,
+                plug_grace_minutes=charger_cfg.plug_unreachable_grace_minutes,
             )
             if live.soc_percent is not None and live.soc_percent >= manual.target_soc:
                 self.clear_ev_manual_charge(
@@ -4733,6 +4734,7 @@ class ExecutorEngine:
                 soc_sensor=None,
                 plug_sensor=charger.plug_sensor,
                 plugged_in_states=charger.plugged_in_states,
+                plug_grace_minutes=charger.plug_unreachable_grace_minutes,
             )
             states[charger.id] = live.plug
         return states

@@ -307,3 +307,62 @@ def test_flicker_across_deadline_keeps_grace_continuity():
     deadline, in_grace = resolve_ev_effective_deadline(goal, state, now, tz)
     assert in_grace is True
     assert deadline == missed + timedelta(hours=4)
+
+
+# --- ev-plug-unreachable-grace ---
+
+STATES = "WaitCar,Charging"
+
+
+def _grace(raw: str, minutes_after: float, grace: float = 10.0):
+    return ev_plug.resolve_plug_with_grace(
+        "goe", raw, STATES, grace, now=T0 + timedelta(minutes=minutes_after)
+    )
+
+
+def test_grace_holds_last_known_plugged_within_window():
+    _grace("Charging", 0)
+    first = _grace("unavailable", 1)
+    later = _grace("unavailable", 4.5)
+    assert (later.plugged_in, later.plug_known, later.unreachable) == (True, True, True)
+    assert first.outage_minutes == 0.0
+    assert later.outage_minutes == pytest.approx(3.5)
+
+
+def test_grace_expires_past_window():
+    _grace("Charging", 0)
+    _grace("unavailable", 1)
+    res = _grace("unavailable", 12)
+    assert (res.plugged_in, res.plug_known) == (False, False)
+
+
+def test_grace_never_seen_is_unknown():
+    res = _grace("unavailable", 0)
+    assert (res.plugged_in, res.plug_known) == (False, False)
+
+
+def test_grace_last_known_unplugged_stays_unplugged():
+    _grace("Idle", 0)
+    res = _grace("unavailable", 1)
+    assert (res.plugged_in, res.plug_known) == (False, True)
+
+
+def test_grace_zero_disables():
+    _grace("Charging", 0)
+    res = _grace("unavailable", 1, grace=0)
+    assert res.plug_known is False
+
+
+def test_outage_minutes_recorded_on_recovery():
+    _grace("Charging", 0)
+    _grace("unavailable", 1)
+    _grace("Charging", 5)
+    assert ev_plug.last_outage_minutes("goe") == pytest.approx(4.0)
+
+
+def test_grace_minutes_parser():
+    assert ev_plug.plug_unreachable_grace_minutes(None) == 10.0
+    assert ev_plug.plug_unreachable_grace_minutes({"plug_unreachable_grace_minutes": 3}) == 3.0
+    assert ev_plug.plug_unreachable_grace_minutes({"plug_unreachable_grace_minutes": -1}) == 10.0
+    assert ev_plug.plug_unreachable_grace_minutes({"plug_unreachable_grace_minutes": "x"}) == 10.0
+    assert ev_plug.plug_unreachable_grace_minutes({"plug_unreachable_grace_minutes": 0}) == 0.0
