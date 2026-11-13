@@ -305,9 +305,7 @@ class TestPlugInReminderMigration:
         )
         default_path = Path(__file__).resolve().parents[2] / "config.default.yaml"
 
-        await cm.migrate_config(
-            str(config_file), str(default_path), strict_validation=False
-        )
+        await cm.migrate_config(str(config_file), str(default_path), strict_validation=False)
 
         migrated = yaml.safe_load(config_file.read_text())
         notif = migrated["executor"]["notifications"]

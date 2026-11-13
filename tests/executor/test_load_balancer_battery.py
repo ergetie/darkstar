@@ -178,9 +178,7 @@ class TestBatteryRampAndRestore:
         assert status.battery_output.cap_w == cap
         caps = [cap]
         for s in range(35, 200, 5):
-            status = _tick(
-                lb, T0 + timedelta(seconds=s), quiet, [_battery(applied_cap_w=caps[-1])]
-            )
+            status = _tick(lb, T0 + timedelta(seconds=s), quiet, [_battery(applied_cap_w=caps[-1])])
             caps.append(status.battery_output.cap_w)
         assert caps[-1] == 10000
         assert all(b >= a for a, b in zip(caps, caps[1:], strict=False))
@@ -248,9 +246,7 @@ class TestBatteryStale:
         assert status.battery_output.cap_w == 480.0
         assert status.battery_output.state == "throttling"
         assert "stale" in status.battery_output.reason
-        status = lb.tick(
-            T0, {1: 5.0, 2: 5.0, 3: 5.0}, stale_at, [_battery(applied_cap_w=6000.0)]
-        )
+        status = lb.tick(T0, {1: 5.0, 2: 5.0, 3: 5.0}, stale_at, [_battery(applied_cap_w=6000.0)])
         assert status.battery_output.cap_w == 480.0
 
 

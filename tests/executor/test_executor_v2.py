@@ -30,9 +30,7 @@ class TestExecutorV2ActionOrdering:
 
         ha_client = MagicMock(spec=HAClient)
         ha_client.get_state_value = AsyncMock(return_value="unknown")
-        ha_client.get_state = AsyncMock(
-            return_value={"state": "unknown", "attributes": {}}
-        )
+        ha_client.get_state = AsyncMock(return_value={"state": "unknown", "attributes": {}})
         ha_client.set_select = AsyncMock(return_value=True)
         ha_client.set_switch = AsyncMock(return_value=True)
         ha_client.set_number = AsyncMock(return_value=True)
@@ -142,9 +140,7 @@ class TestExecutorV2DynamicTemplates:
 
         ha_client = MagicMock(spec=HAClient)
         ha_client.get_state_value = AsyncMock(return_value="unknown")
-        ha_client.get_state = AsyncMock(
-            return_value={"state": "unknown", "attributes": {}}
-        )
+        ha_client.get_state = AsyncMock(return_value={"state": "unknown", "attributes": {}})
         ha_client.set_select = AsyncMock(return_value=True)
         ha_client.set_switch = AsyncMock(return_value=True)
         ha_client.set_number = AsyncMock(return_value=True)
@@ -192,9 +188,7 @@ class TestExecutorV2DynamicTemplates:
 
         ha_client = MagicMock(spec=HAClient)
         ha_client.get_state_value = AsyncMock(return_value="unknown")
-        ha_client.get_state = AsyncMock(
-            return_value={"state": "unknown", "attributes": {}}
-        )
+        ha_client.get_state = AsyncMock(return_value={"state": "unknown", "attributes": {}})
         ha_client.set_select = AsyncMock(return_value=True)
         ha_client.set_switch = AsyncMock(return_value=True)
         ha_client.set_number = AsyncMock(return_value=True)
@@ -246,9 +240,7 @@ class TestExecutorV2ShadowMode:
 
         ha_client = MagicMock(spec=HAClient)
         ha_client.get_state_value = AsyncMock(return_value="unknown")
-        ha_client.get_state = AsyncMock(
-            return_value={"state": "unknown", "attributes": {}}
-        )
+        ha_client.get_state = AsyncMock(return_value={"state": "unknown", "attributes": {}})
         ha_client.set_select = AsyncMock(return_value=True)
         ha_client.set_switch = AsyncMock(return_value=True)
         ha_client.set_number = AsyncMock(return_value=True)
@@ -304,9 +296,7 @@ class TestExecutorV2SettleDelay:
 
         ha_client = MagicMock(spec=HAClient)
         ha_client.get_state_value = AsyncMock(return_value="unknown")
-        ha_client.get_state = AsyncMock(
-            return_value={"state": "unknown", "attributes": {}}
-        )
+        ha_client.get_state = AsyncMock(return_value={"state": "unknown", "attributes": {}})
         ha_client.set_select = AsyncMock(return_value=True)
         ha_client.set_switch = AsyncMock(return_value=True)
 
@@ -349,9 +339,7 @@ class TestExecutorV2EntityResolution:
 
         ha_client = MagicMock(spec=HAClient)
         ha_client.get_state_value = AsyncMock(return_value="unknown")
-        ha_client.get_state = AsyncMock(
-            return_value={"state": "unknown", "attributes": {}}
-        )
+        ha_client.get_state = AsyncMock(return_value={"state": "unknown", "attributes": {}})
         ha_client.set_select = AsyncMock(return_value=True)
 
         config = ExecutorConfig(

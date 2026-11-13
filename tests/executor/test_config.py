@@ -108,15 +108,21 @@ class TestControllerMinSoc:
         return load_executor_config(str(config_file)).controller
 
     def test_min_soc_read_from_battery_section(self, tmp_path):
-        ctrl = self._load(tmp_path, {"battery": {"min_soc_percent": 12}, "executor": {"enabled": True}})
+        ctrl = self._load(
+            tmp_path, {"battery": {"min_soc_percent": 12}, "executor": {"enabled": True}}
+        )
         assert ctrl.min_soc_percent == 12.0
 
     def test_missing_min_soc_defaults_to_planner_fallback(self, tmp_path):
-        ctrl = self._load(tmp_path, {"battery": {"capacity_kwh": 19.2}, "executor": {"enabled": True}})
+        ctrl = self._load(
+            tmp_path, {"battery": {"capacity_kwh": 19.2}, "executor": {"enabled": True}}
+        )
         assert ctrl.min_soc_percent == 10.0
 
     def test_zero_min_soc_is_kept(self, tmp_path):
-        ctrl = self._load(tmp_path, {"battery": {"min_soc_percent": 0}, "executor": {"enabled": True}})
+        ctrl = self._load(
+            tmp_path, {"battery": {"min_soc_percent": 0}, "executor": {"enabled": True}}
+        )
         assert ctrl.min_soc_percent == 0.0
 
     def test_min_soc_read_without_executor_section(self, tmp_path):
@@ -591,9 +597,7 @@ class TestExcessPvPriorityConfig:
     def test_surplus_deadband_default(self, tmp_path):
         config_file = tmp_path / "config.yaml"
         config_data = {
-            "executor": {
-                "excess_pv": {"priority": [{"type": "ev", "charger_id": "goe"}]}
-            }
+            "executor": {"excess_pv": {"priority": [{"type": "ev", "charger_id": "goe"}]}}
         }
         with config_file.open("w") as f:
             yaml.dump(config_data, f)
@@ -805,7 +809,6 @@ class TestLoadBalancingConfig:
             system={"inverter_profile": "deye", "has_battery": False},
         )
         assert order == [("charger", "main_ev"), ("shed", "main_tank")]
-
 
     def test_unknown_device_type_skipped(self, tmp_path):
         config_file = tmp_path / "config.yaml"

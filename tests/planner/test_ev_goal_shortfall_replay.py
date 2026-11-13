@@ -132,9 +132,7 @@ def test_missed_goal_recovers_in_cheapest_grace_slots():
     slots = _slots(_at(10, 30), prices)
     result = _solve(slots, 53.0, deadline, remaining_h=None)
 
-    energy = {
-        s.start_time: s.ev_charger_results.get("goe", 0.0) * 0.25 for s in result.slots
-    }
+    energy = {s.start_time: s.ev_charger_results.get("goe", 0.0) * 0.25 for s in result.slots}
     assert sum(energy.values()) == pytest.approx(1.2, abs=1e-3)
     assert energy[_at(12, 0)] + energy[_at(12, 15)] == pytest.approx(1.2, abs=1e-3)
     assert all(e == 0.0 for t, e in energy.items() if t >= _at(14, 30))

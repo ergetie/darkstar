@@ -235,9 +235,7 @@ async def test_store_plan_slot_end_in_local_iso(store, memory_db_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("minutes", [0, None])
-async def test_store_plan_invalid_end_falls_back_to_15_min(
-    store, memory_db_path, caplog, minutes
-):
+async def test_store_plan_invalid_end_falls_back_to_15_min(store, memory_db_path, caplog, minutes):
     start = TZ.localize(datetime(2026, 9, 24, 10, 0))
     with caplog.at_level("WARNING", logger="darkstar.learning.store"):
         await store.store_plan(pd.DataFrame([_slot(start, minutes, water_heating_kw=2.0)]))

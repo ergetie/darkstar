@@ -86,9 +86,12 @@ def test_water_heating_accepts_deferral_endpoints_and_long_gap(defer):
         }
     )
     water_errors = [
-        issue for issue in issues
+        issue
+        for issue in issues
         if issue["severity"] == "error"
-        and ("defer_up_to_hours" in issue["message"] or "idle_power_threshold_kw" in issue["message"])
+        and (
+            "defer_up_to_hours" in issue["message"] or "idle_power_threshold_kw" in issue["message"]
+        )
     ]
     assert water_errors == []
 
@@ -99,7 +102,9 @@ def test_water_heating_rejects_invalid_deferral_with_actionable_field(defer):
         {"system": {"has_battery": False}, "water_heating": {"defer_up_to_hours": defer}}
     )
     errors = [issue["message"] for issue in issues if issue["severity"] == "error"]
-    assert any("water_heating.defer_up_to_hours" in message and "0 and 23" in message for message in errors)
+    assert any(
+        "water_heating.defer_up_to_hours" in message and "0 and 23" in message for message in errors
+    )
 
 
 @pytest.mark.parametrize("cutoff", [-0.1, float("inf"), float("nan")])
@@ -111,7 +116,10 @@ def test_water_heating_rejects_invalid_idle_cutoff(cutoff):
         }
     )
     errors = [issue["message"] for issue in issues if issue["severity"] == "error"]
-    assert any("idle_power_threshold_kw" in message and "finite and non-negative" in message for message in errors)
+    assert any(
+        "idle_power_threshold_kw" in message and "finite and non-negative" in message
+        for message in errors
+    )
 
 
 def test_validate_config_battery_entities_not_required_if_no_battery():
@@ -243,7 +251,8 @@ class TestWaterHeaterValidation:
         )
         errors = [i for i in issues if i["severity"] == "error"]
         assert any(
-            "control_type to 'switch'" in e["message"] and e.get("field") == "water_heaters.0.control_type"
+            "control_type to 'switch'" in e["message"]
+            and e.get("field") == "water_heaters.0.control_type"
             for e in errors
         )
 
@@ -259,7 +268,9 @@ class TestWaterHeaterValidation:
         issues = _validate_config_for_save(
             self._control_config({"target_entity": "number.vvb", "control_type": "switch"})
         )
-        assert any(issue["severity"] == "error" and "main_tank" in issue["message"] for issue in issues)
+        assert any(
+            issue["severity"] == "error" and "main_tank" in issue["message"] for issue in issues
+        )
 
     def test_matching_control_entity_pairs_pass(self):
         for heater in (
@@ -267,17 +278,24 @@ class TestWaterHeaterValidation:
             {"target_entity": "input_boolean.vvb", "control_type": "switch"},
         ):
             issues = _validate_config_for_save(self._control_config(heater))
-            assert not any(issue["severity"] == "error" and "target_entity" in issue["message"] for issue in issues)
+            assert not any(
+                issue["severity"] == "error" and "target_entity" in issue["message"]
+                for issue in issues
+            )
 
     def test_missing_sensor_does_not_create_control_error(self):
         issues = _validate_config_for_save(self._control_config({"target_entity": "number.vvb"}))
-        assert not any(issue["severity"] == "error" and "sensor" in issue["message"] for issue in issues)
+        assert not any(
+            issue["severity"] == "error" and "sensor" in issue["message"] for issue in issues
+        )
 
     def test_load_model_binary_does_not_imply_switch_control(self):
         issues = _validate_config_for_save(
             self._control_config({"type": "binary", "target_entity": "input_number.vvb"})
         )
-        assert not any(issue["severity"] == "error" and "target_entity" in issue["message"] for issue in issues)
+        assert not any(
+            issue["severity"] == "error" and "target_entity" in issue["message"] for issue in issues
+        )
 
 
 class TestWaterHeaterTypeValidation:
@@ -599,7 +617,9 @@ class TestLoadBalancingValidation:
     @pytest.mark.parametrize("good", [None, [3], [1, 2], [1, 2, 3]])
     def test_water_heater_valid_phases_pass(self, good):
         heater = self._heater() if good is None else self._heater(phases=good)
-        config = self._lb_config([{"device_type": "water_heater", "device_id": "main_tank"}], [heater])
+        config = self._lb_config(
+            [{"device_type": "water_heater", "device_id": "main_tank"}], [heater]
+        )
         issues = _validate_config_for_save(config)
         assert not any("phases" in i["message"] for i in issues if i["severity"] == "error")
 
@@ -1171,9 +1191,7 @@ class TestEVChargerPhaseSwitchingValidation:
         assert any("must differ" in message for message in errors)
 
     def test_custom_plug_states_cannot_be_empty(self):
-        issues = _validate_config_for_save(
-            self._base_config({"plugged_in_states": " ,  "})
-        )
+        issues = _validate_config_for_save(self._base_config({"plugged_in_states": " ,  "}))
         assert any(
             "plugged_in_states must contain" in issue["message"]
             for issue in issues
@@ -1198,7 +1216,10 @@ class TestEVChargerPowerModelValidation:
             i
             for i in _validate_config_for_save(config)
             if i["severity"] == "error"
-            and any(k in i["message"] for k in ("max_current_a", "phases", "rated_power_kw", "max_power_kw"))
+            and any(
+                k in i["message"]
+                for k in ("max_current_a", "phases", "rated_power_kw", "max_power_kw")
+            )
         ]
 
     def test_current_charger_without_kw_field_is_valid(self):
@@ -1328,7 +1349,12 @@ def test_transfer_fee_valid_rules_no_issues():
     config = _pricing_config(
         transfer_fee_mode="time_of_use",
         transfer_fee_rules=[
-            {"months": [11, 12, 1], "weekdays": [0, 4], "hours": {"start": 22, "end": 6}, "fee_sek": 0.5},
+            {
+                "months": [11, 12, 1],
+                "weekdays": [0, 4],
+                "hours": {"start": 22, "end": 6},
+                "fee_sek": 0.5,
+            },
             {"fee_sek": 0},
         ],
     )
@@ -1368,7 +1394,9 @@ def test_transfer_fee_invalid_mode_error():
 
 
 def test_transfer_fee_tou_without_rules_warns():
-    issues = _transfer_issues(_pricing_config(transfer_fee_mode="time_of_use", transfer_fee_rules=[]))
+    issues = _transfer_issues(
+        _pricing_config(transfer_fee_mode="time_of_use", transfer_fee_rules=[])
+    )
     assert [i["severity"] for i in issues] == ["warning"]
     assert "no rules" in issues[0]["message"]
 

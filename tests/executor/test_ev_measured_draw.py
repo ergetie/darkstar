@@ -243,16 +243,15 @@ class TestSurplusUsesBaseline:
 
 def make_lb() -> LoadBalancer:
     cfg = LoadBalancingConfig(
-            enabled=True,
-            main_fuse_a=20,
-            resume_delay_s=120,
-            target_margin_percent=90,
-            # Legacy momentary semantics (immediate pause, no averaging window)
-
-            ramp_up_window_s=0,
-            increase_step_a=1,
-            sensor_stale_after_s=30,
-        )
+        enabled=True,
+        main_fuse_a=20,
+        resume_delay_s=120,
+        target_margin_percent=90,
+        # Legacy momentary semantics (immediate pause, no averaging window)
+        ramp_up_window_s=0,
+        increase_step_a=1,
+        sensor_stale_after_s=30,
+    )
     return LoadBalancer(cfg, relief_trigger=InstantRelief(cfg))
 
 

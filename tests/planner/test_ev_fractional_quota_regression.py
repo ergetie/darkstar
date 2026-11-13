@@ -86,7 +86,6 @@ def test_2_6_kwh_goal_over_32_hour_horizon_is_not_silently_zeroed():
 
     total_scheduled_kwh = sum(s.ev_charger_results.get("ev1", 0.0) * 0.25 for s in result.slots)
     assert total_scheduled_kwh >= required_kwh - 0.01, (
-        f"active goal silently zeroed out: scheduled={total_scheduled_kwh}, "
-        f"required={required_kwh}"
+        f"active goal silently zeroed out: scheduled={total_scheduled_kwh}, required={required_kwh}"
     )
     assert any(s.ev_charger_results.get("ev1", 0.0) > 0.01 for s in result.slots)

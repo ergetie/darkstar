@@ -82,9 +82,15 @@ async def test_window_is_96_slots_across_dst_change(store):
     # 2026-10-25 is the Stockholm fall-back day (25 wall-clock hours).
     now = TZ.localize(datetime(2026, 10, 25, 12, 7))
     current_slot = now.astimezone(pytz.utc).replace(minute=0, second=0, microsecond=0)
-    in_window = [TZ.normalize((current_slot - timedelta(minutes=15 * i)).astimezone(TZ)) for i in range(1, 97)]
+    in_window = [
+        TZ.normalize((current_slot - timedelta(minutes=15 * i)).astimezone(TZ))
+        for i in range(1, 97)
+    ]
     # Same wall-clock time yesterday is 25 real hours back: outside the window.
-    outside = [TZ.normalize((current_slot - timedelta(minutes=15 * i)).astimezone(TZ)) for i in range(97, 101)]
+    outside = [
+        TZ.normalize((current_slot - timedelta(minutes=15 * i)).astimezone(TZ))
+        for i in range(97, 101)
+    ]
     await _add_slots(store, in_window, 0.25)
     await _add_slots(store, outside, 10.0)
     assert await _base_load_avg_daily_kwh(store, now) == pytest.approx(24.0)

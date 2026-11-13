@@ -1,4 +1,5 @@
 """Tests for soft max-SoC constraint in Kepler solver."""
+
 from datetime import datetime, timedelta
 
 import pulp
@@ -7,7 +8,9 @@ from planner.solver.kepler import KeplerSolver
 from planner.solver.types import KeplerConfig, KeplerInput, KeplerInputSlot
 
 
-def _make_slots(n: int, import_price: float = 0.5, export_price: float = 0.4) -> list[KeplerInputSlot]:
+def _make_slots(
+    n: int, import_price: float = 0.5, export_price: float = 0.4
+) -> list[KeplerInputSlot]:
     start = datetime(2025, 6, 1, 10, 0)
     slots = []
     for i in range(n):
@@ -109,6 +112,4 @@ def test_min_soc_violation_behavior_unchanged():
     solver = KeplerSolver()
     result = solver.solve(input_data, config)
 
-    assert result.is_optimal, (
-        f"Min-SoC violation should be soft (Optimal), got {result.status_msg}"
-    )
+    assert result.is_optimal, f"Min-SoC violation should be soft (Optimal), got {result.status_msg}"

@@ -82,7 +82,9 @@ async def _save(body: EVChargerScheduleBody) -> dict:
 
 @pytest.mark.asyncio
 async def test_api_save_triggers_one_goal_replan_and_reports_pending(api_env):
-    res = await _save(EVChargerScheduleBody(target_soc_percent=80, ready_by="07:00", repeat="daily"))
+    res = await _save(
+        EVChargerScheduleBody(target_soc_percent=80, ready_by="07:00", repeat="daily")
+    )
 
     api_env.assert_called_once_with(ReplanReason.GOAL_CHANGE, charger_ids=["ev1"])
     assert res["target_soc_percent"] == 80
@@ -104,7 +106,9 @@ async def test_api_save_response_pending_when_plan_is_older(api_env, state_file)
             }
         )
     )
-    res = await _save(EVChargerScheduleBody(target_soc_percent=90, ready_by="07:00", repeat="daily"))
+    res = await _save(
+        EVChargerScheduleBody(target_soc_percent=90, ready_by="07:00", repeat="daily")
+    )
     assert res["plan_pending"] is True
 
 
@@ -130,7 +134,9 @@ async def test_api_save_marks_pending_through_real_helper(monkeypatch, state_fil
     monkeypatch.setattr(planner_service, "_goal_waiting", set())
 
     start = time.monotonic()
-    res = await _save(EVChargerScheduleBody(target_soc_percent=80, ready_by="07:00", repeat="daily"))
+    res = await _save(
+        EVChargerScheduleBody(target_soc_percent=80, ready_by="07:00", repeat="daily")
+    )
     assert time.monotonic() - start < 1.0
     assert res["plan_pending"] is True
 
@@ -141,7 +147,9 @@ async def test_api_save_marks_pending_through_real_helper(monkeypatch, state_fil
 @pytest.mark.asyncio
 async def test_new_every_n_days_goal_anchors_today(api_env, state_file):
     await _save(
-        EVChargerScheduleBody(target_soc_percent=80, ready_by="07:00", repeat="every_n_days", n_days=3)
+        EVChargerScheduleBody(
+            target_soc_percent=80, ready_by="07:00", repeat="every_n_days", n_days=3
+        )
     )
     written = json.loads(state_file.read_text())["ev1"]
     assert written["anchor_date"] == datetime.now(TZ).date().isoformat()
@@ -163,7 +171,9 @@ async def test_target_change_keeps_anchor(api_env, state_file):
         )
     )
     await _save(
-        EVChargerScheduleBody(target_soc_percent=60, ready_by="07:00", repeat="every_n_days", n_days=3)
+        EVChargerScheduleBody(
+            target_soc_percent=60, ready_by="07:00", repeat="every_n_days", n_days=3
+        )
     )
     assert json.loads(state_file.read_text())["ev1"]["anchor_date"] == "2026-09-20"
 
@@ -184,7 +194,9 @@ async def test_n_days_change_reanchors(api_env, state_file):
         )
     )
     await _save(
-        EVChargerScheduleBody(target_soc_percent=80, ready_by="07:00", repeat="every_n_days", n_days=2)
+        EVChargerScheduleBody(
+            target_soc_percent=80, ready_by="07:00", repeat="every_n_days", n_days=2
+        )
     )
     written = json.loads(state_file.read_text())["ev1"]
     assert written["anchor_date"] == datetime.now(TZ).date().isoformat()
@@ -226,7 +238,9 @@ async def test_legacy_goal_backfill_keeps_current_cycle(api_env, state_file):
         )
     )
     await _save(
-        EVChargerScheduleBody(target_soc_percent=70, ready_by="07:00", repeat="every_n_days", n_days=3)
+        EVChargerScheduleBody(
+            target_soc_percent=70, ready_by="07:00", repeat="every_n_days", n_days=3
+        )
     )
     assert json.loads(state_file.read_text())["ev1"]["anchor_date"] == "2026-09-20"
 
@@ -281,10 +295,16 @@ def test_live_ready_by_on_daily_goal_becomes_one_off_and_replans(monkeypatch, st
     state_file.write_text(
         json.dumps({"ev1": {"target_soc_percent": 80, "ready_by": "07:00", "repeat": "daily"}})
     )
-    request = _live_change(monkeypatch, _client(), "input_datetime.ev1_ready", "2026-09-27 06:30:00")
+    request = _live_change(
+        monkeypatch, _client(), "input_datetime.ev1_ready", "2026-09-27 06:30:00"
+    )
 
     goal = json.loads(state_file.read_text())["ev1"]
-    assert (goal["repeat"], goal["ready_by_date"], goal["ready_by"]) == ("none", "2026-09-27", "06:30")
+    assert (goal["repeat"], goal["ready_by_date"], goal["ready_by"]) == (
+        "none",
+        "2026-09-27",
+        "06:30",
+    )
     request.assert_called_once_with(ReplanReason.GOAL_CHANGE, charger_ids=["ev1"])
 
 
@@ -371,7 +391,9 @@ def _reconnect(monkeypatch, results):
 
 @pytest.mark.asyncio
 async def test_reconnect_and_live_produce_same_one_off(monkeypatch, state_file):
-    future = (datetime.now(TZ) + timedelta(days=2)).replace(hour=6, minute=30, second=0, microsecond=0)
+    future = (datetime.now(TZ) + timedelta(days=2)).replace(
+        hour=6, minute=30, second=0, microsecond=0
+    )
     future_str = future.strftime("%Y-%m-%d %H:%M:%S")
     daily = {"ev1": {"target_soc_percent": 80, "ready_by": "07:00", "repeat": "daily"}}
 
@@ -397,7 +419,9 @@ async def test_reconnect_and_live_produce_same_one_off(monkeypatch, state_file):
 
 @pytest.mark.asyncio
 async def test_noop_reconnect_does_not_replan(monkeypatch, state_file):
-    future = (datetime.now(TZ) + timedelta(days=2)).replace(hour=6, minute=30, second=0, microsecond=0)
+    future = (datetime.now(TZ) + timedelta(days=2)).replace(
+        hour=6, minute=30, second=0, microsecond=0
+    )
     state_file.write_text(
         json.dumps(
             {
@@ -413,7 +437,10 @@ async def test_noop_reconnect_does_not_replan(monkeypatch, state_file):
     request = _reconnect(
         monkeypatch,
         [
-            {"entity_id": "input_datetime.ev1_ready", "state": future.strftime("%Y-%m-%d %H:%M:%S")},
+            {
+                "entity_id": "input_datetime.ev1_ready",
+                "state": future.strftime("%Y-%m-%d %H:%M:%S"),
+            },
             {"entity_id": "input_number.ev1_soc", "state": "80"},
         ],
     )
@@ -510,7 +537,13 @@ def test_goal_saved_early_in_slot_not_pending_after_covering_run(state_file, idl
     edited = slot_start + timedelta(seconds=18)
     state_file.write_text(
         json.dumps(
-            {"ev1": {"target_soc_percent": 80, "ready_by": "07:00", "last_updated": edited.isoformat()}}
+            {
+                "ev1": {
+                    "target_soc_percent": 80,
+                    "ready_by": "07:00",
+                    "last_updated": edited.isoformat(),
+                }
+            }
         )
     )
     _plan_run(goals_read_at=slot_start + timedelta(seconds=19), slot_start=slot_start)
@@ -519,7 +552,11 @@ def test_goal_saved_early_in_slot_not_pending_after_covering_run(state_file, idl
     assert persisted["last_planned_at"] == (slot_start + timedelta(seconds=19)).isoformat()
     assert ev_router._plan_pending("ev1", persisted) is False
     # The at-risk staleness check uses the same stamp: diagnostics are current.
-    diagnostics = {"shortfall_kwh": 5.0, "required_kwh": 10.0, "deadline": "2026-09-26T07:00:00+02:00"}
+    diagnostics = {
+        "shortfall_kwh": 5.0,
+        "required_kwh": 10.0,
+        "deadline": "2026-09-26T07:00:00+02:00",
+    }
     persisted |= {"required_kwh": 10.0, "deadline": "2026-09-26T07:00:00+02:00"}
     assert ev_router._active_goal_shortfall(diagnostics, persisted) == diagnostics
 

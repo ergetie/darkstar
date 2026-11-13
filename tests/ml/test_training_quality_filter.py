@@ -300,7 +300,9 @@ def test_training_stores_schema_version_and_drop_counts(training_env):
     assert "load_level_7d" not in pv_sidecar["feature_names"]
 
     with sqlite3.connect(_db_path()) as conn:
-        metrics = json.loads(conn.execute("SELECT result_metrics_json FROM learning_runs").fetchone()[0])
+        metrics = json.loads(
+            conn.execute("SELECT result_metrics_json FROM learning_runs").fetchone()[0]
+        )
     assert metrics["dropped_clamp_days"] == 1
     assert metrics["dropped_clamp_rows"] == 96
     assert metrics["dropped_backfill_rows"] == 0

@@ -184,7 +184,9 @@ class TestCurrentChargerKeepOnMinimumCurrent:
         assert status.ev_outputs[0].target_a == 8
 
     @pytest.mark.asyncio
-    async def test_relay_commanded_at_minimum_current_without_balancer(self, temp_schedule, temp_db):
+    async def test_relay_commanded_at_minimum_current_without_balancer(
+        self, temp_schedule, temp_db
+    ):
         """No load balancer configured: _control_ev_charger's no-override path still
         commands the charger's configured minimum current for a keep-on-only slot."""
         charger = EVChargerDeviceConfig(
@@ -226,9 +228,7 @@ class TestCurrentChargerKeepOnMinimumCurrent:
         now = datetime.now(tz)
         await engine._control_ev_charger(slot, now)
 
-        engine.dispatcher.set_ev_charger_current.assert_called_once_with(
-            "number.goe_current", 8
-        )
+        engine.dispatcher.set_ev_charger_current.assert_called_once_with("number.goe_current", 8)
         assert engine._ev_charger_states["goe"].current_setpoint_a == 8
         switch_call = engine.dispatcher.set_ev_charger_switch.call_args
         assert switch_call.args[0] == "select.goe_frc"
@@ -249,7 +249,9 @@ class TestKeepOnBlocksBatteryDischarge:
             soc_projected=65,
         )
 
-        decision = make_decision(slot, state, None, ControllerConfig(), InverterConfig(), None, None)
+        decision = make_decision(
+            slot, state, None, ControllerConfig(), InverterConfig(), None, None
+        )
 
         assert decision.mode_intent == "idle"
 
@@ -264,7 +266,9 @@ class TestKeepOnBlocksBatteryDischarge:
             soc_projected=65,
         )
 
-        decision = make_decision(slot, state, None, ControllerConfig(), InverterConfig(), None, None)
+        decision = make_decision(
+            slot, state, None, ControllerConfig(), InverterConfig(), None, None
+        )
 
         assert decision.mode_intent == "self_consumption"
 
@@ -420,7 +424,9 @@ class TestEvReasonNoteBatteryless:
         note = ExecutorEngine._build_ev_reason_note(
             True, ev_charging_kw=0.0, actual_ev_power_kw=0.0, keep_on_charger_ids=["ev1"]
         )
-        assert note == "EV source isolation: 0.0kW scheduled, 0.00kW actual | EV keep-on active: ev1"
+        assert (
+            note == "EV source isolation: 0.0kW scheduled, 0.00kW actual | EV keep-on active: ev1"
+        )
 
     def test_isolating_without_keep_on_no_marker(self):
         note = ExecutorEngine._build_ev_reason_note(

@@ -131,9 +131,9 @@ class TestContextFetchFailureWarns:
                     )
 
         assert result.empty
-        assert any(
-            "Failed to fetch HA context feature" in r.message for r in caplog.records
-        ), "Expected warning about HA context fetch failure"
+        assert any("Failed to fetch HA context feature" in r.message for r in caplog.records), (
+            "Expected warning about HA context fetch failure"
+        )
 
     def test_alarm_fetch_failure_warns(self, caplog):
         import requests
@@ -154,9 +154,7 @@ class TestContextFetchFailureWarns:
                     )
 
         assert result.empty
-        assert any(
-            "Failed to fetch HA context feature" in r.message for r in caplog.records
-        )
+        assert any("Failed to fetch HA context feature" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -290,10 +288,20 @@ class TestFeatureSymmetry:
 
         observations = _build_time_features(observations)
         feature_cols = [
-            "hour", "day_of_week", "month", "is_weekend", "hour_sin", "hour_cos",
+            "hour",
+            "day_of_week",
+            "month",
+            "is_weekend",
+            "hour_sin",
+            "hour_cos",
         ]
-        for feat in ["temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2",
-                     "vacation_mode_flag", "alarm_armed_flag"]:
+        for feat in [
+            "temp_c",
+            "cloud_cover_pct",
+            "shortwave_radiation_w_m2",
+            "vacation_mode_flag",
+            "alarm_armed_flag",
+        ]:
             if feat in observations.columns:
                 feature_cols.append(feat)
 
@@ -303,8 +311,17 @@ class TestFeatureSymmetry:
         assert "shortwave_radiation_w_m2" in feature_cols
 
         # All 6 base time features + 3 weather cols = 9; context flags are optional (same in both)
-        for f in ("hour", "day_of_week", "month", "is_weekend", "hour_sin", "hour_cos",
-                  "temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2"):
+        for f in (
+            "hour",
+            "day_of_week",
+            "month",
+            "is_weekend",
+            "hour_sin",
+            "hour_cos",
+            "temp_c",
+            "cloud_cover_pct",
+            "shortwave_radiation_w_m2",
+        ):
             assert f in feature_cols, f"Feature '{f}' absent from training feature list"
 
     def test_feature_mismatch_triggers_warning_and_fallback(self, tmp_path, caplog):

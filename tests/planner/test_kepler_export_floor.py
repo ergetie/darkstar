@@ -58,9 +58,7 @@ def _base_config(
     )
 
 
-def _assert_exporting_slots_end_at_or_above_floor(
-    result: KeplerResult, floor_kwh: float
-) -> None:
+def _assert_exporting_slots_end_at_or_above_floor(result: KeplerResult, floor_kwh: float) -> None:
     for slot in result.slots:
         if slot.grid_export_kwh > 0.01:
             assert slot.soc_kwh >= floor_kwh - 0.01
@@ -186,9 +184,7 @@ class TestExportFloorInactiveWhenDisabled:
         slots = _make_slots(2, export_price=50.0)
         input_data = KeplerInput(slots=slots, initial_soc_kwh=10.0)
 
-        config = _base_config(
-            export_floor=20.0, enable_export=False
-        )
+        config = _base_config(export_floor=20.0, enable_export=False)
         result = KeplerSolver().solve(input_data, config)
 
         assert result.is_optimal

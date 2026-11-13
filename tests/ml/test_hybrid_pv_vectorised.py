@@ -10,9 +10,7 @@ import pytz
 from ml.forward import _hybrid_pv_values, _sun_up_flags
 
 
-def _reference_per_slot(
-    raw_pred, baseline, sun_up, radiation, bound_fraction, weight, ceiling
-):
+def _reference_per_slot(raw_pred, baseline, sun_up, radiation, bound_fraction, weight, ceiling):
     """The per-slot loop previously in ml.forward, kept verbatim as the reference."""
     out = []
     for pos in range(len(baseline)):

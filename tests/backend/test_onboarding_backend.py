@@ -542,7 +542,9 @@ async def test_save_ha_connection_persists_only_after_success(client, tmp_path, 
     }
 
     failure_path = tmp_path / "failure.yaml"
-    failure_path.write_text("home_assistant:\n  url: http://old\n  token: old-token\n", encoding="utf-8")
+    failure_path.write_text(
+        "home_assistant:\n  url: http://old\n  token: old-token\n", encoding="utf-8"
+    )
     monkeypatch.setattr(secrets, "SECRETS_PATH", failure_path)
     failed_client = MagicMock()
     failed_client.get = AsyncMock(return_value=httpx.Response(401))

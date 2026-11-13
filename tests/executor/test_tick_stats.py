@@ -302,7 +302,9 @@ class TestEngineCounting:
         assert entry["err"].startswith("HA unavailable")
 
     async def test_tick_exception_counts_as_engine_tick_failure(self, engine):
-        with patch.object(engine, "_gather_system_state", AsyncMock(side_effect=RuntimeError("boom"))):
+        with patch.object(
+            engine, "_gather_system_state", AsyncMock(side_effect=RuntimeError("boom"))
+        ):
             result = await engine._tick()
         assert result["success"] is False
         assert _totals(engine._tick_stats) == (1, 1)

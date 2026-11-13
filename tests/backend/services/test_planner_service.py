@@ -15,7 +15,9 @@ async def test_planner_service_success_orchestrates_planner_and_notifications():
     with (
         patch("bin.run_planner.main", new_callable=AsyncMock, return_value=0) as run_planner,
         patch.object(service, "_count_schedule_slots", return_value=3),
-        patch("backend.services.planner_service.cache.invalidate", new_callable=AsyncMock) as invalidate,
+        patch(
+            "backend.services.planner_service.cache.invalidate", new_callable=AsyncMock
+        ) as invalidate,
         patch("backend.services.planner_service.ws_manager.emit", new_callable=AsyncMock) as emit,
     ):
         result = await service.run_once(ev_plug_overrides={"ev1": True})

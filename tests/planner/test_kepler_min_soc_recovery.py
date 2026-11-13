@@ -113,28 +113,20 @@ class TestFloorHelper:
             assert floors == [MIN_KWH] * 33
 
     def test_exactly_five_points_below_uses_window(self):
-        floors = min_soc_floor_kwh(
-            [0.25] * 8, _pct(7), MIN_KWH, CAPACITY, recovery_enabled=True
-        )
+        floors = min_soc_floor_kwh([0.25] * 8, _pct(7), MIN_KWH, CAPACITY, recovery_enabled=True)
         assert floors[0] == _pct(7)
         assert floors[-1] == MIN_KWH
 
     def test_deep_deficit_has_no_window(self):
-        floors = min_soc_floor_kwh(
-            [0.25] * 8, _pct(6), MIN_KWH, CAPACITY, recovery_enabled=True
-        )
+        floors = min_soc_floor_kwh([0.25] * 8, _pct(6), MIN_KWH, CAPACITY, recovery_enabled=True)
         assert floors == [MIN_KWH] * 9
 
     def test_disabled_for_benchmark(self):
-        floors = min_soc_floor_kwh(
-            [0.25] * 8, _pct(11), MIN_KWH, CAPACITY, recovery_enabled=False
-        )
+        floors = min_soc_floor_kwh([0.25] * 8, _pct(11), MIN_KWH, CAPACITY, recovery_enabled=False)
         assert floors == [MIN_KWH] * 9
 
     def test_short_horizon_terminal_uses_min(self):
-        floors = min_soc_floor_kwh(
-            [0.25] * 16, _pct(11), MIN_KWH, CAPACITY, recovery_enabled=True
-        )
+        floors = min_soc_floor_kwh([0.25] * 16, _pct(11), MIN_KWH, CAPACITY, recovery_enabled=True)
         assert floors[:16] == [_pct(11)] * 16
         assert floors[16] == MIN_KWH
 
@@ -222,9 +214,7 @@ class TestExportFloorRecovery:
         window_slots = _window_end_state() - 1  # slot t constrains state t + 1
         for t in range(window_slots):
             assert result.slots[t].grid_export_kwh < EPS
-            assert _var(problem, f"export_floor_violation_kwh_{t}") == (
-                pytest.approx(0.0, abs=EPS)
-            )
+            assert _var(problem, f"export_floor_violation_kwh_{t}") == (pytest.approx(0.0, abs=EPS))
         # Charging stays deferred to the cheap hour, not forced by the export floor.
         for slot in result.slots[: 3 * SLOTS_PER_HOUR]:
             assert slot.charge_kwh < EPS

@@ -128,8 +128,12 @@ class TestInterventionNotifications:
         engine.dispatcher = MagicMock()
         engine.dispatcher.notify_balancer_intervention = AsyncMock()
 
-        await engine._notify_balancer_interventions(make_status(ev_state="throttling", ev_target=10))
-        await engine._notify_balancer_interventions(make_status(ev_state="throttling", ev_target=12))
+        await engine._notify_balancer_interventions(
+            make_status(ev_state="throttling", ev_target=10)
+        )
+        await engine._notify_balancer_interventions(
+            make_status(ev_state="throttling", ev_target=12)
+        )
         await engine._notify_balancer_interventions(make_status(ev_state="idle", ev_target=16))
 
         engine.dispatcher.notify_balancer_intervention.assert_not_called()

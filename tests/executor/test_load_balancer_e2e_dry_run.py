@@ -116,7 +116,6 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         resume_delay_s=120,
         target_margin_percent=90,
         # Legacy momentary semantics (immediate pause, no averaging window)
-
         ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
@@ -202,6 +201,7 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         return "0"
 
     mock_ha = MagicMock(spec=HAClient)
+
     async def get_state_with_writables(entity_id):
         # Writable number entities report their value (and no range limits).
         if entity_id.startswith(("number.", "input_number.")):
@@ -349,7 +349,6 @@ async def test_power_sensor_phase_end_to_end(temp_schedule, temp_db):
         resume_delay_s=120,
         target_margin_percent=90,
         # Legacy momentary semantics (immediate pause, no averaging window)
-
         ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
@@ -422,6 +421,7 @@ async def test_power_sensor_phase_end_to_end(temp_schedule, temp_db):
         return "0"
 
     mock_ha = MagicMock(spec=HAClient)
+
     async def get_state_with_writables(entity_id):
         # Writable number entities report their value (and no range limits).
         if entity_id.startswith(("number.", "input_number.")):
@@ -500,7 +500,6 @@ async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
         resume_delay_s=120,
         target_margin_percent=90,
         # Legacy momentary semantics (immediate pause, no averaging window)
-
         ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
@@ -575,6 +574,7 @@ async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
         return "0"
 
     mock_ha = MagicMock(spec=HAClient)
+
     async def get_state_with_writables(entity_id):
         # Writable number entities report their value (and no range limits).
         if entity_id.startswith(("number.", "input_number.")):

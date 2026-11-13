@@ -185,7 +185,11 @@ class TestFullTickWiring:
 
         import pytz
 
-        from tests.executor.test_load_balancer_wiring import make_engine, make_ev_slot, make_schedule
+        from tests.executor.test_load_balancer_wiring import (
+            make_engine,
+            make_ev_slot,
+            make_schedule,
+        )
 
         eng = make_engine(temp_schedule, temp_db, load_balancing_enabled=False)
         tz = pytz.timezone("Europe/Stockholm")
@@ -208,7 +212,11 @@ class TestFullTickWiring:
 
         import pytz
 
-        from tests.executor.test_load_balancer_wiring import make_engine, make_ev_slot, make_schedule
+        from tests.executor.test_load_balancer_wiring import (
+            make_engine,
+            make_ev_slot,
+            make_schedule,
+        )
 
         # L1 headroom is deeply negative -> balancer pauses the charger
         eng = make_engine(

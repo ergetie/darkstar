@@ -23,7 +23,9 @@ def test_old_default_replaced() -> None:
 
 @pytest.mark.parametrize("value", [0.4, 0, 2.0, 1.0, True, "0.25", None])
 def test_other_values_untouched(value: object) -> None:
-    cfg, changed = _migrate_pv_residual_bound({"forecasting": {"pv_residual_bound_fraction": value}})
+    cfg, changed = _migrate_pv_residual_bound(
+        {"forecasting": {"pv_residual_bound_fraction": value}}
+    )
     assert changed is False
     assert _bound(cfg) == value or _bound(cfg) is value
 
@@ -65,7 +67,9 @@ def test_full_migration_keeps_user_value(tmp_path: Path) -> None:
     for value in (0.4, 0, 2.0):
         path = _write(tmp_path, {"pv_residual_bound_fraction": value})
         _migrate_config(str(path), DEFAULT_PATH, False)
-        assert yaml.safe_load(path.read_text())["forecasting"]["pv_residual_bound_fraction"] == value
+        assert (
+            yaml.safe_load(path.read_text())["forecasting"]["pv_residual_bound_fraction"] == value
+        )
 
 
 def test_full_migration_missing_key_gets_template_default(tmp_path: Path) -> None:

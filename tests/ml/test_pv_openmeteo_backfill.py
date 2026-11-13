@@ -136,10 +136,18 @@ async def test_forward_ramp_cold_partial_full_respects_bound():
             patch("ml.forward.get_learning_engine", return_value=engine),
             patch("ml.forward._load_models", return_value={"pv_p50": model}),
             patch("ml.forward.async_get_weather_series", new=AsyncMock(return_value=weather)),
-            patch("ml.forward.get_vacation_mode_series", return_value=pd.Series(0.0, index=weather.index)),
-            patch("ml.forward.get_alarm_armed_series", return_value=pd.Series(0.0, index=weather.index)),
+            patch(
+                "ml.forward.get_vacation_mode_series",
+                return_value=pd.Series(0.0, index=weather.index),
+            ),
+            patch(
+                "ml.forward.get_alarm_armed_series",
+                return_value=pd.Series(0.0, index=weather.index),
+            ),
             patch("backend.astro.SunCalculator") as mock_sun,
-            patch("ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)),
+            patch(
+                "ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)
+            ),
         ):
             mock_datetime.now.return_value = fixed_now
             mock_datetime.side_effect = datetime

@@ -16,6 +16,7 @@ from planner.pipeline import _persist_ev_multi_day_state
 
 # E2E Test Suite for EV scheduling (price-forecasting-module-5 §6)
 
+
 @pytest.mark.asyncio
 async def test_ev_schedule_e2e_flow(tmp_path, monkeypatch):
     """Test 6.1:
@@ -46,12 +47,13 @@ async def test_ev_schedule_e2e_flow(tmp_path, monkeypatch):
                 "ha_ready_by_entity": "input_datetime.ev1_ready",
                 "ha_target_soc_entity": "input_number.ev1_soc",
             }
-        ]
+        ],
     }
     monkeypatch.setattr(ev_router, "load_yaml", lambda _p: cfg)
 
     # 2. Simulate POST /schedule
     from fastapi import BackgroundTasks
+
     body = EVChargerScheduleBody(
         target_soc_percent=80,
         ready_by="07:00",
@@ -65,9 +67,13 @@ async def test_ev_schedule_e2e_flow(tmp_path, monkeypatch):
     monkeypatch.setattr(ev_router, "sync_goal_to_ha", mock_sync)
 
     # Mock HA client sensor gets
-    p_power = patch("backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0))
+    p_power = patch(
+        "backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0)
+    )
     p_soc = patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=40.0))
-    p_plug = patch("backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": "on"}))
+    p_plug = patch(
+        "backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": "on"})
+    )
 
     with p_power, p_soc, p_plug:
         # Calls the POST schedule logic directly
@@ -99,7 +105,9 @@ async def test_ev_schedule_e2e_flow(tmp_path, monkeypatch):
         }
     ]
     # Execute persist step
-    _persist_ev_multi_day_state(ev_states, cfg["ev_chargers"], sqlite_path="", tz=tz, now=now, goals_read_at=now)
+    _persist_ev_multi_day_state(
+        ev_states, cfg["ev_chargers"], sqlite_path="", tz=tz, now=now, goals_read_at=now
+    )
 
     # State file should now have computed properties
     state_data = json.loads(state_file.read_text())
@@ -157,7 +165,7 @@ async def test_ev_schedule_e2e_ha_sync(tmp_path, monkeypatch):
                 "ha_ready_by_entity": "input_datetime.ev1_ready",
                 "ha_target_soc_entity": "input_number.ev1_soc",
             }
-        ]
+        ],
     }
     monkeypatch.setattr(ev_router, "load_yaml", lambda _p: cfg)
     monkeypatch.setattr("backend.ha_socket.load_yaml", lambda _: cfg)
@@ -185,9 +193,13 @@ async def test_ev_schedule_e2e_ha_sync(tmp_path, monkeypatch):
     assert state_data["ev1"]["source"] == "ha"
 
     # GET request reflects HA values
-    p_power = patch("backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0))
+    p_power = patch(
+        "backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0)
+    )
     p_soc = patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=50.0))
-    p_plug = patch("backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": "on"}))
+    p_plug = patch(
+        "backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": "on"})
+    )
 
     with p_power, p_soc, p_plug:
         chargers = await get_ev_chargers()
@@ -231,15 +243,19 @@ async def test_ev_schedule_e2e_escape_hatch(tmp_path, monkeypatch):
                 "soc_sensor": "sensor.ev2_soc",
                 "plug_sensor": "binary_sensor.ev2_plug",
                 "switch_entity": "switch.ev2_switch",  # Set
-            }
-        ]
+            },
+        ],
     }
     monkeypatch.setattr(ev_router, "load_yaml", lambda _p: cfg)
 
     # 1. Verify GET /api/ev/chargers reports uncontrolled charger as externally controlled
-    p_power = patch("backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0))
+    p_power = patch(
+        "backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0)
+    )
     p_soc = patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=50.0))
-    p_plug = patch("backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": "on"}))
+    p_plug = patch(
+        "backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": "on"})
+    )
 
     with p_power, p_soc, p_plug:
         chargers = await get_ev_chargers()
@@ -268,8 +284,8 @@ async def test_ev_schedule_e2e_escape_hatch(tmp_path, monkeypatch):
                 id="ev_controlled_binary",
                 type="binary",
                 switch_entity="switch.ev2_switch",  # Set
-            )
-        ]
+            ),
+        ],
     )
 
     # Use __new__ to bypass file-loading __init__ logic
@@ -298,7 +314,9 @@ async def test_ev_schedule_e2e_escape_hatch(tmp_path, monkeypatch):
     mock_ha.get_state_value = AsyncMock(return_value="off")
 
     # Run executor EV control step
-    await engine._control_ev_charger(slot, now=datetime.now(), force_stop=False, shed_binary_charger_ids=set())
+    await engine._control_ev_charger(
+        slot, now=datetime.now(), force_stop=False, shed_binary_charger_ids=set()
+    )
 
     # Verify that only the controlled binary charger got a set_ev_charger_switch call!
     # No call should be made for ev_uncontrolled_binary

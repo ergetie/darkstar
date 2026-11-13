@@ -119,9 +119,13 @@ def test_large_requirement_uses_dearer_tier_and_cheaper_known_slots():
     deferred = result.ev_deferred_kwh["ev1"]
     assert deferred[0] == pytest.approx(5.0, abs=0.01)  # cheapest tier full
     # In-horizon 1.3 slots beat the marginal 1.5 tier.
-    assert _energy(result, lambda s: s.start_time < slots[8].start_time) == pytest.approx(13.8, abs=0.05)
+    assert _energy(result, lambda s: s.start_time < slots[8].start_time) == pytest.approx(
+        13.8, abs=0.05
+    )
     assert deferred[1] == pytest.approx(20.0 - 5.0 - 13.8, abs=0.05)
-    assert _energy(result, lambda s: s.start_time >= slots[8].start_time) == pytest.approx(0.0, abs=0.01)
+    assert _energy(result, lambda s: s.start_time >= slots[8].start_time) == pytest.approx(
+        0.0, abs=0.01
+    )
 
 
 def test_tail_too_short_forces_in_horizon_minimum():

@@ -1,4 +1,5 @@
 """Regression test: PV forecast exceeds inverter AC capacity causing infeasibility."""
+
 from datetime import datetime, timedelta
 
 from planner.solver.kepler import KeplerSolver

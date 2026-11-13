@@ -38,7 +38,9 @@ def test_validation_skipped_when_flag_off_but_raised_when_on():
     off["water_heating"] = {"defer_up_to_hours": 99}
     validate_water_heating_config(off)
     with pytest.raises(ValueError, match="max_hours_between_heating"):
-        validate_water_heating_config({"system": {"has_water_heater": True}, "water_heaters": [bad]})
+        validate_water_heating_config(
+            {"system": {"has_water_heater": True}, "water_heaters": [bad]}
+        )
 
 
 def test_adapter_returns_no_heaters_when_flag_off():
@@ -53,7 +55,9 @@ def test_mid_block_detection_gets_no_ids_when_flag_off():
 
     import pandas as pd
 
-    prev = [{"start_time": "2026-10-19T15:00:00", "water_heaters": {"main_tank": {"heating_kw": 3}}}]
+    prev = [
+        {"start_time": "2026-10-19T15:00:00", "water_heaters": {"main_tank": {"heating_kw": 3}}}
+    ]
     now = pd.Timestamp("2026-10-19 15:00", tz="Europe/Stockholm")
     ids = [str(h["id"]) for h in active_water_heaters(_config(False))]
     assert ids == []

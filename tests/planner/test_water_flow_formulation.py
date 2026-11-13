@@ -230,7 +230,9 @@ def test_bulk_mode_needs_flow_only_for_start_penalty():
 
 def test_exact_semantics_by_hand():
     hours = [0.5] * 8
-    rules = Rules(spacing_h=1.5, max_gap_h=1.0, gap_pen=2.0, max_block_h=1.0, block_pen=3.0, start_pen=5.0)
+    rules = Rules(
+        spacing_h=1.5, max_gap_h=1.0, gap_pen=2.0, max_block_h=1.0, block_pen=3.0, start_pen=5.0
+    )
     heater = _heater(rules)
     config = _config(rules, heater)
     fp = plan_water_flow(heater, config, 0.5)

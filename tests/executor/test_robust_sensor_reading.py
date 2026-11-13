@@ -95,9 +95,7 @@ def _balancer_stale(engine, state) -> bool:
 @pytest.mark.asyncio
 async def test_switch_heater_does_not_block_phase_currents(temp_schedule, caplog):
     """torleif case: switch heater target state 'on' must not abort the gather."""
-    heater = WaterHeaterDeviceConfig(
-        id="vvb", target_entity="switch.vvb", control_type="switch"
-    )
+    heater = WaterHeaterDeviceConfig(id="vvb", target_entity="switch.vvb", control_type="switch")
     engine, requested = _make_engine(temp_schedule, [heater], {"switch.vvb": "on"})
 
     with caplog.at_level(logging.WARNING):

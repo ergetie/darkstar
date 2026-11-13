@@ -72,9 +72,7 @@ def _solve(chargers: list[EVChargerInput]) -> KeplerResult:
 
 
 def _ev_slots(result: KeplerResult, cid: str) -> list[int]:
-    return [
-        i for i, s in enumerate(result.slots) if s.ev_charger_results.get(cid, 0.0) > 0.1
-    ]
+    return [i for i, s in enumerate(result.slots) if s.ev_charger_results.get(cid, 0.0) > 0.1]
 
 
 def test_assumed_plugged_does_not_block_discharge():
@@ -114,9 +112,7 @@ def test_charger_without_plug_sensor_still_blocks():
     # No plug sensor is reported as plugged_in=True (ev-live-state), never assumed.
     result = _solve([_charger("ev1", plugged=True, assumed=False)])
     assert _ev_slots(result, "ev1")
-    assert all(
-        result.slots[i].discharge_kwh < 1e-6 for i in _ev_slots(result, "ev1")
-    )
+    assert all(result.slots[i].discharge_kwh < 1e-6 for i in _ev_slots(result, "ev1"))
 
 
 def test_only_assumed_adds_no_discharge_constraint():

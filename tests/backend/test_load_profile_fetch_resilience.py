@@ -429,8 +429,17 @@ class TestLastGoodProfile:
             lambda d: d.update(profile=["x"] + [0.25] * 95),
         ],
         ids=[
-            "stale", "other-sensor", "future", "unparsable", "naive", "version",
-            "short", "negative", "zero-total", "over-500", "not-numbers",
+            "stale",
+            "other-sensor",
+            "future",
+            "unparsable",
+            "naive",
+            "version",
+            "short",
+            "negative",
+            "zero-total",
+            "over-500",
+            "not-numbers",
         ],
     )
     async def test_invalid_stored_profile_is_ignored(self, clock, mutate):

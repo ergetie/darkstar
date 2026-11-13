@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.exceptions import PVForecastError
+
 # We import from forecasts module. We will patch OpenMeteoSolarForecast where it is USED.
 from backend.core.forecasts import (
     _get_forecast_data_async,
@@ -48,9 +49,7 @@ def _stored_rows(entries):
 class TestStoredFallbackHelper(unittest.IsolatedAsyncioTestCase):
     async def _run(self, rows, price_slots, known=None):
         with patch("backend.learning.store.LearningStore", return_value=_FakeStore(rows)):
-            return await _get_stored_openmeteo_pv_for_slots(
-                price_slots, {"timezone": "UTC"}, known
-            )
+            return await _get_stored_openmeteo_pv_for_slots(price_slots, {"timezone": "UTC"}, known)
 
     async def test_full_coverage_has_no_estimated_slots(self):
         slots = _slots(2)
@@ -346,13 +345,29 @@ class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
             {"start_time": datetime(2024, 6, 21, 12, 15, tzinfo=UTC)},
         ]
         db_slots = [
-            {"pv_forecast_kwh": 1.0, "openmeteo_pv_forecast_kwh": 0.6, "base_load_forecast_kwh": 2.0},
-            {"pv_forecast_kwh": 1.1, "openmeteo_pv_forecast_kwh": 0.7, "base_load_forecast_kwh": 2.1},
+            {
+                "pv_forecast_kwh": 1.0,
+                "openmeteo_pv_forecast_kwh": 0.6,
+                "base_load_forecast_kwh": 2.0,
+            },
+            {
+                "pv_forecast_kwh": 1.1,
+                "openmeteo_pv_forecast_kwh": 0.7,
+                "base_load_forecast_kwh": 2.1,
+            },
         ]
         openmeteo_result = {
             "slots": [
-                {"pv_forecast_kwh": 0.6, "openmeteo_pv_forecast_kwh": 0.6, "load_forecast_kwh": 0.4},
-                {"pv_forecast_kwh": 0.7, "openmeteo_pv_forecast_kwh": 0.7, "load_forecast_kwh": 0.4},
+                {
+                    "pv_forecast_kwh": 0.6,
+                    "openmeteo_pv_forecast_kwh": 0.6,
+                    "load_forecast_kwh": 0.4,
+                },
+                {
+                    "pv_forecast_kwh": 0.7,
+                    "openmeteo_pv_forecast_kwh": 0.7,
+                    "load_forecast_kwh": 0.4,
+                },
             ],
             "daily_pv_forecast": {"2024-06-21": 1.3},
             "daily_load_forecast": {"2024-06-21": 0.8},
@@ -368,10 +383,19 @@ class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
                 },
             }
             with (
-                patch("backend.core.forecasts.build_db_forecast_for_slots", new=AsyncMock(return_value=db_slots)),
+                patch(
+                    "backend.core.forecasts.build_db_forecast_for_slots",
+                    new=AsyncMock(return_value=db_slots),
+                ),
                 patch("backend.core.forecasts.get_forecast_slots", new=AsyncMock(return_value=[])),
-                patch("backend.core.forecasts._get_forecast_data_async", new=AsyncMock(return_value=openmeteo_result)),
-                patch("backend.core.ha_client.get_load_profile_from_ha", new=AsyncMock(return_value=[0.4] * 96)),
+                patch(
+                    "backend.core.forecasts._get_forecast_data_async",
+                    new=AsyncMock(return_value=openmeteo_result),
+                ),
+                patch(
+                    "backend.core.ha_client.get_load_profile_from_ha",
+                    new=AsyncMock(return_value=[0.4] * 96),
+                ),
             ):
                 return await get_forecast_data(price_slots, config)
 
@@ -428,21 +452,27 @@ class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
         }
 
         with (
-            patch("backend.core.forecasts.build_db_forecast_for_slots", new=AsyncMock(return_value=db_slots)),
+            patch(
+                "backend.core.forecasts.build_db_forecast_for_slots",
+                new=AsyncMock(return_value=db_slots),
+            ),
             patch(
                 "backend.core.forecasts.get_forecast_slots",
                 new=AsyncMock(return_value=extended_records),
             ) as mock_extended_fetch,
-            patch("backend.core.ha_client.get_load_profile_from_ha", new=AsyncMock(return_value=[0.4] * 96)),
+            patch(
+                "backend.core.ha_client.get_load_profile_from_ha",
+                new=AsyncMock(return_value=[0.4] * 96),
+            ),
         ):
             result = await get_forecast_data(price_slots, config)
 
         assert mock_extended_fetch.await_count == 1
         assert len(result["slots"]) == len(price_slots)
         assert len(result["extended_slots"]) == len(extended_records)
-        assert result["extended_slots"][-1]["start_time"] >= price_slots[-1]["start_time"] + timedelta(
-            hours=24
-        )
+        assert result["extended_slots"][-1]["start_time"] >= price_slots[-1][
+            "start_time"
+        ] + timedelta(hours=24)
         assert result["extended_slots"][0]["pv_forecast_kwh"] == 0.05
         assert result["extended_slots"][0]["load_forecast_kwh"] == 0.1
         assert result["extended_slots"][0]["pv_p10"] == 0.01
@@ -471,9 +501,17 @@ class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
         ha_profile = [float(idx) for idx in range(96)]
 
         with (
-            patch("backend.core.forecasts.build_db_forecast_for_slots", new=AsyncMock(return_value=[])),
-            patch("backend.core.forecasts.get_forecast_slots", new=AsyncMock(return_value=extended_records)),
-            patch("backend.core.ha_client.get_load_profile_from_ha", new=AsyncMock(return_value=ha_profile)),
+            patch(
+                "backend.core.forecasts.build_db_forecast_for_slots", new=AsyncMock(return_value=[])
+            ),
+            patch(
+                "backend.core.forecasts.get_forecast_slots",
+                new=AsyncMock(return_value=extended_records),
+            ),
+            patch(
+                "backend.core.ha_client.get_load_profile_from_ha",
+                new=AsyncMock(return_value=ha_profile),
+            ),
         ):
             result = await get_forecast_data(price_slots, config)
 

@@ -190,7 +190,9 @@ async def test_spike_is_filtered_with_config_threshold(make_engine):
 async def test_disabled_battery_is_not_requested(make_engine):
     config = make_config(system={"has_battery": False})
     engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10, 0)))
-    history_mock = await run(engine, constant_history(with_core({"sensor.batt": -2.0, "sensor.load": 1.0})))
+    history_mock = await run(
+        engine, constant_history(with_core({"sensor.batt": -2.0, "sensor.load": 1.0}))
+    )
     assert "sensor.batt" not in history_mock.await_args.args[0]
     row = stored(learning_engine).iloc[0]
     assert row["batt_charge_kwh"] == 0.0
@@ -293,7 +295,10 @@ async def test_unconfigured_enabled_device_taints_backfill_aggregate_and_derived
         ]
     )
     engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10, 0)))
-    await run(engine, constant_history(with_core({"sensor.load": 4.0, "sensor.ev": 1.0, "sensor.wh": 0.0})))
+    await run(
+        engine,
+        constant_history(with_core({"sensor.load": 4.0, "sensor.ev": 1.0, "sensor.wh": 0.0})),
+    )
     row = stored(learning_engine).iloc[0]
     components = row["quality_flags"]["recording"]["components"]
     assert components["ev"]["method"] == "mixed"
@@ -328,7 +333,9 @@ async def test_water_cutoff_backfill_retains_idle_load_and_truthful_coverage(
     engine, learning_engine = make_engine(config, TZ.localize(datetime(2026, 10, 1, 10)))
     await run(
         engine,
-        constant_history(with_core({"sensor.load": 4, "sensor.wh": 0.06, "sensor.ev": 0, "sensor.grid": 4})),
+        constant_history(
+            with_core({"sensor.load": 4, "sensor.wh": 0.06, "sensor.ev": 0, "sensor.grid": 4})
+        ),
     )
     row = stored(learning_engine).iloc[0]
     assert row["water_kwh"] == 0

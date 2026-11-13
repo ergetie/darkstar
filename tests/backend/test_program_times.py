@@ -58,9 +58,9 @@ def _states(values: dict[str, str | None]):
 async def test_verify_ok_mismatch_unverifiable():
     soc = "number.inverter_program_6_soc"
     assert (await verify_program_times(soc, _states({})))["status"] == "ok"
-    assert (
-        await verify_program_times(soc, _states({SOLARMAN_TIMES[0]: "00:00"}))
-    )["status"] == "ok"
+    assert (await verify_program_times(soc, _states({SOLARMAN_TIMES[0]: "00:00"})))[
+        "status"
+    ] == "ok"
     mismatch = await verify_program_times(soc, _states({SOLARMAN_TIMES[2]: "05:00:00"}))
     assert mismatch["status"] == "mismatch"
     assert mismatch["mismatches"] == [{"entity_id": SOLARMAN_TIMES[2], "value": "05:00:00"}]

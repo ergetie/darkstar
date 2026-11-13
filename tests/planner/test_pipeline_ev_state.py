@@ -67,7 +67,9 @@ def test_persist_ev_multi_day_state_preserves_goals(tmp_path, monkeypatch):
     now = datetime(2026, 6, 10, 15, 0, tzinfo=UTC)
     read_at = now + timedelta(seconds=18)
 
-    _persist_ev_multi_day_state(ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now, goals_read_at=read_at)
+    _persist_ev_multi_day_state(
+        ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now, goals_read_at=read_at
+    )
 
     # 3. Verify state file has preserved existing goal fields + source verbatim,
     # and refreshed only the progress fields.
@@ -105,7 +107,9 @@ def test_persist_keeps_executor_manual_charge(tmp_path, monkeypatch):
     monkeypatch.setattr(ev_state, "STATE_FILE_PATH", state_file)
     manual = {"target_soc": 60, "current_a": None, "started_at": "2026-06-10T14:00:00+02:00"}
     state_file.write_text(
-        json.dumps({"ev1": {"target_soc_percent": 90, "ready_by": "08:30", "manual_charge": manual}})
+        json.dumps(
+            {"ev1": {"target_soc_percent": 90, "ready_by": "08:30", "manual_charge": manual}}
+        )
     )
 
     _persist_ev_multi_day_state(
@@ -150,7 +154,9 @@ def test_persist_skips_chargers_with_no_goal(tmp_path, monkeypatch):
     tz = pytz.timezone("Europe/Stockholm")
     now = datetime(2026, 6, 10, 15, 0, tzinfo=UTC)
 
-    _persist_ev_multi_day_state(ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now, goals_read_at=now)
+    _persist_ev_multi_day_state(
+        ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now, goals_read_at=now
+    )
 
     # No goal existed, so nothing is persisted for this charger.
     if state_file.exists():
@@ -194,7 +200,9 @@ def test_persist_preserves_disabled_charger_entry(tmp_path, monkeypatch):
     tz = pytz.timezone("Europe/Stockholm")
     now = datetime(2026, 6, 10, 15, 0, tzinfo=UTC)
 
-    _persist_ev_multi_day_state(ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now, goals_read_at=now)
+    _persist_ev_multi_day_state(
+        ev_states, ev_chargers_cfg, sqlite_path="", tz=tz, now=now, goals_read_at=now
+    )
 
     updated = json.loads(state_file.read_text())
     assert updated["ev_disabled"] == existing["ev_disabled"]

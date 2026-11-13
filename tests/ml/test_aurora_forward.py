@@ -84,7 +84,9 @@ class TestAuroraForward(unittest.IsolatedAsyncioTestCase):
         baseline = pd.Series([2.5] * 8, index=mock_weather.return_value.index)
 
         # 5. Run forward pass (short horizon)
-        with patch("ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)):
+        with patch(
+            "ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)
+        ):
             await generate_forward_slots(horizon_hours=2, forecast_version="test")
 
         # 6. Verify Open-Meteo baseline forecast in fallback mode
@@ -107,7 +109,15 @@ class TestAuroraForward(unittest.IsolatedAsyncioTestCase):
 
 class TestAuroraForwardPvBaselineGuards(unittest.IsolatedAsyncioTestCase):
     def _setup(self, mocks):
-        mock_sun, mock_alarm, mock_vacation, mock_weather, mock_models, mock_get_engine, mock_grad = mocks
+        (
+            mock_sun,
+            mock_alarm,
+            mock_vacation,
+            mock_weather,
+            mock_models,
+            mock_get_engine,
+            mock_grad,
+        ) = mocks
         fixed_now = datetime(2024, 6, 15, 12, 0, tzinfo=pytz.UTC)
         mock_grad.return_value = (2, "graduate", 30.0)
         engine = MagicMock(spec=LearningEngine)
@@ -149,10 +159,25 @@ class TestAuroraForwardPvBaselineGuards(unittest.IsolatedAsyncioTestCase):
     @patch("backend.astro.SunCalculator")
     @patch("ml.forward.determine_graduation_level")
     async def test_baseline_failure_aborts_without_storing(
-        self, mock_grad, mock_sun, mock_alarm, mock_vacation, mock_weather, mock_models, mock_get_engine
+        self,
+        mock_grad,
+        mock_sun,
+        mock_alarm,
+        mock_vacation,
+        mock_weather,
+        mock_models,
+        mock_get_engine,
     ):
         engine, _ = self._setup(
-            (mock_sun, mock_alarm, mock_vacation, mock_weather, mock_models, mock_get_engine, mock_grad)
+            (
+                mock_sun,
+                mock_alarm,
+                mock_vacation,
+                mock_weather,
+                mock_models,
+                mock_get_engine,
+                mock_grad,
+            )
         )
         failing = AsyncMock(side_effect=PVForecastError("no baseline"))
         with patch("ml.forward._fetch_openmeteo_baseline_series", new=failing):
@@ -168,14 +193,31 @@ class TestAuroraForwardPvBaselineGuards(unittest.IsolatedAsyncioTestCase):
     @patch("backend.astro.SunCalculator")
     @patch("ml.forward.determine_graduation_level")
     async def test_estimated_slots_are_not_stored_as_baselines(
-        self, mock_grad, mock_sun, mock_alarm, mock_vacation, mock_weather, mock_models, mock_get_engine
+        self,
+        mock_grad,
+        mock_sun,
+        mock_alarm,
+        mock_vacation,
+        mock_weather,
+        mock_models,
+        mock_get_engine,
     ):
         engine, index = self._setup(
-            (mock_sun, mock_alarm, mock_vacation, mock_weather, mock_models, mock_get_engine, mock_grad)
+            (
+                mock_sun,
+                mock_alarm,
+                mock_vacation,
+                mock_weather,
+                mock_models,
+                mock_get_engine,
+                mock_grad,
+            )
         )
         baseline = pd.Series([2.5] * 8, index=index)
         baseline.attrs["estimated"] = [False, False, True, True, False, False, False, False]
-        with patch("ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)):
+        with patch(
+            "ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)
+        ):
             await generate_forward_slots(horizon_hours=2, forecast_version="test")
 
         forecasts = engine.store_forecasts.call_args.args[0]

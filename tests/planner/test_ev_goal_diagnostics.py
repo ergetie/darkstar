@@ -108,7 +108,9 @@ def test_deadline_too_close_without_eligible_slots():
 
 def test_fully_scheduled_goal_has_no_shortfall():
     inputs, results = _slots(3, water_kw=0.0, ev_kw=4.2)
-    diag = compute_ev_goal_diagnostics(_Result(results, shortfall_kwh=0.0), inputs, [_state()], [GOE_CFG], 8.0, NOW)
+    diag = compute_ev_goal_diagnostics(
+        _Result(results, shortfall_kwh=0.0), inputs, [_state()], [GOE_CFG], 8.0, NOW
+    )
     assert diag["goe"]["shortfall_kwh"] == 0.0
     assert diag["goe"]["reason"] is None
     assert diag["goe"]["scheduled_kwh"] == 3.15

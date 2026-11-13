@@ -37,9 +37,7 @@ def test_config_save_validation_follows_flag(flag):
 def test_health_config_check_follows_flag(tmp_path, flag):
     path = tmp_path / "config.yaml"
     path.write_text(
-        yaml.safe_dump(
-            {"system": {"has_water_heater": flag}, "water_heaters": [STALE_HEATER]}
-        )
+        yaml.safe_dump({"system": {"has_water_heater": flag}, "water_heaters": [STALE_HEATER]})
     )
     issues = [i.to_dict() for i in HealthChecker(str(path)).check_config_validity()]
     assert bool(_water_issues(issues, "message")) is flag

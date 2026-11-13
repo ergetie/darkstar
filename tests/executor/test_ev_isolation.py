@@ -479,9 +479,7 @@ class TestIsolationSlotThroughEngine:
         eng.config = ExecutorConfig(
             water_heater=WaterHeaterGlobalConfig(temp_normal=60, temp_off=40),
             water_heater_devices=[
-                WaterHeaterDeviceConfig(
-                    id="vvb", target_entity="switch.vvb", control_type="switch"
-                )
+                WaterHeaterDeviceConfig(id="vvb", target_entity="switch.vvb", control_type="switch")
             ],
         )
         eng.ha_client = None

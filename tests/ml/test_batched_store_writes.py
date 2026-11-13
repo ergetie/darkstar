@@ -55,8 +55,7 @@ def _forecast_rows(db_path):
         return [
             dict(r)
             for r in conn.execute(
-                "SELECT * FROM slot_forecasts WHERE forecast_version = 'aurora' "
-                "ORDER BY slot_start"
+                "SELECT * FROM slot_forecasts WHERE forecast_version = 'aurora' ORDER BY slot_start"
             ).fetchall()
         ]
 

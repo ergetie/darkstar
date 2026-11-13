@@ -84,7 +84,10 @@ def _ev_total(res: Any, cid: str) -> float:
 
 
 def _plan(res: Any) -> list[tuple[float, float]]:
-    return [(round(s.grid_import_kwh, 6), round(sum(s.ev_charger_results.values()), 6)) for s in res.slots]
+    return [
+        (round(s.grid_import_kwh, 6), round(sum(s.ev_charger_results.values()), 6))
+        for s in res.slots
+    ]
 
 
 def test_single_phase_ev_respects_phase_limit():
@@ -138,15 +141,33 @@ def test_adapter_max_phase_import():
     assert resolve_max_phase_import_kw({"system": {"grid": {}}}) is None
     assert resolve_max_phase_import_kw(cfg(grid={"main_fuse_a": 0})) is None
     assert resolve_max_phase_import_kw(cfg(grid={"main_fuse_a": "x"})) is None
-    assert abs(resolve_max_phase_import_kw(cfg(load_balancing={"target_margin_percent": 100})) - 4.6) < 1e-9
-    assert abs(resolve_max_phase_import_kw(cfg(load_balancing={"target_margin_percent": "bad"})) - 3.91) < 1e-9
-    assert abs(resolve_max_phase_import_kw(cfg(load_balancing={"target_margin_percent": 0})) - 3.91) < 1e-9
+    assert (
+        abs(resolve_max_phase_import_kw(cfg(load_balancing={"target_margin_percent": 100})) - 4.6)
+        < 1e-9
+    )
+    assert (
+        abs(
+            resolve_max_phase_import_kw(cfg(load_balancing={"target_margin_percent": "bad"})) - 3.91
+        )
+        < 1e-9
+    )
+    assert (
+        abs(resolve_max_phase_import_kw(cfg(load_balancing={"target_margin_percent": 0})) - 3.91)
+        < 1e-9
+    )
 
 
 def test_adapter_charger_phases():
     def mk(**kw: Any) -> dict[str, Any]:
-        return {"id": "c", "enabled": True, "type": "current", "min_current_a": 6,
-                "max_current_a": 16, "battery_capacity_kwh": 60, **kw}
+        return {
+            "id": "c",
+            "enabled": True,
+            "type": "current",
+            "min_current_a": 6,
+            "max_current_a": 16,
+            "battery_capacity_kwh": 60,
+            **kw,
+        }
 
     def phases(ev: dict[str, Any]) -> tuple[int, ...]:
         return build_ev_charger_inputs([ev])[0].phases

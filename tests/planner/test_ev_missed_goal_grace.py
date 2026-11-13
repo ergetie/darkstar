@@ -211,15 +211,17 @@ def test_replug_with_soc_drop_gets_no_grace_even_if_deadline_soc_supplied():
 
 def test_restored_session_with_soc_drop_gets_no_grace():
     """Car left and returned while Darkstar was down: restored session looks continuous."""
-    assert _resolve(plug_session_start=MISSED - timedelta(hours=2), soc_at_missed_deadline=60.0)[
-        1
-    ] is False
+    assert (
+        _resolve(plug_session_start=MISSED - timedelta(hours=2), soc_at_missed_deadline=60.0)[1]
+        is False
+    )
 
 
 def test_restored_session_without_soc_drop_gets_grace():
-    assert _resolve(plug_session_start=MISSED - timedelta(hours=2), soc_at_missed_deadline=53.5)[
-        1
-    ] is True
+    assert (
+        _resolve(plug_session_start=MISSED - timedelta(hours=2), soc_at_missed_deadline=53.5)[1]
+        is True
+    )
 
 
 def test_restored_session_without_deadline_soc_is_legacy():

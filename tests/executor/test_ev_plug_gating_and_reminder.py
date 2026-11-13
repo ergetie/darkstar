@@ -258,7 +258,9 @@ async def test_no_reminder_when_plugged(temp_schedule, temp_db):
     start = TZ.localize(datetime(2026, 9, 25, 22, 0))
     _write_schedule(temp_schedule, start)
     eng = _engine(temp_schedule, temp_db, [_charger()], {"ev1": "on"}, 30)
-    await eng._check_plug_in_reminders(start - timedelta(minutes=10), await eng._read_ev_plug_states())
+    await eng._check_plug_in_reminders(
+        start - timedelta(minutes=10), await eng._read_ev_plug_states()
+    )
     eng.dispatcher.notify_plug_in_reminder.assert_not_awaited()
 
 
@@ -267,7 +269,9 @@ async def test_reminder_disabled(temp_schedule, temp_db):
     start = TZ.localize(datetime(2026, 9, 25, 22, 0))
     _write_schedule(temp_schedule, start)
     eng = _engine(temp_schedule, temp_db, [_charger()], {"ev1": "off"})
-    await eng._check_plug_in_reminders(start - timedelta(minutes=1), await eng._read_ev_plug_states())
+    await eng._check_plug_in_reminders(
+        start - timedelta(minutes=1), await eng._read_ev_plug_states()
+    )
     eng.dispatcher.notify_plug_in_reminder.assert_not_awaited()
 
 
@@ -294,11 +298,17 @@ async def test_plugging_in_resets_dedupe(temp_schedule, temp_db):
     _write_schedule(temp_schedule, start)
     plug = {"ev1": "off"}
     eng = _engine(temp_schedule, temp_db, [_charger()], plug, 30)
-    await eng._check_plug_in_reminders(start - timedelta(minutes=10), await eng._read_ev_plug_states())
+    await eng._check_plug_in_reminders(
+        start - timedelta(minutes=10), await eng._read_ev_plug_states()
+    )
     plug["ev1"] = "on"
-    await eng._check_plug_in_reminders(start - timedelta(minutes=5), await eng._read_ev_plug_states())
+    await eng._check_plug_in_reminders(
+        start - timedelta(minutes=5), await eng._read_ev_plug_states()
+    )
     plug["ev1"] = "off"
-    await eng._check_plug_in_reminders(start - timedelta(minutes=2), await eng._read_ev_plug_states())
+    await eng._check_plug_in_reminders(
+        start - timedelta(minutes=2), await eng._read_ev_plug_states()
+    )
     assert eng.dispatcher.notify_plug_in_reminder.await_count == 2
 
 

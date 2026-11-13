@@ -81,9 +81,7 @@ def test_replan_7_min_into_slot_caps_ev_energy():
     assert energy_kwh <= MAX_KW * remaining_h + 1e-6
     # Reported kW is energy / remaining time, so it cannot exceed the charger max.
     assert kw == pytest.approx(MAX_KW, abs=1e-4)
-    assert result.ev_shortfall_kwh["goe"] == pytest.approx(
-        3.0 - MAX_KW * remaining_h, abs=1e-3
-    )
+    assert result.ev_shortfall_kwh["goe"] == pytest.approx(3.0 - MAX_KW * remaining_h, abs=1e-3)
 
 
 def test_partial_slot_reports_higher_kw_for_same_energy():

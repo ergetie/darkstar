@@ -110,7 +110,6 @@ def make_engine(
         resume_delay_s=120,
         target_margin_percent=90,
         # Legacy momentary semantics (immediate pause, no averaging window)
-
         ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
@@ -253,9 +252,7 @@ async def test_balancer_cap_clamps_surplus_proposal(temp_schedule, temp_db):
     with Path(temp_schedule).open("w", encoding="utf-8") as f:
         json.dump(schedule, f)
 
-    engine._ev_charger_states["goe"] = EVChargerState(
-        charging_active=True, current_setpoint_a=16
-    )
+    engine._ev_charger_states["goe"] = EVChargerState(charging_active=True, current_setpoint_a=16)
 
     await engine.run_once()
 

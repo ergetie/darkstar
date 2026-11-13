@@ -326,9 +326,7 @@ def test_unset_inverter_limit_no_ac_constraint():
     # Without an AC limit, PV + discharge is unconstrained; grid_export can exceed any per-slot cap
     total_export = sum(s.grid_export_kwh for s in result.slots)
     # Full battery + high export price → should export significantly (PV + discharge)
-    assert total_export > 5.0, (
-        f"Expected unconstrained export > 5.0 kWh, got {total_export}"
-    )
+    assert total_export > 5.0, f"Expected unconstrained export > 5.0 kWh, got {total_export}"
 
 
 def _arbitrage_input(n_cheap: int = 4, n_dear: int = 4, load_kwh: float = 0.0, pv_kwh: float = 0.0):
@@ -409,9 +407,7 @@ def test_dc_coupled_pv_to_battery_not_counted_against_ac_limit():
 
 def test_inverter_limit_feasible_with_high_load():
     """Load above the AC limit is served from grid directly; the plan stays feasible."""
-    result = KeplerSolver().solve(
-        _arbitrage_input(load_kwh=3.0), _arbitrage_config("dc_coupled")
-    )
+    result = KeplerSolver().solve(_arbitrage_input(load_kwh=3.0), _arbitrage_config("dc_coupled"))
     assert result.is_optimal
     for s in result.slots:
         assert s.charge_kwh + s.discharge_kwh <= 2.0 + 0.01

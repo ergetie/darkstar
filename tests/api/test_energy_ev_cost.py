@@ -133,7 +133,13 @@ async def test_period_share_and_sum(store):
         store,
         [
             dict(ev_charging_kwh=6.0, pv_kwh=0.0, import_kwh=6.0, import_price_sek_kwh=1.0),
-            dict(ev_charging_kwh=4.0, pv_kwh=5.0, load_kwh=0.5, import_kwh=0.0, import_price_sek_kwh=1.0),
+            dict(
+                ev_charging_kwh=4.0,
+                pv_kwh=5.0,
+                load_kwh=0.5,
+                import_kwh=0.0,
+                import_price_sek_kwh=1.0,
+            ),
         ],
     )
     r = await _range(store)
@@ -146,7 +152,9 @@ async def test_period_share_and_sum(store):
 
 @pytest.mark.asyncio
 async def test_no_ev_energy(store):
-    await _add(store, [dict(ev_charging_kwh=0.0, pv_kwh=3.0, import_kwh=2.0, import_price_sek_kwh=1.0)])
+    await _add(
+        store, [dict(ev_charging_kwh=0.0, pv_kwh=3.0, import_kwh=2.0, import_price_sek_kwh=1.0)]
+    )
     r = await _range(store)
     assert r["ev_cost_sek"] == 0.0
     assert r["ev_grid_kwh"] == 0.0

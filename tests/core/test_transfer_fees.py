@@ -40,7 +40,9 @@ def _local(*args):
 
 
 def test_flat_parity_with_old_formula_without_new_keys():
-    config = {"pricing": {"vat_percent": 25.0, "grid_transfer_fee_sek": 0.25, "energy_tax_sek": 0.44}}
+    config = {
+        "pricing": {"vat_percent": 25.0, "grid_transfer_fee_sek": 0.25, "energy_tax_sek": 0.44}
+    }
     expected = (0.5 + 0.25 + 0.44) * 1.25
     for slot in (None, _local(2026, 12, 1, 10, 0)):
         imp, exp = calculate_import_export_prices(500.0, config, slot)
@@ -92,7 +94,11 @@ def test_holiday_toggle():
 
 
 def test_invalid_rule_is_skipped_with_warning(caplog):
-    rules = [{"hours": {"start": 8, "end": 8}, "fee_sek": 9.0}, {"fee_sek": -1}, WINTER_WEEKDAY_RULE]
+    rules = [
+        {"hours": {"start": 8, "end": 8}, "fee_sek": 9.0},
+        {"fee_sek": -1},
+        WINTER_WEEKDAY_RULE,
+    ]
     pricing = _config(rules=rules)["pricing"]
     with caplog.at_level(logging.WARNING, logger="darkstar.core.prices"):
         fee = resolve_transfer_fee(_local(2026, 12, 2, 10, 0), pricing)
@@ -105,7 +111,11 @@ def test_nordpool_processing_uses_slot_fee():
     config = _config()
     start = _local(2026, 12, 1, 21, 45)
     entries = [
-        {"start": start + timedelta(minutes=15 * i), "end": start + timedelta(minutes=15 * (i + 1)), "value": 1000.0}
+        {
+            "start": start + timedelta(minutes=15 * i),
+            "end": start + timedelta(minutes=15 * (i + 1)),
+            "value": 1000.0,
+        }
         for i in range(2)
     ]
     result = _process_nordpool_data(entries, config)
@@ -154,7 +164,10 @@ def test_config_save_invalidates_price_cache_on_pricing_change(
 
     payload = {"system": {"has_battery": False}}
     if pricing_change:
-        payload["pricing"] = {"transfer_fee_mode": "time_of_use", "transfer_fee_rules": [WINTER_WEEKDAY_RULE]}
+        payload["pricing"] = {
+            "transfer_fee_mode": "time_of_use",
+            "transfer_fee_rules": [WINTER_WEEKDAY_RULE],
+        }
 
     cache_sync.set(NORDPOOL_CACHE_KEY, [{"stale": True}], ttl_seconds=3600.0)
     try:

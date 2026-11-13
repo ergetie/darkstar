@@ -1,4 +1,5 @@
 """Regression test: max_soc infeasibility incident (capacity=19.2, initial_soc=18.989)."""
+
 from datetime import datetime, timedelta
 
 import pytest
@@ -7,7 +8,9 @@ from planner.solver.kepler import KeplerSolver
 from planner.solver.types import KeplerConfig, KeplerInput, KeplerInputSlot
 
 
-def _make_slots(n: int, import_price: float = 1.0, export_price: float = 0.4) -> list[KeplerInputSlot]:
+def _make_slots(
+    n: int, import_price: float = 1.0, export_price: float = 0.4
+) -> list[KeplerInputSlot]:
     start = datetime(2025, 6, 1, 10, 0)
     slots = []
     for i in range(n):

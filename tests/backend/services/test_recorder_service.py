@@ -65,10 +65,16 @@ async def test_loop_runs_startup_backfills_then_sleeps_and_records():
     with (
         patch.object(service, "_load_config", return_value={"loaded": True}),
         patch("backend.services.recorder_service.BackfillEngine") as backfill_cls,
-        patch("backend.services.recorder_service.backfill_missing_prices", new_callable=AsyncMock) as price_backfill,
+        patch(
+            "backend.services.recorder_service.backfill_missing_prices", new_callable=AsyncMock
+        ) as price_backfill,
         patch("backend.services.recorder_service.LoadDisaggregator") as disaggregator_cls,
-        patch.object(service, "_record_with_retry", new_callable=AsyncMock, side_effect=record_once) as record,
-        patch.object(service, "_sleep_until_next_quarter", new_callable=AsyncMock, side_effect=sleep_once) as sleep_to_boundary,
+        patch.object(
+            service, "_record_with_retry", new_callable=AsyncMock, side_effect=record_once
+        ) as record,
+        patch.object(
+            service, "_sleep_until_next_quarter", new_callable=AsyncMock, side_effect=sleep_once
+        ) as sleep_to_boundary,
     ):
         backfill_cls.return_value.run = AsyncMock()
         await service._loop()

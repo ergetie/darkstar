@@ -65,7 +65,9 @@ def _wall_kwh(result, minutes: int = 60) -> list[float]:
 
 def test_fewer_higher_power_slots_preferred():
     ev = _ev(10.0, charge_overhead_kw=0.25, start_loss_kwh=0.15, charge_efficiency=0.95)
-    result = KeplerSolver().solve(KeplerInput(slots=_slots([1.0] * 8), initial_soc_kwh=0.0), _config(ev))
+    result = KeplerSolver().solve(
+        KeplerInput(slots=_slots([1.0] * 8), initial_soc_kwh=0.0), _config(ev)
+    )
     assert result.is_optimal
     on = [i for i, kwh in enumerate(_wall_kwh(result)) if kwh > 1e-6]
     assert len(on) == 2, on
@@ -74,7 +76,9 @@ def test_fewer_higher_power_slots_preferred():
 
 def test_efficiency_raises_wallbox_energy():
     ev = _ev(10.0, charge_overhead_kw=0.0, start_loss_kwh=0.0, charge_efficiency=0.95)
-    result = KeplerSolver().solve(KeplerInput(slots=_slots([1.0] * 8), initial_soc_kwh=0.0), _config(ev))
+    result = KeplerSolver().solve(
+        KeplerInput(slots=_slots([1.0] * 8), initial_soc_kwh=0.0), _config(ev)
+    )
     assert sum(_wall_kwh(result)) >= 10.0 / 0.95 - 1e-4  # ~10.53
 
 
@@ -88,7 +92,9 @@ def _solve_running(charging_now: bool) -> float:
         charging_now=charging_now,
     )
     prices = [0.5, 1.0, 1.0, 1.0]
-    result = KeplerSolver().solve(KeplerInput(slots=_slots(prices), initial_soc_kwh=0.0), _config(ev))
+    result = KeplerSolver().solve(
+        KeplerInput(slots=_slots(prices), initial_soc_kwh=0.0), _config(ev)
+    )
     assert result.is_optimal
     return sum(_wall_kwh(result))
 

@@ -1,4 +1,5 @@
 """Tests for PlannerError raised by Kepler on solver failure or invalid schedule."""
+
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -49,6 +50,7 @@ def test_solver_infeasible_raises_planner_error():
     original_solve = solver.solve
 
     with patch("planner.solver.kepler.pulp.LpProblem.solve") as mock_solve:
+
         def fake_solve(self_or_cmd, *args, **kwargs):
             # If called as instance method the first arg is the solver cmd
             pass
@@ -56,21 +58,35 @@ def test_solver_infeasible_raises_planner_error():
         import pulp as _pulp
 
         with patch.object(_pulp.LpProblem, "solve") as mock_prob_solve:
+
             def set_infeasible(solver_cmd=None, **kw):
                 return None  # will be called on prob
 
             # Instead, directly patch the prob.status after solve
-            with patch("planner.solver.kepler.pulp.LpStatus", {-1: "Infeasible", 1: "Optimal", 0: "Not Solved", -2: "Undefined"}):
+            with patch(
+                "planner.solver.kepler.pulp.LpStatus",
+                {-1: "Infeasible", 1: "Optimal", 0: "Not Solved", -2: "Undefined"},
+            ):
                 with patch("planner.solver.kepler.pulp.constants.LpStatusInfeasible", -1):
                     # Patch prob so it returns infeasible
                     class FakeProb:
                         status = -1
-                        def solve(self, *a, **kw): pass
-                        def __iadd__(self, expr): return self
-                        def writeLP(self, *a): pass
-                        def variables(self): return []
+
+                        def solve(self, *a, **kw):
+                            pass
+
+                        def __iadd__(self, expr):
+                            return self
+
+                        def writeLP(self, *a):
+                            pass
+
+                        def variables(self):
+                            return []
+
                         @property
-                        def constraints(self): return {}
+                        def constraints(self):
+                            return {}
 
                     with patch("planner.solver.kepler.pulp.LpProblem", return_value=FakeProb()):
                         with pytest.raises(PlannerError) as exc:

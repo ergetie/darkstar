@@ -28,7 +28,9 @@ def _config(arrays: list[dict[str, float]]) -> dict:
 
 def _local_slots(count: int) -> list[dict]:
     start = LOCAL_TZ.localize(datetime(2026, 6, 21, 0, 0))
-    return [{"start_time": LOCAL_TZ.normalize(start + timedelta(minutes=15 * i))} for i in range(count)]
+    return [
+        {"start_time": LOCAL_TZ.normalize(start + timedelta(minutes=15 * i))} for i in range(count)
+    ]
 
 
 def _prod_shaped_series() -> dict[datetime, float]:

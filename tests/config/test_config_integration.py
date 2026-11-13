@@ -83,8 +83,5 @@ def test_config_loading_ignores_removed_water_penalty_keys(default_config):
 
     assert with_stale_keys.water_reliability_penalty_sek == baseline.water_reliability_penalty_sek
     assert with_stale_keys.water_block_penalty_sek == baseline.water_block_penalty_sek
-    assert (
-        with_stale_keys.water_block_start_penalty_sek
-        == baseline.water_block_start_penalty_sek
-    )
+    assert with_stale_keys.water_block_start_penalty_sek == baseline.water_block_start_penalty_sek
     assert with_stale_keys.water_gap_penalty_sek == baseline.water_gap_penalty_sek

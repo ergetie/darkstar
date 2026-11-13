@@ -41,7 +41,9 @@ def test_disabled_device_is_absent_and_silent():
 
 def test_enabled_device_on_real_entity_is_silent():
     config = _base_config(
-        ev_chargers=[EVChargerDeviceConfig(id="ev_charger_1", switch_entity="switch.real_ev_charger")],
+        ev_chargers=[
+            EVChargerDeviceConfig(id="ev_charger_1", switch_entity="switch.real_ev_charger")
+        ],
         has_battery=False,
     )
 
@@ -53,7 +55,9 @@ def test_enabled_device_on_real_entity_is_silent():
 def test_enabled_water_heater_on_test_entity_warns():
     config = _base_config(
         water_heater_devices=[
-            WaterHeaterDeviceConfig(id="wh1", name="Water Heater", target_entity="input_number.test_temp")
+            WaterHeaterDeviceConfig(
+                id="wh1", name="Water Heater", target_entity="input_number.test_temp"
+            )
         ],
         has_battery=False,
     )

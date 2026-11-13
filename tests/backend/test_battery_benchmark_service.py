@@ -82,7 +82,12 @@ async def test_version_bump_recomputes_stored_days(store):
 @pytest.mark.asyncio
 async def test_v1_capacity_mismatch_record_is_recomputed(store):
     await _service().run_once(store)
-    legacy = {"version": 1, "date": YESTERDAY.isoformat(), "status": "excluded", "reason": "capacity_mismatch"}
+    legacy = {
+        "version": 1,
+        "date": YESTERDAY.isoformat(),
+        "status": "excluded",
+        "reason": "capacity_mismatch",
+    }
     await store.set_system_state("battery_benchmark:2026-10-10", json.dumps(legacy))
     assert await _service().run_once(store) == [YESTERDAY]
     record = (await _stored(store))["battery_benchmark:2026-10-10"]
@@ -111,10 +116,14 @@ async def test_failed_solve_is_stored(store):
 @pytest.mark.asyncio
 async def test_run_writes_only_benchmark_state(store):
     async with store.AsyncSession() as session:
-        before = [r.__dict__.copy() for r in (await session.execute(select(SlotObservation))).scalars()]
+        before = [
+            r.__dict__.copy() for r in (await session.execute(select(SlotObservation))).scalars()
+        ]
     await _service().run_once(store)
     async with store.AsyncSession() as session:
-        after = [r.__dict__.copy() for r in (await session.execute(select(SlotObservation))).scalars()]
+        after = [
+            r.__dict__.copy() for r in (await session.execute(select(SlotObservation))).scalars()
+        ]
     strip = lambda rows: [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]  # noqa: E731
     assert strip(before) == strip(after)
     assert all(key.startswith("battery_benchmark:") for key in await _stored(store))

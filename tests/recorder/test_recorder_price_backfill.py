@@ -84,7 +84,10 @@ async def _run(path: str, indices: list[int]) -> AsyncMock:
         patch("backend.recorder._load_config", return_value=config),
         patch("backend.core.prices.get_nordpool_data", nordpool),
         patch.object(
-            LearningStore, "store_slot_prices", autospec=True, side_effect=LearningStore.store_slot_prices
+            LearningStore,
+            "store_slot_prices",
+            autospec=True,
+            side_effect=LearningStore.store_slot_prices,
         ) as spy,
     ):
         await backfill_missing_prices()

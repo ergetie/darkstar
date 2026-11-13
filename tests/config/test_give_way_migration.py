@@ -107,7 +107,9 @@ class TestGiveWayMigration:
         assert changed
         again, changed_again = _migrate_give_way_order(result)
         assert not changed_again
-        assert again["load_balancing"]["give_way_order"] == result["load_balancing"]["give_way_order"]
+        assert (
+            again["load_balancing"]["give_way_order"] == result["load_balancing"]["give_way_order"]
+        )
 
     def test_existing_give_way_order_is_preserved(self):
         """Old keys present alongside give_way_order: keys dropped, order kept."""

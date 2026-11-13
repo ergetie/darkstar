@@ -50,9 +50,7 @@ def test_reload_config_if_changed_picks_up_new_value(tmp_path):
 
 def test_reload_config_if_changed_skips_when_unchanged(tmp_path):
     config_file = tmp_path / "config.yaml"
-    config_file.write_text(
-        "timezone: Europe/Stockholm\nlearning:\n  sqlite_path: /tmp/test.db\n"
-    )
+    config_file.write_text("timezone: Europe/Stockholm\nlearning:\n  sqlite_path: /tmp/test.db\n")
 
     engine = LearningEngine(str(config_file))
     original_config = engine.config
@@ -89,6 +87,7 @@ def test_refresh_config_invoked_on_engine_after_save(tmp_path):
         # Simulate the save_config post-write block directly
         try:
             from backend.learning import get_learning_engine
+
             get_learning_engine().refresh_config()
         except Exception:
             pass

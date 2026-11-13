@@ -169,7 +169,6 @@ class TestTargetMarginAndPause:
         assert out.target_a is not None and out.target_a >= 6
         assert out.state != "paused"
 
-
     def test_floor_pauses_immediately_when_trigger_requests_relief(self):
         lb = make_lb()
         now = BASE
@@ -255,7 +254,6 @@ class TestSafetyInvariants:
         out = lb.tick(now, {1: 10.0, 2: 10.0, 3: 18.0}, fresh(now), [entry]).ev_outputs[0]
         assert out.target_a is None and out.state == "paused"
 
-
     def test_shed_relief_hold_never_below_floor(self):
         """Holding for unmeasured shed relief uses the measured draw, but never
         commands a sub-floor setpoint."""
@@ -266,8 +264,6 @@ class TestSafetyInvariants:
         assert status.shed_outputs[0].shed
         out = status.ev_outputs[0]
         assert out.target_a is not None and 6 <= out.target_a <= 10
-
-
 
     def test_stale_sensor_forces_floor_then_pauses_after_resume_delay(self):
         lb = make_lb()
@@ -300,7 +296,6 @@ class TestReliefLadder:
         assert out.relief_1p_requested
         assert out.target_a == 6 and out.state == "throttling"
         assert "L1" in out.reason and "L3" in out.reason
-
 
     def test_overload_on_the_1_phase_line_pauses(self):
         lb = make_lb()
@@ -495,7 +490,14 @@ class TestPhaseModeControllerRelief:
         assert ctrl.relief_hold
         for s in range(0, 1300, 5):
             decision = ctrl.decide(
-                BASE + timedelta(seconds=s), 6.9, 4.14, 0.5, 600, True, True, False,
+                BASE + timedelta(seconds=s),
+                6.9,
+                4.14,
+                0.5,
+                600,
+                True,
+                True,
+                False,
                 three_phase_fits=False,
             )
             assert not decision.should_switch
@@ -506,7 +508,14 @@ class TestPhaseModeControllerRelief:
         decision = None
         for s in range(0, 700, 5):
             decision = ctrl.decide(
-                BASE + timedelta(seconds=s), 6.9, 4.14, 0.5, 600, True, True, False,
+                BASE + timedelta(seconds=s),
+                6.9,
+                4.14,
+                0.5,
+                600,
+                True,
+                True,
+                False,
                 three_phase_fits=True,
             )
             if decision.should_switch:
@@ -632,7 +641,10 @@ def _replay():
             goal_at_risk=True,
         )
         out = lb.tick(now, grid, fresh(now), [entry]).ev_outputs[0]
-        if out.relief_1p_requested and ctrl.decide_relief(now, 600, True, True, False).should_switch:
+        if (
+            out.relief_1p_requested
+            and ctrl.decide_relief(now, 600, True, True, False).should_switch
+        ):
             ctrl.on_switch_success(1, now, relief=True)
             phases = [1]
             events.append((now, "relief"))

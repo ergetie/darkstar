@@ -27,13 +27,17 @@ from executor.config import (
 from executor.engine import ExecutorEngine
 
 
-def _make_schedule(slots: list, generated_at: datetime | None = None, tz_name: str = "Europe/Stockholm") -> dict:
+def _make_schedule(
+    slots: list, generated_at: datetime | None = None, tz_name: str = "Europe/Stockholm"
+) -> dict:
     tz = pytz.timezone(tz_name)
     ts = generated_at if generated_at is not None else datetime.now(tz)
     return {"schedule": slots, "meta": {"generated_at": ts.isoformat()}}
 
 
-def _make_slot(start: datetime, charge_kw: float = 0, soc_target: int = 50, ev_charging_kw: float = 0) -> dict:
+def _make_slot(
+    start: datetime, charge_kw: float = 0, soc_target: int = 50, ev_charging_kw: float = 0
+) -> dict:
     end = start + timedelta(minutes=15)
     return {
         "start_time": start.isoformat(),
@@ -60,13 +64,21 @@ def temp_schedule(tmp_path):
 def temp_db(tmp_path):
     from sqlalchemy import create_engine as sa_engine
     from backend.learning.models import Base
+
     db_path = str(tmp_path / "test.db")
     engine = sa_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(engine)
     return db_path
 
 
-def _make_engine(temp_schedule, temp_db, *, manual_override_entity=None, ev_chargers=None, max_schedule_age_hours=2):
+def _make_engine(
+    temp_schedule,
+    temp_db,
+    *,
+    manual_override_entity=None,
+    ev_chargers=None,
+    max_schedule_age_hours=2,
+):
     config = ExecutorConfig(
         enabled=True,
         schedule_path=temp_schedule,
@@ -80,9 +92,11 @@ def _make_engine(temp_schedule, temp_db, *, manual_override_entity=None, ev_char
         ev_chargers=ev_chargers or [],
         max_schedule_age_hours=max_schedule_age_hours,
     )
-    with patch("executor.engine.load_executor_config", return_value=config), \
-         patch("executor.engine.load_yaml", return_value={"input_sensors": {}}), \
-         patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
+    with (
+        patch("executor.engine.load_executor_config", return_value=config),
+        patch("executor.engine.load_yaml", return_value={"input_sensors": {}}),
+        patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db),
+    ):
         eng = ExecutorEngine("config.yaml")
 
     mock_ha = MagicMock(spec=HAClient)
@@ -159,9 +173,9 @@ class TestManualOverrideSuppressesWrites:
         schedule = _make_schedule([_make_slot(slot_start, charge_kw=5.0)])
         Path(temp_schedule).write_text(json.dumps(schedule))
 
-        mock_execute = AsyncMock(return_value=[
-            ActionResult(action_type="work_mode", success=True, message="ok")
-        ])
+        mock_execute = AsyncMock(
+            return_value=[ActionResult(action_type="work_mode", success=True, message="ok")]
+        )
         eng.dispatcher.execute = mock_execute
 
         result = await eng.run_once()
@@ -180,7 +194,8 @@ class TestEVChargerOverrideControl:
             switch_entity="switch.ev_charger",
         )
         eng = _make_engine(
-            temp_schedule, temp_db,
+            temp_schedule,
+            temp_db,
             manual_override_entity="input_boolean.override",
             ev_chargers=[charger],
         )
@@ -204,16 +219,23 @@ class TestEVChargerOverrideControl:
 
         mock_ha = eng.ha_client
         mock_ha.get_state_value.side_effect = lambda eid: (
-            "on" if eid == "switch.ev_charger" else
-            "off" if "override" in eid else  # override entity is OFF (no manual override)
-            "on" if "automation" in eid or "input_boolean" in eid else
-            "50" if "soc" in eid else
-            "55" if "temp" in eid else "0.0"
+            "on"
+            if eid == "switch.ev_charger"
+            else "off"
+            if "override" in eid
+            # override entity is OFF (no manual override)
+            else "on"
+            if "automation" in eid or "input_boolean" in eid
+            else "50"
+            if "soc" in eid
+            else "55"
+            if "temp" in eid
+            else "0.0"
         )
 
-        mock_set_ev = AsyncMock(return_value=ActionResult(
-            action_type="ev_charger_switch", success=True, message="off"
-        ))
+        mock_set_ev = AsyncMock(
+            return_value=ActionResult(action_type="ev_charger_switch", success=True, message="off")
+        )
         eng.dispatcher.set_ev_charger_switch = mock_set_ev
 
         mock_execute = AsyncMock(return_value=[])
@@ -239,9 +261,9 @@ class TestEVChargerOverrideControl:
         schedule = _make_schedule([slot_data])
         Path(temp_schedule).write_text(json.dumps(schedule))
 
-        mock_set_ev = AsyncMock(return_value=ActionResult(
-            action_type="ev_charger_switch", success=True, message="ok"
-        ))
+        mock_set_ev = AsyncMock(
+            return_value=ActionResult(action_type="ev_charger_switch", success=True, message="ok")
+        )
         eng.dispatcher.set_ev_charger_switch = mock_set_ev
 
         await eng.run_once()
@@ -263,16 +285,23 @@ class TestEVChargerOverrideControl:
 
         mock_ha = eng.ha_client
         mock_ha.get_state_value.side_effect = lambda eid: (
-            "off" if eid == "switch.ev_charger" else
-            "off" if "override" in eid else  # override entity is OFF (no manual override)
-            "on" if "automation" in eid or "input_boolean" in eid else
-            "50" if "soc" in eid else
-            "55" if "temp" in eid else "0.0"
+            "off"
+            if eid == "switch.ev_charger"
+            else "off"
+            if "override" in eid
+            # override entity is OFF (no manual override)
+            else "on"
+            if "automation" in eid or "input_boolean" in eid
+            else "50"
+            if "soc" in eid
+            else "55"
+            if "temp" in eid
+            else "0.0"
         )
 
-        mock_set_ev = AsyncMock(return_value=ActionResult(
-            action_type="ev_charger_switch", success=True, message="on"
-        ))
+        mock_set_ev = AsyncMock(
+            return_value=ActionResult(action_type="ev_charger_switch", success=True, message="on")
+        )
         eng.dispatcher.set_ev_charger_switch = mock_set_ev
         eng.dispatcher.execute = AsyncMock(return_value=[])
 
@@ -301,7 +330,9 @@ class TestStaleScheduleFreshnessCheck:
         generated_at = now - timedelta(hours=8)
         slot_start = now - timedelta(minutes=5)
 
-        schedule = _make_schedule([_make_slot(slot_start, charge_kw=5.0)], generated_at=generated_at)
+        schedule = _make_schedule(
+            [_make_slot(slot_start, charge_kw=5.0)], generated_at=generated_at
+        )
         Path(temp_schedule).write_text(json.dumps(schedule))
 
         mock_notify = AsyncMock()
@@ -337,12 +368,14 @@ class TestStaleScheduleFreshnessCheck:
         generated_at = now - timedelta(hours=1)
         slot_start = now - timedelta(minutes=5)
 
-        schedule = _make_schedule([_make_slot(slot_start, charge_kw=5.0)], generated_at=generated_at)
+        schedule = _make_schedule(
+            [_make_slot(slot_start, charge_kw=5.0)], generated_at=generated_at
+        )
         Path(temp_schedule).write_text(json.dumps(schedule))
 
-        mock_execute = AsyncMock(return_value=[
-            ActionResult(action_type="work_mode", success=True, message="ok")
-        ])
+        mock_execute = AsyncMock(
+            return_value=[ActionResult(action_type="work_mode", success=True, message="ok")]
+        )
         eng.dispatcher.execute = mock_execute
 
         result = await eng.run_once()
@@ -360,12 +393,18 @@ class TestStaleScheduleFreshnessCheck:
         stale_at = now - timedelta(hours=8)
         fresh_at = now - timedelta(hours=1)
 
-        stale_schedule = _make_schedule([_make_slot(slot_start, charge_kw=5.0)], generated_at=stale_at)
-        fresh_schedule = _make_schedule([_make_slot(slot_start, charge_kw=5.0)], generated_at=fresh_at)
+        stale_schedule = _make_schedule(
+            [_make_slot(slot_start, charge_kw=5.0)], generated_at=stale_at
+        )
+        fresh_schedule = _make_schedule(
+            [_make_slot(slot_start, charge_kw=5.0)], generated_at=fresh_at
+        )
 
         notify_calls = []
+
         async def mock_notify(msg):
             notify_calls.append(msg)
+
         eng.dispatcher.notify_error = mock_notify
         eng.dispatcher.execute = AsyncMock(return_value=[])
 
@@ -373,7 +412,9 @@ class TestStaleScheduleFreshnessCheck:
         Path(temp_schedule).write_text(json.dumps(stale_schedule))
         for _ in range(3):
             await eng.run_once()
-        assert len(notify_calls) == 1, f"Expected 1 alert over 3 stale ticks, got {len(notify_calls)}"
+        assert len(notify_calls) == 1, (
+            f"Expected 1 alert over 3 stale ticks, got {len(notify_calls)}"
+        )
 
         # One tick with fresh schedule — re-arms without firing
         Path(temp_schedule).write_text(json.dumps(fresh_schedule))
@@ -384,7 +425,9 @@ class TestStaleScheduleFreshnessCheck:
         Path(temp_schedule).write_text(json.dumps(stale_schedule))
         for _ in range(2):
             await eng.run_once()
-        assert len(notify_calls) == 2, f"Expected 2 alerts total after re-arm, got {len(notify_calls)}"
+        assert len(notify_calls) == 2, (
+            f"Expected 2 alerts total after re-arm, got {len(notify_calls)}"
+        )
 
     async def test_default_max_age_is_2_hours(self, temp_schedule, temp_db):
         """When max_schedule_age_hours is not configured, default of 2h is used."""
@@ -398,12 +441,14 @@ class TestStaleScheduleFreshnessCheck:
         generated_at = now - timedelta(hours=1, minutes=59)
         slot_start = now - timedelta(minutes=5)
 
-        schedule = _make_schedule([_make_slot(slot_start, charge_kw=5.0)], generated_at=generated_at)
+        schedule = _make_schedule(
+            [_make_slot(slot_start, charge_kw=5.0)], generated_at=generated_at
+        )
         Path(temp_schedule).write_text(json.dumps(schedule))
 
-        mock_execute = AsyncMock(return_value=[
-            ActionResult(action_type="work_mode", success=True, message="ok")
-        ])
+        mock_execute = AsyncMock(
+            return_value=[ActionResult(action_type="work_mode", success=True, message="ok")]
+        )
         eng.dispatcher.execute = mock_execute
 
         await eng.run_once()

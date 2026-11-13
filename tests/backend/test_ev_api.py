@@ -394,10 +394,13 @@ async def test_one_charger_sensor_failure_isolated(monkeypatch):
 
     with (
         patch(
-            "backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(side_effect=_flaky_power)
+            "backend.api.routers.ev.get_ha_sensor_kw_normalized",
+            AsyncMock(side_effect=_flaky_power),
         ),
         patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=50.0)),
-        patch("backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": "on"})),
+        patch(
+            "backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": "on"})
+        ),
     ):
         result = await ev_router.get_ev_chargers()
 
@@ -430,9 +433,7 @@ async def test_charger_without_phases_is_listed_with_disabled_reason(monkeypatch
     monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {})
     cfg = _charger_cfg(id="ev1", name="Garage", type="current", max_current_a=12)
     cfg.pop("rated_power_kw")
-    monkeypatch.setattr(
-        ev_router, "load_yaml", lambda _p: _config([cfg, _charger_cfg(id="ev2")])
-    )
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: _config([cfg, _charger_cfg(id="ev2")]))
     p_power, p_soc, p_plug = _patch_ha(power_kw=0.0, soc=40.0, plugged=True)
     with p_power, p_soc, p_plug:
         result = await ev_router.get_ev_chargers()
@@ -585,9 +586,7 @@ async def test_manual_charge_start_rejects_unavailable_plug_despite_last_known(m
 
 @pytest.mark.asyncio
 async def test_manual_charge_unknown_or_disabled_charger_404(monkeypatch):
-    monkeypatch.setattr(
-        ev_router, "load_yaml", lambda _p: _config([_charger_cfg(enabled=False)])
-    )
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: _config([_charger_cfg(enabled=False)]))
     with _patch_executor(_FakeExecutor()):
         for charger_id in ("ev1", "nope"):
             with pytest.raises(ev_router.HTTPException) as exc_info:

@@ -451,9 +451,7 @@ class TestCommandSuccessFromTickStats:
             "b_two": {"n": 20, "entity": "number.b", "err": "e2"},
             "c_three": {"n": 5, "entity": "number.c", "err": "e3"},
         }
-        seed_system_state(
-            mon_db, "executor_tick_stats", tick_stats(_bucket(1, 100, 55, failing))
-        )
+        seed_system_state(mon_db, "executor_tick_stats", tick_stats(_bucket(1, 100, 55, failing)))
         r = _evaluate(mon_db, "command_success")
         assert r.status == "violation"
         assert "a_one" in r.detail and "b_two" in r.detail

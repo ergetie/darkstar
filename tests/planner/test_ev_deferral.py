@@ -210,7 +210,9 @@ def test_no_tiers_when_deadline_in_horizon():
 def db_path(tmp_path):
     path = tmp_path / "learning.db"
     conn = sqlite3.connect(path)
-    conn.execute("CREATE TABLE price_forecasts (slot_start TEXT, issue_timestamp TEXT, spot_p50 REAL)")
+    conn.execute(
+        "CREATE TABLE price_forecasts (slot_start TEXT, issue_timestamp TEXT, spot_p50 REAL)"
+    )
     conn.execute("CREATE TABLE slot_observations (slot_start TEXT, import_price_sek_kwh REAL)")
     conn.commit()
     conn.close()
@@ -251,7 +253,9 @@ def test_trailing_average_requires_two_days(db_path):
 # ---------------------------------------------------------------------------
 def _input_slots(start: datetime, n: int, price: float = 2.0):
     return [
-        SimpleNamespace(start_time=start + i * Q, end_time=start + (i + 1) * Q, import_price_sek_kwh=price)
+        SimpleNamespace(
+            start_time=start + i * Q, end_time=start + (i + 1) * Q, import_price_sek_kwh=price
+        )
         for i in range(n)
     ]
 
@@ -302,7 +306,12 @@ async def test_deadline_inside_horizon_skips_price_fetch():
     now = _local(2026, 9, 26, 10, 0)
     slots = _input_slots(now, 152)  # through tomorrow 24:00
     states = [
-        {"id": "ev1", "plugged_in": True, "required_kwh": 20.0, "deadline": now + timedelta(hours=30)}
+        {
+            "id": "ev1",
+            "plugged_in": True,
+            "required_kwh": 20.0,
+            "deadline": now + timedelta(hours=30),
+        }
     ]
     cfg = [{"id": "ev1", "rated_power_kw": 3.7}]
     known = AsyncMock(return_value={})
@@ -398,5 +407,7 @@ def test_planned_by_day_all_known_two_days():
 def test_attach_planned_by_day_clears_goalless_chargers():
     now = _local(2026, 9, 25, 14, 0)
     states = [{"id": "ev1", "required_kwh": None, "deadline": None, "planned_by_day": ["stale"]}]
-    _attach_ev_planned_by_day(SimpleNamespace(slots=[], ev_deferred_kwh={}), states, {}, TZ, now, None)
+    _attach_ev_planned_by_day(
+        SimpleNamespace(slots=[], ev_deferred_kwh={}), states, {}, TZ, now, None
+    )
     assert states[0]["planned_by_day"] == []

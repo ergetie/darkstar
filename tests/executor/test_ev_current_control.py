@@ -149,9 +149,7 @@ class TestControlEvChargerCurrentType:
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         await engine._control_ev_charger(make_slot(11.0), now)
 
-        engine.dispatcher.set_ev_charger_current.assert_called_once_with(
-            "number.goe_current", 16
-        )
+        engine.dispatcher.set_ev_charger_current.assert_called_once_with("number.goe_current", 16)
         call = engine.dispatcher.set_ev_charger_switch.call_args
         assert call.args[0] == GOE_SWITCH
         assert call.kwargs["turn_on"] is True
@@ -174,9 +172,7 @@ class TestControlEvChargerCurrentType:
         with patch.object(engine.history, "log_execution") as log_execution:
             await engine._control_ev_charger(make_slot(11.0), now)
 
-        engine.dispatcher.set_ev_charger_current.assert_called_once_with(
-            "number.goe_current", 16
-        )
+        engine.dispatcher.set_ev_charger_current.assert_called_once_with("number.goe_current", 16)
         assert switch_calls(engine.dispatcher) == [(GOE_SWITCH, True)]
         log_execution.assert_not_called()
 
@@ -192,9 +188,7 @@ class TestControlEvChargerCurrentType:
 
         await engine._control_ev_charger(make_slot(11.0), now)
 
-        engine.dispatcher.set_ev_charger_current.assert_called_once_with(
-            "number.goe_current", 16
-        )
+        engine.dispatcher.set_ev_charger_current.assert_called_once_with("number.goe_current", 16)
         assert engine._ev_charger_states["goe"].current_setpoint_a == 16
 
     @pytest.mark.asyncio
@@ -315,9 +309,7 @@ class TestEvCurrentSafetyTimeout:
     """Stopping a current-type charger follows directly from the plan (no safety timeout)."""
 
     @pytest.mark.asyncio
-    async def test_session_is_stopped_when_plan_ends(
-        self, temp_schedule, temp_db, caplog
-    ):
+    async def test_session_is_stopped_when_plan_ends(self, temp_schedule, temp_db, caplog):
         engine = make_current_engine(temp_schedule, temp_db, goe_charger())
         engine.ha_client = AsyncMock()
         engine.ha_client.get_state = AsyncMock(return_value=None)
@@ -444,9 +436,7 @@ class TestEvCurrentTypeUsesActivePhases:
         # 3.6kW / 1 phase -> 16A (ceil) (vs ~5A if treated as 3-phase)
         await eng._control_ev_charger(make_slot(3.6), now)
 
-        eng.dispatcher.set_ev_charger_current.assert_called_once_with(
-            "number.goe_current", 16
-        )
+        eng.dispatcher.set_ev_charger_current.assert_called_once_with("number.goe_current", 16)
 
 
 class TestSourceIsolationWithCurrentControl:
@@ -458,8 +448,11 @@ class TestSourceIsolationWithCurrentControl:
     @pytest.mark.asyncio
     async def test_active_current_type_session_blocks_discharge(self, temp_schedule, temp_db):
         charger = EVChargerDeviceConfig(
-            id="goe", type="current", current_entity="number.goe_current",
-            min_current_a=6, max_current_a=16,
+            id="goe",
+            type="current",
+            current_entity="number.goe_current",
+            min_current_a=6,
+            max_current_a=16,
         )
         eng = make_current_engine(temp_schedule, temp_db, charger)
         eng._has_battery = True

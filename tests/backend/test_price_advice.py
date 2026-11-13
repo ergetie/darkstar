@@ -153,7 +153,11 @@ class TestGetPriceAdviceRule3(unittest.TestCase):
         daily_outlook = [_day("Mon", 1, 0.5)]
         result = _get_price_advice(daily_outlook, 0.5, overnight_avg=0.48, midday_avg=0.47)
 
-        window_rules = [r for r in result if "tonight" in r["message"].lower() or "midday" in r["message"].lower()]
+        window_rules = [
+            r
+            for r in result
+            if "tonight" in r["message"].lower() or "midday" in r["message"].lower()
+        ]
         self.assertEqual(len(window_rules), 0)
 
         print("✓ No overnight/midday advice when neither window qualifies")

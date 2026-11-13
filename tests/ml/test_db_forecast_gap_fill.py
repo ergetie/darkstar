@@ -89,7 +89,10 @@ async def test_slots_before_first_stored_row_use_later_day():
 async def test_small_interior_gap_is_interpolated():
     start = datetime(2024, 6, 3, 10, 0, tzinfo=UTC)
     price_slots = _slots(start, 6)
-    records = [_record(start + timedelta(minutes=15 * i), v) for i, v in [(0, 1.0), (3, 4.0), (4, 4.0), (5, 4.0)]]
+    records = [
+        _record(start + timedelta(minutes=15 * i), v)
+        for i, v in [(0, 1.0), (3, 4.0), (4, 4.0), (5, 4.0)]
+    ]
 
     with patch("backend.core.forecasts.get_forecast_slots", new=AsyncMock(return_value=records)):
         result = await build_db_forecast_for_slots(price_slots, CONFIG)
@@ -101,14 +104,23 @@ async def test_small_interior_gap_is_interpolated():
 @pytest.mark.asyncio
 async def test_no_stored_rows_returns_empty():
     with patch("backend.core.forecasts.get_forecast_slots", new=AsyncMock(return_value=[])):
-        assert await build_db_forecast_for_slots(_slots(datetime(2024, 6, 3, tzinfo=UTC), 4), CONFIG) == []
+        assert (
+            await build_db_forecast_for_slots(_slots(datetime(2024, 6, 3, tzinfo=UTC), 4), CONFIG)
+            == []
+        )
 
 
 async def _run_aurora(db_slots: list[dict], price_slots: list[dict]):
     with (
-        patch("backend.core.forecasts.build_db_forecast_for_slots", new=AsyncMock(return_value=db_slots)),
+        patch(
+            "backend.core.forecasts.build_db_forecast_for_slots",
+            new=AsyncMock(return_value=db_slots),
+        ),
         patch("backend.core.forecasts.get_forecast_slots", new=AsyncMock(return_value=[])),
-        patch("backend.core.ha_client.get_load_profile_from_ha", new=AsyncMock(return_value=[0.4] * 96)),
+        patch(
+            "backend.core.ha_client.get_load_profile_from_ha",
+            new=AsyncMock(return_value=[0.4] * 96),
+        ),
         patch("backend.health.record_forecast_error") as record,
     ):
         result = await _get_forecast_data_aurora(price_slots, CONFIG)
@@ -159,7 +171,9 @@ async def test_fold_hour_pandas_slot_matches_stored_record_exactly():
 
     config = {**CONFIG, "timezone": "Europe/Stockholm"}
     start = datetime(2026, 10, 25, 0, 0, tzinfo=UTC)
-    index = dst_safe_date_range(start, start + timedelta(hours=2), "15min", "Europe/Stockholm", inclusive="left")
+    index = dst_safe_date_range(
+        start, start + timedelta(hours=2), "15min", "Europe/Stockholm", inclusive="left"
+    )
     price_slots = [{"start_time": ts} for ts in index]
     fold_idx = next(i for i, ts in enumerate(index) if ts.fold == 1)
     records = [_record(ts.to_pydatetime().astimezone(UTC), 0.1 * i) for i, ts in enumerate(index)]

@@ -207,9 +207,7 @@ def test_bundle_includes_the_balancer_trace(env, monkeypatch):
     ticks = [{"t": "2026-10-21T12:00:00", "state": "throttling"}]
     fake_executor = SimpleNamespace(get_balancer_trace=lambda: ticks)
     monkeypatch.setattr(system_router, "_get_balancer_trace", REAL_BALANCER_TRACE)
-    monkeypatch.setattr(
-        "backend.api.routers.executor.get_executor_instance", lambda: fake_executor
-    )
+    monkeypatch.setattr("backend.api.routers.executor.get_executor_instance", lambda: fake_executor)
 
     resp = env.client.get("/api/system/diagnostics")
 

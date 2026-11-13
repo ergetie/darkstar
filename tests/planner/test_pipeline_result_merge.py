@@ -9,9 +9,7 @@ import pytest
 
 def _do_merge(future_df: pd.DataFrame, result_df: pd.DataFrame, logger=None) -> pd.DataFrame:
     water_heating_series = (
-        future_df["water_heating_kw"].copy()
-        if "water_heating_kw" in future_df.columns
-        else None
+        future_df["water_heating_kw"].copy() if "water_heating_kw" in future_df.columns else None
     )
 
     final_df = future_df.join(result_df, rsuffix="_kepler")
@@ -89,8 +87,12 @@ def test_merge_length_mismatch_index_aligned_no_valueerror():
     for col in ["battery_charge_kw", "grid_import_kw"]:
         assert col in final_df.columns
 
-    assert final_df.loc[:result_times[-1], "battery_charge_kw"].notna().all()
-    assert final_df.loc[result_times[-1] + pd.Timedelta(minutes=15):, "battery_charge_kw"].isna().all()
+    assert final_df.loc[: result_times[-1], "battery_charge_kw"].notna().all()
+    assert (
+        final_df.loc[result_times[-1] + pd.Timedelta(minutes=15) :, "battery_charge_kw"]
+        .isna()
+        .all()
+    )
 
 
 def test_merge_length_mismatch_logged(caplog):

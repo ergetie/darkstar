@@ -57,9 +57,7 @@ class TestDeprecatedKeyRemoval:
         }
         result, changed = remove_deprecated_keys({"battery": dict(battery)})
         assert changed
-        assert result["battery"] == {
-            k: v for k, v in battery.items() if not k.endswith("power_kw")
-        }
+        assert result["battery"] == {k: v for k, v in battery.items() if not k.endswith("power_kw")}
         _, changed_again = remove_deprecated_keys(result)
         assert not changed_again
 

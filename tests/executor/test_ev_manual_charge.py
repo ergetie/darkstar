@@ -399,7 +399,6 @@ class TestSafetyPrecedence:
         assert engine.dispatcher.set_ev_charger_switch.call_args.kwargs["turn_on"] is False
         assert "ev1" in engine.get_ev_manual_charge_status()
 
-
     @pytest.mark.asyncio
     async def test_manual_override_skips_ev_writes(self, temp_schedule, temp_db):
         """Executor pause via manual override (skip_writes) still prevents charging."""
@@ -495,7 +494,9 @@ class TestEndConditions:
     async def test_unavailable_plug_keeps_charging(self, temp_schedule, temp_db):
         engine = make_engine(temp_schedule, temp_db, [binary_charger()])
         start(engine)
-        engine.ha_client = ha_states({"sensor.ev1_soc": "50", "binary_sensor.ev1_plug": "unavailable"})
+        engine.ha_client = ha_states(
+            {"sensor.ev1_soc": "50", "binary_sensor.ev1_plug": "unavailable"}
+        )
 
         await engine._check_ev_manual_charge_end(datetime.now(TZ))
 
@@ -505,7 +506,9 @@ class TestEndConditions:
     async def test_target_reached_with_unavailable_plug_ends(self, temp_schedule, temp_db):
         engine = make_engine(temp_schedule, temp_db, [binary_charger()])
         start(engine, target=80)
-        engine.ha_client = ha_states({"sensor.ev1_soc": "81", "binary_sensor.ev1_plug": "unavailable"})
+        engine.ha_client = ha_states(
+            {"sensor.ev1_soc": "81", "binary_sensor.ev1_plug": "unavailable"}
+        )
 
         await engine._check_ev_manual_charge_end(datetime.now(TZ))
 

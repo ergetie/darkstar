@@ -49,7 +49,10 @@ def test_plan_store_failed_is_warning_only():
 @pytest.mark.asyncio
 async def test_failed_save_is_recorded_logged_and_surfaced(caplog):
     with (
-        patch("planner.pipeline.LearningStore", return_value=_store(RuntimeError("database is locked"))),
+        patch(
+            "planner.pipeline.LearningStore",
+            return_value=_store(RuntimeError("database is locked")),
+        ),
         caplog.at_level(logging.ERROR, logger="darkstar.planner"),
     ):
         await _store_plan_history(_plan_df(), CONFIG, "Europe/Stockholm")

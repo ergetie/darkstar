@@ -36,7 +36,6 @@ def make_lb(**overrides) -> LoadBalancer:
         main_fuse_a=20,
         resume_delay_s=120,
         target_margin_percent=90,
-
         ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
@@ -622,9 +621,7 @@ class TestSimulation:
         first-order lagging 'real world': the heater is not cycled faster than
         its minimum off time and no phase stays over the fuse for longer than
         a sensor interval."""
-        lb = make_lb(
-            ramp_up_window_s=60, max_step_interval_s=30, main_fuse_a=16
-        )
+        lb = make_lb(ramp_up_window_s=60, max_step_interval_s=30, main_fuse_a=16)
         fuse = 16.0
         heater_a = 3100.0 / V
         heater = ShedLoadInput(

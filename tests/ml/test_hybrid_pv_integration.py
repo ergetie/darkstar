@@ -98,7 +98,9 @@ class TestHybridPVIntegration(unittest.IsolatedAsyncioTestCase):
         baseline = pd.Series([1.0] * 4, index=mock_weather.return_value.index)
 
         # Run forward pass
-        with patch("ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)):
+        with patch(
+            "ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)
+        ):
             await generate_forward_slots(horizon_hours=1, forecast_version="test")
 
         # Verify forecasts were stored
@@ -182,7 +184,9 @@ class TestHybridPVIntegration(unittest.IsolatedAsyncioTestCase):
 
         baseline = pd.Series([1.0] * 4, index=mock_weather.return_value.index)
 
-        with patch("ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)):
+        with patch(
+            "ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)
+        ):
             await generate_forward_slots(horizon_hours=1, forecast_version="test")
 
         args, _ = mock_engine.store_forecasts.call_args

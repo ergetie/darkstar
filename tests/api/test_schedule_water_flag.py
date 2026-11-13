@@ -17,6 +17,7 @@ async def test_water_fields_follow_flag(monkeypatch, tmp_path, flag, past):
         if past
         else ("2026-10-07T22:30:00+02:00", "2026-10-07T22:45:00+02:00")
     )
+
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None):

@@ -51,7 +51,13 @@ def test_infeasible_goal_produces_warning(caplog):
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "type": "current", "max_current_a": 14, "min_current_a": 6, "phases": [1, 2, 3]}
+        {
+            "id": "ev1",
+            "type": "current",
+            "max_current_a": 14,
+            "min_current_a": 6,
+            "phases": [1, 2, 3],
+        }
     ]
 
     with caplog.at_level("WARNING"):
@@ -76,7 +82,13 @@ def test_scheduled_goal_logs_no_warning(caplog):
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "type": "current", "max_current_a": 14, "min_current_a": 6, "phases": [1, 2, 3]}
+        {
+            "id": "ev1",
+            "type": "current",
+            "max_current_a": 14,
+            "min_current_a": 6,
+            "phases": [1, 2, 3],
+        }
     ]
 
     with caplog.at_level("WARNING"):
@@ -107,10 +119,21 @@ def test_fully_deferred_goal_is_not_a_zero_schedule_warning(caplog):
     slots = [_slot(now, now + timedelta(minutes=15), ev_charger_results={"ev1": 0.0})]
     result = _result(slots, ev_deferred_kwh={"ev1": [6.0, 4.0]})
     ev_states = [
-        {"id": "ev1", "required_kwh": 10.0, "deadline": deadline, "deferral_price_source": "forecast"}
+        {
+            "id": "ev1",
+            "required_kwh": 10.0,
+            "deadline": deadline,
+            "deferral_price_source": "forecast",
+        }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "type": "current", "max_current_a": 14, "min_current_a": 6, "phases": [1, 2, 3]}
+        {
+            "id": "ev1",
+            "type": "current",
+            "max_current_a": 14,
+            "min_current_a": 6,
+            "phases": [1, 2, 3],
+        }
     ]
 
     with caplog.at_level("INFO"):

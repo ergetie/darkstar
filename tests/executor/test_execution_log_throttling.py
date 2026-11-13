@@ -46,8 +46,12 @@ def decision(mode="idle") -> ControllerDecision:
 
 def disabled_balancer_status(state="disabled") -> LoadBalancerStatus:
     return LoadBalancerStatus(
-        enabled=False, state=state, reason="", main_fuse_a=None,
-        phase_current_a={}, phase_headroom_a={},
+        enabled=False,
+        state=state,
+        reason="",
+        main_fuse_a=None,
+        phase_current_a={},
+        phase_headroom_a={},
     )
 
 
@@ -69,7 +73,9 @@ class TestIdleSlotHeartbeat:
 
     def test_second_idle_tick_in_the_same_slot_is_a_pure_heartbeat(self, engine):
         base = TZ.localize(datetime(2026, 1, 1, 12, 0, 0))
-        engine._should_log_execution(base, decision(), [], no_override(), disabled_balancer_status())
+        engine._should_log_execution(
+            base, decision(), [], no_override(), disabled_balancer_status()
+        )
 
         # New slot, nothing else changed -> only the heartbeat reason fires
         next_slot = TZ.localize(datetime(2026, 1, 1, 12, 15, 0))
@@ -101,10 +107,18 @@ class TestIdleSlotHeartbeat:
         )
         # Mode changes mid-slot
         should_log_3, reasons_3 = engine._should_log_execution(
-            base.replace(minute=7), decision("charge"), [], no_override(), disabled_balancer_status()
+            base.replace(minute=7),
+            decision("charge"),
+            [],
+            no_override(),
+            disabled_balancer_status(),
         )
         should_log_4, _ = engine._should_log_execution(
-            base.replace(minute=10), decision("charge"), [], no_override(), disabled_balancer_status()
+            base.replace(minute=10),
+            decision("charge"),
+            [],
+            no_override(),
+            disabled_balancer_status(),
         )
 
         assert should_log_1 is True  # heartbeat
@@ -115,7 +129,9 @@ class TestIdleSlotHeartbeat:
 
     def test_new_slot_gets_its_own_heartbeat(self, engine):
         base = TZ.localize(datetime(2026, 1, 1, 12, 0, 0))
-        engine._should_log_execution(base, decision(), [], no_override(), disabled_balancer_status())
+        engine._should_log_execution(
+            base, decision(), [], no_override(), disabled_balancer_status()
+        )
 
         next_slot = TZ.localize(datetime(2026, 1, 1, 12, 15, 0))
         should_log, reasons = engine._should_log_execution(
@@ -163,8 +179,12 @@ class TestChangeDrivenLogging:
         engine._should_log_execution(now, decision(), [], no_override(), disabled_balancer_status())
 
         throttling_status = LoadBalancerStatus(
-            enabled=True, state="throttling", reason="capped", main_fuse_a=20,
-            phase_current_a={1: 22.0}, phase_headroom_a={1: -2.0},
+            enabled=True,
+            state="throttling",
+            reason="capped",
+            main_fuse_a=20,
+            phase_current_a={1: 22.0},
+            phase_headroom_a={1: -2.0},
         )
         should_log, reasons = engine._should_log_execution(
             now.replace(minute=1), decision(), [], no_override(), throttling_status

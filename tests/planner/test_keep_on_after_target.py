@@ -49,7 +49,12 @@ def test_keep_on_sets_flag_until_deadline_no_fake_power():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
+        {
+            "id": "ev1",
+            "rated_power_kw": 11.0,
+            "target_soc_percent": 100,
+            "battery_capacity_kwh": 82.0,
+        }
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
@@ -85,7 +90,12 @@ def test_keep_on_off_no_flag():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
+        {
+            "id": "ev1",
+            "rated_power_kw": 11.0,
+            "target_soc_percent": 100,
+            "battery_capacity_kwh": 82.0,
+        }
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
@@ -113,7 +123,12 @@ def _keep_on_case(target: int, soc: float | None, soc_status: str | None = "live
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": target, "battery_capacity_kwh": 82.0}
+        {
+            "id": "ev1",
+            "rated_power_kw": 11.0,
+            "target_soc_percent": target,
+            "battery_capacity_kwh": 82.0,
+        }
     ]
     _apply_keep_on_after_target(_make_result(slots), ev_states, ev_chargers_cfg, now)
     return slots
@@ -164,7 +179,12 @@ def test_keep_on_soc_below_100_no_flag():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
+        {
+            "id": "ev1",
+            "rated_power_kw": 11.0,
+            "target_soc_percent": 100,
+            "battery_capacity_kwh": 82.0,
+        }
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
@@ -195,7 +215,12 @@ def test_keep_on_after_deadline_no_flag():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
+        {
+            "id": "ev1",
+            "rated_power_kw": 11.0,
+            "target_soc_percent": 100,
+            "battery_capacity_kwh": 82.0,
+        }
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)
@@ -212,7 +237,9 @@ def test_keep_on_does_not_touch_solver_scheduled_energy():
     deadline = now + timedelta(hours=1)
 
     slots = [
-        _make_slot(now + timedelta(minutes=i * 15), now + timedelta(minutes=(i + 1) * 15), {"ev1": 5.0})
+        _make_slot(
+            now + timedelta(minutes=i * 15), now + timedelta(minutes=(i + 1) * 15), {"ev1": 5.0}
+        )
         for i in range(2)
     ]
     result = _make_result(slots)
@@ -227,7 +254,12 @@ def test_keep_on_does_not_touch_solver_scheduled_energy():
         }
     ]
     ev_chargers_cfg = [
-        {"id": "ev1", "rated_power_kw": 11.0, "target_soc_percent": 100, "battery_capacity_kwh": 82.0}
+        {
+            "id": "ev1",
+            "rated_power_kw": 11.0,
+            "target_soc_percent": 100,
+            "battery_capacity_kwh": 82.0,
+        }
     ]
 
     _apply_keep_on_after_target(result, ev_states, ev_chargers_cfg, now)

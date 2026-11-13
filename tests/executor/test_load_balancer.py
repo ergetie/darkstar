@@ -94,7 +94,7 @@ class TestPlannedKwToAmps:
         assert planned_kw_to_amps(7.2, 3, min_current_a=6, max_current_a=16) == 11
 
 
-BASE =datetime(2026, 1, 1, 12, 0, 0)
+BASE = datetime(2026, 1, 1, 12, 0, 0)
 
 
 def make_lb(**overrides) -> LoadBalancer:
@@ -104,7 +104,6 @@ def make_lb(**overrides) -> LoadBalancer:
         resume_delay_s=120,
         target_margin_percent=90,
         # Legacy momentary semantics (immediate pause, no averaging window)
-
         ramp_up_window_s=0,
         increase_step_a=1,
         sensor_stale_after_s=30,
@@ -503,7 +502,10 @@ class TestSevereOverloadDuringShedHold:
         assert lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev]).ev_outputs[0].target_a == 16
         t = BASE + timedelta(seconds=15)
         _, floor_ev = self._entries(setpoint=6)
-        assert lb.tick(t, grid, fresh_ts(1, 2, 3, at=t), [wh, floor_ev]).ev_outputs[0].state == "paused"
+        assert (
+            lb.tick(t, grid, fresh_ts(1, 2, 3, at=t), [wh, floor_ev]).ev_outputs[0].state
+            == "paused"
+        )
 
         _, paused_ev = self._entries(setpoint=None)
 
