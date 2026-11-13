@@ -345,25 +345,6 @@ def test_refuses_to_start_with_empty_token(monkeypatch: pytest.MonkeyPatch) -> N
     assert main() == 1
 
 
-def test_git_runs_as_repo_owner(tmp_path: Path) -> None:
-    from updater.repo import Repo
-
-    calls: list[dict[str, Any]] = []
-
-    def fake(argv: Any, *, cwd: Any = None, env: Any = None, on_line: Any = None,
-             user: Any = None, group: Any = None) -> CommandResult:
-        calls.append({"user": user, "group": group, "env": env})
-        return CommandResult(0, "abc\n")
-
-    Repo(str(tmp_path), fake).head()
-    st = os.stat(tmp_path)
-    if st.st_uid == 0:
-        assert calls[0]["user"] is None and calls[0]["group"] is None
-    else:
-        assert (calls[0]["user"], calls[0]["group"]) == (st.st_uid, st.st_gid)
-        assert calls[0]["env"] == {"HOME": str(tmp_path), "GIT_TERMINAL_PROMPT": "0"}
-
-
 @pytest.mark.parametrize(("uid", "gid", "dropped"), [(1234, 5678, True), (0, 0, False)])
 def test_git_runs_as_repo_owner(
     monkeypatch: pytest.MonkeyPatch, uid: int, gid: int, dropped: bool
@@ -400,3 +381,26 @@ def test_git_rewrites_ssh_github_urls_to_https_and_never_prompts(tmp_path: Path)
     assert "url.https://github.com/.insteadOf=ssh://git@github.com/" in argv
     assert argv.index("fetch") > max(i for i, a in enumerate(argv) if a == "-c")
     assert env["GIT_TERMINAL_PROMPT"] == "0"
+
+
+def test_fetch_force_updates_retagged_remote_tags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from updater.repo import Repo
+
+    for key, value in GIT_ENV.items():
+        monkeypatch.setenv(key, value)
+    remote = tmp_path / "remote"
+    remote.mkdir()
+    git(remote, "init", "-q", "-b", "main")
+    commit(remote, "1.0.0")
+    git(remote, "tag", "v1.0.0")
+    clone = tmp_path / "clone"
+    git(tmp_path, "clone", "-q", str(remote), str(clone))
+
+    new_commit = commit(remote, "1.0.1")
+    git(remote, "tag", "-f", "v1.0.0", new_commit)
+
+    Repo(str(clone), run_command).fetch()
+
+    assert git(clone, "rev-parse", "v1.0.0^{commit}") == new_commit

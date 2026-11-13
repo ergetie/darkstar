@@ -63,7 +63,7 @@ class Repo:
         return result
 
     def fetch(self) -> None:
-        self.run("fetch", "--tags", "--prune", "origin")
+        self.run("fetch", "--tags", "--force", "--prune", "--prune-tags", "origin")
 
     def head(self) -> str:
         return self.run("rev-parse", "HEAD").output.strip()
