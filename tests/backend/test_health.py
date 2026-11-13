@@ -14,7 +14,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_get_health_status_respects_timeout():
+async def test_get_health_status_respects_timeout(monkeypatch):
     """Verify that get_health_status() has a 15-second timeout wrapper.
 
     This is a regression test for the DNS crash loop bug where health checks
@@ -23,14 +23,17 @@ async def test_get_health_status_respects_timeout():
     The fix: Wrap check_all() in asyncio.wait_for(timeout=15.0) to ensure
     the health check returns even if individual checks are stuck.
     """
+    import backend.health as health_mod
     from backend.health import HealthStatus, get_health_status
+
+    monkeypatch.setattr(health_mod, "HEALTH_CHECK_TIMEOUT_S", 0.1)
 
     # Mock HealthChecker.check_all to be slow (simulates stuck I/O)
     with patch("backend.health.HealthChecker") as mock_checker_class:
         mock_checker = MagicMock()
         mock_checker.check_all = AsyncMock()
 
-        # Make check_all hang for 30 seconds (longer than timeout)
+        # Make check_all hang for 30 seconds (far longer than the patched timeout)
         async def slow_check():
             await asyncio.sleep(30)
             return HealthStatus(healthy=True, issues=[])
@@ -43,8 +46,8 @@ async def test_get_health_status_respects_timeout():
         result = await get_health_status()
         elapsed = asyncio.get_event_loop().time() - start
 
-        # Should timeout and return gracefully within ~15 seconds
-        assert elapsed < 20.0, f"Health check took {elapsed}s, should timeout at 15s"
+        # Should timeout and return gracefully shortly after the patched timeout
+        assert elapsed < 5.0, f"Health check took {elapsed}s, should timeout at 0.1s"
 
         # Should return unhealthy status with timeout issue
         assert result.healthy is False
@@ -226,6 +229,7 @@ def _make_checker(config: dict):
 
 # --- Solar health check ---
 
+
 def test_solar_warning_when_arrays_empty():
     checker = _make_checker({"system": {"has_solar": True, "solar_arrays": []}})
     issues = checker._validate_config_structure()
@@ -243,9 +247,7 @@ def test_solar_no_warning_when_kwp_configured():
 
 
 def test_solar_legacy_singular_key_ignored():
-    checker = _make_checker(
-        {"system": {"has_solar": True, "solar_array": {"kwp": 10.0}}}
-    )
+    checker = _make_checker({"system": {"has_solar": True, "solar_array": {"kwp": 10.0}}})
     issues = checker._validate_config_structure()
     messages = [i.message for i in issues]
     assert "Solar enabled but panel size not configured" in messages
@@ -253,10 +255,9 @@ def test_solar_legacy_singular_key_ignored():
 
 # --- Water heater health check ---
 
+
 def test_water_heater_warning_when_list_empty():
-    checker = _make_checker(
-        {"system": {"has_water_heater": True}, "water_heaters": []}
-    )
+    checker = _make_checker({"system": {"has_water_heater": True}, "water_heaters": []})
     issues = checker._validate_config_structure()
     messages = [i.message for i in issues]
     assert "Water heater enabled but power not configured" in messages

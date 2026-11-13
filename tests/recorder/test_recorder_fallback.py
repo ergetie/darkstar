@@ -9,7 +9,7 @@ from backend.recorder import record_observation_from_current_state
 async def test_recorder_fallback_logic():
     # Mock config
     config = {
-        "learning": {"sqlite_path": "data/test_planner.db"},
+        "learning": {"sqlite_path": ":memory:"},
         "timezone": "Europe/Stockholm",
         "input_sensors": {"battery_soc": "sensor.soc", "pv_power": "sensor.pv"},
     }

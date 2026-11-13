@@ -1,22 +1,23 @@
-import shutil
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from backend.strategy.history import HISTORY_FILE, append_strategy_event, get_strategy_history
+from backend.strategy.history import append_strategy_event, get_strategy_history
 
 
 class TestStrategyHistory(unittest.TestCase):
     def setUp(self):
-        # Backup existing history if it exists
-        if HISTORY_FILE.exists():
-            shutil.move(HISTORY_FILE, str(HISTORY_FILE) + ".bak")
-
-    def tearDown(self):
-        # Restore backup
-        if Path(str(HISTORY_FILE) + ".bak").exists():
-            shutil.move(str(HISTORY_FILE) + ".bak", HISTORY_FILE)
-        elif HISTORY_FILE.exists():
-            HISTORY_FILE.unlink()
+        # Point the history file at a throwaway dir so the real data/ is never touched
+        # and parallel workers cannot collide.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = patch(
+            "backend.strategy.history.HISTORY_FILE",
+            Path(tmp.name) / "strategy_history.json",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_append_and_retrieve(self):
         append_strategy_event("TEST_EVENT", "This is a test", {"foo": "bar"})

@@ -5,15 +5,16 @@ from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 import pytest
 
 from backend.services.scheduler_service import SchedulerService
-from ml.training_orchestrator import LOCK_FILE, train_all_models
+from ml import training_orchestrator
+from ml.training_orchestrator import train_all_models
 
 
 @pytest.mark.asyncio
 async def test_concurrency_manual_during_automatic():
     """Test manual training request during automatic training."""
     # Create lock file to simulate ongoing training
-    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LOCK_FILE.touch()
+    training_orchestrator.LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    training_orchestrator.LOCK_FILE.touch()
 
     try:
         # Manual training should return busy status
@@ -22,22 +23,22 @@ async def test_concurrency_manual_during_automatic():
         assert "already in progress" in result["error"]
     finally:
         # Cleanup
-        if LOCK_FILE.exists():
-            LOCK_FILE.unlink()
+        if training_orchestrator.LOCK_FILE.exists():
+            training_orchestrator.LOCK_FILE.unlink()
 
 
 @pytest.mark.asyncio
 async def test_stale_lock_detection():
     """Test that stale locks are detected and cleared."""
     # Create old lock file (2 hours ago)
-    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LOCK_FILE.touch()
+    training_orchestrator.LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    training_orchestrator.LOCK_FILE.touch()
 
     # Modify timestamp to be 2 hours old
     old_time = time.time() - 7200  # 2 hours ago
     import os
 
-    os.utime(LOCK_FILE, (old_time, old_time))
+    os.utime(training_orchestrator.LOCK_FILE, (old_time, old_time))
 
     # Training should succeed by clearing stale lock
     with (

@@ -130,6 +130,7 @@ def test_archive_fills_dates_the_historical_forecast_lacks():
 def test_request_failure_returns_empty_frame_and_warns():
     start, end = _window(datetime(2026, 6, 14), datetime(2026, 6, 17))
     with (
+        patch("backend.core.open_meteo_retry.BACKOFF_S", (0.0, 0.0)),
         patch("ml.weather.requests.get", side_effect=requests.ConnectionError("down")),
         patch.object(weather.logger, "warning") as warning,
     ):

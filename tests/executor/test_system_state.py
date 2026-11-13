@@ -8,9 +8,9 @@ from backend.learning.store import LearningStore
 
 
 @pytest_asyncio.fixture
-async def db_store():
+async def db_store(tmp_path):
     """Create a LearningStore with initialized DB schema."""
-    db_path = "data/test_planner.db"
+    db_path = str(tmp_path / "system_state.db")
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
 
     async with engine.begin() as conn:

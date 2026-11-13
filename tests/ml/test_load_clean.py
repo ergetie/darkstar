@@ -89,9 +89,7 @@ class TestCleaner:
 
     def test_backfill_dropped_unless_recording(self):
         backfill = _day(2026, 6, 1, flags=json.dumps({"source": "backfill"}))
-        modern = _day(
-            2026, 6, 2, flags=json.dumps({"source": "backfill", **RECORDING})
-        )
+        modern = _day(2026, 6, 2, flags=json.dumps({"source": "backfill", **RECORDING}))
         clean, stats = clean_load_observations(pd.concat([backfill, modern], ignore_index=True))
         assert stats["dropped_backfill_rows"] == 96
         assert len(clean) == 96
@@ -120,9 +118,7 @@ class TestLevelAndSlotMeans:
         assert load_level_7d(hist, slots).iloc[0] == pytest.approx(48.0)
 
     def test_no_leakage_from_day_itself(self):
-        hist = pd.concat(
-            [self._history(3), _day(2026, 6, 4, load=5.0)], ignore_index=True
-        )
+        hist = pd.concat([self._history(3), _day(2026, 6, 4, load=5.0)], ignore_index=True)
         slots = pd.Series([TZ.localize(datetime(2026, 6, 4, 12, 0))])
         assert load_level_7d(hist, slots).iloc[0] == pytest.approx(48.0)
 
@@ -240,9 +236,7 @@ class TestSchemaRejection:
 
     def test_old_load_model_rejected_pv_still_loads(self, tmp_path):
         _write_model(tmp_path, "load_model_p50", {"feature_names": forward._EXPECTED_BASE_FEATURES})
-        _write_model(
-            tmp_path, "pv_model_p50", {"feature_names": forward._EXPECTED_PV_FEATURES}
-        )
+        _write_model(tmp_path, "pv_model_p50", {"feature_names": forward._EXPECTED_PV_FEATURES})
         models = forward._load_models(models_dir=str(tmp_path))
         assert "load_p50" not in models
         assert "pv_p50" in models
@@ -268,18 +262,18 @@ class TestSchemaRejection:
 
 class TestSchemaRetrainHook:
     @pytest.mark.asyncio
-    async def test_retrain_triggered_once_per_hour(self):
+    async def test_retrain_triggered_once_per_hour(self, monkeypatch):
         forward.clear_load_retrain_request()
         scheduler = SchedulerService()
         train = AsyncMock(return_value={"status": "success"})
         with patch("ml.training_orchestrator.train_all_models", train):
-            forward._load_retrain_requested = True
+            monkeypatch.setattr(forward, "_load_retrain_requested", True)
             await scheduler._check_load_schema_retrain()
             assert train.await_count == 1
             assert forward.load_retrain_requested() is False
 
             # rejected again within the hour: no second run, request stays pending
-            forward._load_retrain_requested = True
+            monkeypatch.setattr(forward, "_load_retrain_requested", True)
             await scheduler._check_load_schema_retrain()
             assert train.await_count == 1
             assert forward.load_retrain_requested() is True

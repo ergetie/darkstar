@@ -5,7 +5,6 @@ Production-grade test suite for EV plug-in replanning fixes.
 Covers asyncio cross-thread dispatch, config path fixes, and executor gating.
 """
 
-from pathlib import Path
 from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -109,44 +108,35 @@ class TestEVReplanConfigPath:
         return str(config_path)
 
     @pytest.mark.asyncio
-    async def test_trigger_ev_replan_reads_ev_chargers_array(self, tmp_path):
+    async def test_trigger_ev_replan_reads_ev_chargers_array(self, tmp_path, monkeypatch):
         """Task 5.2: Verify trigger respects replan_on_plugin=false in ev_chargers[]."""
-        original_dir = Path.cwd()
+        monkeypatch.chdir(tmp_path)
 
-        try:
-            import os
+        from backend.ha_socket import HAWebSocketClient
 
-            os.chdir(tmp_path)
+        client = HAWebSocketClient()
 
-            from backend.ha_socket import HAWebSocketClient
+        with (
+            patch("backend.services.scheduler_service.request_replan") as mock_request,
+            patch("backend.ha_socket.load_yaml") as mock_load_yaml,
+        ):
+            # Return the config literal
+            mock_load_yaml.return_value = {
+                "system": {"has_ev_charger": True},
+                "ev_chargers": [{"enabled": True, "replan_on_plugin": False}],
+            }
 
-            client = HAWebSocketClient()
+            client._trigger_ev_replan()
 
-            with (
-                patch("backend.services.scheduler_service.request_replan") as mock_request,
-                patch("backend.ha_socket.load_yaml") as mock_load_yaml,
-            ):
-                # Return the config literal
-                mock_load_yaml.return_value = {
-                    "system": {"has_ev_charger": True},
-                    "ev_chargers": [{"enabled": True, "replan_on_plugin": False}],
-                }
-
-                client._trigger_ev_replan()
-
-                # Should NOT trigger because replan_on_plugin=False
-                mock_request.assert_not_called()
-        finally:
-            import os
-
-            os.chdir(original_dir)
+            # Should NOT trigger because replan_on_plugin=False
+            mock_request.assert_not_called()
 
 
 class TestEVInitialStateOverride:
     """Test Task 3.1, 3.2 & 3.3: ev_plugged_in_override parameter."""
 
     @pytest.mark.asyncio
-    async def test_get_initial_state_override_ev_plugged_in(self, tmp_path):
+    async def test_get_initial_state_override_ev_plugged_in(self, tmp_path, monkeypatch):
         """Task 5.3: Verify override skips HA REST fetch for ev_plugged_in."""
         config = {
             "system": {
@@ -176,42 +166,31 @@ class TestEVInitialStateOverride:
         config_path.write_text(yaml.dump(config))
         secrets_path.write_text(yaml.dump(secrets))
 
-        original_dir = Path.cwd()
+        monkeypatch.chdir(tmp_path)
 
-        try:
-            import os
+        from backend.core.ha_client import get_initial_state
 
-            os.chdir(tmp_path)
+        # Mock HA sensor calls
+        with patch("backend.core.ha_client.get_ha_sensor_float") as mock_float:
+            mock_float.return_value = 50.0  # SoC value
 
-            from backend.core.ha_client import get_initial_state
+            with patch("backend.core.ha_client.get_ha_bool") as mock_bool:
+                mock_bool.return_value = False  # Would normally return this
 
-            # Mock HA sensor calls
-            with patch("backend.core.ha_client.get_ha_sensor_float") as mock_float:
-                mock_float.return_value = 50.0  # SoC value
+                # Call with override=True
+                result = await get_initial_state(
+                    config_path=str(config_path), ev_plug_overrides={"ev_1": True}
+                )
 
-                with patch("backend.core.ha_client.get_ha_bool") as mock_bool:
-                    mock_bool.return_value = False  # Would normally return this
+                # Verify ev_plugged_in is True from override
+                assert result["ev_plugged_in"] is True
 
-                    # Call with override=True
-                    result = await get_initial_state(
-                        config_path=str(config_path), ev_plug_overrides={"ev_1": True}
-                    )
-
-                    # Verify ev_plugged_in is True from override
-                    assert result["ev_plugged_in"] is True
-
-                    # Verify get_ha_bool was NOT called for plug sensor
-                    # (it may be called for other things, but not for ev_plugged_in)
-                    plug_calls = [
-                        call for call in mock_bool.call_args_list if "test_plug" in str(call)
-                    ]
-                    assert len(plug_calls) == 0, (
-                        "Should not fetch plug state from HA when override provided"
-                    )
-        finally:
-            import os
-
-            os.chdir(original_dir)
+                # Verify get_ha_bool was NOT called for plug sensor
+                # (it may be called for other things, but not for ev_plugged_in)
+                plug_calls = [call for call in mock_bool.call_args_list if "test_plug" in str(call)]
+                assert len(plug_calls) == 0, (
+                    "Should not fetch plug state from HA when override provided"
+                )
 
 
 class TestExecutorEVSwitchGating:

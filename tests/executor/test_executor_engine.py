@@ -109,11 +109,11 @@ class TestExecutorStatus:
 class TestExecutorEngineInit:
     """Test ExecutorEngine initialization."""
 
-    def test_creates_history_manager(self, temp_db):
+    def test_creates_history_manager(self, temp_db, tmp_path):
         """Engine creates ExecutionHistory on init."""
         with patch("executor.engine.load_executor_config") as mock_config:
             mock_config.return_value = ExecutorConfig(
-                schedule_path="schedule.json",
+                schedule_path=str(tmp_path / "schedule.json"),
                 timezone="Europe/Stockholm",
             )
             with patch("executor.engine.load_yaml") as mock_yaml:
@@ -1773,7 +1773,9 @@ class TestWaterBoostNotCancelledBySoc:
         class FrozenDateTime(datetime):
             @classmethod
             def now(cls, tz=None):
-                return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+                return (
+                    fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+                )
 
         monkeypatch.setattr("executor.engine.datetime", FrozenDateTime)
 
@@ -1869,10 +1871,10 @@ class TestCreateExecutionRecordErrorMessage:
     """Fix-observability-gaps #3: execution_log.error_message is populated at write time."""
 
     @pytest.fixture
-    def engine(self, temp_db):
+    def engine(self, temp_db, tmp_path):
         with patch("executor.engine.load_executor_config") as mock_config:
             mock_config.return_value = ExecutorConfig(
-                schedule_path="schedule.json",
+                schedule_path=str(tmp_path / "schedule.json"),
                 timezone="Europe/Stockholm",
             )
             with patch("executor.engine.load_yaml") as mock_yaml:

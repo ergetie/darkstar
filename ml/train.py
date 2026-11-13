@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
@@ -33,6 +32,7 @@ from ml.load_clean import (
     empty_clean_stats,
     load_level_7d,
 )
+from ml.threads import ml_thread_count
 from ml.weather import get_historical_weather_series
 
 
@@ -346,7 +346,7 @@ def _train_regressor(
         subsample=0.8,
         colsample_bytree=0.8,
         random_state=42,
-        n_jobs=os.cpu_count() or 1,
+        n_jobs=ml_thread_count(),
         verbosity=-1,
     )
 

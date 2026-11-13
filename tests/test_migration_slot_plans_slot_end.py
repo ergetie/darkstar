@@ -1,9 +1,9 @@
 """Alembic migration b7d4e1f9a2c6: add slot_end to slot_plans."""
 
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
-import pytest
 from alembic.config import Config
 
 from alembic import command
@@ -12,15 +12,7 @@ PREV_REVISION = "c5e8d2a7f913"
 REVISION = "b7d4e1f9a2c6"
 COLUMN = "slot_end"
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-@pytest.fixture
-def alembic_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Config, Path]:
-    db_path = tmp_path / "migration.db"
-    monkeypatch.setenv("DB_PATH", str(db_path))
-    cfg = Config(str(REPO_ROOT / "alembic.ini"))
-    cfg.set_main_option("script_location", str(REPO_ROOT / "alembic"))
-    return cfg, db_path
+AlembicDbFactory = Callable[[str], tuple[Config, Path]]
 
 
 def _columns(db_path: Path) -> set[str]:
@@ -36,9 +28,8 @@ def _rows(db_path: Path) -> list[tuple]:
         ).fetchall()
 
 
-def test_upgrade_adds_nullable_column_and_keeps_data(alembic_db: tuple[Config, Path]) -> None:
-    cfg, db_path = alembic_db
-    command.upgrade(cfg, PREV_REVISION)
+def test_upgrade_adds_nullable_column_and_keeps_data(alembic_db: AlembicDbFactory) -> None:
+    cfg, db_path = alembic_db(PREV_REVISION)
     with sqlite3.connect(db_path) as conn:
         conn.executemany(
             "INSERT INTO slot_plans (slot_start, planned_charge_kwh, "
@@ -59,9 +50,8 @@ def test_upgrade_adds_nullable_column_and_keeps_data(alembic_db: tuple[Config, P
     assert values == [(None,)]
 
 
-def test_second_run_is_noop(alembic_db: tuple[Config, Path]) -> None:
-    cfg, db_path = alembic_db
-    command.upgrade(cfg, REVISION)
+def test_second_run_is_noop(alembic_db: AlembicDbFactory) -> None:
+    cfg, db_path = alembic_db(REVISION)
     # Re-run the upgrade against a schema that already has the column.
     command.stamp(cfg, PREV_REVISION)
 
@@ -70,9 +60,8 @@ def test_second_run_is_noop(alembic_db: tuple[Config, Path]) -> None:
     assert COLUMN in _columns(db_path)
 
 
-def test_downgrade_removes_column(alembic_db: tuple[Config, Path]) -> None:
-    cfg, db_path = alembic_db
-    command.upgrade(cfg, REVISION)
+def test_downgrade_removes_column(alembic_db: AlembicDbFactory) -> None:
+    cfg, db_path = alembic_db(REVISION)
 
     command.downgrade(cfg, PREV_REVISION)
 

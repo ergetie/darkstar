@@ -1,6 +1,7 @@
 """Regression tests for scheduler retry decisions and skip logging."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -8,6 +9,12 @@ import backend.services.scheduler_service as scheduler_module
 from backend.services.planner_service import PlannerResult, PlannerService
 from backend.services.scheduler_service import SchedulerService
 from planner.errors import PlannerErrorCode
+
+
+@pytest.fixture(autouse=True)
+def no_schema_retrain(monkeypatch):
+    """The scheduler loop must never start a real ML retrain from these tests."""
+    monkeypatch.setattr(SchedulerService, "_check_load_schema_retrain", AsyncMock())
 
 
 def test_skip_reason_change_logs_immediately(caplog):

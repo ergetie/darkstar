@@ -15,6 +15,25 @@ cd "$(git rev-parse --show-toplevel)"
 # the repo as a uv project and regenerates a meaningless uv.lock stub on every call.
 export UV_NO_SYNC=1
 
+echo "▶ [0/5] Upstream sync check"
+# Fail fast (before the slow checks) when the remote branch has commits we lack:
+# the push would be rejected anyway. Offline / no upstream: warn and continue.
+if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)"; then
+  remote="${upstream%%/*}"
+  branch="${upstream#*/}"
+  if timeout 15 git fetch --quiet "$remote" "$branch" 2>/dev/null; then
+    if ! git merge-base --is-ancestor "$upstream" HEAD; then
+      behind="$(git rev-list --count "HEAD..$upstream")"
+      echo "✗ $upstream has $behind new commit(s) — run: git pull --rebase, then push again" >&2
+      exit 1
+    fi
+  else
+    echo "  (could not fetch $upstream — offline? skipping upstream check)"
+  fi
+else
+  echo "  (no upstream configured — skipping upstream check)"
+fi
+
 echo "▶ [1/5] Ruff (lint)"
 uv run ruff check backend/ planner/ ml/ executor/
 

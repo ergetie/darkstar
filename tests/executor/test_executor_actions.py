@@ -71,6 +71,7 @@ class TestHAClientGetState:
             assert result == {"entity_id": "switch.test", "state": "on"}
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("no_retry_backoff")
     async def test_get_state_failure_returns_none(self):
         """get_state returns None on request error."""
         client = HAClient("http://ha:8123", "token123")
@@ -132,6 +133,7 @@ class TestHAClientCallService:
             assert result is True
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("no_retry_backoff")
     async def test_call_service_failure(self):
         """call_service raises HACallError on request exception (REV F52 Phase 5)."""
         client = HAClient("http://ha:8123", "token123")
@@ -150,6 +152,7 @@ class TestHAClientCallService:
             assert exc_info.value.exception_type == "ClientError"
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("no_retry_backoff")
     async def test_call_service_timeout_raises_ha_call_error(self):
         """call_service raises HACallError on TimeoutError."""
         client = HAClient("http://ha:8123", "token123")

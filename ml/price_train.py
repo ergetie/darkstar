@@ -7,7 +7,6 @@ Nordpool spot prices for D+1 through D+7 horizons.
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -19,6 +18,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from backend.learning.models import SlotObservation
+from ml.threads import ml_thread_count
 
 
 def train_price_model(
@@ -353,7 +353,7 @@ def _train_quantile_regressor(
         subsample=0.8,
         colsample_bytree=0.8,
         random_state=42,
-        n_jobs=os.cpu_count() or 1,
+        n_jobs=ml_thread_count(),
         verbosity=-1,
     )
 

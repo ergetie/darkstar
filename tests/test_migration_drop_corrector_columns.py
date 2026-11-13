@@ -1,9 +1,9 @@
 """Alembic migration bb3329253f22: drop dead corrector columns from slot_forecasts."""
 
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
-import pytest
 from alembic.config import Config
 
 from alembic import command
@@ -12,15 +12,7 @@ PREV_REVISION = "b7c9d1e2f3a4"
 REVISION = "bb3329253f22"
 DEAD_COLUMNS = {"pv_correction_kwh", "load_correction_kwh", "correction_source"}
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-@pytest.fixture
-def alembic_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Config, Path]:
-    db_path = tmp_path / "migration.db"
-    monkeypatch.setenv("DB_PATH", str(db_path))
-    cfg = Config(str(REPO_ROOT / "alembic.ini"))
-    cfg.set_main_option("script_location", str(REPO_ROOT / "alembic"))
-    return cfg, db_path
+AlembicDbFactory = Callable[[str], tuple[Config, Path]]
 
 
 def _columns(db_path: Path) -> set[str]:
@@ -60,10 +52,9 @@ def _rows(db_path: Path) -> list[tuple]:
         ).fetchall()
 
 
-def test_upgrade_drops_columns_and_keeps_data(alembic_db: tuple[Config, Path]) -> None:
-    cfg, db_path = alembic_db
-    command.upgrade(cfg, PREV_REVISION)
-    assert DEAD_COLUMNS <= _columns(db_path)
+def test_upgrade_drops_columns_and_keeps_data(alembic_db: AlembicDbFactory) -> None:
+    cfg, db_path = alembic_db(PREV_REVISION)
+    assert _columns(db_path) >= DEAD_COLUMNS
     _seed(db_path)
     rows_before = _rows(db_path)
     uniques_before = _unique_constraints(db_path)
@@ -76,9 +67,8 @@ def test_upgrade_drops_columns_and_keeps_data(alembic_db: tuple[Config, Path]) -
     assert ["slot_start", "forecast_version"] in uniques_before
 
 
-def test_upgrade_is_noop_when_columns_absent(alembic_db: tuple[Config, Path]) -> None:
-    cfg, db_path = alembic_db
-    command.upgrade(cfg, REVISION)
+def test_upgrade_is_noop_when_columns_absent(alembic_db: AlembicDbFactory) -> None:
+    cfg, db_path = alembic_db(REVISION)
     columns_after_first = _columns(db_path)
 
     # Re-run the revision's upgrade against a DB that already lacks the columns.
@@ -88,15 +78,14 @@ def test_upgrade_is_noop_when_columns_absent(alembic_db: tuple[Config, Path]) ->
     assert _columns(db_path) == columns_after_first
 
 
-def test_downgrade_restores_columns_with_defaults(alembic_db: tuple[Config, Path]) -> None:
-    cfg, db_path = alembic_db
-    command.upgrade(cfg, PREV_REVISION)
+def test_downgrade_restores_columns_with_defaults(alembic_db: AlembicDbFactory) -> None:
+    cfg, db_path = alembic_db(PREV_REVISION)
     _seed(db_path)
     command.upgrade(cfg, REVISION)
 
     command.downgrade(cfg, PREV_REVISION)
 
-    assert DEAD_COLUMNS <= _columns(db_path)
+    assert _columns(db_path) >= DEAD_COLUMNS
     with sqlite3.connect(db_path) as conn:
         values = conn.execute(
             "SELECT DISTINCT pv_correction_kwh, load_correction_kwh, correction_source "

@@ -2,6 +2,7 @@
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0  # Test coverage tracking (REVIEW-2026-01-04)
+pytest-xdist==3.8.0  # Parallel test runs (-n auto in addopts)
 
 # Code Quality (Linting, Formatting, Type Checking)
 # Pinned exactly so CI and local resolve the SAME version. Loose pins let CI

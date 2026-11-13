@@ -1,4 +1,5 @@
 import ast
+import os
 from pathlib import Path
 
 import pytest
@@ -19,15 +20,15 @@ EXCLUDED_DIRS = {
 
 def _production_python_files(project_root: Path):
     """Yield every non-test Python module in the repository."""
-    for py_file in project_root.rglob("*.py"):
-        relative_path = py_file.relative_to(project_root)
-        if any(part in EXCLUDED_DIRS for part in relative_path.parts):
-            continue
-        if "tests" in relative_path.parts:
-            continue
-        if py_file.name.startswith("test_") or py_file.name.endswith("_test.py"):
-            continue
-        yield py_file
+    for dirpath, dirnames, filenames in os.walk(project_root):
+        # Prune in place so excluded trees (.venv, node_modules, ...) are never walked.
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS and d != "tests"]
+        for filename in filenames:
+            if not filename.endswith(".py"):
+                continue
+            if filename.startswith("test_") or filename.endswith("_test.py"):
+                continue
+            yield Path(dirpath) / filename
 
 
 def _find_truncating_schedule_writes() -> list[str]:

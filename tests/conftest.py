@@ -1,15 +1,21 @@
 import asyncio
 import os
+import shutil
+import sqlite3
 import time
-from contextlib import suppress
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from functools import wraps
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
-from sqlalchemy import create_engine
+from alembic.config import Config
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 
+from alembic import command
 from backend.core import secrets
 from backend.learning.models import Base
 
@@ -114,30 +120,58 @@ def no_background_replans(monkeypatch):
     monkeypatch.setattr("backend.services.scheduler_service.request_replan", MagicMock())
 
 
+_SEEDED_CONFIG = Path("config.yaml")
+_config_seeded_by_session = False
+
+
+def _is_xdist_worker(config) -> bool:
+    return hasattr(config, "workerinput")
+
+
+def pytest_sessionstart(session):
+    """Seed a ``config.yaml`` from the shipped default when the machine has none (CI).
+
+    Code paths that read ``config.yaml`` directly (bypassing the ``load_yaml`` mock
+    below) would otherwise raise ``FileNotFoundError``. Done once by the controller
+    process, before any xdist worker starts, so workers never race to create or
+    delete it. Locally (a real ``config.yaml`` exists) the file is left untouched.
+    """
+    global _config_seeded_by_session
+    if _is_xdist_worker(session.config) or _SEEDED_CONFIG.exists():
+        return
+    default_cfg = yaml.safe_load(Path("config.default.yaml").read_text(encoding="utf-8"))
+    _SEEDED_CONFIG.write_text(yaml.safe_dump(default_cfg, sort_keys=False), encoding="utf-8")
+    _config_seeded_by_session = True
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Remove the seeded ``config.yaml`` (only if this session created it)."""
+    global _config_seeded_by_session
+    if _config_seeded_by_session and not _is_xdist_worker(session.config):
+        with suppress(Exception):
+            _SEEDED_CONFIG.unlink()
+        _config_seeded_by_session = False
+
+
 @pytest.fixture(scope="session", autouse=True)
-def setup_test_env():
-    """Set up a clean, hermetic test environment.
+def setup_test_env(tmp_path_factory):
+    """Set up a clean, hermetic, per-process test environment.
 
     Makes the suite reproducible on a fresh machine (e.g. CI) that has neither a
-    ``config.yaml`` nor a migrated database:
+    ``config.yaml`` nor a migrated database, and safe under pytest-xdist:
 
-    * Creates the SQLite schema in a throwaway test DB. Production builds the
-      schema with Alembic, which CI and the test runner do not execute, so
+    * Creates the SQLite schema in a throwaway test DB inside this process's own
+      base temp dir (each xdist worker gets its own). Production builds the schema
+      with Alembic, which CI and the test runner do not execute, so
       ``LearningStore`` init would otherwise hit ``no such table``.
     * Pins every DB consumer to that test DB via ``DB_PATH`` (the app lifespan
       honours this env var).
-    * Seeds a ``config.yaml`` from the shipped ``config.default.yaml`` when one
-      is absent, so the code paths that read ``config.yaml`` directly (bypassing
-      the ``load_yaml`` mock below) do not raise ``FileNotFoundError``.
-
-    Locally (where a real ``config.yaml`` exists) the file is left untouched.
+    * Mocks ``secrets.load_yaml`` for ``config.yaml`` with a minimal test config.
     """
-    data_dir = Path("data")
-    data_dir.mkdir(exist_ok=True)
+    Path("data").mkdir(exist_ok=True)
 
-    db_path = data_dir / "test_planner.db"
+    db_path = tmp_path_factory.mktemp("planner_db") / "test_planner.db"
 
-    # Pin DB access (the app lifespan respects DB_PATH) to the throwaway test DB.
     original_db_path = os.environ.get("DB_PATH")
     os.environ["DB_PATH"] = str(db_path)
 
@@ -146,22 +180,12 @@ def setup_test_env():
     Base.metadata.create_all(schema_engine)
     schema_engine.dispose()
 
-    # Seed a config.yaml from the shipped default if the machine has none (CI),
-    # pointing its DB at the test DB so file-readers and DB_PATH agree.
-    config_file = Path("config.yaml")
-    created_config_file = False
-    if not config_file.exists():
-        default_cfg = yaml.safe_load(Path("config.default.yaml").read_text(encoding="utf-8"))
-        default_cfg.setdefault("learning", {})["sqlite_path"] = str(db_path)
-        config_file.write_text(yaml.safe_dump(default_cfg, sort_keys=False), encoding="utf-8")
-        created_config_file = True
-
     test_config = {
         "version": "2.5.1-beta",
         "timezone": "Europe/Stockholm",
         "learning": {
             "enable": True,
-            "sqlite_path": "data/test_planner.db",
+            "sqlite_path": str(db_path),
             "horizon_days": 2,
         },
         "forecasting": {
@@ -188,17 +212,6 @@ def setup_test_env():
     else:
         os.environ["DB_PATH"] = original_db_path
 
-    # Remove the seeded config.yaml only if we created it (never the real one).
-    if created_config_file:
-        with suppress(Exception):
-            config_file.unlink()
-
-    try:
-        if db_path.exists():
-            db_path.unlink()
-    except Exception:
-        pass
-
 
 @pytest.fixture(autouse=True)
 def reset_ha_http_client():
@@ -219,7 +232,103 @@ def isolated_load_profile_state(monkeypatch, tmp_path):
     """
     from backend.core import ha_client
 
-    monkeypatch.setattr(ha_client, "_LOAD_PROFILE_STORE_PATH", tmp_path / "load_profile_last_good.json")
+    monkeypatch.setattr(
+        ha_client, "_LOAD_PROFILE_STORE_PATH", tmp_path / "load_profile_last_good.json"
+    )
     ha_client.reset_load_profile_state()
     yield
     ha_client.reset_load_profile_state()
+
+
+@pytest.fixture(autouse=True)
+def isolated_ml_state(monkeypatch, tmp_path_factory):
+    """Keep ML global state and model files from leaking between tests.
+
+    - ``ml.forward._load_retrain_requested`` is reset so a rejected-schema test
+      cannot make a later scheduler loop start a real retrain.
+    - ``ml.training_orchestrator.MODELS_DIR`` and friends point at a temp dir so
+      no test can train into or overwrite the real ``data/ml/models``.
+    """
+    import ml.forward as forward
+    import ml.training_orchestrator as orchestrator
+
+    monkeypatch.setattr(forward, "_load_retrain_requested", False)
+    models_dir = tmp_path_factory.mktemp("ml_models")
+    monkeypatch.setattr(orchestrator, "MODELS_DIR", models_dir)
+    monkeypatch.setattr(orchestrator, "BACKUP_DIR", models_dir / "backup")
+    monkeypatch.setattr(orchestrator, "LOCK_FILE", models_dir / ".training.lock")
+
+
+@pytest.fixture(autouse=True)
+def single_threaded_lightgbm(monkeypatch):
+    """Keep LightGBM at one thread per test; xdist workers already parallelise."""
+    monkeypatch.setenv("DARKSTAR_ML_THREADS", "1")
+
+
+# --- Alembic migration tests ------------------------------------------------
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+@contextmanager
+def _fast_sqlite() -> Iterator[None]:
+    """Disable fsync/journaling on SQLite connections (throwaway test DBs only)."""
+
+    def _set_pragmas(dbapi_conn, _record):
+        if not isinstance(dbapi_conn, sqlite3.Connection):
+            return
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA synchronous=OFF")
+        cur.execute("PRAGMA journal_mode=MEMORY")
+        cur.close()
+
+    event.listen(Engine, "connect", _set_pragmas)
+    try:
+        yield
+    finally:
+        event.remove(Engine, "connect", _set_pragmas)
+
+
+def _alembic_config() -> Config:
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "alembic"))
+    return cfg
+
+
+@pytest.fixture(scope="session")
+def _alembic_templates(tmp_path_factory) -> Callable[[str], Path]:
+    """Per-worker cache of DBs migrated from base to a revision (built once each)."""
+    cache: dict[str, Path] = {}
+    root = tmp_path_factory.mktemp("alembic_templates")
+
+    def get(revision: str) -> Path:
+        if revision not in cache:
+            path = root / f"{revision}.db"
+            with pytest.MonkeyPatch.context() as mp, _fast_sqlite():
+                mp.setenv("DB_PATH", str(path))
+                command.upgrade(_alembic_config(), revision)
+            cache[revision] = path
+        return cache[revision]
+
+    return get
+
+
+@pytest.fixture
+def alembic_db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _alembic_templates: Callable[[str], Path]
+) -> Iterator[Callable[[str], tuple[Config, Path]]]:
+    """Factory ``alembic_db(revision) -> (config, db_path)``.
+
+    The DB is a private copy of a template already migrated base -> ``revision``,
+    so a test only runs the migration step it is actually about. DB_PATH points
+    at the copy; SQLite fsync is off for the duration of the test.
+    """
+    db_path = tmp_path / "migration.db"
+
+    def make(revision: str) -> tuple[Config, Path]:
+        shutil.copyfile(_alembic_templates(revision), db_path)
+        monkeypatch.setenv("DB_PATH", str(db_path))
+        return _alembic_config(), db_path
+
+    with _fast_sqlite():
+        yield make

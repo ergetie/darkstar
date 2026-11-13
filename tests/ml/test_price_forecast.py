@@ -35,9 +35,9 @@ def price_config():
 
 
 @pytest.fixture
-def db_path():
+def db_path(tmp_path):
     """Test fixture for database path."""
-    return "data/test_planner_learning.db"
+    return str(tmp_path / "test_planner_learning.db")
 
 
 @pytest.mark.asyncio

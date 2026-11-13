@@ -31,6 +31,7 @@ _forecast_status: str = "ok"  # "ok", "degraded", "error"
 _forecast_lock: threading.Lock = threading.Lock()
 
 # Share of estimated horizon slots above which the PV forecast banner turns critical
+HEALTH_CHECK_TIMEOUT_S = 15.0
 PV_ESTIMATED_CRITICAL_FRACTION = 0.5
 
 # PV site sanity: the ratio is slow-moving, so it is computed at most this often.
@@ -1287,7 +1288,7 @@ async def get_health_status(config_path: str = "config.yaml") -> HealthStatus:
     """Convenience function to get current health status."""
     checker = HealthChecker(config_path)
     try:
-        return await asyncio.wait_for(checker.check_all(), timeout=15.0)
+        return await asyncio.wait_for(checker.check_all(), timeout=HEALTH_CHECK_TIMEOUT_S)
     except TimeoutError:
         return HealthStatus(
             healthy=False,
@@ -1295,7 +1296,7 @@ async def get_health_status(config_path: str = "config.yaml") -> HealthStatus:
                 HealthIssue(
                     category="ha_connection",
                     severity="critical",
-                    message="Health check timed out after 15 seconds",
+                    message=f"Health check timed out after {HEALTH_CHECK_TIMEOUT_S:g} seconds",
                     guidance="The system is experiencing connectivity issues. Check network and Home Assistant availability.",
                 )
             ],

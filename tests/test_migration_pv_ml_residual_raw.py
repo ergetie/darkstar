@@ -1,9 +1,9 @@
 """Alembic migration c3a9e5d7b1f2: pv_ml_residual_raw_kwh on slot_forecasts."""
 
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
-import pytest
 from alembic.config import Config
 
 from alembic import command
@@ -12,15 +12,7 @@ PREV_REVISION = "b7e2c4a9f1d3"
 REVISION = "c3a9e5d7b1f2"
 COLUMN = "pv_ml_residual_raw_kwh"
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-@pytest.fixture
-def alembic_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Config, Path]:
-    db_path = tmp_path / "migration.db"
-    monkeypatch.setenv("DB_PATH", str(db_path))
-    cfg = Config(str(REPO_ROOT / "alembic.ini"))
-    cfg.set_main_option("script_location", str(REPO_ROOT / "alembic"))
-    return cfg, db_path
+AlembicDbFactory = Callable[[str], tuple[Config, Path]]
 
 
 def _columns(db_path: Path) -> set[str]:
@@ -36,9 +28,8 @@ def _rows(db_path: Path) -> list[tuple]:
         ).fetchall()
 
 
-def test_upgrade_adds_nullable_column_and_keeps_data(alembic_db: tuple[Config, Path]) -> None:
-    cfg, db_path = alembic_db
-    command.upgrade(cfg, PREV_REVISION)
+def test_upgrade_adds_nullable_column_and_keeps_data(alembic_db: AlembicDbFactory) -> None:
+    cfg, db_path = alembic_db(PREV_REVISION)
     assert COLUMN not in _columns(db_path)
     with sqlite3.connect(db_path) as conn:
         conn.executemany(
@@ -60,9 +51,8 @@ def test_upgrade_adds_nullable_column_and_keeps_data(alembic_db: tuple[Config, P
     assert values == [(None,)]
 
 
-def test_downgrade_removes_column_and_keeps_rows(alembic_db: tuple[Config, Path]) -> None:
-    cfg, db_path = alembic_db
-    command.upgrade(cfg, REVISION)
+def test_downgrade_removes_column_and_keeps_rows(alembic_db: AlembicDbFactory) -> None:
+    cfg, db_path = alembic_db(REVISION)
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "INSERT INTO slot_forecasts (slot_start, forecast_version, pv_forecast_kwh, "

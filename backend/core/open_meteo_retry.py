@@ -58,7 +58,8 @@ def is_transient_http_error(exc: BaseException) -> bool:
     return isinstance(exc, requests.ConnectionError | requests.Timeout)
 
 
-def _delay_for(attempt: int, backoff: tuple[float, ...] = BACKOFF_S) -> float:
+def _delay_for(attempt: int, backoff: tuple[float, ...] | None = None) -> float:
+    backoff = BACKOFF_S if backoff is None else backoff
     return backoff[min(attempt - 1, len(backoff) - 1)]
 
 
@@ -69,7 +70,7 @@ async def retry_async[T](
     is_transient: Callable[[BaseException], bool],
     sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
     attempts: int = MAX_ATTEMPTS,
-    backoff: tuple[float, ...] = BACKOFF_S,
+    backoff: tuple[float, ...] | None = None,
     source: str = "Open-Meteo",
 ) -> T:
     """Await `fn()` with bounded retries on transient errors; re-raise the last error.
