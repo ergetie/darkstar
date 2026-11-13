@@ -1919,3 +1919,75 @@ class TestCounterKeyRemoval:
         before = config_file.read_text()
         await cm.migrate_config(strict_validation=False)
         assert config_file.read_text() == before
+
+
+class TestWaterHeaterLoadPhasesMigration:
+    """load_balancing.loads[].phases of water heaters move to water_heaters[].phases."""
+
+    @staticmethod
+    def _config(heater_extra=None, load_phases=(3,)):
+        heater = {"id": "main_tank"}
+        heater.update(heater_extra or {})
+        return {
+            "water_heaters": [heater],
+            "load_balancing": {
+                "loads": [
+                    {
+                        "device_type": "water_heater",
+                        "device_id": "main_tank",
+                        "phases": list(load_phases),
+                    },
+                    {"device_type": "custom_entity", "device_id": "pump", "phases": [2]},
+                ]
+            },
+        }
+
+    def test_phases_moved(self):
+        from backend.config_migration import _migrate_water_heater_load_phases
+
+        config, changed = _migrate_water_heater_load_phases(self._config())
+        assert changed
+        assert config["water_heaters"][0]["phases"] == [3]
+        assert "phases" not in config["load_balancing"]["loads"][0]
+
+    def test_device_already_has_phases(self, caplog):
+        from backend.config_migration import _migrate_water_heater_load_phases
+
+        with caplog.at_level(logging.WARNING, logger="darkstar.config_migration"):
+            config, changed = _migrate_water_heater_load_phases(self._config({"phases": [1]}))
+        assert changed
+        assert config["water_heaters"][0]["phases"] == [1]
+        assert "phases" not in config["load_balancing"]["loads"][0]
+        assert "already has phases" in caplog.text
+
+    def test_no_matching_heater(self, caplog):
+        from backend.config_migration import _migrate_water_heater_load_phases
+
+        cfg = self._config()
+        cfg["water_heaters"][0]["id"] = "other"
+        with caplog.at_level(logging.WARNING, logger="darkstar.config_migration"):
+            config, changed = _migrate_water_heater_load_phases(cfg)
+        assert not changed
+        assert config["load_balancing"]["loads"][0]["phases"] == [3]
+        assert "no matching" in caplog.text
+
+    def test_custom_load_untouched(self):
+        from backend.config_migration import _migrate_water_heater_load_phases
+
+        config, _ = _migrate_water_heater_load_phases(self._config())
+        assert config["load_balancing"]["loads"][1]["phases"] == [2]
+
+    def test_idempotent(self):
+        from backend.config_migration import _migrate_water_heater_load_phases
+
+        config, _ = _migrate_water_heater_load_phases(self._config())
+        snapshot = repr(config)
+        config, changed = _migrate_water_heater_load_phases(config)
+        assert not changed
+        assert repr(config) == snapshot
+
+    def test_missing_sections_are_a_noop(self):
+        from backend.config_migration import _migrate_water_heater_load_phases
+
+        assert _migrate_water_heater_load_phases({})[1] is False
+        assert _migrate_water_heater_load_phases({"load_balancing": {"loads": None}})[1] is False

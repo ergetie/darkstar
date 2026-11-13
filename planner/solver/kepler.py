@@ -334,14 +334,23 @@ class KeplerSolver:
             c for c in config.ev_chargers if c.plugged_in or c.assumed_plugged
         ]
         ev_any_enabled: bool = len(plugged_chargers) > 0
-        # Per-phase fuse constraint scope: current chargers on fewer than 3 lines.
+        # Per-phase fuse constraint scope: current chargers and water heaters
+        # wired to fewer than 3 lines (water-heater-phase-aware-planning).
         phase_limit_kw: float | None = None if benchmark is not None else config.max_phase_import_kw
         phase_limited_chargers: list[EVChargerInput] = [
             c for c in plugged_chargers if c.control_type == "current" and len(c.phases) < 3
         ]
-        phase_limit_lines: list[int] = sorted({p for c in phase_limited_chargers for p in c.phases})
-        if not phase_limited_chargers:
+        phase_limited_heaters: list[WaterHeaterInput] = [
+            w for w in water_heaters if len(w.phases) < 3
+        ]
+        phase_limit_lines: list[int] = sorted(
+            {p for c in phase_limited_chargers for p in c.phases}
+            | {p for w in phase_limited_heaters for p in w.phases}
+        )
+        if not phase_limited_chargers and not phase_limited_heaters:
             phase_limit_kw = None
+        # Slack on per-phase rows of slots with a forced-on phase-limited heater
+        phase_slack: list[Any] = []
         # Only live-plugged chargers block battery discharge. An away car's plan
         # is a preview and must not idle the house battery.
         live_plugged_ids: list[str] = [c.id for c in plugged_chargers if c.plugged_in]
@@ -599,6 +608,9 @@ class KeplerSolver:
         target_soc_penalty = config.target_soc_penalty_sek
         curtailment_penalty = config.curtailment_penalty_sek
         LOAD_SHEDDING_PENALTY = 10000.0
+        # SEK per kWh over the per-phase limit in slots where a heater is forced on.
+        # Above the highest water reliability penalty, below LOAD_SHEDDING_PENALTY.
+        PHASE_OVERLOAD_PENALTY = 1000.0
         IMPORT_BREACH_PENALTY = 5000.0
 
         for t in range(T):
@@ -784,40 +796,60 @@ class KeplerSolver:
             if config.max_import_power_kw is not None:
                 prob += grid_import[t] <= config.max_import_power_kw * h
 
-            # Per-phase fuse limit on EV charger lines (ev-single-phase-grid-limit).
-            # Non-EV load is spread evenly over 3 phases; each charger's power is
-            # spread evenly over its own phases. Hard, but the EV can drop to 0
-            # and load_shedding absorbs any remainder, so it stays feasible.
+            # Per-phase fuse limit on phase-limited EV charger and water heater lines.
+            # Base load is spread evenly over 3 phases (net import / 3 already holds
+            # each device at 1/3 per line); each device's power is corrected to its
+            # real share, power / len(phases) on its own lines. Hard, but the EV and
+            # heater can drop to 0 and load_shedding absorbs any remainder. Rows of
+            # slots with a forced-on heater (force_on_slots) get a penalised slack.
             if phase_limit_kw is not None:
                 # Only chargers that can draw in this slot (not past deadline,
-                # time left in the slot). With none, the EV-free remainder
-                # (net import / 3) is not a phase risk, so no row is added.
+                # time left in the slot). Heaters have no deadline. With no active
+                # device, the remainder (net import / 3) is not a phase risk.
                 active_chargers: list[EVChargerInput] = [
                     c
                     for c in phase_limited_chargers
                     if ev_slot_hours[t] > 0
                     and not (c.deadline is not None and s.end_time > c.deadline)
                 ]
+                forced_heater_in_slot: bool = any(
+                    w.force_on_slots is not None and t in w.force_on_slots
+                    for w in phase_limited_heaters
+                )
                 seen_rows: set[tuple[float, ...]] = set()
                 for line in phase_limit_lines:
-                    shares: tuple[float, ...] = tuple(
+                    ev_shares: tuple[float, ...] = tuple(
                         1.0 / len(c.phases) if line in c.phases else 0.0 for c in active_chargers
                     )
-                    # No charger on this line, or identical coefficients: no new row
-                    if not any(shares) or shares in seen_rows:
+                    wh_shares: tuple[float, ...] = tuple(
+                        1.0 / len(w.phases) if line in w.phases else 0.0
+                        for w in phase_limited_heaters
+                    )
+                    row_key: tuple[float, ...] = ev_shares + wh_shares
+                    # No device on this line, or identical coefficients: no new row
+                    if not any(row_key) or row_key in seen_rows:
                         continue
-                    seen_rows.add(shares)
-                    ev_kwh_terms: list[Any] = []
-                    for charger, share in zip(active_chargers, shares, strict=True):
+                    seen_rows.add(row_key)
+                    phase_terms: list[Any] = []
+                    for charger, share in zip(active_chargers, ev_shares, strict=True):
                         d = charger.id
                         # Average kW over the EV window, scaled to the slot's h
                         kw_expr: Any = ev_energy[d][t] * (1.0 / ev_slot_hours[t])
                         if d in ev_surplus_kw:
                             kw_expr = kw_expr + ev_surplus_kw[d][t]
-                        ev_kwh_terms.append((share - 1.0 / 3.0) * h * kw_expr)
+                        phase_terms.append((share - 1.0 / 3.0) * h * kw_expr)
+                    for heater, share in zip(phase_limited_heaters, wh_shares, strict=True):
+                        wh_on: Any = water_heat[heater.id][t] + (
+                            water_boost[heater.id][t] if heater.id in water_boost else 0
+                        )
+                        phase_terms.append((share - 1.0 / 3.0) * heater.power_kw * h * wh_on)
+                    row_slack: Any = 0
+                    if forced_heater_in_slot:
+                        row_slack = pulp.LpVariable(f"phase_slack_{t}_{line}", lowBound=0.0)  # type: ignore[reportUnknownMemberType]
+                        phase_slack.append(row_slack)
                     prob += (grid_import[t] - grid_export[t]) / 3.0 + pulp.lpSum(
-                        ev_kwh_terms
-                    ) <= phase_limit_kw * h
+                        phase_terms
+                    ) <= phase_limit_kw * h + row_slack
 
             # Inverter AC output limit with PV routing (dc_coupled / ac_coupled)
             if pv_routing_active:
@@ -1084,6 +1116,7 @@ class KeplerSolver:
             pulp.lpSum(total_cost)
             + MIN_SOC_PENALTY * pulp.lpSum(soc_violation)
             + MAX_SOC_PENALTY * pulp.lpSum(soc_overshoot)
+            + (PHASE_OVERLOAD_PENALTY * pulp.lpSum(phase_slack) if phase_slack else 0.0)
             + (
                 EXPORT_FLOOR_PENALTY * pulp.lpSum(export_floor_violation[t] for t in range(T))
                 if export_floor_active
@@ -1165,6 +1198,15 @@ class KeplerSolver:
         # Extract Results
         status: str = pulp.LpStatus[prob.status]  # type: ignore[index]
         is_optimal: bool = status == "Optimal"
+
+        if is_optimal and phase_slack:
+            slack_kwh: float = sum(float(v.varValue or 0.0) for v in phase_slack)
+            if slack_kwh > 1e-6:
+                logger.warning(
+                    "Per-phase limit exceeded by %.2f kWh in slots where a water heater is "
+                    "forced on (running block); the load balancer is the runtime safety net",
+                    slack_kwh,
+                )
 
         # Log Performance Metrics
         solve_duration: float = solve_end - build_start  # This is just the solve() call duration

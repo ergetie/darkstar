@@ -98,6 +98,7 @@ water_heaters:
     sensor: ''                       # Home Assistant entity for power reading
     target_entity: ''                # Thermostat entity for controlling this heater
     type: binary                     # Load type: binary (on/off) or modulating
+    phases: [1, 2, 3]                # Phases this heater is wired to (1-3, e.g. [3] for a single-phase heater on L3). Used by the planner's per-phase fuse limit and the load balancer. [1, 2, 3] = spread evenly (no per-phase limit)
 
   # Example: Second water heater (disabled by default)
   # - id: upstairs_tank
@@ -111,6 +112,7 @@ water_heaters:
   #   sensor: sensor.wh2_power
   #   target_entity: ''
   #   type: binary
+  #   phases: [3]                    # Single-phase heater wired to L3
 
 # EV Chargers (Array for multiple electric vehicles)
 # ARC15: Replaces deferrable_loads entry for EV charging
@@ -353,7 +355,7 @@ load_balancing:
   loads: []                            # On/off shed load definitions (ordering lives in give_way_order), e.g.:
     # - device_type: water_heater          # water_heater | custom_entity | ev_charger (type: binary only — type: current chargers are never listed here, select them in give_way_order instead)
     #   device_id: main_tank                # matches an id in water_heaters[]/ev_chargers[], or a free-form label for custom_entity
-    #   phases: [2]                         # phase(s) this load is physically wired to
+    #   phases: [2]                         # custom_entity only: phase(s) this load is physically wired to. Water heaters: set phases on the water_heaters[] device instead
     #   entity: ""                          # custom_entity only: HA entity to write on/off values to
     #   on_value: "1"                       # custom_entity only
     #   off_value: "0"                      # custom_entity only

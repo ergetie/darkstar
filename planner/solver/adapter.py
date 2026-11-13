@@ -114,24 +114,33 @@ def build_water_heater_inputs(
                 heated_today_kwh=heated_today,
                 progress_source=progress_source,
                 progress_coverage=progress_coverage,
+                phases=_device_phases(wh.get("phases"), f"Water heater {heater_id}"),
             )
         )
 
     return result
 
 
-def _charger_phases(ev: dict[str, Any], charger_id: str) -> tuple[int, ...]:
-    """Valid, de-duplicated grid lines of a current charger; (1, 2, 3) when invalid."""
-    raw: Any = ev.get("phases")
+def _device_phases(raw: Any, label: str) -> tuple[int, ...]:
+    """Valid, de-duplicated grid lines (1-3) of a device; (1, 2, 3) when invalid."""
     lines: set[int] = set()
     if isinstance(raw, (list, tuple)):
         for p in cast("list[Any]", raw):
             if isinstance(p, int) and not isinstance(p, bool) and p in (1, 2, 3):
                 lines.add(p)
     if not lines:
-        logger.warning("EV charger %s has no valid phases - assuming 3-phase", charger_id)
+        if raw is not None:
+            logger.warning("%s has no valid phases - assuming 3-phase", label)
         return (1, 2, 3)
     return tuple(sorted(lines))
+
+
+def _charger_phases(ev: dict[str, Any], charger_id: str) -> tuple[int, ...]:
+    """Valid, de-duplicated grid lines of a current charger; (1, 2, 3) when invalid."""
+    raw: Any = ev.get("phases")
+    if raw is None:
+        logger.warning("EV charger %s has no valid phases - assuming 3-phase", charger_id)
+    return _device_phases(raw, f"EV charger {charger_id}")
 
 
 def resolve_max_phase_import_kw(planner_config: dict[str, Any]) -> float | None:

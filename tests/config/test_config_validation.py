@@ -568,6 +568,59 @@ class TestLoadBalancingValidation:
         errors = [i for i in issues if i["severity"] == "error"]
         assert any("empty phases list" in e["message"] for e in errors)
 
+    def _lb_config(self, loads, heaters):
+        config = self._base_config({"enabled": True, "loads": loads})
+        config["system"]["grid"] = {"main_fuse_a": 20}
+        config["input_sensors"] = {
+            "grid_current_l1": "sensor.l1",
+            "grid_current_l2": "sensor.l2",
+            "grid_current_l3": "sensor.l3",
+        }
+        config["config_version"] = 2
+        config["system"]["has_water_heater"] = True
+        config["water_heaters"] = heaters
+        return config
+
+    @staticmethod
+    def _heater(**extra):
+        return {"id": "main_tank", "name": "Tank", "power_kw": 3.0, **extra}
+
+    @pytest.mark.parametrize("bad", [[4], [], [0], [1, 1], "3", [True]])
+    def test_water_heater_invalid_phases_is_error(self, bad):
+        config = self._lb_config(
+            [{"device_type": "water_heater", "device_id": "main_tank"}],
+            [self._heater(phases=bad)],
+        )
+        issues = _validate_config_for_save(config)
+        assert any(
+            i["severity"] == "error" and i.get("field") == "water_heaters.0.phases" for i in issues
+        )
+
+    @pytest.mark.parametrize("good", [None, [3], [1, 2], [1, 2, 3]])
+    def test_water_heater_valid_phases_pass(self, good):
+        heater = self._heater() if good is None else self._heater(phases=good)
+        config = self._lb_config([{"device_type": "water_heater", "device_id": "main_tank"}], [heater])
+        issues = _validate_config_for_save(config)
+        assert not any("phases" in i["message"] for i in issues if i["severity"] == "error")
+
+    def test_water_heater_load_does_not_require_phases(self):
+        config = self._lb_config(
+            [{"device_type": "water_heater", "device_id": "main_tank"}], [self._heater()]
+        )
+        issues = _validate_config_for_save(config)
+        assert not any("empty phases list" in i["message"] for i in issues)
+
+    def test_water_heater_load_phases_without_device_warns(self):
+        config = self._lb_config(
+            [{"device_type": "water_heater", "device_id": "ghost", "phases": [2]}],
+            [self._heater()],
+        )
+        issues = _validate_config_for_save(config)
+        assert any(
+            i["severity"] == "warning" and "no matching water heater" in i["message"]
+            for i in issues
+        )
+
     def test_fully_valid_config_has_no_load_balancing_errors(self):
         config = self._base_config(
             {

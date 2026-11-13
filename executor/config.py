@@ -589,6 +589,39 @@ def _phase_sign(raw: Any) -> str:
     return LoadBalancingConfig.phase_sign
 
 
+def _water_heater_phases(data: dict[str, Any], device_id: str) -> list[int]:
+    """water_heaters[<device_id>].phases (1-3, distinct); [1, 2, 3] when missing or invalid."""
+    default = [1, 2, 3]
+    heaters_raw: Any = data.get("water_heaters")
+    if not isinstance(heaters_raw, list):
+        return default
+    for heater in cast("list[Any]", heaters_raw):
+        if (
+            not isinstance(heater, dict)
+            or str(cast("dict[str, Any]", heater).get("id")) != device_id
+        ):
+            continue
+        raw: Any = cast("dict[str, Any]", heater).get("phases")
+        if raw is None:
+            return default
+        lines: set[int] = set()
+        if isinstance(raw, list):
+            lines = {
+                p
+                for p in cast("list[Any]", raw)
+                if isinstance(p, int) and not isinstance(p, bool) and p in (1, 2, 3)
+            }
+        if not lines:
+            logger.warning(
+                "water_heaters[%s].phases=%r must be a list of 1-3 — using [1, 2, 3]",
+                device_id,
+                cast("object", raw),
+            )
+            return default
+        return sorted(lines)
+    return default
+
+
 def _parse_load_balancing_config(
     data: dict[str, Any], system_data: dict[str, Any]
 ) -> LoadBalancingConfig:
@@ -640,16 +673,21 @@ def _parse_load_balancing_config(
                     "load_balancing.loads: unknown device_type %r, skipping entry", type_raw
                 )
                 continue
-            phases_raw = load_item.get("phases", [])
-            phases = (
-                [int(p) for p in cast("list[Any]", phases_raw)]
-                if isinstance(phases_raw, list)
-                else []
-            )
+            device_id = str(load_item.get("device_id", ""))
+            if device_type == BalancedLoadType.WATER_HEATER:
+                # Wiring is a property of the device; loads[].phases is ignored
+                phases = _water_heater_phases(data, device_id)
+            else:
+                phases_raw = load_item.get("phases", [])
+                phases = (
+                    [int(p) for p in cast("list[Any]", phases_raw)]
+                    if isinstance(phases_raw, list)
+                    else []
+                )
             loads.append(
                 BalancedLoadConfig(
                     device_type=device_type,
-                    device_id=str(load_item.get("device_id", "")),
+                    device_id=device_id,
                     phases=phases,
                     entity=_str_or_none(load_item.get("entity")),
                     on_value=str(load_item.get("on_value", "1")),

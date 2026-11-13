@@ -26,6 +26,8 @@ export interface WaterHeaterEntity {
     target_entity: string
     control_type: 'temperature' | 'switch'
     type: 'binary' | 'modulating'
+    /** Grid phases (1-3) the heater is wired to. Default [1, 2, 3] = spread evenly. */
+    phases?: number[]
 }
 
 // EV Charger Entity Type
@@ -110,6 +112,7 @@ const createDefaultWaterHeater = (index: number): WaterHeaterEntity => ({
     target_entity: '',
     control_type: 'temperature',
     type: 'binary',
+    phases: [1, 2, 3],
 })
 
 const createDefaultEVCharger = (index: number): EVChargerEntity => ({
@@ -924,6 +927,61 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                     min={0}
                                                                     max={12}
                                                                 />
+                                                            </div>
+                                                            <div className="sm:col-span-2">
+                                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
+                                                                    <span>Phases</span>
+                                                                    <Tooltip text="The grid phases this heater is wired to. A single-phase heater (for example on L3) is counted on that phase by the planner's per-phase fuse limit and by the load balancer. Leave all three selected for a three-phase heater." />
+                                                                </label>
+                                                                <div
+                                                                    className="flex gap-2"
+                                                                    data-testid={`water-heater-phases-${index}`}
+                                                                >
+                                                                    {[1, 2, 3].map((phase) => {
+                                                                        const phases = (entity as WaterHeaterEntity)
+                                                                            .phases ?? [1, 2, 3]
+                                                                        const checked = phases.includes(phase)
+                                                                        return (
+                                                                            <button
+                                                                                key={phase}
+                                                                                type="button"
+                                                                                aria-pressed={checked}
+                                                                                disabled={disabled}
+                                                                                onClick={() => {
+                                                                                    // Keep at least one phase selected
+                                                                                    if (checked && phases.length === 1)
+                                                                                        return
+                                                                                    const nextPhases = checked
+                                                                                        ? phases.filter(
+                                                                                              (p) => p !== phase,
+                                                                                          )
+                                                                                        : [...phases, phase].sort(
+                                                                                              (a, b) => a - b,
+                                                                                          )
+                                                                                    updateEntity(index, {
+                                                                                        phases: nextPhases,
+                                                                                    } as Partial<WaterHeaterEntity>)
+                                                                                }}
+                                                                                className={`
+                                                                                px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-200
+                                                                                ${
+                                                                                    checked
+                                                                                        ? 'bg-accent/20 border-accent/50 text-accent shadow-[0_0_10px_rgba(var(--accent-rgb),0.05)] font-bold'
+                                                                                        : 'bg-surface2 border-line/50 text-muted hover:border-accent/40 hover:text-text'
+                                                                                }
+                                                                                disabled:opacity-40 disabled:cursor-not-allowed
+                                                                            `}
+                                                                            >
+                                                                                L{phase}
+                                                                            </button>
+                                                                        )
+                                                                    })}
+                                                                </div>
+                                                                <p className="text-[10px] text-muted mt-1.5">
+                                                                    Phases this heater draws power on. Map the heater
+                                                                    power sensor above so the planner does not count it
+                                                                    twice.
+                                                                </p>
                                                             </div>
                                                         </>
                                                     )}

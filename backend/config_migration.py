@@ -1033,6 +1033,69 @@ def _migrate_excess_pv_sink_to_priority(config: dict[str, Any]) -> tuple[dict[st
     return config, changed
 
 
+def _migrate_water_heater_load_phases(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Move load_balancing.loads[].phases of water_heater entries to water_heaters[].phases.
+
+    The heater's wiring is a property of the device. The phases are copied only
+    when the matching heater (id == device_id) has none yet; the load's key is
+    then removed. Without a matching heater the load keeps its phases (warning).
+    Idempotent. Other device types are never touched.
+
+    Returns:
+        Tuple of (modified_config, changed_flag)
+    """
+    changed = False
+
+    lb_raw: Any = config.get("load_balancing")
+    heaters_raw: Any = config.get("water_heaters")
+    if not isinstance(lb_raw, dict):
+        return config, changed
+    loads_raw: Any = cast("dict[str, Any]", lb_raw).get("loads")
+    if not isinstance(loads_raw, list):
+        return config, changed
+
+    heaters: dict[str, dict[str, Any]] = {}
+    if isinstance(heaters_raw, list):
+        for h in cast("list[Any]", heaters_raw):
+            if isinstance(h, dict):
+                heater = cast("dict[str, Any]", h)
+                heaters[str(heater.get("id", ""))] = heater
+
+    for item in cast("list[Any]", loads_raw):
+        if not isinstance(item, dict):
+            continue
+        load = cast("dict[str, Any]", item)
+        if str(load.get("device_type", "")).lower() != "water_heater" or "phases" not in load:
+            continue
+        device_id = str(load.get("device_id", ""))
+        heater = heaters.get(device_id)
+        if heater is None:
+            logger.warning(
+                "load_balancing.loads[] water heater '%s' has phases but no matching "
+                "water_heaters[] entry - keeping them; set phases on the water heater",
+                device_id,
+            )
+            continue
+        if "phases" not in heater:
+            heater["phases"] = load["phases"]
+            logger.info(
+                "🔄 Moved load_balancing.loads[] phases of '%s' to water_heaters[].phases",
+                device_id,
+            )
+        elif list(heater["phases"]) != list(load["phases"] or []):
+            logger.warning(
+                "Water heater '%s' already has phases %s - dropping the differing "
+                "load_balancing.loads[] phases %s",
+                device_id,
+                list(heater["phases"]),
+                list(load["phases"] or []),
+            )
+        del load["phases"]
+        changed = True
+
+    return config, changed
+
+
 def _validate_config_structure(config: dict[str, Any], strict: bool = True) -> bool:
     """
     Validates that the config has minimum expected structure.
@@ -1493,6 +1556,11 @@ def _migrate_config(config_path: str, default_path: str, strict_validation: bool
     # before remove_deprecated_keys/template merge)
     user_config, excess_pv_priority_changes = _migrate_excess_pv_sink_to_priority(user_config)
     if excess_pv_priority_changes:
+        pre_merge_changes = True
+
+    # 2.7c Move water heater load phases onto the device (before template merge)
+    user_config, wh_phase_changes = _migrate_water_heater_load_phases(user_config)
+    if wh_phase_changes:
         pre_merge_changes = True
 
     # 2.6 Remove energy_sensor from ev_chargers[] and water_heaters[]

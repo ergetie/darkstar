@@ -266,3 +266,41 @@ describe('GiveWayListEditor restore power and anti-wear fields', () => {
         expect(screen.queryByText('Power (kW)')).toBeNull()
     })
 })
+
+describe('water heater shed load phases', () => {
+    const cfg = (phases?: number[]) => ({
+        ...CONFIG,
+        water_heaters: [{ id: 'main_tank', name: 'Main Tank', ...(phases ? { phases } : {}) }],
+    })
+
+    it('shows the device phases read-only with a link to the Heating tab', () => {
+        renderEditor({
+            config: cfg([3]),
+            loads: [{ device_type: 'water_heater', device_id: 'main_tank', phases: [1] }],
+        })
+        const readonly = screen.getByTestId('shed-load-phases-readonly')
+        expect(readonly.textContent).toContain('L3')
+        expect(readonly.textContent).not.toContain('L1')
+        expect(readonly.querySelector('button')).toBeNull()
+        expect(screen.getByRole('link', { name: /Set in Heating tab/ })).toHaveAttribute('href', '/settings?tab=water')
+    })
+
+    it('falls back to all phases when the device has none set', () => {
+        renderEditor({
+            config: cfg(),
+            loads: [{ device_type: 'water_heater', device_id: 'main_tank', phases: [] }],
+        })
+        expect(screen.getByTestId('shed-load-phases-readonly').textContent).toContain('L1L2L3')
+        expect(screen.queryByText('Select at least one phase')).toBeNull()
+    })
+
+    it('keeps the editable picker for custom loads', () => {
+        renderEditor({
+            config: cfg([3]),
+            order: [{ kind: 'shed', id: 'pump' }],
+            loads: [{ device_type: 'custom_entity', device_id: 'pump', phases: [1] }],
+        })
+        expect(screen.queryByTestId('shed-load-phases-readonly')).toBeNull()
+        expect(screen.getByRole('button', { name: 'L2' })).toBeInTheDocument()
+    })
+})

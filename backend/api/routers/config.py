@@ -1105,6 +1105,29 @@ def _validate_config_for_save(
                         }
                     )
 
+                # phases is optional (default [1, 2, 3]); when set it must be 1-3, distinct, non-empty
+                if "phases" in wh and wh.get("phases") is not None:
+                    wh_phases: Any = wh["phases"]
+                    phase_values: list[Any] = (
+                        cast("list[Any]", wh_phases) if isinstance(wh_phases, list) else []
+                    )
+                    if (
+                        not phase_values
+                        or any(
+                            not isinstance(p, int) or isinstance(p, bool) or p not in (1, 2, 3)
+                            for p in phase_values
+                        )
+                        or len(set(phase_values)) != len(phase_values)
+                    ):
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "field": f"water_heaters.{i}.phases",
+                                "message": f"Water heater '{wh.get('id', i + 1)}' has invalid phases: {wh_phases}",
+                                "guidance": "phases must be a non-empty list of distinct phase numbers from 1 to 3, e.g. [3] or [1, 2, 3].",
+                            }
+                        )
+
                 # Validate sensor format
                 sensor = wh.get("sensor", "")
                 if sensor and not sensor.startswith("sensor."):
@@ -1800,7 +1823,21 @@ def _validate_config_for_save(
                         }
                     )
                 issues.extend(_validate_balanced_load_fields(load, i, device_id))
-                if not load.get("phases"):
+                if device_type == "water_heater":
+                    # Phases live on the water_heaters[] device. A leftover key without
+                    # a matching device was kept by the migration and is ignored.
+                    if "phases" in load and device_id not in known_wh_ids:
+                        issues.append(
+                            {
+                                "severity": "warning",
+                                "message": (
+                                    f"load_balancing.loads[{i}] ('{device_id}') has phases but "
+                                    "no matching water heater"
+                                ),
+                                "guidance": "Phases of a water heater are set on the water_heaters[] device and ignored here; the heater is treated as wired to all 3 phases until it matches.",
+                            }
+                        )
+                elif not load.get("phases"):
                     issues.append(
                         {
                             "severity": "error",

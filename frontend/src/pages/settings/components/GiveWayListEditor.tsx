@@ -191,6 +191,16 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
         }
     }
 
+    // Water heater wiring lives on the water_heaters[] device (VVB settings).
+    const heaterPhases = (deviceId: string): number[] => {
+        const heater = (config?.water_heaters as { id: string; phases?: number[] }[] | undefined)?.find(
+            (h) => h.id === deviceId,
+        )
+        return heater?.phases && heater.phases.length > 0 ? heater.phases : [1, 2, 3]
+    }
+    const displayPhases = (load: ShedLoad): number[] =>
+        load.device_type === 'water_heater' ? heaterPhases(load.device_id) : load.phases
+
     const togglePhase = (load: ShedLoad, phase: number) => {
         const has = load.phases.includes(phase)
         const nextPhases = has ? load.phases.filter((p) => p !== phase) : [...load.phases, phase].sort((a, b) => a - b)
@@ -263,7 +273,7 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
             <div className="space-y-2 py-2 pr-1">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="truncate text-sm font-semibold text-text">{shedDisplayName(load)}</span>
-                    <PhaseBadges phases={load.phases} />
+                    <PhaseBadges phases={displayPhases(load)} />
                     <span className="text-[11px] text-muted">Switch off</span>
                     {!disabled && (
                         <button
@@ -327,31 +337,47 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
                     </div>
                     <div>
                         <label className="mb-1 block text-[10px] font-bold uppercase text-muted">Phases</label>
-                        <div className="flex gap-2 pt-1">
-                            {[1, 2, 3].map((phase) => {
-                                const checked = load.phases.includes(phase)
-                                return (
-                                    <button
-                                        key={phase}
-                                        type="button"
-                                        disabled={disabled}
-                                        onClick={() => togglePhase(load, phase)}
-                                        className={`
-                                            px-3 py-1 rounded-lg text-xs font-semibold border transition-all duration-200
-                                            ${
-                                                checked
-                                                    ? 'bg-accent/20 border-accent/50 text-accent shadow-[0_0_10px_rgba(var(--accent-rgb),0.05)] font-bold'
-                                                    : 'bg-surface2 border-line/50 text-muted hover:border-accent/40 hover:text-text'
-                                            }
-                                            disabled:opacity-40 disabled:cursor-not-allowed
-                                        `}
-                                    >
-                                        L{phase}
-                                    </button>
-                                )
-                            })}
-                        </div>
-                        {load.phases.length === 0 && (
+                        {load.device_type === 'water_heater' ? (
+                            <div
+                                className="flex flex-wrap items-center gap-2 pt-1"
+                                data-testid="shed-load-phases-readonly"
+                            >
+                                <PhaseBadges phases={heaterPhases(load.device_id)} />
+                                <Link
+                                    to="/settings?tab=water"
+                                    className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-accent hover:underline"
+                                >
+                                    Set in Heating tab
+                                    <ExternalLink size={11} />
+                                </Link>
+                            </div>
+                        ) : (
+                            <div className="flex gap-2 pt-1">
+                                {[1, 2, 3].map((phase) => {
+                                    const checked = load.phases.includes(phase)
+                                    return (
+                                        <button
+                                            key={phase}
+                                            type="button"
+                                            disabled={disabled}
+                                            onClick={() => togglePhase(load, phase)}
+                                            className={`
+                                                px-3 py-1 rounded-lg text-xs font-semibold border transition-all duration-200
+                                                ${
+                                                    checked
+                                                        ? 'bg-accent/20 border-accent/50 text-accent shadow-[0_0_10px_rgba(var(--accent-rgb),0.05)] font-bold'
+                                                        : 'bg-surface2 border-line/50 text-muted hover:border-accent/40 hover:text-text'
+                                                }
+                                                disabled:opacity-40 disabled:cursor-not-allowed
+                                            `}
+                                        >
+                                            L{phase}
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        )}
+                        {load.device_type !== 'water_heater' && load.phases.length === 0 && (
                             <p className="mt-1 text-[10px] text-bad">Select at least one phase</p>
                         )}
                     </div>

@@ -25,6 +25,9 @@ class WaterHeaterInput:
     heated_today_kwh: float = 0.0
     progress_source: str = "unknown"
     progress_coverage: str = "unavailable"
+    # Grid lines (1-3) the heater is wired to; (1, 2, 3) = spread evenly.
+    # Used for the per-phase fuse constraint.
+    phases: tuple[int, ...] = (1, 2, 3)
 
 
 @dataclass

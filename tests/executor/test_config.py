@@ -633,11 +633,63 @@ class TestLoadBalancingConfig:
 
         assert config.load_balancing.enabled is True
 
+    @staticmethod
+    def _phase_config(tmp_path, heaters, loads):
+        config_file = tmp_path / "config.yaml"
+        with config_file.open("w") as f:
+            yaml.dump(
+                {
+                    "executor": {"enabled": True},
+                    "system": {"grid": {"main_fuse_a": 20}},
+                    "water_heaters": heaters,
+                    "load_balancing": {"enabled": True, "loads": loads},
+                },
+                f,
+            )
+        return load_executor_config(str(config_file)).load_balancing.loads
+
+    def test_water_heater_load_reads_device_phases(self, tmp_path):
+        loads = self._phase_config(
+            tmp_path,
+            [{"id": "main_tank", "phases": [3]}],
+            [{"device_type": "water_heater", "device_id": "main_tank"}],
+        )
+        assert loads[0].phases == [3]
+
+    def test_water_heater_load_ignores_stale_load_phases(self, tmp_path):
+        loads = self._phase_config(
+            tmp_path,
+            [{"id": "main_tank", "phases": [3]}],
+            [{"device_type": "water_heater", "device_id": "main_tank", "phases": [1]}],
+        )
+        assert loads[0].phases == [3]
+
+    def test_water_heater_load_defaults_to_three_phases(self, tmp_path):
+        loads = self._phase_config(
+            tmp_path,
+            [{"id": "main_tank"}, {"id": "bad", "phases": [4]}],
+            [
+                {"device_type": "water_heater", "device_id": "main_tank"},
+                {"device_type": "water_heater", "device_id": "bad"},
+                {"device_type": "water_heater", "device_id": "missing", "phases": [2]},
+            ],
+        )
+        assert [ld.phases for ld in loads] == [[1, 2, 3]] * 3
+
+    def test_custom_entity_load_keeps_own_phases(self, tmp_path):
+        loads = self._phase_config(
+            tmp_path,
+            [{"id": "main_tank", "phases": [3]}],
+            [{"device_type": "custom_entity", "device_id": "pump", "phases": [2]}],
+        )
+        assert loads[0].phases == [2]
+
     def test_full_section_with_loads(self, tmp_path):
         config_file = tmp_path / "config.yaml"
         config_data = {
             "executor": {"enabled": True},
             "system": {"grid": {"main_fuse_a": 20}},
+            "water_heaters": [{"id": "main_tank", "phases": [2]}],
             "load_balancing": {
                 "enabled": True,
                 "resume_delay_s": 90,
@@ -648,7 +700,6 @@ class TestLoadBalancingConfig:
                     {
                         "device_type": "water_heater",
                         "device_id": "main_tank",
-                        "phases": [2],
                     },
                     {
                         "device_type": "custom_entity",

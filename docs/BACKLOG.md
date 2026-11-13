@@ -85,7 +85,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Goal:** Let the planner take expected per-phase house load and the main fuse into account, so it does not schedule EV charging (and other controlled loads) that the load balancer will have to throttle.
 
-**Notes:** `ev-single-phase-grid-limit` added a per-phase limit (main fuse × load-balancing margin) for fixed 1-/2-phase EV chargers, assuming non-EV load spreads evenly over 3 phases. On 2026-09-27 the planner had planned 6.9 kW EV (10 A × 3) while the water heater and microwave sat on L3 (~10 A), forcing throttle to 6 A and then 1-phase relief on L1. Still missing: a per-phase house-load forecast, and single-phase non-EV loads (e.g. a 1-phase water heater, perhaps via a per-device phase setting). Controlling the water heater will reduce, but not remove, the clash.
+**Notes:** `ev-single-phase-grid-limit` added a per-phase limit (main fuse × load-balancing margin) for fixed 1-/2-phase EV chargers, assuming non-EV load spreads evenly over 3 phases. On 2026-09-27 the planner had planned 6.9 kW EV (10 A × 3) while the water heater and microwave sat on L3 (~10 A), forcing throttle to 6 A and then 1-phase relief on L1. Done 2026-11: per-device `water_heaters[].phases`, counted by the planner's per-phase limit and shared with the load balancer (`water-heater-phase-aware-planning`). Still missing: a per-phase house-load forecast (only worth building if real cases show up) and per-phase handling of other single-phase non-EV loads.
 
 #### [UI] User-Arranged Dashboard
 

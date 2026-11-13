@@ -121,6 +121,13 @@ Use **EV Charge** in the dashboard command bar when you want the car charged *no
 *   The request is refused if the car isn't connected, its SoC is unknown, or it is already at the target. Requires `soc_sensor` (and ideally `plug_sensor`) on the charger.
 *   The car's SoC sensor often updates only every few minutes, so the car may end a few percent above the target.
 
+### Water heater phases
+A water heater wired to a single phase (for example a 3 kW heater on L3) loads that phase alone. Set the phases it is wired to on the heater itself: **Settings > Heating**, open the heater and select its phases under **Phases** (`water_heaters[].phases` in `config.yaml`, default `[1, 2, 3]` = spread evenly over three phases).
+
+*   **Planner**: with a main fuse configured, the per-phase limit (main fuse x load-balancing margin) also counts single- and two-phase heaters, together with single- and two-phase EV chargers, so the plan avoids stacking them on one phase. The rest of the house load is still assumed to spread evenly over three phases. Map the heater's **power sensor** so its energy is not counted twice in the house load forecast.
+*   **Load balancer**: the Load Balancing tab shows the heater's phases read-only and links to the Heating tab. `loads[].phases` is only used for custom loads; for water heaters it is ignored. Existing `loads[].phases` of water heaters move to the heater automatically on upgrade.
+*   A heating block that is already running cannot be interrupted by the planner, so in that rare case the phase limit can be exceeded (logged as a warning); the load balancer remains the runtime safety net.
+
 ### Load balancer: coordinated ramping and anti-wear
 When load balancing is enabled, increases (EV current, battery grid charging, restoring a shed load) share one budget under your fuse limit: a step that was just granted counts until it shows in the measurement, so the car and the battery never ramp up together on a lagging average. These `load_balancing` settings tune it (defaults in `config.default.yaml`):
 

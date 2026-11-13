@@ -81,4 +81,44 @@ describe('water heater scheduling settings', () => {
         expect(field).toMatchObject({ min: 0, max: 23 })
         expect(field?.helper).toMatch(/Local-time quota boundary/)
     })
+
+    describe('phases', () => {
+        const renderPhases = (phases: number[] | undefined, onChange = vi.fn()) => {
+            render(
+                <MemoryRouter>
+                    <EntityArrayEditor
+                        entities={[{ ...heater, phases }]}
+                        entityType="water_heater"
+                        onChange={onChange}
+                    />
+                </MemoryRouter>,
+            )
+            return onChange
+        }
+        const picker = () => screen.getByTestId('water-heater-phases-0')
+
+        it('defaults to all three phases when unset', () => {
+            renderPhases(undefined)
+            const buttons = [...picker().querySelectorAll('button')]
+            expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'true', 'true'])
+        })
+
+        it('saves a single-phase selection', () => {
+            const onChange = renderPhases([1, 2, 3])
+            fireEvent.click(screen.getByRole('button', { name: 'L1' }))
+            expect(onChange).toHaveBeenLastCalledWith([expect.objectContaining({ phases: [2, 3] })])
+        })
+
+        it('adds a phase in sorted order', () => {
+            const onChange = renderPhases([3])
+            fireEvent.click(screen.getByRole('button', { name: 'L1' }))
+            expect(onChange).toHaveBeenLastCalledWith([expect.objectContaining({ phases: [1, 3] })])
+        })
+
+        it('never deselects the last phase', () => {
+            const onChange = renderPhases([3])
+            fireEvent.click(screen.getByRole('button', { name: 'L3' }))
+            expect(onChange).not.toHaveBeenCalled()
+        })
+    })
 })
