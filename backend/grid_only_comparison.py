@@ -9,6 +9,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+from backend.measurement_provenance import (
+    NON_DEVICE_COMPONENTS,
+    UNMEASURED_DEVICE_METHODS,
+    device_component_methods,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -40,7 +46,7 @@ class _SlotCosts:
     ds_wear_cost: float
     ds_cost: float
     grid_only_cost: float
-    water_unmeasured: bool = False
+    partial_components: tuple[_Exclusion, ...] = ()
 
 
 # One reason per excluded slot: (machine code, component or None). The first failing
@@ -82,92 +88,116 @@ def _quality_flags(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _component_method(flags: dict[str, Any], name: str) -> object:
+def _recording_components(flags: dict[str, Any]) -> dict[str, Any]:
     recording: Any = flags.get("recording")
     if not isinstance(recording, dict):
-        return None
-    components: Any = cast("dict[str, Any]", recording).get("components")
-    if not isinstance(components, dict):
-        return None
-    component: Any = cast("dict[str, Any]", components).get(name)
-    if not isinstance(component, dict):
-        return None
-    return cast("dict[str, Any]", component).get("method")
+        return {}
+    components: Any = cast("dict[str, Any]", recording).get("components", {})
+    return cast("dict[str, Any]", components) if isinstance(components, dict) else {}
 
 
 def _recording_exclusion(
-    flags: dict[str, Any], *, battery_present: bool, allow_unmeasured_water: bool = False
-) -> _Exclusion | None:
-    """First failing provenance check, or ``None`` when the recording allows the slot.
+    flags: dict[str, Any], *, battery_present: bool
+) -> tuple[_Exclusion | None, tuple[_Exclusion, ...]]:
+    """First failing provenance check and the partial components of an accepted slot.
 
-    ``allow_unmeasured_water`` accepts a water component with method ``unknown`` only
-    when the load was derived from history (so it still contains the unmeasured water)
-    and every other relevant component is eligible.
+    Import, export and the battery flows (when a battery is present) must be measured by
+    the recorder, and ``load`` must be priceable. Device components (``ev``, ``water`` and
+    any other device) and an estimated ``load`` never exclude a slot: derived load still
+    contains the energy of an unmeasured device, so the slot is partial instead.
+    Partial reasons are only returned when no exclusion applies.
     """
     if flags.get("source") != "recorder":
-        return "not_recorder", None
+        return ("not_recorder", None), ()
     if flags.get("placeholder") is True or flags.get("is_placeholder") is True:
-        return "not_recorder", None
+        return ("not_recorder", None), ()
     if flags.get("backfill") is True:
-        return "not_recorder", None
+        return ("not_recorder", None), ()
     if flags.get("exclude") is True:
-        return "user_excluded", None
+        return ("user_excluded", None), ()
     comparison_history: Any = flags.get("comparison_history")
     if isinstance(comparison_history, dict):
         history_map = cast("dict[str, Any]", comparison_history)
         if history_map.get("disposition") == "exclude_from_comparison":
-            return "user_excluded", None
+            return ("user_excluded", None), ()
 
     recording_value: Any = flags.get("recording")
     if recording_value is None:
         # Pre-provenance recorder rows remain valid when their relevant numbers exist.
-        return None
+        return None, ()
     if not isinstance(recording_value, dict):
-        return "unsupported_provenance", None
+        return ("unsupported_provenance", None), ()
     recording_map = cast("dict[str, Any]", recording_value)
     if recording_map.get("schema_version") != 1:
-        return "unsupported_provenance", None
+        return ("unsupported_provenance", None), ()
     if recording_map.get("semantics") != "slot-energy-v1":
-        return "unsupported_provenance", None
+        return ("unsupported_provenance", None), ()
 
     components: Any = recording_map.get("components")
     if not isinstance(components, dict):
-        return "unsupported_provenance", None
+        return ("unsupported_provenance", None), ()
     component_map = cast("dict[str, Any]", components)
-    relevant_components = ["import", "export", "load", "water", "ev"]
+    required_components = ["import", "export", "load"]
     if battery_present:
-        relevant_components.extend(("battery_charge", "battery_discharge"))
-    for name in relevant_components:
+        required_components.extend(("battery_charge", "battery_discharge"))
+    for name in required_components:
         component = component_map.get(name)
         if not isinstance(component, dict):
             # Missing provenance for a relevant component is unknown provenance.
-            return "unknown_component", name
+            return ("unknown_component", name), ()
         component_metadata = cast("dict[str, Any]", component)
         method = component_metadata.get("method")
         owner = component_metadata.get("owner")
-        if (
-            name == "water"
-            and method == "unknown"
-            and owner == "recorder"
-            and allow_unmeasured_water
-            and _component_method(flags, "load") == "derived_history"
-        ):
+        if name == "load":
+            # Demand cannot be priced without load; an estimated load is only partial.
+            if method == "unconfigured_zero":
+                return ("unconfigured_sensor", name), ()
+            if owner != "recorder" or method == "unknown":
+                return ("unknown_component", name), ()
+            if method not in {
+                "power_history",
+                "derived_history",
+                "disabled_zero",
+                "snapshot",
+                "mixed",
+            }:
+                return ("unknown_component", name), ()
             continue
         if method == "unconfigured_zero":
-            return "unconfigured_sensor", name
+            return ("unconfigured_sensor", name), ()
         if method in {"snapshot", "mixed"}:
-            return "estimated_component", name
+            return ("estimated_component", name), ()
         if owner != "recorder" or method == "unknown":
-            return "unknown_component", name
+            return ("unknown_component", name), ()
         if (
             battery_present
             and name in {"battery_charge", "battery_discharge"}
             and method == "disabled_zero"
         ):
-            return "battery_disabled_zero", name
+            return ("battery_disabled_zero", name), ()
         if method not in {"power_history", "derived_history", "disabled_zero"}:
-            return "unknown_component", name
-    return None
+            return ("unknown_component", name), ()
+
+    partial: list[_Exclusion] = []
+    for name, component in component_map.items():
+        is_device = name not in NON_DEVICE_COMPONENTS
+        if not (is_device or name == "load") or not isinstance(component, dict):
+            continue
+        method = cast("dict[str, Any]", component).get("method")
+        if method in UNMEASURED_DEVICE_METHODS:
+            partial.append(("unmeasured_component", name))
+        elif method == "unconfigured_zero" and is_device:
+            partial.append(("unconfigured_sensor", name))
+    load_metadata: Any = component_map.get("load")
+    load_method = (
+        cast("dict[str, Any]", load_metadata).get("method")
+        if isinstance(load_metadata, dict)
+        else None
+    )
+    if load_method == "mixed" and any(key[1] != "load" for key in partial):
+        # Mixed load only reflects the partial device; its note already explains the slot.
+        partial = [key for key in partial if key[1] != "load"]
+    return None, tuple(partial)
 
 
 def _valid_slot_start(start: datetime) -> datetime | None:
@@ -191,23 +221,28 @@ def _slot_costs(
     if start_utc is None:
         return "missing_slot", None
     flags = _quality_flags(row.quality_flags)
-    exclusion = _recording_exclusion(
-        flags, battery_present=battery_present, allow_unmeasured_water=True
-    )
+    exclusion, partial_components = _recording_exclusion(flags, battery_present=battery_present)
     if exclusion is not None:
         return exclusion
-    water_unmeasured = _component_method(flags, "water") == "unknown"
+    unknown_devices = {
+        name
+        for name, method in device_component_methods(_recording_components(flags)).items()
+        if method == "unknown"
+    }
 
-    # Unmeasured water (null or zero) is not a filled value: derived load still contains it.
+    # An unmeasured device (null or zero) is not a filled value: derived load still contains it.
     water_value = _finite_number(row.water_kwh, nonnegative=True)
-    if water_unmeasured and water_value is None and row.water_kwh is None:
+    if "water" in unknown_devices and water_value is None and row.water_kwh is None:
         water_value = 0.0
+    ev_value = _finite_number(row.ev_charging_kwh, nonnegative=True)
+    if "ev" in unknown_devices and ev_value is None and row.ev_charging_kwh is None:
+        ev_value = 0.0
     energy_inputs = {
         "import": _finite_number(row.import_kwh, nonnegative=True),
         "export": _finite_number(row.export_kwh, nonnegative=True),
         "load": _finite_number(row.load_kwh, nonnegative=True),
         "water": water_value,
-        "ev": _finite_number(row.ev_charging_kwh, nonnegative=True),
+        "ev": ev_value,
     }
     if battery_present:
         energy_inputs["battery_charge"] = _finite_number(row.batt_charge_kwh, nonnegative=True)
@@ -236,13 +271,7 @@ def _slot_costs(
         else (0.0, 0.0)
     )
 
-    recording: Any = flags.get("recording")
-    components: dict[str, Any] = {}
-    if isinstance(recording, dict):
-        recording_map = cast("dict[str, Any]", recording)
-        raw_components: Any = recording_map.get("components", {})
-        if isinstance(raw_components, dict):
-            components = cast("dict[str, Any]", raw_components)
+    components = _recording_components(flags)
     import_kwh, export_kwh, load_kwh, water_kwh, ev_kwh = energies
     import_price, export_price = prices
     charge_kwh, discharge_kwh = battery_flows
@@ -250,8 +279,8 @@ def _slot_costs(
     assert load_kwh is not None and water_kwh is not None and ev_kwh is not None
     assert import_price is not None and export_price is not None
     assert charge_kwh is not None and discharge_kwh is not None
-    if water_unmeasured and ev_kwh > 0 and load_kwh == 0:
-        # The base-load clamp (ev + water > total) may have hidden real demand.
+    if unknown_devices and load_kwh == 0 and (import_kwh > 0 or water_kwh > 0 or ev_kwh > 0):
+        # The base-load clamp (devices > total) may have hidden real demand.
         return "clamp_hidden_demand", None
     values_by_component = {
         "import": import_kwh,
@@ -296,7 +325,7 @@ def _slot_costs(
         ds_wear_cost,
         ds_cost,
         grid_only_cost,
-        water_unmeasured,
+        partial_components,
     )
 
 
@@ -408,7 +437,17 @@ def build_grid_only_comparison(
     covered = len(eligible)
     total = len(expected)
     excluded = total - covered
-    water_unmeasured_slots = sum(1 for slot in eligible if slot.water_unmeasured)
+    partial_by_component: dict[str, int] = {}
+    partial_entries: dict[_Exclusion, list[tuple[datetime, _Exclusion]]] = defaultdict(list)
+    partial_slot_count = 0
+    for slot in eligible:
+        if slot.partial_components:
+            partial_slot_count += 1
+        for key in slot.partial_components:
+            component_name = key[1] or "device"
+            partial_by_component[component_name] = partial_by_component.get(component_name, 0) + 1
+            partial_entries[key].append((slot.start_utc, key))
+    water_unmeasured_slots = partial_by_component.get("water", 0)
     excluded_by_reason: dict[str, int] = {}
     for _, (reason_code, _component) in excluded_slots_by_start:
         excluded_by_reason[reason_code] = excluded_by_reason.get(reason_code, 0) + 1
@@ -429,6 +468,9 @@ def build_grid_only_comparison(
             "covered_slots": covered,
             "total_slots": total,
             "excluded_slots": excluded,
+            "partial_slots": partial_slot_count,
+            "partial_hours": partial_slot_count * 0.25,
+            "partial_by_component": partial_by_component,
             "water_unmeasured_slots": water_unmeasured_slots,
             "water_unmeasured_hours": water_unmeasured_slots * 0.25,
             "excluded_by_reason": excluded_by_reason,
@@ -439,6 +481,14 @@ def build_grid_only_comparison(
             "end": _local_iso(axis_end, timezone),
         },
         "excluded_spans": _excluded_spans(excluded_slots_by_start, timezone),
+        "partial_spans": sorted(
+            (
+                span
+                for entries in partial_entries.values()
+                for span in _excluded_spans(entries, timezone)
+            ),
+            key=lambda span: (datetime.fromisoformat(span["start"]), str(span["component"])),
+        ),
     }
     if not covered:
         return result

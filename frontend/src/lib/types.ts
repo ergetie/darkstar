@@ -32,7 +32,8 @@ export type ScheduleSlot = {
     actual_water_heaters_kw?: Record<string, number>
     actual_water_heater_sources?: Record<string, string>
     is_completed?: boolean
-    actual_ev_charging_kw?: number
+    actual_ev_charging_kw?: number | null
+    actual_ev_available?: boolean
     water_heating_boost?: Record<string, boolean>
     custom_entity_active?: Record<string, boolean>
     ev_surplus_kw?: Record<string, number>

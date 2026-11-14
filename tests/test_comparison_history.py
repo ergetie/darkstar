@@ -453,3 +453,26 @@ def test_real_wal_annotation_undo_preserves_history_calibration_eligibility(tmp_
     assert sum(calibration_eligible(row) for row in corrected_rows) == 0
     assert corrected_rows[0].pv_kwh != restored_rows[0].pv_kwh
     connection.close()
+
+
+def test_annotation_keeps_unknown_device_provenance_unmodified(tmp_path):
+    recording = {
+        "schema_version": 1,
+        "semantics": ENERGY_SEMANTICS,
+        "boundary_fingerprint": "a" * 64,
+        "components": {
+            "ev": {"method": "unknown", "owner": "recorder"},
+            "load": {"method": "derived_history", "owner": "recorder"},
+        },
+        "soc": {"source": "live", "owner": "recorder"},
+    }
+    flags = {"source": "recorder", "recording": recording}
+    database = tmp_path / "history-unknown.db"
+    connection, _starts = create_database(database, flags)
+    manifest, manifest_path = reviewed_manifest(connection, database, tmp_path)
+    apply_manifest(manifest, manifest_path, connection, database, tmp_path / "audit.json")
+    for (raw,) in connection.execute("SELECT quality_flags FROM slot_observations").fetchall():
+        stored = json.loads(raw)
+        assert stored["comparison_history"]["disposition"] == "exclude_from_comparison"
+        assert stored["recording"] == recording
+    connection.close()

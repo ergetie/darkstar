@@ -71,3 +71,57 @@ async def test_water_fields_follow_flag(monkeypatch, tmp_path, flag, past):
         assert slot["water_heating_kw"] == 0.0
         assert slot["planned_water_heating_kw"] == 0.0
         assert not {"planned_water_heaters", "actual_water_heaters_kw"} & slot.keys()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ev_available", [True, False])
+async def test_actual_ev_power_is_null_when_the_ev_sensor_was_unavailable(
+    monkeypatch, tmp_path, ev_available
+):
+    start, end = "2026-10-07T22:00:00+02:00", "2026-10-07T22:15:00+02:00"
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 7, 20, 32, tzinfo=schedule.pytz.UTC).astimezone(tz)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(schedule, "datetime", FixedDatetime)
+    monkeypatch.setattr(schedule, "load_yaml", lambda _: {"timezone": "Europe/Stockholm"})
+    monkeypatch.setattr(schedule, "get_nordpool_data", AsyncMock(return_value=[]))
+    store = AsyncMock()
+    store.get_history_range.return_value = [
+        {
+            "slot_start": start,
+            "slot_end": end,
+            "soc_end_percent": 50.0,
+            "batt_charge_kwh": 0.0,
+            "batt_discharge_kwh": 0.0,
+            "water_kwh": 0.0,
+            "ev_charging_kwh": 0.0,
+            "actual_ev_available": ev_available,
+            "export_kwh": 0.0,
+            "import_price_sek_kwh": 1.0,
+        }
+    ]
+    store.get_forecasts_range.return_value = []
+    store.get_plans_range.return_value = [
+        {
+            "slot_start": start,
+            "slot_end": end,
+            "planned_charge_kwh": 0.0,
+            "planned_discharge_kwh": 0.0,
+            "planned_soc_percent": 50.0,
+            "projected_soc_percent": 50.0,
+            "planned_export_kwh": 0.0,
+            "planned_water_heating_kwh": 0.0,
+            "planned_ev_charging_kwh": None,
+        }
+    ]
+    store.get_observations_range.return_value = []
+
+    result = await schedule.schedule_today_with_history(store=store)
+
+    slot = result["slots"][0]
+    assert slot["actual_ev_available"] is ev_available
+    assert slot["actual_ev_charging_kw"] == (0.0 if ev_available else None)

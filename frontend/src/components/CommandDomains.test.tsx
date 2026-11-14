@@ -403,36 +403,58 @@ describe('GridDomain grid-only comparison', () => {
         water_unmeasured_hours: slots * 0.25,
     })
 
-    it.each(['today', '30d'])('shows the unmeasured-water note for the %s payload', async (period) => {
+    const partialSpan = (component: string, slots: number, start: string, end: string) => ({
+        start,
+        end,
+        slots,
+        reason: 'unmeasured_component',
+        component,
+    })
+
+    it.each(['today', '30d'])('shows the unmeasured-device note for the %s payload', async (period) => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(
-            seriesWith(gridOnlyComparison({ coverage: waterCoverage(8) })),
+            seriesWith(
+                gridOnlyComparison({
+                    coverage: waterCoverage(8),
+                    partial_spans: [partialSpan('water', 8, '2026-10-05T08:00:00+02:00', '2026-10-05T10:00:00+02:00')],
+                }),
+            ),
         )
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
         if (period === '30d') fireEvent.click(screen.getByRole('button', { name: '30d' }))
         await screen.findByText('+10.00 kr')
         openPanel()
-        expect(screen.getByTestId('water-unmeasured-note')).toHaveTextContent('Water not measured for 2 h, included')
+        expect(screen.getByTestId('partial-notes')).toHaveTextContent(
+            'Water heater not measured for 2 h (Oct 5 08:00-Oct 5 10:00)',
+        )
     })
 
-    it('hides the note at zero and coexists with the excluded count', async () => {
+    it('names the EV gap for 26 h 15 min and hides the notes without partial spans', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(gridOnlyComparison()))
         const { unmount } = render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
         await screen.findByText('+10.00 kr')
         openPanel()
-        expect(screen.queryByTestId('water-unmeasured-note')).toBeNull()
+        expect(screen.queryByTestId('partial-notes')).toBeNull()
         unmount()
 
         vi.mocked(Api.energyCostSeries).mockResolvedValue(
-            seriesWith(gridOnlyComparison({ status: 'partial', coverage: waterCoverage(3, 6) })),
+            seriesWith(
+                gridOnlyComparison({
+                    status: 'partial',
+                    coverage: waterCoverage(0, 6),
+                    partial_spans: [partialSpan('ev', 105, '2026-10-05T10:00:00+02:00', '2026-10-06T12:15:00+02:00')],
+                }),
+            ),
         )
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
         await screen.findByText('· 93% of the period')
         openPanel()
-        const dialog = screen.getByRole('dialog')
-        expect(dialog).toHaveTextContent('90 of 96 slots (6 excluded)')
-        expect(screen.getByTestId('water-unmeasured-note')).toHaveTextContent('Water not measured for 0.75 h, included')
+        expect(screen.getByRole('dialog')).toHaveTextContent('90 of 96 slots (6 excluded)')
+        expect(screen.getByTestId('partial-notes')).toHaveTextContent(
+            'EV not measured for 26 h 15 min (Oct 5 10:00-Oct 6 12:15)',
+        )
     })
 
     describe('excluded reason notes', () => {

@@ -44,3 +44,33 @@ Load training SHALL use the same historical weather frame as PV training and SHA
 #### Scenario: Weather fetch fails
 - **WHEN** the historical request returns no data
 - **THEN** load models SHALL still be trained with weather columns missing
+
+### Requirement: Slots with an unknown device component are not trained on
+Load training and every other ML consumer of slot `load_kwh` SHALL drop slots with an unmeasured device component, because the derived load still contains that device's energy, and SHALL store the drop count as `dropped_unmeasured_device_rows`.
+
+#### Scenario: Drop rules
+- **THEN** a slot is dropped when any device component (`ev`, `water`, other) has method `unknown`, `snapshot` or `mixed`, or when `load` is unknown, so legacy rows with a fake 0 device snapshot are never trained on
+- **AND** a device with `unconfigured_zero` does not cause a drop, and rows without `recording` provenance are unaffected
+
+#### Scenario: Count storage
+- **THEN** the count is stored in `learning_runs` `result_metrics_json` and in the load model sidecar
+
+#### Scenario: EV unknown slot dropped
+- **WHEN** a slot has `ev=unknown` and `load=derived_history`
+- **THEN** it SHALL NOT be used for load training
+
+#### Scenario: Device snapshot slot dropped
+- **WHEN** a slot has `ev=snapshot` and `load=mixed`
+- **THEN** it SHALL NOT be used for load training
+
+#### Scenario: Unconfigured device slot kept
+- **WHEN** a slot has `water=unconfigured_zero`, `load=mixed` and every other device measured
+- **THEN** it SHALL be kept
+
+#### Scenario: Measured slot kept
+- **WHEN** a slot has all device components measured
+- **THEN** it SHALL be kept
+
+#### Scenario: Count reported
+- **WHEN** training completes
+- **THEN** the metrics contain `dropped_unmeasured_device_rows`

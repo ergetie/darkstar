@@ -245,3 +245,55 @@ class TestValidateEnergyValues:
         assert "pv_kwh" in warning_msg
         assert "10.000" in warning_msg
         assert "4.000" in warning_msg
+
+
+class TestSpikeMarksDevicesUnknown:
+    @staticmethod
+    def _record(**values):
+        flags = {
+            "recording": {
+                "components": {
+                    "ev": {"method": "power_history", "owner": "recorder"},
+                    "water": {"method": "power_history", "owner": "recorder"},
+                }
+            },
+            "water_heater_energy": {
+                "devices": {"tank": {"energy_kwh": 1.0, "source": "power_history"}}
+            },
+            "ev_charger_devices": {
+                "ev1": {"energy_kwh": 1.0, "source": "power_history", "coverage": "complete"}
+            },
+        }
+        return {"quality_flags": flags, "water_kwh": 0.5, "ev_charging_kwh": 0.5} | values
+
+    def test_ev_spike_is_zeroed_and_marked_unknown_with_unavailable_chargers(self):
+        record = self._record(ev_charging_kwh=50.0, ev_charger_energy={"ev1": 50.0})
+        result = validate_energy_values(record, 4.0)
+        flags = result["quality_flags"]
+        assert result["ev_charging_kwh"] == 0.0
+        assert flags["recording"]["components"]["ev"]["method"] == "unknown"
+        assert flags["recording"]["components"]["water"]["method"] == "power_history"
+        assert flags["ev_charger_devices"]["ev1"] == {
+            "energy_kwh": None,
+            "source": "unavailable",
+            "coverage": "unavailable",
+        }
+        assert flags["water_heater_energy"]["devices"]["tank"]["source"] == "power_history"
+        # The input record is never mutated.
+        assert record["quality_flags"]["recording"]["components"]["ev"]["method"] == "power_history"
+
+    def test_water_spike_still_marks_water_only(self):
+        result = validate_energy_values(self._record(water_kwh=50.0), 4.0)
+        flags = result["quality_flags"]
+        assert flags["recording"]["components"]["water"]["method"] == "unknown"
+        assert flags["recording"]["components"]["ev"]["method"] == "power_history"
+        assert result["water_heater_energy"] is None
+
+    def test_both_spikes_mark_both_devices(self):
+        result = validate_energy_values(self._record(water_kwh=50.0, ev_charging_kwh=50.0), 4.0)
+        components = result["quality_flags"]["recording"]["components"]
+        assert (components["ev"]["method"], components["water"]["method"]) == ("unknown", "unknown")
+
+    def test_no_spike_leaves_provenance_untouched(self):
+        record = self._record()
+        assert validate_energy_values(record, 4.0)["quality_flags"] == record["quality_flags"]

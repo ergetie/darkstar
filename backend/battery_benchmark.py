@@ -15,7 +15,13 @@ from typing import TYPE_CHECKING, Any
 
 import pytz
 
-from backend.measurement_provenance import parse_quality_flags, parse_recording, soc_metadata
+from backend.measurement_provenance import (
+    SUPPORTED_METHODS,
+    device_component_methods,
+    parse_quality_flags,
+    parse_recording,
+    soc_metadata,
+)
 from planner.errors import PlannerError
 from planner.solver.kepler import KeplerSolver
 from planner.solver.types import KeplerBenchmark, KeplerConfig, KeplerInput, KeplerInputSlot
@@ -66,18 +72,28 @@ def meter_battery_flow(row: Mapping[str, Any]) -> tuple[float, float]:
 
 
 def slot_recording(row: Mapping[str, Any]) -> str | None:
-    """'clean', 'snapshot' or None (not usable) from per-value recording provenance."""
-    recording = parse_recording(parse_quality_flags(row.get("quality_flags")))
+    """'clean', 'snapshot', 'partial' or None (not usable) from per-value recording provenance.
+
+    'partial': a device component is unknown but the load was derived from history, so it
+    still contains that device's energy and the recorded demand (load + water + ev) is
+    exact. Unknown load, grid, pv or battery methods are not usable.
+    """
+    recording = parse_recording(parse_quality_flags(row.get("quality_flags")), SUPPORTED_METHODS)
     if recording is None or not recording["components"]:
         return None
     if soc_metadata(recording, "end").get("source") != "live":
         return None
-    methods = {c["method"] for c in recording["components"].values()}
-    if methods <= CLEAN_METHODS:
-        return "clean"
-    if methods <= CLEAN_METHODS | {"snapshot"}:
-        return "snapshot"
-    return None
+    components = recording["components"]
+    devices = device_component_methods(components)
+    unknown_devices = {name for name, method in devices.items() if method == "unknown"}
+    if unknown_devices and components.get("load", {}).get("method") != "derived_history":
+        return None
+    methods = {c["method"] for name, c in components.items() if name not in unknown_devices}
+    if not methods <= CLEAN_METHODS | {"snapshot"}:
+        return None
+    if unknown_devices:
+        return "partial"
+    return "clean" if methods <= CLEAN_METHODS else "snapshot"
 
 
 def schedule_cost(
@@ -136,13 +152,14 @@ def _gap_filled(row: dict[str, Any]) -> dict[str, Any]:
 
 def _recording_reason(
     day: date, rows_by_day: Mapping[date, list[dict[str, Any]]], tz: Any, now: datetime
-) -> tuple[str | None, int, int]:
-    """First failing data reason (or None), the snapshot-slot count and the unverified-slot
-    count (snapshot or unusable provenance, including the start-SoC slot)."""
+) -> tuple[str | None, int, int, int]:
+    """First failing data reason (or None), the snapshot-slot count, the unverified-slot
+    count (snapshot or unusable provenance, including the start-SoC slot) and the
+    partial-slot count (unmeasured device inside a derived load)."""
     rows = rows_by_day.get(day, [])
     start, end = _local_day_bounds(day, tz)
     if end > now:
-        return "not_finished", 0, 0
+        return "not_finished", 0, 0, 0
     expected = int((end - start).total_seconds() // (SLOT_MINUTES * 60))
     times = [
         (datetime.fromisoformat(r["slot_start"]), datetime.fromisoformat(r["slot_end"]))
@@ -154,25 +171,28 @@ def _recording_reason(
         or times[-1][1] != end
         or any(times[i - 1][1] != times[i][0] for i in range(1, len(times)))
     ):
-        return "incomplete_day", 0, 0
+        return "incomplete_day", 0, 0, 0
     previous = rows_by_day.get(day - timedelta(days=1), [])
     if not previous or datetime.fromisoformat(previous[-1]["slot_end"]) != start:
-        return "incomplete_day", 0, 0
+        return "incomplete_day", 0, 0, 0
     states = [slot_recording(r) for r in [previous[-1], *rows]]
     snapshots = states.count("snapshot")
+    partials = states.count("partial")
     # A day slot missing energy or SoC (prices present) is a recording gap: unverified.
+    # A partial slot (unmeasured device inside a derived load) has exact demand and
+    # counts as verified; it is reported through ``partial_slots`` instead.
     unverified = sum(
-        state != "clean" or (i > 0 and _has_gap(row))
+        state not in {"clean", "partial"} or (i > 0 and _has_gap(row))
         for i, (state, row) in enumerate(zip(states, [previous[-1], *rows], strict=True))
     )
     if unverified > MAX_UNVERIFIED_SLOTS:
-        return "not_clean_recording", snapshots, unverified
+        return "not_clean_recording", snapshots, unverified, partials
     # Cost needs every price; the start stock needs the start-SoC slot's SoC.
     if not all(_finite_value(r, k) for r in rows for k in PRICE_FIELDS) or not _finite_value(
         previous[-1], "soc_end_percent"
     ):
-        return "missing_values", snapshots, unverified
-    return None, snapshots, unverified
+        return "missing_values", snapshots, unverified, partials
+    return None, snapshots, unverified, partials
 
 
 def _ev_charging(row: Mapping[str, Any]) -> bool:
@@ -236,6 +256,7 @@ def base_record(day: date, config: KeplerConfig) -> dict[str, Any]:
         "implied_capacity_kwh": None,
         "warnings": [],
         "snapshot_slots": 0,
+        "partial_slots": 0,
         "unverified_slots": 0,
         "day_slots": 0,
         "stored_change_kwh": None,
@@ -261,9 +282,12 @@ def benchmark_day(
     covering the day and the days before it (start SoC and capacity history)."""
     tz = pytz.timezone(config.timezone_name)
     record = base_record(day, config)
-    reason, record["snapshot_slots"], record["unverified_slots"] = _recording_reason(
-        day, rows_by_day, tz, now
-    )
+    (
+        reason,
+        record["snapshot_slots"],
+        record["unverified_slots"],
+        record["partial_slots"],
+    ) = _recording_reason(day, rows_by_day, tz, now)
     if reason is not None:
         record["reason"] = reason
         return record
@@ -275,6 +299,9 @@ def benchmark_day(
     if record["unverified_slots"] > 0:
         # A few slots without verified provenance (start-SoC slot included) are tolerated.
         record["warnings"].append("unverified_slots")
+    if record["partial_slots"] > 0:
+        # Demand is exact (load is derived from history) but a device sensor was missing.
+        record["warnings"].append("partial_slots")
     history = [day]
     cursor = day - timedelta(days=1)
     while len(history) <= CAPACITY_HISTORY_DAYS and cursor in rows_by_day:

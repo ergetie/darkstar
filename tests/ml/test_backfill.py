@@ -346,3 +346,15 @@ async def test_water_cutoff_backfill_retains_idle_load_and_truthful_coverage(
     assert metadata["recording"]["components"]["water"]["method"] == (
         "unknown" if missing_heater else "power_history"
     )
+
+
+@pytest.mark.asyncio
+async def test_device_without_history_is_unknown_not_mixed_or_measured(make_engine):
+    engine, learning_engine = make_engine(make_config(), TZ.localize(datetime(2026, 10, 1, 10, 0)))
+    # The EV sensor has no history at all for the slot; water is measured.
+    await run(engine, constant_history(with_core({"sensor.load": 4.0, "sensor.wh": 1.0})))
+    row = stored(learning_engine).iloc[0]
+    components = row["quality_flags"]["recording"]["components"]
+    assert (components["ev"]["method"], components["ev"]["owner"]) == ("unknown", "backfill")
+    assert components["water"]["method"] == "power_history"
+    assert row["ev_charging_kwh"] == 0.0

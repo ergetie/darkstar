@@ -295,6 +295,7 @@ def test_training_stores_schema_version_and_drop_counts(training_env):
     assert "load_level_7d" in sidecar["feature_names"]
     assert sidecar["training_stats"]["dropped_clamp_days"] == 1
     assert sidecar["training_stats"]["dropped_clamp_rows"] == 96
+    assert sidecar["training_stats"]["dropped_unmeasured_device_rows"] == 0
     pv_sidecar = json.loads(Path("data/ml/models/pv_model_p50.features.json").read_text())
     assert "schema_version" not in pv_sidecar
     assert "load_level_7d" not in pv_sidecar["feature_names"]
@@ -306,6 +307,7 @@ def test_training_stores_schema_version_and_drop_counts(training_env):
     assert metrics["dropped_clamp_days"] == 1
     assert metrics["dropped_clamp_rows"] == 96
     assert metrics["dropped_backfill_rows"] == 0
+    assert metrics["dropped_unmeasured_device_rows"] == 0
 
 
 def _weather_frame(days: list[int]) -> pd.DataFrame:

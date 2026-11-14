@@ -196,6 +196,37 @@ class TestViolations:
         assert r.status == "violation"
 
     @pytest.mark.asyncio
+    async def test_energy_balance_skips_slots_with_an_unmeasured_device(self, mon_db, monitors):
+        import sqlite3
+
+        seed_healthy(mon_db)
+        flags = json.dumps(
+            {
+                "source": "recorder",
+                "recording": {
+                    "schema_version": 1,
+                    "components": {"ev": {"method": "unknown", "owner": "recorder"}},
+                },
+            }
+        )
+        con = sqlite3.connect(mon_db)
+        now = datetime.now(TZ).replace(minute=0, second=0, microsecond=0)
+        # The same big residuals as the violation test, but the EV energy is unmeasured.
+        for i in range(ENERGY_VIOLATION_COUNT):
+            t = now - timedelta(hours=2, minutes=15 * i)
+            con.execute(
+                "UPDATE slot_observations SET import_kwh = 10.0, quality_flags = ? "
+                "WHERE slot_start = ?",
+                (flags, t.isoformat()),
+            )
+        con.commit()
+        con.close()
+
+        results = await monitors.evaluate_all()
+        r = next(x for x in results if x.name == "energy_balance")
+        assert r.status == "pass"
+
+    @pytest.mark.asyncio
     async def test_soc_out_of_bounds(self, mon_db, monitors):
         import sqlite3
 

@@ -1,4 +1,4 @@
-import type { ExcludedSpan } from './api'
+import type { ExcludedSpan, PartialSpan } from './api'
 
 /** Plain-language names of the components an exclusion reason can refer to. */
 const COMPONENT_LABELS: Record<string, string> = {
@@ -89,4 +89,57 @@ export function buildExclusionNotes(spans: readonly ExcludedSpan[] | undefined):
         .map(([phrase, slots]) => `${formatSlotDuration(slots)} not compared: ${phrase}`)
     const rest = groups.length - MAX_GROUPS
     return { lines, more: rest > 0 ? `and ${rest} more ${rest === 1 ? 'reason' : 'reasons'}` : null }
+}
+
+/** Short names for a partial note, written as the subject of "<name> not measured". */
+const PARTIAL_LABELS: Record<string, string> = {
+    ev: 'EV',
+    water: 'Water heater',
+    load: 'Household load',
+}
+
+const PARTIAL_FALLBACK_LABEL = 'Device'
+
+function partialPhrase(span: PartialSpan): string {
+    const label = (span.component ? PARTIAL_LABELS[span.component] : undefined) ?? PARTIAL_FALLBACK_LABEL
+    return span.reason === 'unconfigured_sensor' ? `${label} sensor not set up` : `${label} not measured`
+}
+
+function formatSpanInstant(timestamp: number, timezone: string): string {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+    }).formatToParts(new Date(timestamp))
+    const part = (type: string) => parts.find((item) => item.type === type)?.value ?? ''
+    return `${part('month')} ${part('day')} ${part('hour')}:${part('minute')}`
+}
+
+/**
+ * Notes for included slots whose device or load was not measured, e.g.
+ * "EV not measured for 26 h 15 min (Nov 9 10:00-Nov 10 12:15)". One line per phrase, the
+ * time range is that of the phrase's longest span; at most two lines, largest first.
+ */
+export function buildPartialNotes(spans: readonly PartialSpan[] | undefined, timezone: string): ExclusionNotes {
+    const groups = new Map<string, { slots: number; longest: PartialSpan }>()
+    for (const span of spans ?? []) {
+        const phrase = partialPhrase(span)
+        const group = groups.get(phrase)
+        if (!group) {
+            groups.set(phrase, { slots: span.slots, longest: span })
+        } else {
+            group.slots += span.slots
+            if (span.slots > group.longest.slots) group.longest = span
+        }
+    }
+    const ordered = [...groups.entries()].sort((a, b) => b[1].slots - a[1].slots)
+    const lines = ordered.slice(0, MAX_GROUPS).map(([phrase, { slots, longest }]) => {
+        const range = `${formatSpanInstant(Date.parse(longest.start), timezone)}-${formatSpanInstant(Date.parse(longest.end), timezone)}`
+        return `${phrase} for ${formatSlotDuration(slots)} (${range})`
+    })
+    const rest = ordered.length - MAX_GROUPS
+    return { lines, more: rest > 0 ? `and ${rest} more` : null }
 }

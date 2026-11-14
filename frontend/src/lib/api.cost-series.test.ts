@@ -284,6 +284,18 @@ describe('parseCostSeriesResponse', () => {
             expect(parsed.grid_only_comparison?.excluded_spans?.[0].component).toBeNull()
         })
 
+        it('passes partial spans through and drops malformed ones', () => {
+            const partial = { ...span, reason: 'unmeasured_component', component: 'ev' }
+            const withPartial = (value: unknown) => {
+                const response = validResponse()
+                ;(response.grid_only_comparison as Record<string, unknown>).partial_spans = value
+                return parseCostSeriesResponse(response).grid_only_comparison
+            }
+            expect(withPartial([partial])?.partial_spans).toEqual([partial])
+            expect(withPartial('bad')).not.toHaveProperty('partial_spans')
+            expect(withPartial([{ ...partial, slots: 0 }])).not.toHaveProperty('partial_spans')
+        })
+
         it('leaves an older backend response without the fields untouched', () => {
             const parsed = parseCostSeriesResponse(validResponse())
             expect(parsed.grid_only_comparison).not.toHaveProperty('excluded_spans')

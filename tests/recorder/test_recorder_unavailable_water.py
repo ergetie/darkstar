@@ -230,14 +230,14 @@ async def test_boundary_slots_stay_power_history_without_a_water_note(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_unknown_water_with_snapshot_load_stays_excluded(tmp_path):
+async def test_unknown_water_with_snapshot_load_is_included_and_partial(tmp_path):
     db_path = await make_db(tmp_path)
     await record_slot(db_path, local(9), water=[(0, "unavailable")], water_snapshot=None, load=None)
     rows = stored_rows(db_path)
     assert components(rows[local(9)])["load"]["method"] in {"snapshot", "mixed"}
     result = compare(rows, local(9), 1)
-    assert result["coverage"]["covered_slots"] == 0
-    assert result["excluded_spans"][0]["reason"] == "estimated_component"
+    assert result["coverage"]["covered_slots"] == 1
+    assert {span["component"] for span in result["partial_spans"]} == {"water", "load"}
 
 
 @pytest.mark.asyncio
@@ -271,7 +271,7 @@ async def test_unknown_water_with_ev_and_zero_load_stays_excluded(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_unknown_water_with_unknown_ev_stays_excluded(tmp_path):
+async def test_unknown_water_with_unknown_ev_is_included_and_partial(tmp_path):
     db_path = await make_db(tmp_path)
     await record_slot(db_path, local(9), water=[(0, "unavailable")], water_snapshot=None)
     rows = stored_rows(db_path)
@@ -279,11 +279,8 @@ async def test_unknown_water_with_unknown_ev_stays_excluded(tmp_path):
     flags["recording"]["components"]["ev"]["method"] = "unknown"
     rows[local(9)]["quality_flags"] = json.dumps(flags)
     result = compare(rows, local(9), 1)
-    assert result["coverage"]["covered_slots"] == 0
-    assert (result["excluded_spans"][0]["reason"], result["excluded_spans"][0]["component"]) == (
-        "unknown_component",
-        "ev",
-    )
+    assert result["coverage"]["covered_slots"] == 1
+    assert {span["component"] for span in result["partial_spans"]} == {"water", "ev"}
 
 
 @pytest.mark.asyncio
@@ -356,3 +353,123 @@ async def test_water_returning_mid_slot_and_flapping_stay_exact(tmp_path):
     result = compare(rows, local(12, 15), 2)
     assert result["coverage"]["covered_slots"] == 2
     assert result["grid_only_cost_sek"] == pytest.approx(round(2 * 0.75 * 2.0, 3))
+
+
+def ev_config(db_path, *sensors: str, water: bool = True) -> dict:
+    return config(
+        db_path,
+        system={
+            "grid_meter_type": "net",
+            "has_solar": False,
+            "has_battery": False,
+            "has_water_heater": water,
+            "has_ev_charger": True,
+        },
+        ev_chargers=[
+            {"id": f"ev{index}", "enabled": True, "sensor": sensor}
+            for index, sensor in enumerate(sensors, start=1)
+        ],
+    )
+
+
+def ev_flags(row: dict) -> dict:
+    return json.loads(row["quality_flags"])["ev_charger_devices"]
+
+
+@pytest.mark.asyncio
+async def test_unavailable_ev_without_snapshot_is_unknown_not_a_fake_snapshot(tmp_path):
+    db_path = await make_db(tmp_path)
+    await record_slot(
+        db_path,
+        local(9),
+        water=[(0, "1.0")],
+        extra_history={"sensor.ev": states("sensor.ev", local(9), [(0, "unavailable")])},
+        extra_snapshots={"sensor.ev": None},
+        cfg=ev_config(db_path, "sensor.ev"),
+    )
+    (row,) = stored_rows(db_path).values()
+    assert (components(row)["ev"]["method"], components(row)["ev"]["owner"]) == (
+        "unknown",
+        "recorder",
+    )
+    assert row["ev_charging_kwh"] == 0.0
+    assert ev_flags(row)["ev1"] == {
+        "energy_kwh": None,
+        "source": "unavailable",
+        "coverage": "unavailable",
+    }
+    # Not forced to mixed: the load is integrated and still contains the EV energy.
+    assert components(row)["load"]["method"] == "derived_history"
+    result = compare({local(9): row}, local(9), 1)
+    assert result["coverage"]["covered_slots"] == 1
+    assert result["coverage"]["partial_by_component"] == {"ev": 1}
+    assert [(s["component"], s["reason"]) for s in result["partial_spans"]] == [
+        ("ev", "unmeasured_component")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_ev_snapshot_that_exists_stays_snapshot(tmp_path):
+    db_path = await make_db(tmp_path)
+    await record_slot(
+        db_path,
+        local(9),
+        water=[(0, "1.0")],
+        extra_history={"sensor.ev": []},
+        extra_snapshots={"sensor.ev": 3.0},
+        cfg=ev_config(db_path, "sensor.ev"),
+    )
+    (row,) = stored_rows(db_path).values()
+    assert components(row)["ev"]["method"] == "snapshot"
+    assert row["ev_charging_kwh"] == pytest.approx(0.75)
+    assert ev_flags(row)["ev1"]["source"] == "snapshot"
+
+
+@pytest.mark.asyncio
+async def test_one_of_two_chargers_unavailable_keeps_measured_charger_energy(tmp_path):
+    db_path = await make_db(tmp_path)
+    await record_slot(
+        db_path,
+        local(9),
+        water=[(0, "1.0")],
+        extra_history={
+            "sensor.ev_a": states("sensor.ev_a", local(9), [(0, "2.0")]),
+            "sensor.ev_b": states("sensor.ev_b", local(9), [(0, "unavailable")]),
+        },
+        extra_snapshots={"sensor.ev_a": 2.0, "sensor.ev_b": None},
+        load=[(0, "6.0")],
+        load_snapshot=6.0,
+        cfg=ev_config(db_path, "sensor.ev_a", "sensor.ev_b"),
+    )
+    (row,) = stored_rows(db_path).values()
+    assert components(row)["ev"]["method"] == "unknown"
+    assert row["ev_charging_kwh"] == pytest.approx(0.5)
+    devices = ev_flags(row)
+    assert devices["ev1"]["source"] == "power_history"
+    assert devices["ev1"]["energy_kwh"] == pytest.approx(0.5)
+    assert devices["ev2"]["source"] == "unavailable"
+    with sqlite3.connect(db_path) as conn:
+        stored = dict(conn.execute("SELECT charger_id, energy_kwh FROM ev_charger_observations"))
+    assert stored == {"ev1": pytest.approx(0.5)}
+
+
+@pytest.mark.asyncio
+async def test_ev_and_water_both_unavailable_stay_compared_with_two_partial_spans(tmp_path):
+    db_path = await make_db(tmp_path)
+    await record_slot(
+        db_path,
+        local(9),
+        water=[(0, "unavailable")],
+        water_snapshot=None,
+        extra_history={"sensor.ev": states("sensor.ev", local(9), [(0, "unavailable")])},
+        extra_snapshots={"sensor.ev": None},
+        cfg=ev_config(db_path, "sensor.ev"),
+    )
+    (row,) = stored_rows(db_path).values()
+    assert components(row)["ev"]["method"] == "unknown"
+    assert components(row)["water"]["method"] == "unknown"
+    result = compare({local(9): row}, local(9), 1)
+    assert result["coverage"]["covered_slots"] == 1
+    assert result["coverage"]["partial_slots"] == 1
+    assert result["coverage"]["partial_by_component"] == {"ev": 1, "water": 1}
+    assert {span["component"] for span in result["partial_spans"]} == {"ev", "water"}

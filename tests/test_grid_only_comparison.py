@@ -10,12 +10,25 @@ import pytz
 
 from backend.grid_only_comparison import (
     GridOnlyObservation,
-    _component_method,
     _finite_number,
     _quality_flags,
     _valid_slot_start,
     build_grid_only_comparison,
 )
+
+
+def _component_method(flags: dict[str, Any], name: str) -> object:
+    recording: Any = flags.get("recording")
+    if not isinstance(recording, dict):
+        return None
+    components: Any = cast("dict[str, Any]", recording).get("components")
+    if not isinstance(components, dict):
+        return None
+    component: Any = cast("dict[str, Any]", components).get(name)
+    if not isinstance(component, dict):
+        return None
+    return cast("dict[str, Any]", component).get("method")
+
 
 TZ = pytz.timezone("Europe/Stockholm")
 SLOT = timedelta(minutes=15)
@@ -341,6 +354,9 @@ def test_missing_slot_keeps_anchor_and_returns_independent_segments_with_reconci
         "covered_slots": 7,
         "total_slots": 8,
         "excluded_slots": 1,
+        "partial_slots": 0,
+        "partial_hours": 0.0,
+        "partial_by_component": {},
         "water_unmeasured_slots": 0,
         "water_unmeasured_hours": 0.0,
         "excluded_by_reason": {"missing_slot": 1},
@@ -470,13 +486,20 @@ def test_null_water_with_unavailable_sensor_counts_as_zero():
     assert result["grid_only_cost_sek"] == pytest.approx(6.0)
 
 
-@pytest.mark.parametrize("load_method", ["snapshot", "mixed", "unknown", "power_history"])
-def test_unknown_water_with_non_derived_load_is_rejected(load_method):
+@pytest.mark.parametrize("load_method", ["snapshot", "mixed", "power_history"])
+def test_unknown_water_with_priceable_load_is_included(load_method):
     start = datetime(2026, 10, 5, tzinfo=UTC)
     flags = recording_flags(water="unknown", load=load_method)
     result = compare([row(start, water_kwh=0.0, quality_flags=flags)], [start])
+    assert result["coverage"]["covered_slots"] == 1
+    assert result["coverage"]["water_unmeasured_slots"] == 1
+
+
+def test_unknown_water_with_unknown_load_is_rejected():
+    start = datetime(2026, 10, 5, tzinfo=UTC)
+    flags = recording_flags(water="unknown", load="unknown")
+    result = compare([row(start, water_kwh=0.0, quality_flags=flags)], [start])
     assert result["coverage"]["covered_slots"] == 0
-    assert result["coverage"]["water_unmeasured_slots"] == 0
 
 
 def test_clamp_suspect_unknown_water_slot_is_rejected():
@@ -495,12 +518,25 @@ def test_clamp_suspect_unknown_water_slot_is_rejected():
     assert ok["coverage"]["covered_slots"] == 1
 
 
-@pytest.mark.parametrize("component", ["ev", "import", "export"])
+@pytest.mark.parametrize("component", ["import", "export"])
 def test_other_unknown_components_stay_rejected_with_unknown_water(component):
     start = datetime(2026, 10, 5, tzinfo=UTC)
     flags = recording_flags(water="unknown", **{component: "unknown"})
     result = compare([row(start, water_kwh=0.0, quality_flags=flags)], [start])
     assert result["coverage"]["covered_slots"] == 0
+
+
+def test_unknown_ev_with_unknown_water_is_included_and_partial_for_both():
+    start = datetime(2026, 10, 5, tzinfo=UTC)
+    flags = recording_flags(water="unknown", ev="unknown")
+    result = compare(
+        [row(start, water_kwh=0.0, ev_charging_kwh=0.0, import_kwh=1.0, quality_flags=flags)],
+        [start],
+    )
+    assert result["coverage"]["covered_slots"] == 1
+    assert result["coverage"]["partial_slots"] == 1
+    assert result["coverage"]["partial_by_component"] == {"water": 1, "ev": 1}
+    assert sorted(span["component"] for span in result["partial_spans"]) == ["ev", "water"]
 
 
 def test_mixed_day_counts_totals_and_hours_and_zero_when_none():
@@ -533,18 +569,16 @@ def test_large_unmeasured_fixture_is_fully_included():
     assert result["coverage"]["water_unmeasured_hours"] == pytest.approx(851 * 0.25)
 
 
-# --- Eligibility parity: reference copy of the logic before reasons were added ----
-# Kept verbatim so that reporting exclusion reasons can never change which slots count.
+# --- Eligibility parity: reference copy of the eligibility rules ----------------
+# Kept as a plain boolean copy so that reporting reasons and partial components can
+# never change which slots count.
 
 
-def _ref_recording_is_eligible(
-    flags: dict[str, Any], *, battery_present: bool, allow_unmeasured_water: bool = False
-) -> bool:
+def _ref_recording_is_eligible(flags: dict[str, Any], *, battery_present: bool) -> bool:
     """Whether recorder provenance allows the slot into the comparison.
 
-    ``allow_unmeasured_water`` accepts a water component with method ``unknown`` only
-    when the load was derived from history (so it still contains the unmeasured water)
-    and every other relevant component is eligible.
+    Import, export, battery flows (when present) must be measured by the recorder and
+    load must be priceable. Device components never exclude a slot.
     """
     source = flags.get("source")
     if source != "recorder":
@@ -576,7 +610,7 @@ def _ref_recording_is_eligible(
     if not isinstance(components, dict):
         return False
     component_map = cast("dict[str, Any]", components)
-    relevant_components = ["import", "export", "load", "water", "ev"]
+    relevant_components = ["import", "export", "load"]
     if battery_present:
         relevant_components.extend(("battery_charge", "battery_discharge"))
     for name in relevant_components:
@@ -586,13 +620,17 @@ def _ref_recording_is_eligible(
         component_metadata = cast("dict[str, Any]", component)
         method = component_metadata.get("method")
         owner = component_metadata.get("owner")
-        if (
-            name == "water"
-            and method == "unknown"
-            and owner == "recorder"
-            and allow_unmeasured_water
-            and _component_method(flags, "load") == "derived_history"
-        ):
+        if name == "load":
+            if owner != "recorder" or method in {"unconfigured_zero", "unknown"}:
+                return False
+            if method not in {
+                "power_history",
+                "derived_history",
+                "disabled_zero",
+                "snapshot",
+                "mixed",
+            }:
+                return False
             continue
         if owner != "recorder" or method in {"snapshot", "mixed", "unconfigured_zero", "unknown"}:
             return False
@@ -619,22 +657,24 @@ def _ref_slot_eligible(
     if start_utc is None:
         return False
     flags = _quality_flags(row.quality_flags)
-    if not _ref_recording_is_eligible(
-        flags, battery_present=battery_present, allow_unmeasured_water=True
-    ):
+    if not _ref_recording_is_eligible(flags, battery_present=battery_present):
         return False
     water_unmeasured = _component_method(flags, "water") == "unknown"
+    ev_unmeasured = _component_method(flags, "ev") == "unknown"
 
-    # Unmeasured water (null or zero) is not a filled value: derived load still contains it.
+    # Unmeasured devices (null or zero) are not filled values: derived load contains them.
     water_value = _finite_number(row.water_kwh, nonnegative=True)
     if water_unmeasured and water_value is None and row.water_kwh is None:
         water_value = 0.0
+    ev_value = _finite_number(row.ev_charging_kwh, nonnegative=True)
+    if ev_unmeasured and ev_value is None and row.ev_charging_kwh is None:
+        ev_value = 0.0
     energies = (
         _finite_number(row.import_kwh, nonnegative=True),
         _finite_number(row.export_kwh, nonnegative=True),
         _finite_number(row.load_kwh, nonnegative=True),
         water_value,
-        _finite_number(row.ev_charging_kwh, nonnegative=True),
+        ev_value,
     )
     prices = (
         _finite_number(row.import_price_sek_kwh, nonnegative=False),
@@ -665,8 +705,12 @@ def _ref_slot_eligible(
     assert load_kwh is not None and water_kwh is not None and ev_kwh is not None
     assert import_price is not None and export_price is not None
     assert charge_kwh is not None and discharge_kwh is not None
-    if water_unmeasured and ev_kwh > 0 and load_kwh == 0:
-        # The base-load clamp (ev + water > total) may have hidden real demand.
+    if (
+        (water_unmeasured or ev_unmeasured)
+        and load_kwh == 0
+        and (import_kwh > 0 or water_kwh > 0 or ev_kwh > 0)
+    ):
+        # The base-load clamp (devices > total) may have hidden real demand.
         return False
     values_by_component = {
         "import": import_kwh,
@@ -969,6 +1013,9 @@ def test_existing_response_fields_are_unchanged_by_reason_reporting():
     result = compare(rows, starts)
     result["coverage"].pop("excluded_by_reason")
     result.pop("excluded_spans")
+    result.pop("partial_spans")
+    for key in ("partial_slots", "partial_hours", "partial_by_component"):
+        result["coverage"].pop(key)
     assert result == LEGACY_RESPONSE
 
 
@@ -1002,7 +1049,7 @@ def test_mixed_fixture_reports_spans_and_totals_that_sum_to_excluded_slots():
 
 def test_single_span_merges_contiguous_slots_with_component():
     starts = [START + SLOT * index for index in range(10)]
-    flags = recording_flags(ev="unknown")
+    flags = recording_flags(export="unknown")
     rows = [
         row(s, quality_flags=flags if 2 <= i < 10 else {"source": "recorder"})
         for i, s in enumerate(starts)
@@ -1014,7 +1061,7 @@ def test_single_span_merges_contiguous_slots_with_component():
             "end": (starts[9] + SLOT).astimezone(TZ).isoformat(),
             "slots": 8,
             "reason": "unknown_component",
-            "component": "ev",
+            "component": "export",
         }
     ]
     assert result["coverage"]["excluded_by_reason"] == {"unknown_component": 8}
@@ -1133,25 +1180,25 @@ def _flags(**overrides) -> dict:
             ("unsupported_provenance", None),
         ),
         (
-            row(START, quality_flags=_flags(ev="unconfigured_zero")),
+            row(START, quality_flags=_flags(load="unconfigured_zero")),
             {},
-            ("unconfigured_sensor", "ev"),
+            ("unconfigured_sensor", "load"),
         ),
         (
-            row(START, quality_flags=_flags(load="snapshot")),
+            row(START, quality_flags=_flags(export="snapshot")),
             {},
-            ("estimated_component", "load"),
+            ("estimated_component", "export"),
         ),
         (
-            row(START, quality_flags=_flags(water="unknown", load="mixed")),
+            row(START, quality_flags=_flags(**{"import": "mixed"})),
             {},
-            ("estimated_component", "load"),
+            ("estimated_component", "import"),
         ),
-        (row(START, quality_flags=_flags(ev="unknown")), {}, ("unknown_component", "ev")),
+        (row(START, quality_flags=_flags(load="unknown")), {}, ("unknown_component", "load")),
         (
-            row(START, water_kwh=0.0, quality_flags=_flags(water="unknown", load="snapshot")),
+            row(START, water_kwh=0.0, quality_flags=_flags(water="unknown", export="snapshot")),
             {},
-            ("estimated_component", "load"),
+            ("estimated_component", "export"),
         ),
         (row(START, import_price_sek_kwh=None), {}, ("missing_price", None)),
         (row(START, load_kwh=None), {}, ("missing_energy_value", "load")),
@@ -1162,6 +1209,18 @@ def _flags(**overrides) -> dict:
                 load_kwh=0.0,
                 ev_charging_kwh=1.0,
                 quality_flags=_flags(water="unknown"),
+            ),
+            {},
+            ("clamp_hidden_demand", None),
+        ),
+        (
+            row(
+                START,
+                water_kwh=0.0,
+                ev_charging_kwh=0.0,
+                load_kwh=0.0,
+                import_kwh=0.5,
+                quality_flags=_flags(water="unknown", ev="unknown"),
             ),
             {},
             ("clamp_hidden_demand", None),
@@ -1193,11 +1252,11 @@ def test_battery_disabled_zero_and_battery_component_reasons():
 
 def test_unknown_owner_and_missing_component_are_unknown_component():
     flags = recording_flags()
-    flags["recording"]["components"]["water"] = {"method": "power_history", "owner": "unknown"}
-    assert _reason(row(START, quality_flags=flags)) == ("unknown_component", "water")
-    del flags["recording"]["components"]["ev"]
-    flags["recording"]["components"]["water"] = {"method": "power_history", "owner": "recorder"}
-    assert _reason(row(START, quality_flags=flags)) == ("unknown_component", "ev")
+    flags["recording"]["components"]["export"] = {"method": "power_history", "owner": "unknown"}
+    assert _reason(row(START, quality_flags=flags)) == ("unknown_component", "export")
+    del flags["recording"]["components"]["import"]
+    flags["recording"]["components"]["export"] = {"method": "power_history", "owner": "recorder"}
+    assert _reason(row(START, quality_flags=flags)) == ("unknown_component", "import")
 
 
 def test_first_failing_check_wins():
@@ -1205,9 +1264,9 @@ def test_first_failing_check_wins():
     observation = row(START, import_price_sek_kwh=None, quality_flags=flags)
     assert _reason(observation) == ("not_recorder", None)
     # Provenance outranks values, and price outranks energy values.
-    assert _reason(row(START, quality_flags=_flags(ev="unknown"), load_kwh=None)) == (
+    assert _reason(row(START, quality_flags=_flags(export="unknown"), load_kwh=None)) == (
         "unknown_component",
-        "ev",
+        "export",
     )
     assert _reason(row(START, import_price_sek_kwh=None, load_kwh=None)) == ("missing_price", None)
 
@@ -1234,3 +1293,112 @@ def test_fixed_fees_never_enter_grid_only_comparison(monkeypatch):
     assert "fixed_fee" not in source
     assert "subscription_fee" not in source
     assert "supplier_fee" not in source
+
+
+@pytest.mark.parametrize("device", ["ev", "water", "heatpump", "pool_pump"])
+@pytest.mark.parametrize("method", ["unknown", "snapshot", "mixed", "unconfigured_zero"])
+def test_no_device_component_can_drop_a_slot_with_measured_grid_flows(device, method):
+    flags = recording_flags()
+    flags["recording"]["components"][device] = {"method": method, "owner": "recorder"}
+    result = compare(
+        [row(START, import_kwh=1.0, export_kwh=0.2, quality_flags=flags)],
+        [START],
+    )
+    assert result["coverage"]["covered_slots"] == 1
+    assert result["excluded_spans"] == []
+    expected_reason = (
+        "unconfigured_sensor" if method == "unconfigured_zero" else "unmeasured_component"
+    )
+    assert [(s["reason"], s["component"]) for s in result["partial_spans"]] == [
+        (expected_reason, device)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("load_method", "device_method", "expected"),
+    [
+        ("mixed", "snapshot", [("unmeasured_component", "ev")]),
+        ("mixed", "unconfigured_zero", [("unconfigured_sensor", "ev")]),
+        ("mixed", "disabled_zero", [("unmeasured_component", "load")]),
+        (
+            "snapshot",
+            "snapshot",
+            [("unmeasured_component", "ev"), ("unmeasured_component", "load")],
+        ),
+    ],
+)
+def test_load_partial_is_dropped_only_when_mixed_with_a_partial_device(
+    load_method, device_method, expected
+):
+    flags = recording_flags(ev=device_method, load=load_method)
+    result = compare(
+        [row(START, import_kwh=1.0, ev_charging_kwh=0.0, quality_flags=flags)], [START]
+    )
+    assert result["coverage"]["covered_slots"] == 1
+    assert sorted((s["reason"], s["component"]) for s in result["partial_spans"]) == sorted(
+        expected
+    )
+
+
+def test_unknown_device_slot_keeps_exact_demand_and_line_unbroken():
+    starts = [START + SLOT * index for index in range(105)]
+    flags = recording_flags(ev="unknown")
+    rows = [
+        row(s, import_kwh=1.0, ev_charging_kwh=0.0, quality_flags=flags)
+        if 10 <= i < 95
+        else row(s, import_kwh=1.0)
+        for i, s in enumerate(starts)
+    ]
+    result = compare(rows, starts)
+    assert result["coverage"]["covered_slots"] == 105
+    assert result["coverage"]["partial_slots"] == 85
+    assert result["coverage"]["partial_hours"] == pytest.approx(85 * 0.25)
+    assert result["coverage"]["partial_by_component"] == {"ev": 85}
+    assert result["coverage"]["water_unmeasured_slots"] == 0
+    assert len(result["segments"]) == 1
+    (span,) = result["partial_spans"]
+    assert span["slots"] == 85
+    assert span["start"] == starts[10].astimezone(TZ).isoformat()
+    assert span["end"] == (starts[94] + SLOT).astimezone(TZ).isoformat()
+    # Partial slots alone never make the status partial.
+    assert result["status"] == "available"
+
+
+def test_battery_flows_stay_required_when_a_battery_is_present():
+    flags = recording_flags(ev="unknown")
+    flags["recording"]["components"]["battery_charge"] = {
+        "method": "unknown",
+        "owner": "recorder",
+    }
+    flags["recording"]["components"]["battery_discharge"] = {
+        "method": "power_history",
+        "owner": "recorder",
+    }
+    result = compare(
+        [row(START, batt_charge_kwh=0.0, batt_discharge_kwh=0.0, quality_flags=flags)],
+        [START],
+        battery_present=True,
+    )
+    assert result["coverage"]["covered_slots"] == 0
+    assert (result["excluded_spans"][0]["reason"], result["excluded_spans"][0]["component"]) == (
+        "unknown_component",
+        "battery_charge",
+    )
+
+
+def test_partial_spans_split_by_component_and_break_at_gaps():
+    starts = [START + SLOT * index for index in range(6)]
+    rows = [
+        row(starts[0], quality_flags=recording_flags(ev="unknown")),
+        row(starts[1], quality_flags=recording_flags(ev="unknown", water="unknown")),
+        row(starts[2]),
+        row(starts[3], quality_flags=recording_flags(ev="unknown")),
+        row(starts[4], quality_flags=recording_flags(ev="unknown")),
+        row(starts[5]),
+    ]
+    result = compare(rows, starts)
+    assert [(s["component"], s["slots"]) for s in result["partial_spans"]] == [
+        ("ev", 2),
+        ("water", 1),
+        ("ev", 2),
+    ]

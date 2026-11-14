@@ -6,6 +6,9 @@ Pure pandas helpers (no database, no network). The same functions are used by tr
 Rules (universal, no per-site values):
 
 * Legacy ``source: backfill`` rows without modern ``recording`` provenance are dropped.
+* Rows whose recorded provenance has an unmeasured device (``unknown``, ``snapshot`` or
+  ``mixed``; derived load still contains its energy) or an unknown load are dropped.
+  A device with ``unconfigured_zero`` does not drop a row.
 * Whole legacy local days with a clamp signature are dropped. The pre-recorder pipeline
   subtracted EV load and clamped at 0, leaving days with near-zero load while import, PV
   or battery discharge was clearly active.
@@ -19,7 +22,13 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
-from backend.measurement_provenance import parse_quality_flags, parse_recording
+from backend.measurement_provenance import (
+    SUPPORTED_METHODS,
+    UNMEASURED_DEVICE_METHODS,
+    device_component_methods,
+    parse_quality_flags,
+    parse_recording,
+)
 
 LOAD_SCHEMA_VERSION = 2
 
@@ -44,6 +53,7 @@ def empty_clean_stats() -> dict[str, int]:
         "dropped_backfill_rows": 0,
         "dropped_clamp_days": 0,
         "dropped_clamp_rows": 0,
+        "dropped_unmeasured_device_rows": 0,
     }
 
 
@@ -51,6 +61,40 @@ def _flag_info(raw: object) -> tuple[bool, bool]:
     """Return ``(is_backfill, has_recording)`` for one quality_flags value."""
     flags = parse_quality_flags(raw)
     return flags.get("source") == "backfill", parse_recording(flags) is not None
+
+
+def has_unmeasured_device(raw: object) -> bool:
+    """Whether recorded provenance shows a device or load whose energy was not measured.
+
+    True for any device component (``ev``, ``water``, any other) with method ``unknown``,
+    ``snapshot`` or ``mixed``, or ``load`` with method ``unknown``. ``unconfigured_zero``
+    devices are fine, and rows without provenance are untouched (False).
+    """
+    recording = parse_recording(parse_quality_flags(raw), SUPPORTED_METHODS)
+    if recording is None:
+        return False
+    components = cast("dict[str, Any]", recording["components"])
+    if any(
+        method in UNMEASURED_DEVICE_METHODS
+        for method in device_component_methods(components).values()
+    ):
+        return True
+    load = components.get("load")
+    return isinstance(load, dict) and cast("dict[str, Any]", load).get("method") == "unknown"
+
+
+def unmeasured_device_mask(df: pd.DataFrame) -> pd.Series:
+    """Boolean mask of rows with an unmeasured device or load (see ``has_unmeasured_device``)."""
+    if "quality_flags" not in df.columns or df.empty:
+        return pd.Series(False, index=df.index)
+    cache: dict[Any, bool] = {}
+    flags: list[bool] = []
+    for raw in df["quality_flags"].tolist():
+        key = raw if isinstance(raw, str) or raw is None else repr(raw)
+        if key not in cache:
+            cache[key] = has_unmeasured_device(raw)
+        flags.append(cache[key])
+    return pd.Series(flags, index=df.index)
 
 
 def _provenance_columns(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
@@ -116,7 +160,10 @@ def clean_load_observations(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, i
     stats["dropped_clamp_days"] = len(flagged_days)
     stats["dropped_clamp_rows"] = int(drop_clamp.sum())
 
-    return df[~(drop_backfill | drop_clamp)], stats
+    drop_unmeasured = unmeasured_device_mask(df) & ~(drop_backfill | drop_clamp)
+    stats["dropped_unmeasured_device_rows"] = int(drop_unmeasured.sum())
+
+    return df[~(drop_backfill | drop_clamp | drop_unmeasured)], stats
 
 
 def _local_dates(slot_starts: pd.Series) -> pd.Series:

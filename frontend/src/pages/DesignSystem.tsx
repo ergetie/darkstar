@@ -282,10 +282,23 @@ export default function DesignSystem() {
             },
         ],
     }
+    const partialComparison: GridOnlyComparison = {
+        ...completeComparison(8, 10),
+        partial_spans: [
+            {
+                start: '2026-10-05T00:30:00+02:00',
+                end: '2026-10-05T01:30:00+02:00',
+                slots: 4,
+                reason: 'unmeasured_component',
+                component: 'ev',
+            },
+        ],
+    }
     const costChartFixtures: { label: string; comparison: GridOnlyComparison }[] = [
         { label: 'Complete · positive difference', comparison: completeComparison(8, 10) },
         { label: 'Complete · negative difference', comparison: completeComparison(10, 8) },
         { label: 'Partial · excluded span band', comparison: gapComparison },
+        { label: 'Included · unmeasured device band', comparison: partialComparison },
         { label: 'Unavailable · no usable inputs', comparison: unavailableComparison },
         { label: 'Fall-back · repeated 02:00 offsets', comparison: fallBackComparison },
     ]

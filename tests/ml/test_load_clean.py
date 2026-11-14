@@ -290,3 +290,69 @@ class TestSchemaRetrainHook:
         with patch("ml.training_orchestrator.train_all_models", train):
             await SchedulerService()._check_load_schema_retrain()
         train.assert_not_awaited()
+
+
+def _recording_flags(**methods: str) -> str:
+    components = {"load": {"method": "derived_history", "owner": "recorder"}}
+    components.update(
+        {name: {"method": method, "owner": "recorder"} for name, method in methods.items()}
+    )
+    flags = {
+        "source": "recorder",
+        "recording": {**RECORDING["recording"], "components": components},
+    }
+    return json.dumps(flags)
+
+
+def _rows(flags: list[str | None]) -> pd.DataFrame:
+    index = pd.date_range(TZ.localize(datetime(2026, 11, 9)), periods=len(flags), freq="15min")
+    return pd.DataFrame(
+        {"slot_start": index, "load_kwh": 0.5, "import_kwh": 0.3, "quality_flags": flags}
+    )
+
+
+class TestUnmeasuredDeviceRule:
+    def test_drops_unknown_snapshot_and_mixed_devices_and_unknown_load(self):
+        df = _rows(
+            [
+                _recording_flags(ev="unknown", water="power_history"),
+                _recording_flags(ev="snapshot", load="mixed"),
+                _recording_flags(water="mixed"),
+                _recording_flags(heatpump="unknown"),
+                _recording_flags(load="unknown"),
+                _recording_flags(ev="power_history", water="power_history"),
+            ]
+        )
+        clean, stats = clean_load_observations(df)
+        assert clean.index.tolist() == [5]
+        assert stats["dropped_unmeasured_device_rows"] == 5
+
+    def test_legacy_fake_zero_ev_snapshot_row_is_dropped(self):
+        df = _rows([_recording_flags(ev="snapshot", load="mixed", water="power_history")])
+        clean, stats = clean_load_observations(df)
+        assert clean.empty
+        assert stats["dropped_unmeasured_device_rows"] == 1
+
+    def test_unconfigured_zero_device_with_mixed_load_is_kept(self):
+        df = _rows(
+            [
+                _recording_flags(water="unconfigured_zero", ev="power_history", load="mixed"),
+                _recording_flags(ev="disabled_zero"),
+            ]
+        )
+        clean, stats = clean_load_observations(df)
+        assert clean.index.tolist() == [0, 1]
+        assert stats["dropped_unmeasured_device_rows"] == 0
+
+    def test_rows_without_provenance_are_untouched(self):
+        clean, stats = clean_load_observations(_rows([None, '{"source": "recorder"}', "not json"]))
+        assert len(clean) == 3
+        assert stats["dropped_unmeasured_device_rows"] == 0
+
+    def test_empty_stats_carry_the_counter(self):
+        assert clean_load_observations(_rows([]).iloc[0:0])[1] == {
+            "dropped_backfill_rows": 0,
+            "dropped_clamp_days": 0,
+            "dropped_clamp_rows": 0,
+            "dropped_unmeasured_device_rows": 0,
+        }

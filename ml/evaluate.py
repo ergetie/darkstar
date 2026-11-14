@@ -19,6 +19,7 @@ import pandas as pd
 from backend.learning import LearningEngine, get_learning_engine
 from backend.validation import get_max_energy_per_slot
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
+from ml.load_clean import has_unmeasured_device, unmeasured_device_mask
 from ml.train import (
     _build_time_features,  # type: ignore[reportPrivateUsage]
     _load_slot_observations,  # type: ignore[reportPrivateUsage]
@@ -252,7 +253,8 @@ def _calculate_mae(
                 o.pv_kwh,
                 o.load_kwh,
                 f.pv_forecast_kwh,
-                f.load_forecast_kwh
+                f.load_forecast_kwh,
+                o.quality_flags
             FROM slot_observations o
             JOIN slot_forecasts f
               ON o.slot_start = f.slot_start
@@ -270,10 +272,11 @@ def _calculate_mae(
     pv_errors: list[float] = []
     load_errors: list[float] = []
 
-    for pv, load, pv_f, load_f in rows:
+    for pv, load, pv_f, load_f, flags in rows:
         if pv is not None and pv_f is not None:
             pv_errors.append(abs(float(pv) - float(pv_f)))
-        if load is not None and load_f is not None:
+        # A load with an unmeasured device is not a base load; it is no ground truth.
+        if load is not None and load_f is not None and not has_unmeasured_device(flags):
             load_errors.append(abs(float(load) - float(load_f)))
 
     mae_pv = round(float(np.mean(pv_errors)), 4) if pv_errors else None
@@ -409,6 +412,8 @@ def main() -> None:
     if observations.empty:
         print("Error: No slot_observations found for evaluation window.")
         return
+    # Load with an unmeasured device is no base-load ground truth; PV columns are kept.
+    observations.loc[unmeasured_device_mask(observations), "load_kwh"] = np.nan
 
     # Enrich with hourly weather where available (temp, cloud, radiation)
     weather_df = get_weather_series(start_time, now, config=engine.config)

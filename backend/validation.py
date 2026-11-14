@@ -109,19 +109,47 @@ def validate_energy_values(record: dict[str, Any], max_kwh: float) -> dict[str, 
             )
             validated_record[field] = 0.0
 
-    if "water_kwh" in record and record["water_kwh"] != validated_record.get("water_kwh"):
-        flags = copy.deepcopy(metadata_object(record.get("quality_flags")))
-        recording = metadata_object(flags.get("recording"))
-        component = metadata_object(metadata_object(recording.get("components")).get("water"))
-        if component:
-            component["method"] = "unknown"
-        devices = metadata_object(metadata_object(flags.get("water_heater_energy")).get("devices"))
-        for entry in devices.values():
-            device_metadata = metadata_object(entry)
-            if device_metadata:
-                device_metadata.update(
-                    energy_kwh=None, source="unavailable", coverage="unavailable"
-                )
-        validated_record["water_heater_energy"] = None
-        validated_record["quality_flags"] = flags
+    for column, device in _DEVICE_COLUMNS.items():
+        if column in record and record[column] != validated_record.get(column):
+            _mark_device_unknown(record, validated_record, device)
     return validated_record
+
+
+# Energy column -> how a rejected value is recorded for that device component.
+_DEVICE_COLUMNS: dict[str, dict[str, str]] = {
+    "water_kwh": {
+        "component": "water",
+        "devices_path": "water_heater_energy",
+        "nested": "devices",
+        "per_device_column": "water_heater_energy",
+    },
+    "ev_charging_kwh": {
+        "component": "ev",
+        "devices_path": "ev_charger_devices",
+        # Per-charger energy is zeroed with the aggregate by zero_rejected_ev_energy.
+    },
+}
+
+
+def _mark_device_unknown(
+    record: dict[str, Any], validated_record: dict[str, Any], device: dict[str, str]
+) -> None:
+    """A rejected device value becomes unknown: component, per-device detail and column."""
+    flags = copy.deepcopy(
+        metadata_object(validated_record.get("quality_flags", record.get("quality_flags")))
+    )
+    recording = metadata_object(flags.get("recording"))
+    component = metadata_object(
+        metadata_object(recording.get("components")).get(device["component"])
+    )
+    if component:
+        component["method"] = "unknown"
+    detail = metadata_object(flags.get(device["devices_path"]))
+    devices = metadata_object(detail.get(device["nested"])) if "nested" in device else detail
+    for entry in devices.values():
+        device_metadata = metadata_object(entry)
+        if device_metadata:
+            device_metadata.update(energy_kwh=None, source="unavailable", coverage="unavailable")
+    if "per_device_column" in device:
+        validated_record[device["per_device_column"]] = None
+    validated_record["quality_flags"] = flags

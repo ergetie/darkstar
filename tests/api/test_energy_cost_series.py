@@ -102,6 +102,9 @@ async def test_metered_hourly_points_keep_actual_accounting_and_grid_comparison_
         "covered_slots": 5,
         "total_slots": 96,
         "excluded_slots": 91,
+        "partial_slots": 0,
+        "partial_hours": 0.0,
+        "partial_by_component": {},
         "water_unmeasured_slots": 0,
         "water_unmeasured_hours": 0.0,
         "excluded_by_reason": {"missing_slot": 91},
@@ -168,6 +171,9 @@ async def test_missing_hour_keeps_other_eligible_slots_and_exposes_exact_interna
         "covered_slots": 7,
         "total_slots": 96,
         "excluded_slots": 89,
+        "partial_slots": 0,
+        "partial_hours": 0.0,
+        "partial_by_component": {},
         "water_unmeasured_slots": 0,
         "water_unmeasured_hours": 0.0,
         "excluded_by_reason": {"user_excluded": 1, "missing_slot": 88},
@@ -194,6 +200,9 @@ async def test_empty_and_unusable_periods_have_coverage_but_no_amounts(store, mo
         "covered_slots": 0,
         "total_slots": 96,
         "excluded_slots": 96,
+        "partial_slots": 0,
+        "partial_hours": 0.0,
+        "partial_by_component": {},
         "water_unmeasured_slots": 0,
         "water_unmeasured_hours": 0.0,
         "excluded_by_reason": {"missing_slot": 96},
@@ -293,3 +302,30 @@ async def test_cost_series_stays_energy_only_with_fixed_fees(store, monkeypatch)
     assert fee_range["net_cost_sek"] == pytest.approx(
         plain_range["net_cost_sek"] + fee_range["fixed_fees_sek"], abs=0.01
     )
+
+
+@pytest.mark.asyncio
+async def test_energy_range_counts_unmeasured_slots_per_component(store, monkeypatch):
+    import json
+
+    from backend.api.routers.energy import get_energy_range
+
+    _freeze_day_after(monkeypatch, NORMAL_DAY)
+    flags = {
+        "source": "recorder",
+        "recording": {
+            "schema_version": 1,
+            "components": {
+                "ev": {"method": "unknown", "owner": "recorder"},
+                "water": {"method": "power_history", "owner": "recorder"},
+                "load": {"method": "derived_history", "owner": "recorder"},
+                "import": {"method": "unknown", "owner": "recorder"},
+            },
+        },
+    }
+    rows = [{"quality_flags": json.dumps(flags)}, {"quality_flags": json.dumps(flags)}, {}]
+    await _add(store, rows, day=NORMAL_DAY)
+    with patch("backend.api.routers.energy.load_yaml", return_value=CONFIG):
+        totals = await get_energy_range(period="yesterday", store=store)
+    # Only device components count; grid components are not devices.
+    assert totals["unmeasured_slots_by_component"] == {"ev": 2}

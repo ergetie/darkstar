@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ExcludedSpan } from './api'
-import { buildExclusionNotes, exclusionPhrase, formatSlotDuration } from './costExclusion'
+import { buildExclusionNotes, buildPartialNotes, exclusionPhrase, formatSlotDuration } from './costExclusion'
 
 function span(reason: string, slots: number, component: string | null = null): ExcludedSpan {
     return { start: '2026-10-05T08:00:00+02:00', end: '2026-10-05T09:00:00+02:00', slots, reason, component }
@@ -94,5 +94,59 @@ describe('buildExclusionNotes', () => {
     it('breaks ties by first appearance', () => {
         const notes = buildExclusionNotes([span('missing_price', 4), span('missing_slot', 4)])
         expect(notes.lines[0]).toContain('price missing')
+    })
+})
+
+describe('buildPartialNotes', () => {
+    const tz = 'Europe/Stockholm'
+    const ev = (start: string, end: string, slots: number, reason = 'unmeasured_component'): ExcludedSpan => ({
+        start,
+        end,
+        slots,
+        reason,
+        component: 'ev',
+    })
+
+    it('is empty without spans', () => {
+        expect(buildPartialNotes(undefined, tz)).toEqual({ lines: [], more: null })
+        expect(buildPartialNotes([], tz)).toEqual({ lines: [], more: null })
+    })
+
+    it('names the EV gap with duration and time range', () => {
+        const notes = buildPartialNotes([ev('2026-11-09T10:00:00+01:00', '2026-11-10T12:15:00+01:00', 105)], tz)
+        expect(notes.lines).toEqual(['EV not measured for 26 h 15 min (Nov 9 10:00-Nov 10 12:15)'])
+        expect(notes.more).toBeNull()
+    })
+
+    it('shows one line per component and uses the longest span range', () => {
+        const notes = buildPartialNotes(
+            [
+                ev('2026-11-09T10:00:00+01:00', '2026-11-09T11:00:00+01:00', 4),
+                { ...ev('2026-11-09T12:00:00+01:00', '2026-11-09T14:00:00+01:00', 8), component: 'water' },
+                ev('2026-11-09T15:00:00+01:00', '2026-11-09T18:00:00+01:00', 12),
+            ],
+            tz,
+        )
+        expect(notes.lines).toEqual([
+            'EV not measured for 4 h (Nov 9 15:00-Nov 9 18:00)',
+            'Water heater not measured for 2 h (Nov 9 12:00-Nov 9 14:00)',
+        ])
+    })
+
+    it('caps at two lines, words unconfigured sensors and falls back for unknown devices', () => {
+        const base = { start: '2026-11-09T10:00:00+01:00', end: '2026-11-09T11:00:00+01:00' }
+        const notes = buildPartialNotes(
+            [
+                { ...base, slots: 8, reason: 'unmeasured_component', component: 'ev' },
+                { ...base, slots: 6, reason: 'unconfigured_sensor', component: 'water' },
+                { ...base, slots: 4, reason: 'unmeasured_component', component: 'heatpump' },
+            ],
+            tz,
+        )
+        expect(notes.lines[1]).toContain('Water heater sensor not set up for 1 h 30 min')
+        expect(notes.more).toBe('and 1 more')
+        expect(
+            buildPartialNotes([{ ...base, slots: 4, reason: 'unmeasured_component', component: null }], tz).lines[0],
+        ).toContain('Device not measured for 1 h')
     })
 })

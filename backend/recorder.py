@@ -134,6 +134,16 @@ def car_energy_from_soc(
     return max(0.0, (last - first) / 100.0 * capacity_kwh)
 
 
+def device_source(integrated: float | None, snapshot_kw: float | None) -> str:
+    """Source of one device's slot energy: history, a live snapshot, or unavailable.
+
+    Unavailable (neither history nor a live snapshot) must never become a measured 0.
+    """
+    if integrated is not None:
+        return "power_history"
+    return "snapshot" if snapshot_kw is not None else "unavailable"
+
+
 def zero_rejected_ev_energy(record: dict[str, Any]) -> dict[str, Any]:
     """Keep per-charger wallbox and car energy consistent with a rejected (zeroed)
     aggregate ``ev_charging_kwh``."""
@@ -338,14 +348,31 @@ async def record_observation_from_current_state(
     # EV charging energy (per charger and aggregate)
     ev_charging_kwh = 0.0
     ev_charger_energy: dict[str, float] = {}  # Task 8.1: per-device recording
+    ev_charger_devices: dict[str, dict[str, Any]] = {}
+    ev_sources: list[str] = []
     for charger_id, sensor in sources.ev_chargers:
         integrated = energy.ev.get(sensor)
-        device_kwh = or_snapshot(integrated, max(0.0, power_results.get(f"ev_{sensor}") or 0.0))
+        raw_snapshot = power_results.get(f"ev_{sensor}")
+        snapshot = max(0.0, raw_snapshot) if raw_snapshot is not None else None
+        source = device_source(integrated, snapshot)
+        device_kwh = (
+            integrated
+            if integrated is not None
+            else snapshot * 0.25
+            if snapshot is not None
+            else 0.0
+        )
+        ev_sources.append(source)
         ev_charging_kwh += device_kwh
-        if charger_id:
+        if charger_id and source != "unavailable":
             ev_charger_energy[charger_id] = device_kwh
-        source = "history energy" if integrated is not None else "snapshot fallback"
-        logger.debug(f"EV {charger_id}: {source}={device_kwh:.3f} kWh")
+        if charger_id:
+            ev_charger_devices[charger_id] = {
+                "energy_kwh": device_kwh if source != "unavailable" else None,
+                "source": source,
+                "coverage": "complete" if source != "unavailable" else "unavailable",
+            }
+        logger.debug("EV %s: %s=%.3f kWh", charger_id, source, device_kwh)
 
     ev_charger_car_energy = _ev_car_energy(
         config, ev_charger_energy, history or {}, slot_start, slot_end
@@ -365,13 +392,7 @@ async def record_observation_from_current_state(
             if snapshot is not None
             else None
         )
-        source = (
-            "power_history"
-            if integrated is not None
-            else "snapshot"
-            if active_snapshot is not None
-            else "unavailable"
-        )
+        source = device_source(integrated, active_snapshot)
         device_kwh = (
             integrated
             if integrated is not None
@@ -411,7 +432,6 @@ async def record_observation_from_current_state(
     )
     # The flag wins: with has_water_heater false this is empty even with stale entries.
     water_config = active_water_heaters(config)
-    ev_methods = [method_for(energy.ev.get(sensor), True) for _, sensor in sources.ev_chargers]
 
     def aggregate_method(methods: list[str], enabled: bool, configured: bool) -> str:
         if not enabled:
@@ -427,7 +447,7 @@ async def record_observation_from_current_state(
         return "power_history"
 
     ev_method = aggregate_method(
-        ev_methods,
+        ev_sources,
         bool(system_config.get("has_ev_charger", False))
         and (not ev_config or any(item.get("enabled", True) for item in ev_config)),
         bool(sources.ev_chargers)
@@ -600,6 +620,7 @@ async def record_observation_from_current_state(
                 "semantics": WATER_HEATER_ENERGY_SEMANTICS,
                 "devices": water_heater_devices,
             },
+            "ev_charger_devices": ev_charger_devices,
         },
     }
 

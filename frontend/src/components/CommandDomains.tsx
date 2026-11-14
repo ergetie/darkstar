@@ -23,7 +23,7 @@ import { useSocket } from '../lib/hooks'
 import { useEvChargers } from '../lib/useEvChargers'
 import EVChargerCard from './EVChargingCard'
 import CostSeriesChart from './CostSeriesChart'
-import { buildExclusionNotes } from '../lib/costExclusion'
+import { buildExclusionNotes, buildPartialNotes } from '../lib/costExclusion'
 
 // --- Types ---
 interface GridCardProps {
@@ -140,6 +140,8 @@ function benchmarkWarningText(day: BatteryBenchmarkDay, warning: string): string
             return 'battery capacity may not match recorded flows'
         case 'unverified_slots':
             return `${day.unverified_slots} of ${day.day_slots} slots not verified`
+        case 'partial_slots':
+            return `${day.partial_slots} of ${day.day_slots} slots with a device not measured`
         case 'stock_clamped':
             return 'stored energy outside battery capacity, clamped'
         default:
@@ -331,6 +333,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
           }).format(new Date(comparison.through))
         : null
     const exclusionNotes = buildExclusionNotes(comparison?.excluded_spans)
+    const partialNotes = buildPartialNotes(comparison?.partial_spans, comparison?.time_axis.timezone ?? 'UTC')
 
     const hindsight = period !== 'today' && benchmark && benchmark.totals.days_total > 0 ? benchmark.totals : null
     const excludedDays = benchmark?.days.filter((day) => day.status !== 'scored') ?? []
@@ -543,9 +546,12 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                                         {exclusionNotes.more && <div>{exclusionNotes.more}</div>}
                                     </div>
                                 )}
-                                {comparison.coverage.water_unmeasured_slots > 0 && (
-                                    <div className="mt-1 text-warn" data-testid="water-unmeasured-note">
-                                        {`Water not measured for ${Number(comparison.coverage.water_unmeasured_hours.toFixed(2))} h, included`}
+                                {partialNotes.lines.length > 0 && (
+                                    <div className="mt-1 text-warn" data-testid="partial-notes">
+                                        {partialNotes.lines.map((line) => (
+                                            <div key={line}>{line}</div>
+                                        ))}
+                                        {partialNotes.more && <div>{partialNotes.more}</div>}
                                     </div>
                                 )}
                             </div>

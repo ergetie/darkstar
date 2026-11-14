@@ -71,6 +71,8 @@ from typing import Any, cast
 import pytz
 import yaml
 
+from backend.learning.models import UNMEASURED_DEVICE_SQL
+
 logger = logging.getLogger("darkstar.monitors")
 
 # --- thresholds (see module docstring for derivations) -----------------------
@@ -210,7 +212,9 @@ class InvariantMonitors:
             " - COALESCE(load_kwh,0)-COALESCE(water_kwh,0)-COALESCE(ev_charging_kwh,0)"
             " - COALESCE(export_kwh,0)-COALESCE(batt_charge_kwh,0) AS residual "
             "FROM slot_observations "
-            "WHERE soc_end_percent IS NOT NULL AND slot_start >= ?",
+            "WHERE soc_end_percent IS NOT NULL AND slot_start >= ?"
+            # An unmeasured device is a 0 placeholder: its residual is not a violation.
+            f" AND NOT {UNMEASURED_DEVICE_SQL}",
             (start.isoformat(),),
         ).fetchall()
         if not rows:

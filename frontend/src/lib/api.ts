@@ -629,6 +629,10 @@ export type CostSeriesCoverage = {
     /** Included slots whose water was not measured (counted as 0, load still contains it) */
     water_unmeasured_slots: number
     water_unmeasured_hours: number
+    /** Included slots with an unmeasured device or load component; absent on older backends */
+    partial_slots?: number
+    partial_hours?: number
+    partial_by_component?: Record<string, number>
     /** Excluded slots per machine reason code; absent on older backends */
     excluded_by_reason?: Record<string, number>
 }
@@ -642,6 +646,9 @@ export type ExcludedSpan = {
     reason: string
     component: string | null
 }
+
+/** A run of contiguous included-but-partial slots sharing one component (end exclusive). */
+export type PartialSpan = ExcludedSpan
 
 export type CostSeriesTimeAxis = {
     timezone: string
@@ -682,6 +689,8 @@ type GridOnlyComparisonBase = {
     time_axis: CostSeriesTimeAxis
     /** Absent on older backends or when the field is malformed */
     excluded_spans?: ExcludedSpan[]
+    /** Slots kept in the comparison with an unmeasured component; absent on older backends */
+    partial_spans?: PartialSpan[]
 }
 
 export type GridOnlyComparison = GridOnlyComparisonBase &
@@ -734,6 +743,8 @@ export type BatteryBenchmarkDay = {
     /** Non-blocking warnings on the day (e.g. 'capacity_mismatch'); [] on legacy records. */
     warnings: string[]
     snapshot_slots: number
+    /** Slots with an unmeasured device inside a derived load; 0 on legacy records. */
+    partial_slots: number
     /** Slots without verified recording, start-SoC slot included; 0 on legacy records. */
     unverified_slots: number
     /** Number of the day's slots; 0 on legacy records. */
@@ -780,6 +791,7 @@ export function normalizeBatteryBenchmarkResponse(body: BatteryBenchmarkResponse
                 ? day.warnings.filter((warning): warning is string => typeof warning === 'string')
                 : [],
             unverified_slots: typeof day.unverified_slots === 'number' ? day.unverified_slots : 0,
+            partial_slots: typeof day.partial_slots === 'number' ? day.partial_slots : 0,
             day_slots: typeof day.day_slots === 'number' ? day.day_slots : 0,
             stored_change_kwh: typeof day.stored_change_kwh === 'number' ? day.stored_change_kwh : null,
         })),
@@ -869,6 +881,10 @@ function parseExcludedSpans(value: unknown): ExcludedSpan[] | undefined {
     return spans
 }
 
+function parsePartialSpans(value: unknown): PartialSpan[] | undefined {
+    return parseExcludedSpans(value)
+}
+
 function withComparisonExtras(
     value: Record<string, unknown>,
     actualPoints: CostSeriesPoint[],
@@ -876,9 +892,10 @@ function withComparisonExtras(
     coverage: Record<string, unknown>,
 ): CostSeriesResponse {
     const { excluded_by_reason: rawByReason, ...coverageRest } = coverage
-    const { excluded_spans: rawSpans, ...comparisonRest } = comparison
+    const { excluded_spans: rawSpans, partial_spans: rawPartialSpans, ...comparisonRest } = comparison
     const byReason = parseExcludedByReason(rawByReason)
     const spans = parseExcludedSpans(rawSpans)
+    const partialSpans = parsePartialSpans(rawPartialSpans)
     return {
         ...value,
         points: actualPoints,
@@ -886,6 +903,7 @@ function withComparisonExtras(
             ...comparisonRest,
             coverage: byReason ? { ...coverageRest, excluded_by_reason: byReason } : coverageRest,
             ...(spans ? { excluded_spans: spans } : {}),
+            ...(partialSpans ? { partial_spans: partialSpans } : {}),
         },
     } as unknown as CostSeriesResponse
 }

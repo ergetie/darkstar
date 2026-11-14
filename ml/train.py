@@ -425,7 +425,8 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
         "Load data rule dropped "
         f"{load_clean_stats['dropped_backfill_rows']} backfill rows and "
         f"{load_clean_stats['dropped_clamp_days']} clamp-signature days "
-        f"({load_clean_stats['dropped_clamp_rows']} rows)."
+        f"({load_clean_stats['dropped_clamp_rows']} rows) and "
+        f"{load_clean_stats['dropped_unmeasured_device_rows']} rows with an unmeasured device."
     )
     if observations.empty:
         print("Error: No valid (non-zero load) observations found.")

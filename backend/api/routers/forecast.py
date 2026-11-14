@@ -7,7 +7,7 @@ from typing import Any
 import pytz
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 # from ml.weather import get_weather_volatility # Not strictly needed if we mock or reuse logic
 from backend.config_migration import update_config
@@ -18,6 +18,7 @@ from backend.learning.models import (
     LearningRun,
     SlotForecast,
     SlotObservation,
+    unmeasured_device_clause,
 )
 from backend.strategy.history import get_strategy_history
 from ml.api import get_forecast_slots
@@ -133,7 +134,15 @@ async def _compute_metrics(
                 select(
                     SlotForecast.forecast_version,
                     func.avg(func.abs(SlotObservation.pv_kwh - SlotForecast.pv_forecast_kwh)),
-                    func.avg(func.abs(SlotObservation.load_kwh - SlotForecast.load_forecast_kwh)),
+                    func.avg(
+                        case(
+                            (
+                                ~unmeasured_device_clause(),
+                                func.abs(SlotObservation.load_kwh - SlotForecast.load_forecast_kwh),
+                            ),
+                            else_=None,
+                        )
+                    ),
                 )
                 .join(SlotObservation, SlotObservation.slot_start == SlotForecast.slot_start)
                 .where(
@@ -425,7 +434,15 @@ async def forecast_eval(days: int = 7) -> dict[str, Any]:
                 select(
                     SlotForecast.forecast_version,
                     func.avg(func.abs(SlotObservation.pv_kwh - SlotForecast.pv_forecast_kwh)),
-                    func.avg(func.abs(SlotObservation.load_kwh - SlotForecast.load_forecast_kwh)),
+                    func.avg(
+                        case(
+                            (
+                                ~unmeasured_device_clause(),
+                                func.abs(SlotObservation.load_kwh - SlotForecast.load_forecast_kwh),
+                            ),
+                            else_=None,
+                        )
+                    ),
                     func.count().label("samples"),
                 )
                 .join(SlotObservation, SlotObservation.slot_start == SlotForecast.slot_start)

@@ -312,6 +312,28 @@ describe('CostSeriesChart', () => {
             expect(bands[0].compareDocumentPosition(svg as Element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         })
 
+        it('draws partial spans as a distinct band and leaves the lines unbroken', () => {
+            const paths = (container: HTMLElement) =>
+                [...container.querySelectorAll('[data-testid="ds-line"], [data-testid="grid-only-line"]')].map((node) =>
+                    node.getAttribute('d'),
+                )
+            const plain = render(<CostSeriesChart series={series(comparison('partial'))} loading={false} />)
+            const withPartial = comparison('partial')
+            withPartial.partial_spans = [{ ...span, reason: 'unmeasured_component' }]
+            const { container } = render(<CostSeriesChart series={series(withPartial)} loading={false} />)
+            const bands = container.querySelectorAll('[data-testid="cost-partial-span"]')
+            expect(bands).toHaveLength(1)
+            expect(bands[0]).toHaveClass('cost-partial-band')
+            expect(bands[0]).not.toHaveClass('cost-chart-excluded')
+            expect(container.querySelector('[data-testid="cost-excluded-span"]')).toBeNull()
+            expect(paths(container)).toEqual(paths(plain.container))
+        })
+
+        it('renders no partial band without partial spans', () => {
+            const { container } = render(<CostSeriesChart series={series(comparison('partial'))} loading={false} />)
+            expect(container.querySelector('[data-testid="cost-partial-span"]')).toBeNull()
+        })
+
         it('renders no band for an empty or absent list', () => {
             const empty = comparison('partial')
             empty.excluded_spans = []

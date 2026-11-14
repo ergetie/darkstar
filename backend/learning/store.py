@@ -21,6 +21,7 @@ from backend.learning.models import (
     SlotObservation,
     SlotPlan,
     SystemState,
+    unmeasured_device_clause,
 )
 from backend.learning.pv_cleaning import clean_pv_slots
 from backend.measurement_provenance import (
@@ -917,6 +918,9 @@ class LearningStore:
             # Spike filtering: exclude rows where actual exceeds threshold
             if max_kwh is not None:
                 conditions.append(actual_col <= max_kwh)
+            if target != "pv":
+                # Load is not a base load while a device energy is unmeasured.
+                conditions.append(~unmeasured_device_clause())
 
             stmt = (
                 select(
@@ -1093,6 +1097,8 @@ class LearningStore:
             ]
             if max_kwh is not None:
                 load_conditions.append(SlotObservation.load_kwh <= max_kwh)
+            # Load is not a base load while a device energy is unmeasured.
+            load_conditions.append(~unmeasured_device_clause())
 
             stmt_load = (
                 select(
@@ -1257,6 +1263,7 @@ class LearningStore:
                     SlotObservation.export_kwh,
                     SlotObservation.import_price_sek_kwh,
                     SlotObservation.export_price_sek_kwh,
+                    SlotObservation.quality_flags,
                 )
                 .where(
                     SlotObservation.slot_start >= start_iso, SlotObservation.slot_start < end_iso
@@ -1265,7 +1272,15 @@ class LearningStore:
             )
 
             result = await session.execute(stmt)
-            return [row._asdict() for row in result.all()]  # type: ignore
+            rows: list[dict[str, Any]] = [row._asdict() for row in result.all()]  # type: ignore
+        for row in rows:
+            # An unavailable EV sensor leaves a 0 placeholder, not a measured 0 kWh.
+            flags = parse_quality_flags(row.pop("quality_flags", None))
+            ev = metadata_object(
+                metadata_object(metadata_object(flags.get("recording")).get("components")).get("ev")
+            )
+            row["actual_ev_available"] = ev.get("method") != "unknown"
+        return rows
 
     async def get_forecasts_range(self, start: datetime, version: str) -> list[dict[str, Any]]:
         """Get forecasts for a specific range and version."""

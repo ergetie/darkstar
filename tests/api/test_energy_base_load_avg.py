@@ -94,3 +94,64 @@ async def test_window_is_96_slots_across_dst_change(store):
     await _add_slots(store, in_window, 0.25)
     await _add_slots(store, outside, 10.0)
     assert await _base_load_avg_daily_kwh(store, now) == pytest.approx(24.0)
+
+
+def _flags(**methods: str) -> str:
+    import json
+
+    components = {name: {"method": method, "owner": "recorder"} for name, method in methods.items()}
+    return json.dumps(
+        {
+            "source": "recorder",
+            "recording": {"schema_version": 1, "components": components},
+        }
+    )
+
+
+async def _add_flagged(store: LearningStore, starts: list[datetime], flags: str | None) -> None:
+    async with store.AsyncSession() as session:
+        for start in starts:
+            session.add(
+                SlotObservation(
+                    slot_start=start.isoformat(),
+                    slot_end=(start + timedelta(minutes=15)).isoformat(),
+                    load_kwh=10.0,
+                    quality_flags=flags,
+                )
+            )
+        await session.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "flags",
+    [
+        _flags(ev="unknown", load="derived_history"),
+        _flags(ev="snapshot", load="mixed"),
+        _flags(heatpump="mixed"),
+        _flags(load="unknown"),
+    ],
+)
+async def test_unmeasured_device_slots_do_not_count_toward_the_average(store, flags):
+    slots = _completed_slots(96)
+    await _add_slots(store, slots[:87], 0.25)
+    await _add_flagged(store, slots[87:], flags)
+    # Only the 87 measured slots remain: threshold met, contaminated 10 kWh slots ignored.
+    assert await _base_load_avg_daily_kwh(store, NOW) == pytest.approx(24.0)
+
+
+@pytest.mark.asyncio
+async def test_unmeasured_slots_can_push_the_window_below_the_threshold(store):
+    slots = _completed_slots(96)
+    await _add_slots(store, slots[:80], 0.25)
+    await _add_flagged(store, slots[80:], _flags(ev="unknown"))
+    assert await _base_load_avg_daily_kwh(store, NOW) is None
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_device_and_malformed_flags_still_count(store):
+    slots = _completed_slots(96)
+    await _add_flagged(store, slots[:40], _flags(water="unconfigured_zero", load="mixed"))
+    await _add_flagged(store, slots[40:60], "not json")
+    await _add_flagged(store, slots[60:], None)
+    assert await _base_load_avg_daily_kwh(store, NOW) == pytest.approx(10.0 * 96)

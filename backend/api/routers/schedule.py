@@ -251,6 +251,7 @@ async def schedule_today_with_history(
                 # Kw calculation: kWh / hours = kW
                 # water_kwh -> water_heating_kw
                 # ev_charging_kwh -> actual_ev_charging_kw
+                ev_available = bool(row.get("actual_ev_available", True))
                 ev_charging_kw = float(row["ev_charging_kwh"] or 0.0) / duration_hours
 
                 # batt_charge_kwh -> actual_charge_kw
@@ -274,7 +275,9 @@ async def schedule_today_with_history(
                         if row["soc_end_percent"] is not None
                         else None
                     ),
-                    "actual_ev_charging_kw": round(ev_charging_kw, 3),
+                    # Null while the EV sensor was unavailable: unknown, not 0 kW.
+                    "actual_ev_charging_kw": round(ev_charging_kw, 3) if ev_available else None,
+                    "actual_ev_available": ev_available,
                     "import_price_sek_kwh": float(row["import_price_sek_kwh"] or 0.0),
                 }
             except Exception:
@@ -492,6 +495,7 @@ async def schedule_today_with_history(
             slot["actual_export_kwh"] = h.get("actual_export_kwh")
             slot["actual_soc"] = h.get("actual_soc")
             slot["actual_ev_charging_kw"] = h.get("actual_ev_charging_kw")
+            slot["actual_ev_available"] = h.get("actual_ev_available", True)
             # Add historical price from DB if not already present
             if "import_price_sek_kwh" not in slot:
                 slot["import_price_sek_kwh"] = h.get("import_price_sek_kwh")

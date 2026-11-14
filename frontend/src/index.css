@@ -424,6 +424,24 @@ body::before {
         pointer-events: none;
     }
 
+    /* Slots kept in the comparison with an unmeasured device or load: a lighter hatch with
+       dotted edges than the excluded band, drawn under the unbroken lines. */
+    .cost-partial-band {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        min-width: 2px;
+        background-image: repeating-linear-gradient(
+            -45deg,
+            rgb(var(--color-muted) / 0.16) 0,
+            rgb(var(--color-muted) / 0.16) 1px,
+            transparent 1px,
+            transparent 8px
+        );
+        border-inline: 1px dotted rgb(var(--color-muted) / 0.4);
+        pointer-events: none;
+    }
+
     @keyframes cost-chart-reveal {
         from {
             clip-path: inset(0 100% 0 0);

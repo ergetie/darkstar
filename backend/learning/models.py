@@ -3,7 +3,9 @@ from datetime import datetime
 import sqlalchemy as sa
 from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.sql import func
+from sqlalchemy.sql import ColumnElement, func
+
+from backend.measurement_provenance import NON_DEVICE_COMPONENTS, UNMEASURED_DEVICE_METHODS
 
 
 class Base(DeclarativeBase):
@@ -30,6 +32,46 @@ class SlotObservation(Base):
     executed_action: Mapped[str | None] = mapped_column(String)
     quality_flags: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
+
+
+def _sql_list(values: frozenset[str]) -> str:
+    return ", ".join(f"'{value}'" for value in sorted(values))
+
+
+# json_each must never see malformed JSON (SQLite does not promise AND short-circuiting).
+_SAFE_FLAGS_SQL = "CASE WHEN json_valid({col}) THEN {col} ELSE '{{}}' END"
+UNMEASURED_COMPONENTS_PATH = "'$.recording.components'"
+
+UNMEASURED_DEVICE_SQL = (
+    "EXISTS ("
+    "SELECT 1 FROM json_each("
+    + _SAFE_FLAGS_SQL.format(col="slot_observations.quality_flags")
+    + f", {UNMEASURED_COMPONENTS_PATH}) AS je "
+    f"WHERE (je.key NOT IN ({_sql_list(NON_DEVICE_COMPONENTS)}) "
+    f"AND json_extract(je.value, '$.method') IN ({_sql_list(UNMEASURED_DEVICE_METHODS)})) "
+    "OR (je.key = 'load' AND json_extract(je.value, '$.method') = 'unknown'))"
+)
+
+# Slots per device component whose recorded method is ``unknown``, in a slot_start range.
+UNMEASURED_BY_COMPONENT_SQL = (
+    "SELECT je.key, COUNT(*) FROM slot_observations AS o, json_each("
+    + _SAFE_FLAGS_SQL.format(col="o.quality_flags")
+    + f", {UNMEASURED_COMPONENTS_PATH}) AS je "
+    "WHERE o.slot_start >= :start AND o.slot_start < :end "
+    f"AND je.key NOT IN ({_sql_list(NON_DEVICE_COMPONENTS)}) "
+    "AND json_extract(je.value, '$.method') = 'unknown' GROUP BY je.key"
+)
+
+
+def unmeasured_device_clause() -> ColumnElement[bool]:
+    """SQL twin of ``ml.load_clean.has_unmeasured_device`` for ``slot_observations``.
+
+    True when ``quality_flags.recording.components`` has a device component (anything but
+    grid, load, pv and battery) with an unmeasured method, or ``load`` itself ``unknown``.
+    False, never NULL, for rows without parseable provenance. Use ``~clause`` to keep
+    slots whose load is a measured base load.
+    """
+    return sa.literal_column(UNMEASURED_DEVICE_SQL, type_=Boolean)
 
 
 class EvChargerObservation(Base):

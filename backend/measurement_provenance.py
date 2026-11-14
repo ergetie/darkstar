@@ -19,6 +19,25 @@ MEASUREMENT_METHODS = frozenset(
     {"power_history", "snapshot", "disabled_zero", "unconfigured_zero", "derived_history", "mixed"}
 )
 SUPPORTED_METHODS = MEASUREMENT_METHODS | {"unknown"}
+# Every other component name (ev, water, any future device) is a device component.
+NON_DEVICE_COMPONENTS = frozenset(
+    {"pv", "import", "export", "load", "battery_charge", "battery_discharge"}
+)
+# A device with one of these methods did not give a measured value: derived load still
+# contains its energy (unknown), or the value is a live reading or a placeholder.
+UNMEASURED_DEVICE_METHODS = frozenset({"unknown", "snapshot", "mixed"})
+
+
+def device_component_methods(components: dict[str, Any]) -> dict[str, str]:
+    """Method of every device component (not grid, load, pv or battery) in a components map."""
+    result: dict[str, str] = {}
+    for name, item in components.items():
+        if name in NON_DEVICE_COMPONENTS or not isinstance(item, dict):
+            continue
+        method = cast("dict[str, Any]", item).get("method")
+        if isinstance(method, str):
+            result[str(name)] = method
+    return result
 
 
 def measurement_boundary(config: dict[str, Any]) -> dict[str, Any]:
@@ -108,8 +127,15 @@ def recording_metadata(
     }
 
 
-def parse_recording(flags: dict[str, Any]) -> dict[str, Any] | None:
-    """Return only structurally supported observed provenance; unknown stays unknown."""
+def parse_recording(
+    flags: dict[str, Any], allowed_methods: frozenset[str] = MEASUREMENT_METHODS
+) -> dict[str, Any] | None:
+    """Return only structurally supported observed provenance; unknown stays unknown.
+
+    ``allowed_methods`` defaults to the measured methods, so a component recorded as
+    ``unknown`` makes the whole recording unusable. Callers that need to read such rows
+    (a device sensor that was unavailable) pass ``SUPPORTED_METHODS``.
+    """
     value = flags.get("recording")
     if not isinstance(value, dict):
         return None
@@ -135,7 +161,7 @@ def parse_recording(flags: dict[str, Any]) -> dict[str, Any] | None:
         component = cast("dict[str, Any]", item)
         if (
             not isinstance(component.get("method"), str)
-            or component.get("method") not in MEASUREMENT_METHODS
+            or component.get("method") not in allowed_methods
         ):
             return None
         if not isinstance(component.get("owner"), str) or component.get("owner") not in {

@@ -242,3 +242,62 @@ class TestLearningStoreSpikeFiltering:
             assert metrics.get("mae_load") >= 49.0  # At least the spike contribution
         finally:
             await store.close()
+
+
+class TestUnmeasuredDeviceMetricsAndHistory:
+    @pytest.mark.asyncio
+    async def test_load_mae_ignores_unmeasured_device_slots_and_history_flags_ev(self, tmp_path):
+        import json
+
+        from backend.learning.models import Base, SlotForecast, SlotObservation
+        from backend.learning.store import LearningStore
+
+        tz = pytz.timezone("Europe/Stockholm")
+        store = LearningStore(str(tmp_path / "metrics.db"), tz)
+        async with store.async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        recent = (datetime.now(tz) - timedelta(hours=3)).replace(minute=0, second=0, microsecond=0)
+        unknown_ev = json.dumps(
+            {
+                "recording": {
+                    "components": {
+                        "ev": {"method": "unknown", "owner": "recorder"},
+                        "load": {"method": "derived_history", "owner": "recorder"},
+                    }
+                }
+            }
+        )
+        async with store.AsyncSession() as session:
+            for index, flags in enumerate([None, unknown_ev]):
+                start = (recent + timedelta(minutes=15 * index)).isoformat()
+                session.add(
+                    SlotObservation(
+                        slot_start=start,
+                        slot_end=start,
+                        load_kwh=1.0 if flags is None else 9.0,
+                        quality_flags=flags,
+                    )
+                )
+                session.add(
+                    SlotForecast(
+                        slot_start=start,
+                        load_forecast_kwh=0.5,
+                        base_load_forecast_kwh=0.5,
+                        pv_forecast_kwh=0.0,
+                        forecast_version="aurora",
+                    )
+                )
+            await session.commit()
+
+        # Only the measured slot counts: |1.0 - 0.5|, not the 9.0 kWh contaminated slot.
+        metrics = await store.calculate_metrics(days_back=2)
+        assert metrics["mae_load"] == pytest.approx(0.5)
+        vs_actual = await store.get_forecast_vs_actual(days_back=2, target="load")
+        assert vs_actual["actual"].tolist() == [1.0]
+
+        history = await store.get_history_range(
+            recent - timedelta(hours=1), recent + timedelta(hours=1)
+        )
+        assert [row["actual_ev_available"] for row in history] == [True, False]
+        assert all("quality_flags" not in row for row in history)
+        await store.close()

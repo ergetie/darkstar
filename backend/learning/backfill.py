@@ -155,12 +155,8 @@ class BackfillEngine:
             enabled_devices = [item for item in configured_devices if item.get("enabled", True)]
             if configured_devices and not enabled_devices:
                 components[name]["method"] = "disabled_zero"
-            if name == "water" and any(value is None for value in device_values.values()):
+            if any(value is None for value in device_values.values()):
                 components[name]["method"] = "unknown"
-            elif components[name]["method"] == "power_history" and any(
-                value is None for value in device_values.values()
-            ):
-                components[name]["method"] = "mixed"
             if components[name]["method"] == "power_history" and any(
                 not item.get("sensor") for item in enabled_devices
             ):

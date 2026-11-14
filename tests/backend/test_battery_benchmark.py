@@ -521,3 +521,46 @@ def test_fixed_fees_never_enter_benchmark(monkeypatch):
     assert "fixed_fee" not in source
     assert "subscription_fee" not in source
     assert "supplier_fee" not in source
+
+
+def _device_flags(ev: str, load: str = "derived_history") -> str:
+    flags = json.loads(_flags())
+    components = flags["recording"]["components"]
+    components["load"] = {"method": load, "owner": "recorder"}
+    components["ev"] = {"method": ev, "owner": "recorder"}
+    components["water"] = {"method": "power_history", "owner": "recorder"}
+    return json.dumps(flags)
+
+
+def test_unknown_ev_with_derived_load_scores_the_day_and_counts_partial_slots():
+    # cmon89 shape: an EV sensor outage covering many slots must not void the day.
+    rows = _day_rows(
+        DAY, row=lambda i, n: {"quality_flags": _device_flags("unknown")} if i < 40 else {}
+    )
+    record = _run(rows)
+    assert (record["status"], record["reason"]) == ("scored", None)
+    assert record["partial_slots"] == 40
+    assert record["unverified_slots"] == 0
+    assert record["warnings"] == ["partial_slots"]
+
+
+def test_unknown_ev_with_non_derived_load_stays_unusable():
+    rows = _day_rows(
+        DAY,
+        row=lambda i, n: (
+            {"quality_flags": _device_flags("unknown", "power_history")} if i < 5 else {}
+        ),
+    )
+    record = _run(rows)
+    assert (record["status"], record["reason"]) == ("excluded", "not_clean_recording")
+
+
+@pytest.mark.parametrize("component", ["load", "import"])
+def test_unknown_load_or_grid_component_stays_unusable_even_with_partial_slots(component):
+    def flags(i, n):
+        value = json.loads(_device_flags("unknown"))
+        value["recording"]["components"][component] = {"method": "unknown", "owner": "recorder"}
+        return {"quality_flags": json.dumps(value)} if i < 5 else {}
+
+    record = _run(_day_rows(DAY, row=flags))
+    assert (record["status"], record["reason"]) == ("excluded", "not_clean_recording")

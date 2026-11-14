@@ -1,5 +1,11 @@
 import { useMemo, useRef, useState } from 'react'
-import type { BatteryBenchmarkResponse, CostSeriesPoint, CostSeriesResponse, GridOnlyBucketPoint } from '../lib/api'
+import type {
+    BatteryBenchmarkResponse,
+    CostSeriesPoint,
+    CostSeriesResponse,
+    ExcludedSpan,
+    GridOnlyBucketPoint,
+} from '../lib/api'
 import { compactAxisLabel, layoutAxisTicks, type AxisTick } from '../lib/costAxisTicks'
 import { exclusionPhrase } from '../lib/costExclusion'
 import { useElementWidth } from '../lib/useElementWidth'
@@ -49,6 +55,8 @@ export interface CostChartGeometry {
     hindsightExcluded: { left: number; width: number }[]
     /** Slots left out of the comparison, positioned on the full period axis (epoch ms based) */
     excludedBands: ExcludedBand[]
+    /** Slots kept in the comparison with an unmeasured component; the lines run through them */
+    partialBands: ExcludedBand[]
     ticks: AxisTick[]
     zeroY: number
     hasComparison: boolean
@@ -357,15 +365,15 @@ export function computeCostChartGeometry(
     }
 
     // Excluded spans arrive as offset-qualified ISO strings; epoch ms keeps DST days exact.
-    const excludedBands: ExcludedBand[] = []
-    if (hasComparison && comparison) {
-        for (const span of comparison.excluded_spans ?? []) {
+    const bandsOf = (spans: readonly ExcludedSpan[] | undefined): ExcludedBand[] => {
+        const bands: ExcludedBand[] = []
+        for (const span of spans ?? []) {
             const startMs = Date.parse(span.start)
             const endMs = Date.parse(span.end)
             const from = Math.max(startMs, axisStart)
             const to = Math.min(endMs, axisEnd)
             if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) continue
-            excludedBands.push({
+            bands.push({
                 left: xOf(from),
                 width: xOf(to) - xOf(from),
                 startMs,
@@ -375,7 +383,10 @@ export function computeCostChartGeometry(
                 component: span.component,
             })
         }
+        return bands
     }
+    const excludedBands = hasComparison && comparison ? bandsOf(comparison.excluded_spans) : []
+    const partialBands = hasComparison && comparison ? bandsOf(comparison.partial_spans) : []
 
     const high = Math.max(0, ...values)
     const low = Math.min(0, ...values)
@@ -418,6 +429,7 @@ export function computeCostChartGeometry(
         hindsightArea,
         hindsightExcluded,
         excludedBands,
+        partialBands,
         ticks: buildTicks(axisStart, axisEnd, series.bucket === 'hour', timezone),
         zeroY,
         hasComparison,
@@ -583,6 +595,16 @@ export default function CostSeriesChart({ series, benchmark = null, loading, ser
                 className="relative flex-1 min-h-[90px] rounded-ds-md bg-surface2/30 overflow-hidden"
                 onMouseLeave={() => setHover(null)}
             >
+                {geometry.partialBands.map((band) => (
+                    <div
+                        key={`partial-${band.startMs}-${band.reason}-${band.component}`}
+                        data-testid="cost-partial-span"
+                        data-component={band.component ?? ''}
+                        aria-hidden="true"
+                        className="cost-partial-band"
+                        style={{ left: `${band.left}%`, width: `${band.width}%` }}
+                    />
+                ))}
                 {geometry.excludedBands.map((band) => (
                     <div
                         key={`excluded-${band.startMs}-${band.reason}-${band.component}`}

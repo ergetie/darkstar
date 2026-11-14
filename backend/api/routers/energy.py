@@ -65,7 +65,7 @@ async def _base_load_avg_daily_kwh(store: LearningStore, now: datetime) -> float
     """
     from sqlalchemy import func, select
 
-    from backend.learning.models import SlotObservation
+    from backend.learning.models import SlotObservation, unmeasured_device_clause
 
     # Window arithmetic in UTC so a DST change can't widen or shrink it; bounds are
     # then rendered in the store's timezone to match the stored slot_start strings.
@@ -81,7 +81,12 @@ async def _base_load_avg_daily_kwh(store: LearningStore, now: datetime) -> float
         stmt = select(
             func.sum(SlotObservation.load_kwh),
             func.count(SlotObservation.load_kwh),
-        ).where(SlotObservation.slot_start >= start_iso, SlotObservation.slot_start < end_iso)
+        ).where(
+            SlotObservation.slot_start >= start_iso,
+            SlotObservation.slot_start < end_iso,
+            # A load with an unmeasured device is not a base load; it must not count.
+            ~unmeasured_device_clause(),
+        )
         row = (await session.execute(stmt)).fetchone()
 
     if not row:
@@ -204,9 +209,9 @@ async def get_energy_range(
 ) -> dict[str, Any]:
     """Get energy range data from database (SlotObservation table)."""
     import pytz
-    from sqlalchemy import func, select
+    from sqlalchemy import func, select, text
 
-    from backend.learning.models import SlotObservation
+    from backend.learning.models import UNMEASURED_BY_COMPONENT_SQL, SlotObservation
 
     config = load_yaml("config.yaml")
 
@@ -294,6 +299,12 @@ async def get_energy_range(
             ).where(SlotObservation.slot_start >= start_iso, SlotObservation.slot_start < end_iso)
             result = await session.execute(stmt)
             row = result.fetchone()
+            unmeasured_rows = await session.execute(
+                text(UNMEASURED_BY_COMPONENT_SQL), {"start": start_iso, "end": end_iso}
+            )
+            unmeasured_slots_by_component = {
+                str(component): int(count) for component, count in unmeasured_rows.all()
+            }
 
         if not row:
             raise ValueError("No data returned")
@@ -359,6 +370,8 @@ async def get_energy_range(
             "battery_wear_cost_sek": round(battery_wear_cost_sek, 2),
             "net_cost_incl_wear_sek": round(net_cost_incl_wear_sek, 2),
             "slot_count": slot_count,
+            # Device kWh above is a 0 placeholder for these slots (sensor unavailable).
+            "unmeasured_slots_by_component": unmeasured_slots_by_component,
         }
     except Exception as e:
         # Fallback with zeros

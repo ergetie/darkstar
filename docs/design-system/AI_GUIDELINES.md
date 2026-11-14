@@ -140,6 +140,8 @@ Horizontal capacity bar split into layers (`.battery-stack*`, used by the Batter
 
 Slots left out of the DS versus grid-only comparison are marked with `.cost-chart-excluded`: a muted, diagonally hatched band with dashed edges over the excluded span, drawn under the lines (`data-testid="cost-excluded-span"`), so the exclusion never relies on colour alone. DS and Grid-only lines stay unconnected across it. Hovering or focusing a bucket that overlaps a band adds a `text-warn` readout line ("Not compared: EV charger not measured (08:15–12:15)"). In the coverage text of the bill details, one `text-warn` line per reason group follows the "N excluded" count (largest first, two groups, then "and N more reasons"). Reason codes from the backend are never shown raw; `lib/costExclusion.ts` maps them to fixed phrases, with "not compared" as the fallback.
 
+Slots kept in the comparison while a device or the load was not measured are marked with `.cost-partial-band`: a lighter hatch with dotted edges (`data-testid="cost-partial-span"`), distinct from the excluded band, and the DS and Grid-only lines run unbroken through it. The bill details add one `text-warn` line per component ("EV not measured for 26 h 15 min (Nov 9 10:00-Nov 10 12:15)", `lib/costExclusion.ts` `buildPartialNotes`).
+
 Axis labels are laid out against the measured chart width (`lib/costAxisTicks.ts`): a label that would overlap another moves to the other row or is omitted, with the axis ends and the repeated-hour labels (`02+2`, `02+1` on a DST fall-back day) placed first, so labels never overlap at any width. Time ranges use an en dash without spaces (`08:15–12:15`).
 
 ### Charts On Canvas

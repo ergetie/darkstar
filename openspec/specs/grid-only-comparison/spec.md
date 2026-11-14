@@ -274,3 +274,58 @@ Each excluded slot SHALL carry the first failing check of a fixed order that fol
 #### Scenario: Eligibility is unchanged
 - **WHEN** the reasons are added
 - **THEN** exactly the same slots are eligible and excluded as before, and amounts, segments and coverage counts are unchanged
+
+### Requirement: Unmeasured device or load components make a slot partial, not excluded
+A slot SHALL be included in the grid-only comparison, marked partial with the component name, when its grid and battery flows are measured with recorder provenance but a device or load component is unmeasured. A slot SHALL stay excluded when those flows are unmeasured, when `load` is `unknown` or `unconfigured_zero`, or for the existing integrity reasons.
+
+#### Scenario: Which methods make a slot partial
+- **WHEN** import and export (and battery charge and discharge when a battery is present) are measured with recorder provenance
+- **THEN** a device component (`ev`, `water`, any other) with method `unknown`, `unconfigured_zero`, `snapshot` or `mixed`, or `load` with method `snapshot` or `mixed`, marks the slot partial
+- **AND** the reason is `unmeasured_component`, or `unconfigured_sensor` for `unconfigured_zero`, with the component name
+
+#### Scenario: EV unknown, grid flows measured
+- **WHEN** a slot has `ev=unknown`, `load=derived_history`, and measured import and export
+- **THEN** the slot is included, marked partial for `ev`, and the cumulative lines stay continuous
+
+#### Scenario: Snapshot or mixed device or load
+- **WHEN** a slot has `ev=snapshot` and `load=mixed` with measured import and export
+- **THEN** the slot is included and marked partial
+
+#### Scenario: Mixed load caused by a partial device
+- **WHEN** a slot has `load=mixed` and a device component (for example `ev=snapshot`) that is itself partial
+- **THEN** the slot has a partial entry for the device only and none for `load`; a `load=snapshot` slot, or a `load=mixed` slot with no partial device, keeps its `load` partial entry
+
+#### Scenario: Import missing
+- **WHEN** import is not measured
+- **THEN** the slot is excluded with reason `unknown_component` for `import`
+
+#### Scenario: Load unknown
+- **WHEN** `load` has method `unknown`
+- **THEN** the slot is excluded because demand cannot be priced
+
+#### Scenario: Device component absent from provenance
+- **WHEN** the provenance has no entry for a device (for example no EV configured)
+- **THEN** the slot is not excluded for it
+
+#### Scenario: Guard
+- **WHEN** any device component type is unknown, snapshot or mixed while import and export are measured
+- **THEN** that component never causes the slot to be excluded
+
+### Requirement: Hidden-demand clamp check covers every unknown device
+The `clamp_hidden_demand` exclusion SHALL apply when any device component is unknown and the base-load clamp may have hidden demand (`load_kwh == 0` while another device energy is above 0).
+
+#### Scenario: Both devices unknown with zero load
+- **WHEN** `ev` and `water` are unknown and `load_kwh` is 0 with import above 0
+- **THEN** the slot is excluded with reason `clamp_hidden_demand`
+
+### Requirement: Coverage reports partial slots
+The comparison coverage SHALL report partial slots, and partial slots SHALL count as covered.
+
+#### Scenario: Fields and status
+- **THEN** coverage includes `partial_slots`, `partial_hours` and `partial_by_component`, and the response includes `partial_spans` with start, end, slots, reason and component, built like `excluded_spans`
+- **AND** `water_unmeasured_slots` and `water_unmeasured_hours` stay for compatibility and equal the `water` entry of `partial_by_component`
+- **AND** status stays `available`/`partial` by covered-versus-total coverage only; partial slots alone do not make it `partial`
+
+#### Scenario: Coverage counts
+- **WHEN** 105 slots are partial for `ev`
+- **THEN** `partial_slots` is 105, `partial_hours` is 26.25, `partial_by_component.ev` is 105, and `covered_slots` includes them
