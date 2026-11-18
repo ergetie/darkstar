@@ -186,10 +186,18 @@ class TestHAClientSetMethods:
         mock_cm.__aenter__ = AsyncMock(return_value=mock_response)
         mock_cm.__aexit__ = AsyncMock(return_value=None)
         mock_session.post.return_value = mock_cm
+        # set_select_option reads the entity's options to resolve its spelling.
+        mock_state = AsyncMock(
+            return_value={"state": "Self Use", "attributes": {"options": ["Self Use"]}}
+        )
 
-        with patch.object(client, "_get_session", return_value=mock_session):
+        with (
+            patch.object(client, "_get_session", return_value=mock_session),
+            patch.object(client, "get_state", mock_state),
+        ):
             result = await client.set_select_option("select.mode", "Self Use")
             assert result is True
+            mock_state.assert_awaited_once_with("select.mode")
 
     @pytest.mark.asyncio
     async def test_set_switch(self):
@@ -845,9 +853,7 @@ class TestClampToEntityRange:
         assert note is not None and "max" in note
 
     def test_below_negative_min(self):
-        value, note = _clamp_to_entity_range(
-            -18000.0, {"min": -17500, "max": 17500, "step": 100}
-        )
+        value, note = _clamp_to_entity_range(-18000.0, {"min": -17500, "max": 17500, "step": 100})
         assert value == -17500
         assert note is not None and "min" in note
 
@@ -977,11 +983,15 @@ class TestProfilePathClamp:
             for _ in range(12):
                 clock[0] += 60.0
                 await dispatcher._execute_action(action, _decision(18200.0), "export")
-            warnings = [r for r in caplog.records if r.levelname == "WARNING" and "Clamped" in r.message]
+            warnings = [
+                r for r in caplog.records if r.levelname == "WARNING" and "Clamped" in r.message
+            ]
             assert len(warnings) == 1
             clock[0] += 3600.0
             await dispatcher._execute_action(action, _decision(18200.0), "export")
-        warnings = [r for r in caplog.records if r.levelname == "WARNING" and "Clamped" in r.message]
+        warnings = [
+            r for r in caplog.records if r.levelname == "WARNING" and "Clamped" in r.message
+        ]
         assert len(warnings) == 2
 
 

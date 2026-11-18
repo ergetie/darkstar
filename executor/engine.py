@@ -48,7 +48,13 @@ from backend.core.ha_timestamps import reading_timestamp
 from backend.core.secrets import load_home_assistant_config
 from backend.loads.service import LoadDisaggregator
 
-from .actions import ActionDispatcher, ActionResult, HACallError, HAClient
+from .actions import (
+    ActionDispatcher,
+    ActionResult,
+    HACallError,
+    HAClient,
+    option_values_match,
+)
 from .config import (
     BalancedLoadConfig,
     BalancedLoadType,
@@ -233,8 +239,12 @@ _NO_BALANCER_OVERRIDE = object()
 
 
 def _values_equal(state: Any, expected: Any) -> bool:
-    """Case/whitespace-insensitive comparison of an HA state to a target value."""
-    return state is not None and str(state).strip().casefold() == str(expected).strip().casefold()
+    """Case-insensitive comparison of an HA state to a target value.
+
+    Also treats a display text and its translation key ("Charge from Grid" vs
+    "charge_from_grid") as equal.
+    """
+    return option_values_match(state, expected)
 
 
 @dataclass
