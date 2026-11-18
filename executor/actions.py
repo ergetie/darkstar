@@ -15,6 +15,7 @@ Key Features:
 import asyncio
 import logging
 import math
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -39,6 +40,53 @@ VERIFY_POLL_INTERVAL_MS = 400
 CLAMP_WARN_INTERVAL_S = 3600.0
 
 NUMBER_DOMAINS = ("number", "input_number")
+
+# Runs of anything that is not a letter or digit, collapsed to "_" by option_key().
+_OPTION_KEY_SEPARATORS = re.compile(r"[\W_]+")
+
+
+def option_key(value: Any) -> str:
+    """Normalise a select option or enumerated state for comparison.
+
+    Integrations moving to Home Assistant translation keys replace display texts
+    with lowercase keys where every non-alphanumeric run becomes "_" (for example
+    fronius_modbus: "Charge from Grid" -> "charge_from_grid"). Both spellings share
+    one key here, so profiles and user mappings keep working on either version.
+    """
+    return _OPTION_KEY_SEPARATORS.sub("_", str(value).strip().casefold()).strip("_")
+
+
+def option_values_match(current: Any, target: Any) -> bool:
+    """Compare an HA state to a target value, tolerant of display text vs translation key."""
+    if current is None:
+        return False
+    current_text = str(current).strip().casefold()
+    target_text = str(target).strip().casefold()
+    if current_text == target_text:
+        return True
+    current_key = option_key(current)
+    # A value with no letters or digits has no meaningful key; never let two such
+    # values match just because both normalise to "".
+    return current_key != "" and current_key == option_key(target)
+
+
+def resolve_select_option(option: str, options: Any) -> str:
+    """Return the entity's own spelling of ``option``.
+
+    An exact match is kept as-is. Otherwise the single option with the same
+    option_key() is used. With no options list, no match or an ambiguous match the
+    requested option is returned unchanged, so Home Assistant reports the error.
+    """
+    if not isinstance(options, list | tuple):
+        return option
+    offered = [str(o) for o in cast("list[Any] | tuple[Any, ...]", options) if isinstance(o, str)]
+    if option in offered:
+        return option
+    key = option_key(option)
+    if not key:
+        return option
+    matches = [o for o in offered if option_key(o) == key]
+    return matches[0] if len(matches) == 1 else option
 
 
 def _finite_float(raw: Any) -> float | None:
@@ -487,7 +535,22 @@ class HAClient:
                 message=f"Invalid domain for select entity {entity_id}",
                 exception_type="DomainValidationError",
             )
+        option = await self._resolve_select_option(entity_id, option)
         return await self.call_service(domain, "select_option", entity_id, {"option": option})
+
+    async def _resolve_select_option(self, entity_id: str, option: str) -> str:
+        """Map ``option`` onto the spelling the entity currently offers."""
+        state = await self.get_state(entity_id)
+        attributes: Any = state.get("attributes") if state else None
+        options: Any = (
+            cast("dict[str, Any]", attributes).get("options")
+            if isinstance(attributes, dict)
+            else None
+        )
+        resolved = resolve_select_option(option, options)
+        if resolved != option:
+            logger.debug("Select %s: using option %r for requested %r", entity_id, resolved, option)
+        return resolved
 
     async def set_switch(self, entity_id: str, state: bool) -> bool:
         """Turn a switch on or off."""
@@ -798,7 +861,7 @@ class ActionDispatcher:
                     return True
                 if not target_bool and current_lower == "off":
                     return True
-            return str(current).strip().lower() == str(target).strip().lower()
+            return option_values_match(current, target)
 
     async def _verify_action(
         self, entity_id: str, expected: Any, settle_ms: int | None = None
