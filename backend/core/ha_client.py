@@ -1001,6 +1001,10 @@ _LOAD_PROFILE_DAYS = 7
 # slot length over the whole window; below that the mean rests on less than one slot's
 # worth of observation and the slot is filled from its neighbours instead.
 _MIN_SLOT_COVERAGE_SECONDS = _SLOT_SECONDS
+# Covered seconds are float sums of interval pieces (the 7-day window starts off the
+# 15-minute grid, so each slot is assembled from two pieces). A slot measured exactly
+# once can then sum to 899.9999... and be rejected; compare with this tolerance.
+_COVERAGE_TOLERANCE_SECONDS = 1e-6
 # Interpolating across gaps is only sensible while most of the day is measured. With
 # fewer than half of the 96 slots supported the shape of the day is guesswork (the
 # widest hole could exceed 12 h), so the profile is treated as insufficient instead.
@@ -1064,7 +1068,10 @@ def _coverage_averaged_profile(
     between the nearest supported slots around the clock (wrapping over midnight).
     Returns the profile and the number of supported slots; with none, all zeros.
     """
-    supported = [covered >= _MIN_SLOT_COVERAGE_SECONDS for covered in slot_covered]
+    supported = [
+        covered >= _MIN_SLOT_COVERAGE_SECONDS - _COVERAGE_TOLERANCE_SECONDS
+        for covered in slot_covered
+    ]
     profile = [
         slot_sums[i] / slot_covered[i] * _SLOT_SECONDS if supported[i] else 0.0 for i in range(96)
     ]
