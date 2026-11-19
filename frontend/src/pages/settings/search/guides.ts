@@ -80,7 +80,7 @@ This is a software safety net, not a certified protection device. If your EV cha
 - While prices are published (today, and tomorrow from the early afternoon), Darkstar picks the cheapest slots that reach the target in time.
 - When the deadline is further away, it compares charging now with waiting. Hours beyond the plan are priced at their published or forecast price plus a risk margin, so it only waits when that is still cheaper.
 - The risk margin starts at the base value (12%) and ramps up to the deadline value (50%) over the last 48 hours. The closer the deadline, the less Darkstar trusts forecasts. Change these under EV → Goal Planning.
-- The shortfall penalty (50 SEK/kWh by default) makes reaching the target near-mandatory. If the goal cannot be reached in time, Darkstar still charges as much as possible.
+- The shortfall penalty (50 {priceUnit} by default) makes reaching the target near-mandatory. If the goal cannot be reached in time, Darkstar still charges as much as possible.
 - The card shows "Planned per day" chips. Days marked "est." are estimates from forecast prices and change as real prices are published.
 
 4. Solar surplus

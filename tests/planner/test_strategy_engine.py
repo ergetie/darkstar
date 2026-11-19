@@ -209,3 +209,15 @@ def test_continuous_threshold_scaling():
         assert overrides["kepler"]["export_threshold_sek_per_kwh"] == expected, (
             f"Failed for spread={spread}"
         )
+
+
+def test_volatility_event_message_uses_configured_currency(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        "backend.strategy.engine.append_strategy_event",
+        lambda kind, message, data: events.append(message),
+    )
+    engine = StrategyEngine(config={"nordpool": {"currency": "EUR"}})
+    engine.decide({"prices": [{"value": 0.1}, {"value": 2.0}], "context": {}})
+
+    assert events == ["High Price Spread (1.90 EUR). Aggressive Mode engaged."]

@@ -4,6 +4,7 @@ import { useSettingsForm } from '../hooks/useSettingsForm'
 import { Api, ApiError } from '../../../lib/api'
 import { getPendingHeaterErrors, setPendingHeaterErrors } from '../hooks/heaterErrors'
 import { BaseField, batteryFieldList } from '../types'
+import { getCurrency, priceUnitLabel, setCurrency, substituteCurrencyTokens } from '../../../lib/currency'
 
 // Mock API
 vi.mock('../../../lib/api', () => ({
@@ -98,6 +99,25 @@ describe('useSettingsForm Hook', () => {
         expect(Api.configSave).toHaveBeenCalledWith({ battery: { charge_efficiency: 0.945 } })
         expect(result.current.form['battery.charge_efficiency']).toBe('94.5')
         expect(result.current.isDirty).toBe(false)
+    })
+
+    it('updates the currency labels after saving a new currency', async () => {
+        const currencyFields: BaseField[] = [
+            { key: 'nordpool.currency', label: 'Currency', path: ['nordpool', 'currency'], type: 'text' },
+        ]
+        setCurrency(null)
+        vi.mocked(Api.config).mockResolvedValue({ nordpool: { currency: 'SEK' } })
+        vi.mocked(Api.configSave).mockResolvedValue({ status: 'success' })
+        const { result } = renderHook(() => useSettingsForm(currencyFields))
+        await waitFor(() => expect(result.current.loading).toBe(false))
+        expect(substituteCurrencyTokens('Fee ({priceUnit})', getCurrency())).toBe('Fee (SEK/kWh)')
+        act(() => result.current.handleChange('nordpool.currency', 'EUR'))
+        vi.mocked(Api.config).mockResolvedValue({ nordpool: { currency: 'EUR' } })
+        await act(async () => expect(await result.current.save()).toBe(true))
+        expect(Api.configSave).toHaveBeenCalledWith({ nordpool: { currency: 'EUR' } })
+        expect(priceUnitLabel(getCurrency())).toBe('EUR/kWh')
+        expect(substituteCurrencyTokens('Fee ({priceUnit})', getCurrency())).toBe('Fee (EUR/kWh)')
+        setCurrency(null)
     })
 
     it('keeps missing efficiency keys omitted when saving unrelated settings', async () => {

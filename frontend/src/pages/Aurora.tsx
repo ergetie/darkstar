@@ -22,6 +22,9 @@ import SystemHealthCard from '../components/SystemHealthCard'
 import ModelTrainingCard from '../components/aurora/ModelTrainingCard'
 import { Bar } from 'react-chartjs-2'
 import { Api } from '../lib/api'
+import { priceUnitLabel, useCurrency } from '../lib/currency'
+import { displayTimeZone, displayLocale } from '../lib/timezone'
+import { ymdLocal } from '../lib/time'
 import { getAuroraForecastTogglePatch, getPvForecastSourceDisplay } from './auroraDisplay'
 import type {
     AuroraDashboardResponse,
@@ -50,6 +53,7 @@ import 'chartjs-adapter-moment'
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, TimeScale)
 
 export default function Aurora() {
+    const currency = useCurrency()
     const [dashboard, setDashboard] = useState<AuroraDashboardResponse | null>(null)
     const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatusResponse | null>(null)
     const [loading, setLoading] = useState(false)
@@ -542,7 +546,7 @@ export default function Aurora() {
                                 <div className="text-lg font-semibold text-text">
                                     {(dashboard?.metrics?.max_price_spread ?? 0).toFixed(2)}
                                 </div>
-                                <div className="text-[9px] text-muted/70">SEK/kWh range</div>
+                                <div className="text-[9px] text-muted/70">{priceUnitLabel(currency)} range</div>
                             </div>
 
                             {/* Forecast Bias */}
@@ -579,7 +583,9 @@ export default function Aurora() {
                             {schedulerStatus?.ml_training_last_run_at && (
                                 <span className="text-[9px] text-muted/70" title="Last ML Training Run">
                                     ML Train:{' '}
-                                    {new Date(schedulerStatus.ml_training_last_run_at).toLocaleString('sv-SE', {
+                                    {new Date(schedulerStatus.ml_training_last_run_at).toLocaleString(displayLocale(), {
+                                        timeZone: displayTimeZone(),
+                                        hourCycle: 'h23',
                                         month: '2-digit',
                                         day: '2-digit',
                                         hour: '2-digit',
@@ -675,8 +681,7 @@ export default function Aurora() {
                                       ? `Probabilistic View (${chartMode.toUpperCase()})`
                                       : `Decomposition View (${chartMode.toUpperCase()})`}
                                 {' • '}
-                                {new Date().toISOString().slice(0, 10)} -{' '}
-                                {new Date(originalHorizonEnd).toISOString().slice(0, 10)}
+                                {ymdLocal(new Date())} - {ymdLocal(new Date(originalHorizonEnd))}
                             </div>
                         </div>
 

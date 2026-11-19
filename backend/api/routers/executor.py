@@ -4,8 +4,8 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict
 from ruamel.yaml import YAML
 
 from backend.config_migration import update_config
@@ -380,14 +380,20 @@ async def get_executor_config() -> dict[str, Any]:
     }
 
 
+class FreeformBody(BaseModel):
+    """Typed JSON object body whose keys are validated by the handler's merge logic."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 @router.put(
     "/api/executor/config",
     summary="Update Executor Config",
     description="Updates the executor configuration.",
 )
-async def update_executor_config(request: Request) -> dict[str, str]:
+async def update_executor_config(body: FreeformBody) -> dict[str, str]:
     """Update executor entity configuration."""
-    payload = await request.json()
+    payload: dict[str, Any] = body.model_dump()
     config_path = Path("config.yaml")
 
     def mutate(config: dict[str, Any]) -> None:
@@ -498,9 +504,9 @@ async def get_notifications() -> dict[str, Any]:
     summary="Update Notification Settings",
     description="Updates notification settings.",
 )
-async def update_notifications(request: Request) -> dict[str, str]:
+async def update_notifications(body: FreeformBody) -> dict[str, str]:
     """Update notification settings."""
-    payload = await request.json()
+    payload: dict[str, Any] = body.model_dump()
     config_path = Path("config.yaml")
 
     def mutate(config: dict[str, Any]) -> None:

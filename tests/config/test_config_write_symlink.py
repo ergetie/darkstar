@@ -217,15 +217,15 @@ async def test_every_runtime_writer_preserves_symlink(linked_config, monkeypatch
         await executor.toggle_executor(executor.ToggleRequest(enabled=False))
         expected_path, expected = ("executor", "enabled"), False
     elif writer in ("entities", "notifications"):
-        request = MagicMock()
-        request.json = AsyncMock(
-            return_value={"interval_seconds": 47} if writer == "entities" else {"on_error": True}
-        )
         if writer == "entities":
-            await executor.update_executor_config(request)
+            await executor.update_executor_config(
+                executor.FreeformBody.model_validate({"interval_seconds": 47})
+            )
             expected_path, expected = ("executor", "interval_seconds"), 47
         else:
-            await executor.update_notifications(request)
+            await executor.update_notifications(
+                executor.FreeformBody.model_validate({"on_error": True})
+            )
             expected_path, expected = ("executor", "notifications", "on_error"), True
     elif writer == "theme":
         name = next(iter(theme.load_themes()))

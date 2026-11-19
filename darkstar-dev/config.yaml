@@ -41,12 +41,11 @@ ports_description:
 
 # Configuration options (shown in HA Add-on UI)
 options:
-  timezone: "Europe/Stockholm"
   log_level: "debug"
 
 # Schema (validates options)
 schema:
-  timezone: str
+  timezone: str?
   log_level: list(debug|info|warning|error)
 
 # Data persistence

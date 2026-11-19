@@ -82,11 +82,17 @@ export type ScheduleTodayWithHistoryResponse = {
     timezone?: string
 }
 export type ConfigResponse = {
-    /** IANA timezone for all schedule/price calculations (backend default Europe/Stockholm). */
+    /** IANA timezone of the plan: tariff windows and cost buckets (backend default Europe/Stockholm). Not the display timezone, which is the browser's. */
     timezone?: string
     installation_stats?: {
         enabled?: boolean
         endpoint?: string
+    }
+    /** W or kW chosen per entity id for power sensors whose Home Assistant state has no unit. */
+    sensor_unit_overrides?: Record<string, SensorUnit>
+    nordpool?: {
+        /** ISO 4217 code every amount is shown in (the single currency source). */
+        currency?: string
     }
     system?: {
         inverter_profile?: string
@@ -249,6 +255,16 @@ export type ProfileSuggestionsResponse = {
     current: Record<string, unknown>
     missing_required: string[]
 }
+/** A numeric power sensor whose live Home Assistant state reports no unit; `override` is the chosen unit. */
+export type UnitNeededEntry = {
+    entity_id: string
+    settings_path: string
+    live_value: number
+    override: SensorUnit | null
+}
+export type SensorUnit = 'W' | 'kW'
+/** Readiness action telling the UI to let the user choose a W or kW unit for a sensor. */
+export type ReadinessAction = { kind: 'set_sensor_unit'; entity_id: string; path: string }
 export type ReadinessCheck = {
     id: string
     group: string
@@ -256,8 +272,10 @@ export type ReadinessCheck = {
     message: string
     fix_hint: string
     settings_path: string
+    action?: ReadinessAction
 }
-export type ReadinessResponse = { ready: boolean; checks: ReadinessCheck[] }
+export type ReadinessResponse = { ready: boolean; checks: ReadinessCheck[]; unit_needed?: UnitNeededEntry[] }
+export type SensorUnitsResponse = { unit_needed: UnitNeededEntry[] }
 export type OnboardingProgress = {
     status: 'not_started' | 'in_progress' | 'dismissed' | 'completed'
     current_step: string | null
@@ -830,7 +848,7 @@ function invalidCostSeries(): never {
     throw new Error('Invalid cost-series response')
 }
 
-// Cost-series money values are rounded to 0.001 SEK independently by the
+// Cost-series money values are rounded to 0.001 of the currency unit independently by the
 // backend. The tolerance counts each rounded value in the relationship; its
 // small scale term covers only IEEE-754 arithmetic used for the comparison.
 function withinMoneyRoundingBound(residual: number, roundedValues: number, arithmeticScale: number): boolean {
@@ -1811,6 +1829,9 @@ export const Api = {
             return getJSON<SetupSuggestionsResponse>(`/api/setup/suggestions${query}`)
         },
         readiness: () => getJSON<ReadinessResponse>('/api/setup/readiness'),
+        /** Power sensors of a draft (unsaved) config that need a W or kW choice. */
+        sensorUnits: (config: Record<string, unknown>) =>
+            getJSON<SensorUnitsResponse>('/api/setup/sensor-units', 'POST', { config }),
         onboarding: () => getJSON<OnboardingProgress>('/api/setup/onboarding'),
         saveOnboarding: (progress: OnboardingProgress) =>
             getJSON<OnboardingProgress>('/api/setup/onboarding', 'PUT', {

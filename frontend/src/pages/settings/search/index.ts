@@ -1,3 +1,4 @@
+import { getCurrency, substituteCurrencyTokens } from '../../../lib/currency'
 import configHelp from '../../../config-help.json'
 import {
     systemSections,
@@ -122,10 +123,10 @@ export function searchFields(query: string): FieldSearchResult[] {
     for (const entry of fieldSearchIndex) {
         const score = matchScore(
             [
-                { text: entry.label, weight: 3 },
+                { text: substituteCurrencyTokens(entry.label, getCurrency()), weight: 3 },
                 { text: fieldAliases[entry.fieldKey]?.join(' '), weight: 3 },
                 { text: entry.fieldKey, weight: 2 },
-                { text: entry.helpText, weight: 1 },
+                { text: entry.helpText && substituteCurrencyTokens(entry.helpText, getCurrency()), weight: 1 },
             ],
             tokens,
         )
@@ -145,7 +146,7 @@ export function searchGuides(query: string): GuideSearchResult[] {
                 { text: guide.title, weight: 3 },
                 { text: guide.aliases?.join(' '), weight: 3 },
                 { text: guide.summary, weight: 2 },
-                { text: guide.body, weight: 1 },
+                { text: substituteCurrencyTokens(guide.body, getCurrency()), weight: 1 },
             ],
             tokens,
         )

@@ -53,6 +53,15 @@ export function useChartSlots(
     }, [localSchedule, historySlots, calendarDay])
 }
 
+/** Sum of today's final PV forecast; "today" is the browser calendar day of each slot instant. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function todayPvForecastKwh(
+    slots: { slot_start: string; final?: { pv_kwh?: number | null } | null }[],
+    now: Date = new Date(),
+): number {
+    return slots.filter((s) => isToday(s.slot_start, now)).reduce((sum, s) => sum + (s.final?.pv_kwh || 0), 0)
+}
+
 function toEvLiveReading(ev: LiveEvCharger): EvLiveReading {
     return { id: ev.id, name: ev.name, kw: ev.kw, soc: ev.soc, pluggedIn: ev.plugged_in }
 }
@@ -377,11 +386,7 @@ export default function Dashboard() {
 
             let pvForecastTotal = 0
             if (auroraData.status === 'fulfilled' && auroraData.value?.horizon?.slots) {
-                const now = new Date()
-                const todayStr = now.toISOString().split('T')[0]
-                pvForecastTotal = auroraData.value.horizon.slots
-                    .filter((s) => s.slot_start.startsWith(todayStr))
-                    .reduce((sum, s) => sum + (s.final?.pv_kwh || 0), 0)
+                pvForecastTotal = todayPvForecastKwh(auroraData.value.horizon.slots)
             }
 
             if (todayStatsData.status === 'fulfilled') {

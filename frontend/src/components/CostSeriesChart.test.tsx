@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import CostSeriesChart from './CostSeriesChart'
+import { setCurrency } from '../lib/currency'
 import type { CostSeriesResponse, GridOnlyComparison } from '../lib/api'
 
 const axis = {
@@ -107,6 +108,8 @@ const series = (gridOnly?: GridOnlyComparison): CostSeriesResponse => ({
 
 const dottedPath = (container: HTMLElement) => container.querySelector('path[stroke-dasharray="1 3"]')
 
+afterEach(() => setCurrency(null))
+
 describe('CostSeriesChart', () => {
     it('draws the solid DS and dotted Grid-only lines with no comparison switch', () => {
         const { container } = render(<CostSeriesChart series={series(comparison())} loading={false} />)
@@ -141,6 +144,21 @@ describe('CostSeriesChart', () => {
         expect(screen.getByTestId('cost-chart-readout')).toHaveTextContent('Grid-only')
         fireEvent.blur(bucket)
         expect(screen.queryByTestId('cost-chart-readout')).not.toBeInTheDocument()
+    })
+
+    it('shows readout amounts in the configured currency', () => {
+        setCurrency('EUR')
+        render(<CostSeriesChart series={series(comparison())} loading={false} />)
+        fireEvent.focus(screen.getByRole('button', { name: 'Hour 12:00 cost details' }))
+        const text = screen.getByTestId('cost-chart-readout').textContent ?? ''
+        expect(text).toMatch(/\d EUR/)
+        expect(text).not.toMatch(/SEK|\bkr\b/)
+    })
+
+    it('shows readout amounts without a unit before the currency is known', () => {
+        render(<CostSeriesChart series={series(comparison())} loading={false} />)
+        fireEvent.focus(screen.getByRole('button', { name: 'Hour 12:00 cost details' }))
+        expect(screen.getByTestId('cost-chart-readout').textContent ?? '').not.toMatch(/SEK|EUR/)
     })
 
     describe('bucket readout interaction', () => {

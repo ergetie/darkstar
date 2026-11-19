@@ -64,9 +64,15 @@ jobs:
       - name: Run ESLint
         run: pnpm lint
 
+      - name: Typecheck
+        run: pnpm typecheck
+
       # TZ is pinned in vitest.config.ts, so no env is needed here.
       - name: Run frontend tests
         run: pnpm test
+
+      - name: Build
+        run: pnpm build
 
   test-python:
     name: Python Tests

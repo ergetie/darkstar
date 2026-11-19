@@ -1301,6 +1301,18 @@ class TestEVPlanningValidation:
         assert any("ev_shortfall_penalty_sek_per_kwh" in e["message"] for e in errors)
         assert self._errors({}, kepler={"ev_shortfall_penalty_sek_per_kwh": 50.0}) == []
 
+    def test_ev_shortfall_penalty_guidance_uses_configured_currency(self):
+        config = {
+            "config_version": 2,
+            "system": {"has_battery": False, "has_solar": False, "has_water_heater": False},
+            "nordpool": {"currency": "EUR"},
+            "kepler": {"ev_shortfall_penalty_sek_per_kwh": -1},
+        }
+        issues = _validate_config_for_save(config)
+        guidance = next(i["guidance"] for i in issues if "ev_shortfall_penalty" in i["message"])
+        assert "EUR/kWh" in guidance
+        assert "SEK" not in guidance
+
 
 def _errors(config):
     return [i["message"] for i in _validate_config_for_save(config) if i["severity"] == "error"]

@@ -5,7 +5,7 @@ import math
 import threading
 import time
 from bisect import bisect_right
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -13,6 +13,7 @@ from typing import Any, Literal, cast
 
 import httpx
 import pytz
+import yaml
 
 from backend.core import secrets
 from backend.core.atomic_json import write_json_atomic
@@ -33,6 +34,7 @@ from backend.core.ev_plug import (
 from backend.core.exception_text import describe_exception
 from backend.core.ha_timestamps import reading_timestamp
 from backend.core.open_meteo_retry import retry_async
+from backend.core.power_sensors import EV_POWER, WATER_POWER
 from backend.core.water_heating import (
     DEFAULT_IDLE_POWER_THRESHOLD_KW,
     normalize_active_power_kw,
@@ -213,8 +215,14 @@ async def get_ha_sensor_float(entity_id: str) -> float | None:
     return _state_float(await get_ha_entity_state(entity_id))
 
 
-async def get_ha_sensor_kw_normalized(entity_id: str) -> float | None:
-    """Return numeric state of HA sensor normalized to kW (scales W to kW)."""
+async def get_ha_sensor_kw_normalized(
+    entity_id: str, *, path_key: str | None = None
+) -> float | None:
+    """Return numeric state of HA sensor normalized to kW (W and MW are scaled).
+
+    The unit comes from ``resolve_power_unit``: the unit HA reports, else the user's
+    ``sensor_unit_overrides`` entry, else kW is assumed (with a one-time warning).
+    """
     state_data = await get_ha_entity_state(entity_id)
     if not state_data:
         return None
@@ -224,8 +232,9 @@ async def get_ha_sensor_kw_normalized(entity_id: str) -> float | None:
         return None
 
     try:
-        attributes = state_data.get("attributes", {})
-        return normalize_active_power_kw(raw_value, attributes.get("unit_of_measurement", "kW"))
+        return normalize_power_for_entity(
+            raw_value, entity_id, reported_unit_of(state_data), path_key=path_key
+        )
     except (TypeError, ValueError):
         return None
 
@@ -248,17 +257,116 @@ def _state_timestamp(state: dict[str, Any]) -> datetime | None:
 # Entities already warned about for a missing unit (once per entity per process).
 _unitless_warned: set[str] = set()
 
+SENSOR_UNIT_OVERRIDE_UNITS = ("W", "kW")
 
-def _warn_unknown_unit_once(entity_id: str | None) -> None:
-    key = entity_id or "<unknown entity>"
-    if key in _unitless_warned:
-        return
-    _unitless_warned.add(key)
-    logger.warning("No unit_of_measurement known for %s; assuming kW", key)
+# ``config.yaml`` overrides, reloaded only when the file changes: ``(path, mtime_ns, overrides)``.
+_overrides_cache: tuple[str, int, dict[str, str]] | None = None
+_overrides_lock = threading.Lock()
+
+
+def get_sensor_unit_overrides() -> dict[str, str]:
+    """Return the valid ``sensor_unit_overrides`` of ``config.yaml`` (entity id to W or kW).
+
+    Cached until the file's modification time changes, so hot paths (the HA socket
+    handler) do not re-parse the config per state change. Invalid entries are ignored;
+    saving rejects them, so they only appear in hand-edited files.
+    """
+    global _overrides_cache
+    path = Path("config.yaml")
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except OSError:
+        return {}
+    key = str(path.resolve())
+    with _overrides_lock:
+        cached = _overrides_cache
+        if cached is not None and cached[0] == key and cached[1] == mtime_ns:
+            return cached[2]
+    try:
+        with path.open(encoding="utf-8") as handle:
+            loaded: Any = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError):
+        return {}
+    raw: Any = (
+        cast("dict[str, Any]", loaded).get("sensor_unit_overrides")
+        if isinstance(loaded, dict)
+        else None
+    )
+    overrides = (
+        {
+            str(entity): str(unit)
+            for entity, unit in cast("dict[Any, Any]", raw).items()
+            if unit in SENSOR_UNIT_OVERRIDE_UNITS
+        }
+        if isinstance(raw, dict)
+        else {}
+    )
+    with _overrides_lock:
+        _overrides_cache = (key, mtime_ns, overrides)
+    return overrides
+
+
+@dataclass(frozen=True)
+class ResolvedUnit:
+    """A power unit and where it came from: ``reported``, ``override`` or ``assumed``."""
+
+    unit: str
+    source: Literal["reported", "override", "assumed"]
+
+
+def resolve_power_unit(
+    entity_id: str | None,
+    reported_unit: object,
+    overrides: Mapping[str, str] | None = None,
+    *,
+    path_key: str | None = None,
+    warn_unitless: bool = True,
+) -> ResolvedUnit:
+    """Single place deciding the unit of a power reading.
+
+    A unit reported by Home Assistant (including one propagated from earlier history
+    states) always wins. Otherwise the entity's ``sensor_unit_overrides`` entry is used
+    (``None`` loads ``config.yaml``). Otherwise kW is assumed, as before overrides
+    existed, and a warning is logged once per entity. ``path_key`` names the config
+    path (see ``backend.core.power_sensors``) the caller reads the entity for.
+    """
+    reported = str(reported_unit).strip() if reported_unit is not None else ""
+    if reported:
+        return ResolvedUnit(reported, "reported")
+    table = get_sensor_unit_overrides() if overrides is None else overrides
+    override = table.get(entity_id) if entity_id else None
+    if override in SENSOR_UNIT_OVERRIDE_UNITS:
+        return ResolvedUnit(str(override), "override")
+    if warn_unitless:
+        key = entity_id or "<unknown entity>"
+        if key not in _unitless_warned:
+            _unitless_warned.add(key)
+            logger.warning(
+                "No unit known for %s; assuming kW. Set its unit in Settings "
+                "(sensor_unit_overrides)",
+                key,
+            )
+    return ResolvedUnit("kW", "assumed")
+
+
+def normalize_power_for_entity(
+    value: object,
+    entity_id: str | None,
+    reported_unit: object,
+    overrides: Mapping[str, str] | None = None,
+    *,
+    path_key: str | None = None,
+    idle_power_threshold_kw: object = DEFAULT_IDLE_POWER_THRESHOLD_KW,
+) -> float | None:
+    """Convert a power reading of ``entity_id`` to kW using ``resolve_power_unit``."""
+    resolved = resolve_power_unit(entity_id, reported_unit, overrides, path_key=path_key)
+    return normalize_active_power_kw(value, resolved.unit, idle_power_threshold_kw)
 
 
 def parse_power_states(
-    states: list[dict[str, Any]], entity_id: str | None = None
+    states: list[dict[str, Any]],
+    entity_id: str | None = None,
+    overrides: Mapping[str, str] | None = None,
 ) -> list[PowerPoint]:
     """Parse HA history states of one power sensor into time-sorted ``(timestamp, kW)`` points.
 
@@ -268,8 +376,8 @@ def parse_power_states(
     the previous valid value across the period. A state lacking a unit
     inherits the last unit seen earlier in the series (HA often reports it only on the
     first state, which may be a non-numeric one, so the unit is learned from every
-    state before its value is skipped). A numeric series with no unit anywhere is read
-    as kW; ``entity_id`` only names it in the once-per-process warning.
+    state before its value is skipped). A numeric series with no unit anywhere uses the
+    entity's ``sensor_unit_overrides`` entry, else is read as kW (``resolve_power_unit``).
     """
     points: list[PowerPoint] = []
     cached_unit: str | None = None
@@ -293,9 +401,7 @@ def parse_power_states(
 
         if unit is None or unit == "":
             unit = cached_unit
-        if unit is None:
-            _warn_unknown_unit_once(entity_id)
-        points.append((ts, normalize_active_power_kw(value, unit)))
+        points.append((ts, normalize_power_for_entity(value, entity_id, unit, overrides)))
     return points
 
 
@@ -543,7 +649,7 @@ async def get_sensor_value_at(entity_id: str, at: datetime) -> float | None:
     return value
 
 
-def _unit_of(state: dict[str, Any]) -> str | None:
+def reported_unit_of(state: dict[str, Any]) -> str | None:
     attributes = state.get("attributes")
     if not isinstance(attributes, dict):
         return None
@@ -552,7 +658,7 @@ def _unit_of(state: dict[str, Any]) -> str | None:
 
 
 def _series_has_unit(series: list[dict[str, Any]]) -> bool:
-    return any(_unit_of(state) for state in series)
+    return any(reported_unit_of(state) for state in series)
 
 
 async def _fill_missing_units(result: dict[str, list[dict[str, Any]]]) -> None:
@@ -572,7 +678,7 @@ async def _fill_missing_units(result: dict[str, list[dict[str, Any]]]) -> None:
     for entity, state in zip(unitless, current, strict=True):
         if not isinstance(state, dict):
             continue
-        unit = _unit_of(state)
+        unit = reported_unit_of(state)
         if not unit:
             continue
         series = list(result[entity])
@@ -784,7 +890,7 @@ async def get_initial_state(
                 per_device_reads.append(
                     (
                         f"ev_power_{charger_id}",
-                        lambda e=power_sensor: get_ha_sensor_kw_normalized(e),
+                        lambda e=power_sensor: get_ha_sensor_kw_normalized(e, path_key=EV_POWER),
                     )
                 )
 
@@ -918,7 +1024,7 @@ async def get_initial_state(
 
     def water_power_reader(sensor_id: str) -> Callable[[], Coroutine[Any, Any, float | None]]:
         async def read() -> float | None:
-            return await get_ha_sensor_kw_normalized(sensor_id)
+            return await get_ha_sensor_kw_normalized(sensor_id, path_key=WATER_POWER)
 
         return read
 

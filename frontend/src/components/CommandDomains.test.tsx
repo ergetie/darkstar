@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { GridDomain, ResourcesDomain } from './CommandDomains'
 import { Api } from '../lib/api'
+import { setCurrency } from '../lib/currency'
+import * as timezone from '../lib/timezone'
 
 vi.mock('../lib/api', () => ({
     Api: {
@@ -53,6 +55,7 @@ function makeMemoryStorage(): Storage {
 }
 
 beforeEach(() => {
+    setCurrency('SEK')
     vi.stubGlobal('localStorage', makeMemoryStorage())
     socketStatus.value = 'connected'
     vi.mocked(Api.ev.chargers).mockResolvedValue([])
@@ -145,11 +148,11 @@ describe('GridDomain EV sub-row under Grid Import', () => {
 
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
 
-        expect(await screen.findByText('-18.4 kr')).toBeInTheDocument()
+        expect(await screen.findByText('-18.4 SEK')).toBeInTheDocument()
         expect(screen.getByText('12.0 kWh')).toBeInTheDocument()
         expect(screen.getByText('40% solar')).toBeInTheDocument()
         expect(screen.getAllByText('-37.00').length).toBeGreaterThan(0)
-        expect(screen.getByText('-40.0 kr')).toBeInTheDocument()
+        expect(screen.getByText('-40.0 SEK')).toBeInTheDocument()
     })
 
     const noEvEnergy = {
@@ -160,13 +163,13 @@ describe('GridDomain EV sub-row under Grid Import', () => {
         ev_solar_share: null,
     }
 
-    it('shows 0 kr and 0 kWh without a solar share when a charger is configured but idle', async () => {
+    it('shows 0 SEK and 0 kWh without a solar share when a charger is configured but idle', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse(noEvEnergy))
 
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} hasEvCharger />)
 
         expect(await screen.findByText(/of which EV/)).toBeInTheDocument()
-        expect(screen.getByText('0 kr')).toBeInTheDocument()
+        expect(screen.getByText('0 SEK')).toBeInTheDocument()
         expect(screen.getByText('0 kWh')).toBeInTheDocument()
         expect(screen.queryByText(/% solar/)).not.toBeInTheDocument()
     })
@@ -216,7 +219,26 @@ describe('GridDomain fixed fees row', () => {
         const exportRev = screen.getByText('Export Rev')
         expect(gridImport.compareDocumentPosition(fees) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         expect(fees.compareDocumentPosition(exportRev) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        expect(fees.parentElement).toHaveTextContent('-678.3 kr')
+        expect(fees.parentElement).toHaveTextContent('-678.3 SEK')
+    })
+
+    it('shows amounts in the configured currency', async () => {
+        setCurrency('EUR')
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        expect((await screen.findByText('Fixed fees')).parentElement).toHaveTextContent('-0.0 EUR')
+        expect(screen.queryByText(/SEK/)).not.toBeInTheDocument()
+    })
+
+    it('shows amounts without a unit before the currency is known', async () => {
+        setCurrency(null)
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        expect((await screen.findByText('Fixed fees')).parentElement?.textContent).toBe('Fixed fees-0.0')
     })
 
     it('shows zero fixed fees when the backend omits the field', async () => {
@@ -224,7 +246,7 @@ describe('GridDomain fixed fees row', () => {
 
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
 
-        expect((await screen.findByText('Fixed fees')).parentElement).toHaveTextContent('-0.0 kr')
+        expect((await screen.findByText('Fixed fees')).parentElement).toHaveTextContent('-0.0 SEK')
     })
 })
 
@@ -309,7 +331,7 @@ describe('GridDomain grid-only comparison', () => {
         const { rerender } = render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
 
         expect(await screen.findByText('DS vs grid-only')).toBeInTheDocument()
-        expect(screen.getByText('+10.00 kr')).toHaveClass('text-good')
+        expect(screen.getByText('+10.00 SEK')).toHaveClass('text-good')
         expect(screen.queryByText(/Estimate|Verified|Darkstar saved you/)).not.toBeInTheDocument()
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
@@ -325,7 +347,7 @@ describe('GridDomain grid-only comparison', () => {
             ),
         )
         rerender(<GridDomain key="zero" netCost={null} importKwh={null} exportKwh={null} />)
-        expect(await screen.findByText('0.00 kr')).toHaveClass('text-muted')
+        expect(await screen.findByText('0.00 SEK')).toHaveClass('text-muted')
     })
 
     it('shows a negative signed amount and exact whole-installation wear explanation', async () => {
@@ -341,26 +363,41 @@ describe('GridDomain grid-only comparison', () => {
             ),
         )
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
-        expect(await screen.findByText('−2.10 kr')).toHaveClass('text-bad')
+        expect(await screen.findByText('−2.10 SEK')).toHaveClass('text-bad')
         openPanel()
         const panel = screen.getByRole('dialog')
         expect(panel).toHaveTextContent(
             "Same recorded consumption bought entirely from the grid at each slot's price, compared with actual import costs minus export income, including estimated battery wear.",
         )
         expect(panel).toHaveTextContent('Whole-installation comparison, including solar and exports.')
-        expect(panel).toHaveTextContent('Grid-only electricity 30.00 kr')
-        expect(panel).toHaveTextContent('Grid-only battery wear 0.00 kr')
-        expect(panel).toHaveTextContent('DS electricity 30.10 kr')
-        expect(panel).toHaveTextContent('DS battery wear 2.00 kr')
-        expect(panel).toHaveTextContent('DS incl. battery wear 32.10 kr')
+        expect(panel).toHaveTextContent('Grid-only electricity 30.00 SEK')
+        expect(panel).toHaveTextContent('Grid-only battery wear 0.00 SEK')
+        expect(panel).toHaveTextContent('DS electricity 30.10 SEK')
+        expect(panel).toHaveTextContent('DS battery wear 2.00 SEK')
+        expect(panel).toHaveTextContent('DS incl. battery wear 32.10 SEK')
         expect(panel).toHaveTextContent('Completed through 2026-10-05 12:30')
+    })
+
+    it('labels the completed-through time in the browser timezone, not the plan timezone', async () => {
+        const zone = vi.spyOn(timezone, 'displayTimeZone').mockReturnValue('Pacific/Auckland')
+        try {
+            vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+            vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(gridOnlyComparison()))
+            render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+            expect(await screen.findByText('DS vs grid-only')).toBeInTheDocument()
+            openPanel()
+            // 12:30+02:00 Stockholm on 2026-10-05 is 23:30 the same day in Auckland (NZDT, UTC+13)
+            expect(screen.getByRole('dialog')).toHaveTextContent('Completed through 2026-10-05 23:30')
+        } finally {
+            zone.mockRestore()
+        }
     })
 
     it('closes the details panel on outside pointer and Escape', async () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(gridOnlyComparison()))
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
-        await screen.findByText('+10.00 kr')
+        await screen.findByText('+10.00 SEK')
         const button = screen.getByRole('button', { name: 'Grid-only bill details' })
         fireEvent.click(button)
         expect(screen.getByRole('dialog')).toBeInTheDocument()
@@ -423,7 +460,7 @@ describe('GridDomain grid-only comparison', () => {
         )
         render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
         if (period === '30d') fireEvent.click(screen.getByRole('button', { name: '30d' }))
-        await screen.findByText('+10.00 kr')
+        await screen.findByText('+10.00 SEK')
         openPanel()
         expect(screen.getByTestId('partial-notes')).toHaveTextContent(
             'Water heater not measured for 2 h (Oct 5 08:00-Oct 5 10:00)',
@@ -434,7 +471,7 @@ describe('GridDomain grid-only comparison', () => {
         vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
         vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(gridOnlyComparison()))
         const { unmount } = render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
-        await screen.findByText('+10.00 kr')
+        await screen.findByText('+10.00 SEK')
         openPanel()
         expect(screen.queryByTestId('partial-notes')).toBeNull()
         unmount()
@@ -514,7 +551,7 @@ describe('GridDomain grid-only comparison', () => {
             vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
             vi.mocked(Api.energyCostSeries).mockResolvedValue(seriesWith(gridOnlyComparison({ excluded_spans: [] })))
             render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
-            await screen.findByText('+10.00 kr')
+            await screen.findByText('+10.00 SEK')
             openPanel()
             expect(screen.queryByTestId('excluded-reason-notes')).toBeNull()
         })
@@ -567,7 +604,7 @@ describe('GridDomain grid-only comparison', () => {
         )
         expect(screen.queryByText('Self-Use Saved')).not.toBeInTheDocument()
         expect(screen.queryByText(/House use covered by solar\/battery/)).not.toBeInTheDocument()
-        expect(screen.getByText('-4.0 kr')).toBeInTheDocument()
+        expect(screen.getByText('-4.0 SEK')).toBeInTheDocument()
     })
 
     it('keeps actual electricity and its separate wear-inclusive figure visible', async () => {
@@ -641,7 +678,7 @@ describe('GridDomain hindsight row', () => {
         await show30d()
         expect(await screen.findByText('DS vs hindsight')).toBeInTheDocument()
         expect(Api.batteryBenchmark).toHaveBeenCalledWith('2026-10-05', '2026-10-07')
-        expect(screen.getByText('−5.40 kr')).toHaveClass('text-bad')
+        expect(screen.getByText('−5.40 SEK')).toHaveClass('text-bad')
         expect(screen.getByText('· 81%')).toBeInTheDocument()
         expect(screen.getByText('· 2/3 days')).toBeInTheDocument()
         fireEvent.click(screen.getByRole('button', { name: 'Hindsight benchmark details' }))
@@ -665,7 +702,7 @@ describe('GridDomain hindsight row', () => {
         )
         await show30d()
         expect(await screen.findByText('· 2/2 days')).toBeInTheDocument()
-        expect(screen.getByText('−3.00 kr')).toBeInTheDocument()
+        expect(screen.getByText('−3.00 SEK')).toBeInTheDocument()
         expect(screen.getByLabelText('Hindsight warnings')).toHaveClass('text-warn')
         fireEvent.click(screen.getByRole('button', { name: 'Hindsight benchmark details' }))
         const panel = screen.getByRole('dialog', { name: 'DS versus hindsight details' })
@@ -715,7 +752,7 @@ describe('GridDomain hindsight row', () => {
             }),
         )
         await show30d()
-        expect(await screen.findByText('−1.50 kr')).toBeInTheDocument()
+        expect(await screen.findByText('−1.50 SEK')).toBeInTheDocument()
         expect(screen.queryByText(/%$/)).not.toBeInTheDocument()
         const note = screen.getByRole('note')
         expect(note).toHaveTextContent('Battery ended 4.8 kWh fuller than it started; that value shows up the next day')
@@ -738,7 +775,7 @@ describe('GridDomain hindsight row', () => {
         expect(screen.queryByRole('note')).not.toBeInTheDocument()
     })
 
-    it('shows a negative score as-is next to missed kr', async () => {
+    it('shows a negative score as-is next to the missed amount', async () => {
         vi.mocked(Api.batteryBenchmark).mockResolvedValue(
             benchmark([benchDay('2026-10-05', 'scored', 5)], {
                 missed_sek: 5,
@@ -748,7 +785,7 @@ describe('GridDomain hindsight row', () => {
             }),
         )
         await show30d()
-        expect(await screen.findByText('−5.00 kr')).toBeInTheDocument()
+        expect(await screen.findByText('−5.00 SEK')).toBeInTheDocument()
         expect(screen.getByText('· -25%')).toBeInTheDocument()
     })
 
@@ -763,7 +800,7 @@ describe('GridDomain hindsight row', () => {
         )
         await show30d()
         expect(await screen.findByText('Not scored: not recorded from power history')).toBeInTheDocument()
-        expect(screen.queryByText('0.00 kr')).not.toBeInTheDocument()
+        expect(screen.queryByText('0.00 SEK')).not.toBeInTheDocument()
     })
 
     it('is hidden and not fetched for Today', async () => {

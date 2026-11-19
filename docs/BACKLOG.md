@@ -43,11 +43,17 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🐛 Fixes
 
-#### [Security] API Open To Any Website (CORS) And No Optional Auth
+#### [Security] Optional Authentication For Exposed Port 5000
 
-**Goal:** Restrict CORS to Darkstar's own origin so random websites in a LAN browser cannot drive the API; offer optional auth for users who expose the port. Local-only or reverse-proxy-with-login setups need no login.
+**Goal:** Offer optional authentication for users who expose port 5000 beyond a trusted LAN. Local-only or reverse-proxy-with-login setups need no login.
 
-**Notes:** Priority P1 (beta exit, lowered from P0 2026-11-19). Status Confirmed. 34 write routes and 74 GET routes have no auth: executor control (`backend/api/routers/executor.py:112-536`), config writes (`config.py:137`, `:2023`), HA writes (`ha.py:299`, `:343`), EV actions (`ev.py:126`, `:771`, `:811`), updater apply (`updater.py:76`). Listens on `0.0.0.0:5000` (`darkstar/run.sh:356`, `scripts/docker-entrypoint.sh:125`); Docker publishes `5000:5000` (`docker-compose.yml:14-15`); add-on publishes 5000 besides ingress (`darkstar/config.yaml:30-38`). CORS allows any origin with credentials (`backend/main.py:313-319`). Source: beta-exit audit 2026-11.
+**Notes:** Priority P2. Status Confirmed. Browser cross-site writes are blocked by `beta-exit-hardening`, but non-browser clients on the network still have no authentication: 34 write routes and 74 GET routes (executor control `backend/api/routers/executor.py:112-536`, config writes `config.py:137`, `:2023`, HA writes `ha.py:299`, `:343`, EV actions `ev.py:126`, `:771`, `:811`, updater apply `updater.py:76`). Listens on `0.0.0.0:5000` (`darkstar/run.sh:356`, `scripts/docker-entrypoint.sh:125`); Docker publishes `5000:5000` (`docker-compose.yml:14-15`); the add-on publishes 5000 besides ingress (`darkstar/config.yaml:30-38`). Source: beta-exit audit 2026-11.
+
+#### [Executor] Idle Fallback Differs Per Inverter Profile
+
+**Goal:** Verify that the idle fallback used when there is no valid schedule is the intended safe state for every inverter profile.
+
+**Notes:** Priority P2. Status Needs verification. `SLOT_FAILURE_FALLBACK` (`executor/override.py:183-197`) selects idle, but the result differs per profile in `profiles/*.yaml`: deye allows 15 A discharge, sungrow uses self-consumption plus 10 W, generic is `CONFIGURE_ME`. Not verified intentional. Alerting for a missing or stale schedule is handled by `beta-exit-hardening`. Source: beta-exit audit 2026-11.
 
 #### [Database] Upgrades Cannot Be Undone (Backup And Rollback)
 
@@ -65,19 +71,13 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Goal:** Make updates verifiable and recoverable, and keep apply from being a root-on-host path.
 
-**Notes:** Priority P1 (beta exit); P0 if port 5000 is reachable (see API login item). Status Confirmed. Unauthenticated `/api/updater/apply` and `PUT /api/updater/channel` (`backend/api/routers/updater.py`; CORS `*`, `backend/main.py:313-319`). Only the git ref is verified: no tag or commit signature check, origin URL not pinned (`updater/repo.py:63-66`), tags force-fetched, and the fetched Dockerfile is built with `/var/run/docker.sock` mounted (`docker-compose.yml:57`) = root on host. Caller can only pick dev/stable. Add `git verify-tag` against a pinned key and assert origin is `github.com/ergetie/darkstar`. No rollback after a migrated DB or unhealthy start (`updater/service.py:361-364`); apply flow at `service.py:309-348`. Source: beta-exit audit 2026-11.
+**Notes:** Priority P1 (beta exit); P0 if port 5000 is reachable (see optional authentication item). Status Confirmed. Unauthenticated `/api/updater/apply` and `PUT /api/updater/channel` (`backend/api/routers/updater.py`); browser cross-site writes are blocked by OpenSpec change `beta-exit-hardening` (Sec-Fetch-Site guard), but any non-browser client that can reach the port can still call them. Only the git ref is verified: no tag or commit signature check, origin URL not pinned (`updater/repo.py:63-66`), tags force-fetched, and the fetched Dockerfile is built with `/var/run/docker.sock` mounted (`docker-compose.yml:57`) = root on host. Caller can only pick dev/stable. Add `git verify-tag` against a pinned key and assert origin is `github.com/ergetie/darkstar`. No rollback after a migrated DB or unhealthy start (`updater/service.py:361-364`); apply flow at `service.py:309-348`. Source: beta-exit audit 2026-11.
 
 #### [Diagnostics] Diagnostics Bundle Has No Redaction
 
 **Goal:** Redact secrets and sensitive data from the diagnostics bundle before users post it publicly.
 
-**Notes:** Priority P1 (beta exit). Status Confirmed. `/api/system/diagnostics` has no login and bundles raw `config.yaml`, full log, full DB and `schedule.json` with no redaction (`backend/api/routers/system.py:481-577`); `secrets.yaml` is excluded, HA token never logged. A failed Discord webhook post logs the full webhook URL including its secret via `describe_exception` (`backend/core/notify.py:118-121`, `backend/core/exception_text.py:6-24`), which reaches the bundle: scrub URLs. P2: HA URL is logged. Users post bundles on Discord. Source: beta-exit audit 2026-11.
-
-#### [Executor] Stale Or Missing Schedule: Alerting And Wording
-
-**Goal:** Make the stale or missing schedule fallback visible and correctly reported.
-
-**Notes:** Priority P1 (beta exit). Status Confirmed (traced 2026-11-18). Behaviour is safe: a stale (>2h, `executor/config.py:394`) or missing/empty/unreadable schedule makes `_load_current_slot` return `(None, None)` (`executor/engine.py:2515-2575`), then `SLOT_FAILURE_FALLBACK` (`executor/override.py:183-197`) selects idle: grid charging off, soc_target=current SoC, water temp_off, EV off. No forced charge or export. Gaps: (P1) missing/empty file sends no `notify_error`, only a per-tick log; (P1) `_stale_schedule_warning` resets only after early returns (`engine.py:2537`), so stale-then-deleted file leaves it stuck, alert muted, tick uncounted; (P2) log says "holding", should say idle fallback; (P2) idle differs per profile (deye 15A discharge allowed, sungrow self-consumption + 10W, generic CONFIGURE_ME in `profiles/*.yaml`), not verified intentional. Source: beta-exit audit 2026-11.
+**Notes:** Priority P1 (beta exit). Status Confirmed. `/api/system/diagnostics` has no login and bundles raw `config.yaml`, full log, full DB and `schedule.json` with no redaction (`backend/api/routers/system.py:481-577`); `secrets.yaml` is excluded, HA token never logged. P2: HA URL is logged. Users post bundles on Discord. Source: beta-exit audit 2026-11.
 
 #### [Planner] Price Fetch Failure Handling
 
@@ -85,21 +85,40 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Priority P1 (beta exit). Status Confirmed (traced 2026-11-18). `backend/core/prices.py:16-139` catches all errors, returns `[]`, 10s timeout, no retries, no last-good cache fallback (TTL 3600s). Planner fails, `schedule.json` untouched; executor follows the old plan until 2h stale, then idle. Gaps: (P1) tomorrow fetch failing after 13:00 discards today's good prices (`prices.py:78-94`, same try); (P1) add last-good-cache fallback; (P1) empty prices likely raise IndexError at `planner/pipeline.py:1736`, classified UNKNOWN instead of PRICES_UNAVAILABLE (not verified by running): check prices at start of `generate_schedule`; (P2) no push notification for planner failures, only WebSocket `planner_error` (`planner_service.py:421`); (P2) after 13:00 with no tomorrow data the cache is invalidated every call, causing repeated 10s fetches. Source: beta-exit audit 2026-11.
 
-#### [Sensors] Unitless Sensor Silently Treated As kW
+#### [Planner] Price Reserve Flaps On Biased D+1 Price Forecast
 
-**Goal:** Fail or warn loudly instead of assuming kW for sensors without a unit.
+**Goal:** Stop the price reserve from raising the SoC target on a D+1 price gap that is smaller than the forecast's own error.
 
-**Notes:** Priority P1 (beta exit). Status Confirmed. W/kW are normalised (`backend/core/ha_client.py:217-228`); no unit is assumed kW with a log line only (`ha_client.py:249-257`), the 1000x mistake the docs warn about. Unexpected unit is only a warning in the readiness check (`backend/core/readiness.py:136-145`). Source: beta-exit audit 2026-11.
+**Notes:** Status Reported, not verified. Reporter's D+1 forecast bias is +0.38 SEK/kWh (`d1_mae` 0.52, 10 days). On 2026-11-18 03:18 the reserve raised the SoC target by 7.7 kWh on a 0.24 SEK/kWh gap (3.60 vs 3.36) and flipped on/off at 03:18, 05:19, 05:49, 06:05 and 06:20. Suggested: subtract the rolling bias, or require the gap to exceed recent |bias|/MAE before activating. Source: GitHub #8 (Cm0n89), "Other findings".
 
-#### [Logging] Log Files Have No Size Cap
+#### [Planner] Missing Slot At Nordpool To Forecast Boundary
 
-**Goal:** Cap log size so a single day cannot grow unbounded.
+**Goal:** Make the schedule continuous where real Nordpool prices end and forecast prices begin.
 
-**Notes:** Priority P2 (beta exit). Status Confirmed. Rotation keeps 7 daily files (`backend/core/logging.py:99-100`) but one day's file reached 45 MB. Source: beta-exit audit 2026-11.
+**Notes:** Status Reported, not verified. `/api/schedule` jumped from 2026-11-19 23:45 to 2026-11-20 00:15. Reporter suspects how `days_ahead` is assigned to the 00:00 slot in `price_forecasts`. Source: GitHub #8 (Cm0n89), "Other findings".
+
+#### [Benchmark] Battery Benchmark Infeasible On Full-Capacity Days
+
+**Goal:** Find out why the battery benchmark is infeasible on days that use nearly the whole battery, and fix it.
+
+**Notes:** Status Reported, not verified. Infeasible on 7 of 30 days for the reporter (incl. 2026-11-15 to 11-18), mostly days with `implied_capacity_kwh` ≥ 10.1 (capacity 10.24 kWh, min SoC 5 %). Reporter's 2026-11-09 and 11-10 `not_clean_recording` days may come from the missing backfill fixed in the #8 change. Source: GitHub #8 (Cm0n89), "Other findings".
+
+#### [Executor] Detect Inverter Mode Reverts And Power Mismatch
+
+**Goal:** Warn when the inverter does not follow the commanded mode or power.
+
+**Notes:** Status Reported, not verified; probably integration-side. Fronius GEN24: during grid charging `storage_control_mode` reverted from "Charge from Grid" to "Discharge Limit" 20 s to 17 min after each write, with no HA context; 3.3 kW commanded, ~0.4–0.6 kW delivered (01:00–02:00). The executor could detect commanded vs actual mismatch and warn. Source: GitHub #8 (Cm0n89), "Other findings".
+
 
 ---
 
 ## 🔧 Improvements
+
+#### [Learning] Remove Dead Error-Correction Config And Models
+
+**Goal:** Remove the leftovers of the removed error-correction feature so the UI and API stop showing a broken feature.
+
+**Notes:** Status Confirmed 2026-11-19 (code read). `learning.error_correction_enabled` and `automation.ml_training.error_correction_enabled` are read nowhere in code (only docs and archived specs; the archived proposal kept them for backward compatibility). `/api/learning/training-status` still lists `pv_error.lgb` and `load_error.lgb` from 2026-03-13 (reported, not verified). Needs a config migration that drops the keys. Source: GitHub #8 (Cm0n89), "Other findings".
 
 #### [Settings] Warn About Out-Of-Range And Learning-Contradicted Settings
 
@@ -125,11 +144,11 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Priority P1 (beta exit). Status Confirmed. GitHub has 5 issues total (1 open: #6 Sungrow battery never discharges below 20 percent) and 1 PR. Last 100 Discord messages (2026-11-04 to 11-16): 8 distinct non-maintainer authors. Themes: EV planning and catch-up charging, water heater scheduling, flat or low load forecast, graph data stopping mid-day, cost vs supplier bill, requests for new inverter profiles and non-Nordpool price providers. Source: beta-exit audit 2026-11.
 
-#### [Testing] Test And CI Gaps (Updater, E2E, tsc, Build, Pre-push)
+#### [Testing] Test Gaps (Updater, E2E)
 
-**Goal:** Close the thinnest test and CI gaps.
+**Goal:** Close the thinnest test gaps.
 
-**Notes:** Priority P2 (beta exit), with a P1 sub-item. Status Confirmed. Updater has 1 test file and a run of recent fixes; no browser-level e2e (`tests/e2e/` has 2 files). CI (`.github/workflows/ci.yml`) runs eslint+vitest but no `tsc` and no `vite build` (`package.json` build is `vite build` without tsc); `scripts/lint.sh` does run tsc. (P1) add `tsc --noEmit` to CI lint-frontend and `scripts/ci_local.sh`; (P2) add `pnpm build` to CI; (P2) pre-push gate lacks vitest. Source: beta-exit audit 2026-11.
+**Notes:** Priority P2 (beta exit). Status Confirmed. Updater has 1 test file and a run of recent fixes; no browser-level e2e (`tests/e2e/` has 2 files). Source: beta-exit audit 2026-11.
 
 #### [Docs] Inverter Profiles Have No Tested Marker
 

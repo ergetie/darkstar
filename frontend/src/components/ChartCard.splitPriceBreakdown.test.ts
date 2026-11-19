@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as timezone from '../lib/timezone'
 import {
     buildLiveData,
     pricingBreakdownFromConfig,
@@ -122,14 +123,42 @@ describe('splitPriceBreakdown', () => {
     })
 })
 
+describe('browser and config timezones differ', () => {
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('matches transfer fee rules on the config-timezone hour, not the browser hour', () => {
+        vi.spyOn(timezone, 'displayTimeZone').mockReturnValue('Pacific/Auckland')
+        // 2027-01-12T09:30Z is 10:30 Stockholm (inside 06-22, fee 0.76) but 22:30 Auckland (outside)
+        expect(splitPriceBreakdown(2.7, touPricing, '2027-01-12T09:30:00Z')!.spot).toBeCloseTo(1.0)
+        // 2027-01-12T21:30Z is 22:30 Stockholm (outside, flat 0.20) but 10:30 next day Auckland (inside)
+        expect(splitPriceBreakdown(2.0, touPricing, '2027-01-12T21:30:00Z')!.spot).toBeCloseTo(1.0)
+    })
+
+    it('falls back to the browser timezone only when config.timezone is empty', () => {
+        vi.spyOn(timezone, 'displayTimeZone').mockReturnValue('Pacific/Auckland')
+        const base = { pricing: { vat_percent: 25, energy_tax_sek: 0.4, grid_transfer_fee_sek: 0.2 } }
+        expect(pricingBreakdownFromConfig({ ...base, timezone: '' } as never)!.timezone).toBe('Pacific/Auckland')
+        expect(pricingBreakdownFromConfig({ ...base, timezone: 'Europe/Stockholm' } as never)!.timezone).toBe(
+            'Europe/Stockholm',
+        )
+    })
+})
+
 describe('pricingBreakdownFromConfig', () => {
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
     const pricing = { vat_percent: 25, energy_tax_sek: 0.4, grid_transfer_fee_sek: 0.2 }
 
     it('uses the configured timezone', () => {
         expect(pricingBreakdownFromConfig({ timezone: 'Europe/Helsinki', pricing })!.timezone).toBe('Europe/Helsinki')
     })
 
-    it('falls back to Europe/Stockholm when timezone is unset or empty', () => {
+    it('falls back to the browser timezone when timezone is unset or empty', () => {
+        vi.spyOn(timezone, 'displayTimeZone').mockReturnValue('Europe/Stockholm')
         expect(pricingBreakdownFromConfig({ pricing })!.timezone).toBe('Europe/Stockholm')
         expect(pricingBreakdownFromConfig({ timezone: '', pricing })!.timezone).toBe('Europe/Stockholm')
     })

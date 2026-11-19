@@ -1172,8 +1172,8 @@ def _log_price_reserve_event(debug: dict[str, Any]) -> None:
             own_cost = debug.get("own_day_cost_sek_kwh")
             message = (
                 f"Price reserve: SoC target raised by {applied:.1f} kWh to charge in the "
-                f"cheapest known hours ({known_cost:.2f} SEK/kWh) before a pricier unseen day "
-                f"(own cheapest {own_cost:.2f} SEK/kWh)"
+                f"cheapest known hours ({known_cost:.2f}) before a pricier unseen day "
+                f"(own cheapest {own_cost:.2f})"
             )
         else:
             message = f"Price reserve inactive ({debug.get('price_reserve_reason')})"
@@ -1333,7 +1333,7 @@ async def _build_ev_deferral_plans(
                 )
             logger.info(
                 "EV %s: deadline %s beyond horizon %s - %d deferral tier(s), "
-                "capacity=%.2f kWh, price %.3f-%.3f SEK/kWh, source=%s, margin=%.2f%%",
+                "capacity=%.2f kWh, price %.3f-%.3f, source=%s, margin=%.2f%%",
                 charger_id,
                 deadline.strftime("%Y-%m-%d %H:%M"),
                 horizon_end.strftime("%Y-%m-%d %H:%M"),

@@ -240,7 +240,7 @@ async def socketio_debug_status(request: Request) -> dict[str, Any]:
         "connected_clients": len(connected_sids),
         "client_sids": connected_sids[:10],  # Limit to 10
         "event_loop_captured": ws_manager.loop is not None,
-        "cors_allowed_origins": "*",  # hardcoded in ws_manager
+        "cors_allowed_origins": sio.eio.cors_allowed_origins,  # type: ignore[attr-defined]
         "request_info": {
             "path": str(request.url.path),
             "base_url": str(request.base_url),

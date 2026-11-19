@@ -455,3 +455,138 @@ class TestStaleScheduleFreshnessCheck:
 
         # Should have executed (not held)
         mock_execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+class TestNoValidScheduleAlerting:
+    """Every no-valid-schedule cause raises one deduplicated alert (beta-exit-hardening 3.x)."""
+
+    @staticmethod
+    def _fresh(slot_start, now):
+        return _make_schedule(
+            [_make_slot(slot_start, charge_kw=5.0)], generated_at=now - timedelta(hours=1)
+        )
+
+    @staticmethod
+    def _stale(slot_start, now):
+        return _make_schedule(
+            [_make_slot(slot_start, charge_kw=5.0)], generated_at=now - timedelta(hours=3)
+        )
+
+    @staticmethod
+    def _engine(temp_schedule, temp_db):
+        eng = _make_engine(temp_schedule, temp_db, max_schedule_age_hours=2)
+        eng.dispatcher.notify_error = AsyncMock()
+        eng.dispatcher.execute = AsyncMock(return_value=[])
+        return eng
+
+    @staticmethod
+    def _times():
+        now = datetime.now(pytz.timezone("Europe/Stockholm"))
+        return now, now - timedelta(minutes=5)
+
+    def test_stale_then_deleted_then_fresh_leaves_no_warning(self, temp_schedule, temp_db):
+        eng = self._engine(temp_schedule, temp_db)
+        now, slot_start = self._times()
+
+        Path(temp_schedule).write_text(json.dumps(self._stale(slot_start, now)))
+        assert eng._load_current_slot(now)[0] is None
+        assert eng._stale_schedule_warning
+
+        Path(temp_schedule).unlink()
+        assert eng._load_current_slot(now)[0] is None
+        assert "not found" in (eng._stale_schedule_warning or "")
+
+        Path(temp_schedule).write_text(json.dumps(self._fresh(slot_start, now)))
+        slot, _ = eng._load_current_slot(now)
+        assert slot is not None
+        assert eng._stale_schedule_warning is None
+
+    @pytest.mark.parametrize(
+        ("cause", "expected"),
+        [
+            ("missing", "Schedule file not found"),
+            ("unreadable", "Schedule file unreadable"),
+            ("empty", "Schedule is empty"),
+            ("no_generated_at", "Schedule has no generated_at"),
+            ("stale", "Schedule is stale (3.0h old, max 2h)"),
+        ],
+    )
+    def test_each_cause_sets_the_idle_fallback_warning(
+        self, temp_schedule, temp_db, cause, expected
+    ):
+        eng = self._engine(temp_schedule, temp_db)
+        now, slot_start = self._times()
+        path = Path(temp_schedule)
+        if cause == "missing":
+            path.unlink()
+        elif cause == "unreadable":
+            path.write_text("{not valid json")
+        elif cause == "empty":
+            path.write_text(json.dumps(_make_schedule([], generated_at=now)))
+        elif cause == "no_generated_at":
+            payload = self._fresh(slot_start, now)
+            payload["meta"] = {}
+            path.write_text(json.dumps(payload))
+        else:
+            path.write_text(json.dumps(self._stale(slot_start, now)))
+
+        assert eng._load_current_slot(now) == (None, None)
+
+        warning = eng._stale_schedule_warning
+        assert warning is not None
+        assert expected in warning
+        assert warning.endswith("no valid schedule, idle fallback")
+        assert "holding" not in warning
+
+    async def test_log_is_warning_first_then_debug(self, temp_schedule, temp_db, caplog):
+        import logging
+
+        eng = self._engine(temp_schedule, temp_db)
+        now, _ = self._times()
+        Path(temp_schedule).unlink()
+
+        with caplog.at_level(logging.DEBUG, logger="executor.engine"):
+            eng._load_current_slot(now)
+            eng._stale_schedule_alerted = True
+            eng._load_current_slot(now)
+
+        records = [r for r in caplog.records if "idle fallback" in r.getMessage()]
+        assert [r.levelno for r in records] == [logging.WARNING, logging.DEBUG]
+
+    async def test_one_alert_per_transition_not_per_cause(self, temp_schedule, temp_db):
+        eng = self._engine(temp_schedule, temp_db)
+        now, slot_start = self._times()
+        path = Path(temp_schedule)
+
+        path.write_text(json.dumps(self._stale(slot_start, now)))
+        await eng.run_once()
+        path.unlink()
+        await eng.run_once()
+        path.write_text("{not valid json")
+        await eng.run_once()
+        assert eng.dispatcher.notify_error.call_count == 1
+        assert "no valid schedule, idle fallback" in eng.dispatcher.notify_error.call_args.args[0]
+
+        path.write_text(json.dumps(self._fresh(slot_start, now)))
+        await eng.run_once()
+        assert eng.dispatcher.notify_error.call_count == 1
+
+        path.unlink()
+        await eng.run_once()
+        assert eng.dispatcher.notify_error.call_count == 2
+
+    @pytest.mark.parametrize("cause", ["missing", "empty"])
+    async def test_missing_and_empty_schedule_alert_once(self, temp_schedule, temp_db, cause):
+        eng = self._engine(temp_schedule, temp_db)
+        now, _ = self._times()
+        path = Path(temp_schedule)
+        if cause == "missing":
+            path.unlink()
+        else:
+            path.write_text(json.dumps(_make_schedule([], generated_at=now)))
+
+        for _ in range(3):
+            await eng.run_once()
+
+        eng.dispatcher.notify_error.assert_called_once()

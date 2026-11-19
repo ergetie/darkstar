@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TransferFeeRulesEditor } from './TransferFeeRulesEditor'
 import { SettingsField } from './SettingsField'
 import { systemSections } from '../types'
+import { setCurrency } from '../../../lib/currency'
 import type { TransferFeeMode, TransferFeeRule } from '../transferFees'
+
+beforeEach(() => setCurrency('SEK'))
+afterEach(() => setCurrency(null))
 
 const WINTER: TransferFeeRule = {
     months: [11, 12, 1, 2, 3],
@@ -196,6 +200,17 @@ describe('TransferFeeRulesEditor', () => {
         expect(hours[6]).toHaveAccessibleName('06:00–07:00: 0.76 SEK/kWh (Rule 1)')
         expect(hours[6]).toHaveAttribute('title', '06:00–07:00: 0.76 SEK/kWh (Rule 1)')
         expect(hours[23]).toHaveAccessibleName('23:00–24:00: 0.10 SEK/kWh (Rule 2)')
+    })
+
+    it('uses the configured currency in preview labels and fee fields', () => {
+        setCurrency('EUR')
+        render(<Harness />)
+        fireEvent.change(screen.getByLabelText('Preview date'), { target: { value: '2026-12-01' } })
+        expect(screen.getAllByTestId('transfer-fee-preview-hour')[6]).toHaveAccessibleName(
+            '06:00–07:00: 0.76 EUR/kWh (Rule 1)',
+        )
+        expect(screen.getAllByText('Fee (EUR/kWh)').length).toBeGreaterThan(0)
+        expect(document.body.textContent).not.toContain('SEK')
     })
 
     it('names the catch-all row when no rule matches', () => {

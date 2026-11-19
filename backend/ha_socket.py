@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import math
 import threading
 from datetime import UTC, datetime
 from typing import Any
@@ -13,13 +14,45 @@ from backend.core.ev_plug import (
     resolve_plug_state,
 )
 from backend.core.exception_text import describe_exception
+from backend.core.ha_client import normalize_power_for_entity, reported_unit_of
+from backend.core.power_sensors import (
+    BATTERY_POWER,
+    EV_POWER,
+    GRID_EXPORT_POWER,
+    GRID_IMPORT_POWER,
+    GRID_POWER,
+    LOAD_POWER,
+    PV_POWER,
+    WATER_POWER,
+)
 from backend.core.secrets import load_home_assistant_config, load_yaml
 from backend.core.water_heating import active_water_heaters
 
 logger = logging.getLogger("darkstar.ha_socket")
 
 
+# Live-metric key to the power sensor path it is read from (see ``power_sensors``).
+_POWER_PATH_KEYS: dict[str, str] = {
+    "pv_kw": PV_POWER,
+    "load_kw": LOAD_POWER,
+    "grid_kw": GRID_POWER,
+    "grid_import_kw": GRID_IMPORT_POWER,
+    "grid_export_kw": GRID_EXPORT_POWER,
+    "battery_kw": BATTERY_POWER,
+}
+
+
 class HAWebSocketClient:
+    @staticmethod
+    def _power_to_kw(
+        value: float, new_state: dict[str, Any], entity_id: str, path_key: str
+    ) -> float:
+        """Convert a power reading to kW (NaN when unusable, sanitized by the caller)."""
+        kw = normalize_power_for_entity(
+            value, entity_id, reported_unit_of(new_state), path_key=path_key
+        )
+        return math.nan if kw is None else kw
+
     def __init__(self):
         logger.debug("Initializing HAWebSocketClient...")
         self._load_config()
@@ -795,13 +828,7 @@ class HAWebSocketClient:
                     "null",
                     "",
                 ):
-                    value = float(state_val)
-                    # Normalize units if needed (kW vs W)
-                    unit = str(
-                        new_state.get("attributes", {}).get("unit_of_measurement", "")
-                    ).upper()
-                    if unit == "W":
-                        value = value / 1000.0
+                    value = self._power_to_kw(float(state_val), new_state, entity_id, EV_POWER)
 
                     # Apply inversion if configured
                     if self.inversion_flags.get(key, False):
@@ -871,13 +898,7 @@ class HAWebSocketClient:
                     "null",
                     "",
                 ):
-                    value = float(state_val)
-                    # Normalize units if needed (kW vs W)
-                    unit = str(
-                        new_state.get("attributes", {}).get("unit_of_measurement", "")
-                    ).upper()
-                    if unit == "W":
-                        value = value / 1000.0
+                    value = self._power_to_kw(float(state_val), new_state, entity_id, WATER_POWER)
 
                     # Apply inversion if configured
                     if self.inversion_flags.get(key, False):
@@ -940,10 +961,9 @@ class HAWebSocketClient:
                 return
 
             value = float(state_val)
-            # Normalize units if needed (kW vs W)
-            unit = str(new_state.get("attributes", {}).get("unit_of_measurement", "")).upper()
-            if unit == "W":
-                value = value / 1000.0
+            power_path_key = _POWER_PATH_KEYS.get(key or "")
+            if power_path_key is not None:
+                value = self._power_to_kw(value, new_state, entity_id, power_path_key)
 
             # Apply inversion if configured
             if self.inversion_flags.get(key, False):

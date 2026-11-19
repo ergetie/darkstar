@@ -3,16 +3,18 @@
 import asyncio
 import copy
 import math
-from typing import Any
+from typing import Any, cast
 
 from backend.core.entity_matcher import value_at_path
 from backend.core.entity_roles import POWER_UNITS
 from backend.core.ha_registry import discover_entities
+from backend.core.power_sensors import compute_unit_needed
 from backend.core.secrets import load_home_assistant_config, load_yaml
 from backend.health import HealthChecker
 from planner.preflight import check_battery_config
 
 PLAN_TIMEOUT_SECONDS = 60
+UNIT_CHOICE_HINT = "Choose W or kW for this sensor."
 
 
 async def run_isolated_plan(config: dict[str, Any]) -> int:
@@ -37,18 +39,25 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
     system = config.get("system", {})
 
     def add(
-        check_id: str, group: str, status: str, message: str, path: str, hint: str = ""
+        check_id: str,
+        group: str,
+        status: str,
+        message: str,
+        path: str,
+        hint: str = "",
+        action: dict[str, str] | None = None,
     ) -> None:
-        checks.append(
-            {
-                "id": check_id,
-                "group": group,
-                "status": status,
-                "message": message,
-                "fix_hint": hint or ("Review this setting." if status in ("fail", "warn") else ""),
-                "settings_path": path,
-            }
-        )
+        check: dict[str, Any] = {
+            "id": check_id,
+            "group": group,
+            "status": status,
+            "message": message,
+            "fix_hint": hint or ("Review this setting." if status in ("fail", "warn") else ""),
+            "settings_path": path,
+        }
+        if action is not None:
+            check["action"] = action
+        checks.append(check)
 
     credentials = load_home_assistant_config()
     if not credentials.get("url") or not credentials.get("token"):
@@ -76,6 +85,37 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         states = {}
         add("ha_discovery", "connection", "fail", "Cannot read live HA entities.", "home_assistant")
+
+    unit_needed = compute_unit_needed(config, states)
+    # Listed sensors with an override are fine (the manual unit check passes); only the
+    # unchosen ones need the user's action.
+    unchosen = [item for item in unit_needed if item["override"] is None]
+    unit_needed_by_path = {item["settings_path"]: item for item in unchosen}
+    raw_overrides = config.get("sensor_unit_overrides")
+    overrides = cast("dict[str, Any]", raw_overrides) if isinstance(raw_overrides, dict) else {}
+    unit_checked: set[str] = set()
+
+    def manual_unit(path: str, entity_id: str) -> str | None:
+        """The user-chosen unit of a sensor Home Assistant gives no unit, else None."""
+        manual = overrides.get(entity_id)
+        reported = states[entity_id].get("unit_of_measurement") if entity_id in states else None
+        if manual in ("W", "kW") and not reported:
+            unit_checked.add(path)
+            return str(manual)
+        return None
+
+    def add_unit_needed(check_id: str, group: str, label: str, path: str) -> None:
+        item = unit_needed_by_path[path]
+        unit_checked.add(path)
+        add(
+            check_id,
+            group,
+            "warn",
+            f"{label}: no unit reported by Home Assistant. {UNIT_CHOICE_HINT}",
+            path,
+            UNIT_CHOICE_HINT,
+            {"kind": "set_sensor_unit", "entity_id": item["entity_id"], "path": path},
+        )
 
     dual = system.get("grid_meter_type", "net") == "dual"
     sensor_flags = {
@@ -126,6 +166,13 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
             )
             continue
         unit = entity.get("unit_of_measurement")
+        manual = None
+        if role != "battery_soc":
+            if path in unit_needed_by_path:
+                add_unit_needed(role, "sensors", role, path)
+                continue
+            manual = manual_unit(path, str(entity["entity_id"]))
+            unit = unit or manual
         plausible = (
             unit == "%" and 0 <= value <= 100 if role == "battery_soc" else unit in POWER_UNITS
         )
@@ -138,7 +185,7 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
             role,
             "sensors",
             "pass" if plausible else "warn",
-            f"{role}: {value} {unit or '(no unit)'}.",
+            f"{role}: {value} {unit or '(no unit)'}{' (set manually)' if manual else ''}.",
             path,
             "" if plausible else sensor_hint(role),
         )
@@ -296,6 +343,20 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
                 if not eid and field not in required:
                     continue
                 path = f"{section}.{index}.{field}"
+                if field == "sensor" and eid in states:
+                    if path in unit_needed_by_path:
+                        add_unit_needed(f"{group}_{index}_{field}", group, field, path)
+                        continue
+                    manual = manual_unit(path, str(eid))
+                    if manual:
+                        add(
+                            f"{group}_{index}_{field}",
+                            group,
+                            "pass",
+                            f"{field}: entity exists, {manual} (set manually).",
+                            path,
+                        )
+                        continue
                 add(
                     f"{group}_{index}_{field}",
                     group,
@@ -303,6 +364,15 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
                     f"{field}: " + ("entity exists." if eid in states else "entity missing."),
                     path,
                 )
+    # Power sensors without a dedicated check above (for example load power sensors).
+    for item in unchosen:
+        if item["settings_path"] not in unit_checked:
+            add_unit_needed(
+                f"unit_{item['settings_path']}",
+                "sensors",
+                item["settings_path"].rsplit(".", 1)[-1],
+                item["settings_path"],
+            )
     try:
         prices = await get_nordpool_data()
         add(
@@ -334,4 +404,8 @@ async def check_readiness(config: dict[str, Any]) -> dict[str, Any]:
         )
     except Exception as exc:
         add("plan", "planner", "fail", f"Test planning failed: {exc}", "automation")
-    return {"ready": not any(c["status"] == "fail" for c in checks), "checks": checks}
+    return {
+        "ready": not any(c["status"] == "fail" for c in checks),
+        "checks": checks,
+        "unit_needed": unit_needed,
+    }

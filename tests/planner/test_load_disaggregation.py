@@ -57,7 +57,7 @@ async def test_update_current_power(disaggregator):
         "backend.loads.service.get_ha_sensor_kw_normalized", new_callable=AsyncMock
     ) as mock_get:
         # sensor.water_heater_power -> 3.0 kW, sensor.ev_power -> 5.5 kW
-        mock_get.side_effect = lambda sensor: 3.0 if "water" in sensor else 5.5
+        mock_get.side_effect = lambda sensor, **_kw: 3.0 if "water" in sensor else 5.5
 
         total_controllable = await disaggregator.update_current_power()
 
@@ -73,7 +73,7 @@ async def test_update_current_power_failure(disaggregator):
     with patch(
         "backend.loads.service.get_ha_sensor_kw_normalized", new_callable=AsyncMock
     ) as mock_get:
-        mock_get.side_effect = lambda sensor: None if "water" in sensor else 5.5
+        mock_get.side_effect = lambda sensor, **_kw: None if "water" in sensor else 5.5
 
         total_controllable = await disaggregator.update_current_power()
 
@@ -171,7 +171,7 @@ class TestARC15EntityArrays:
         with patch(
             "backend.loads.service.get_ha_sensor_kw_normalized", new_callable=AsyncMock
         ) as mock_get:
-            mock_get.side_effect = lambda s: 3.0 if "vvb" in s else 5.5
+            mock_get.side_effect = lambda s, **_kw: 3.0 if "vvb" in s else 5.5
             total = await disaggregator.update_current_power()
             assert total == 8.5
             assert disaggregator.get_load_by_id("main_tank").current_power_kw == 3.0

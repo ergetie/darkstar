@@ -14,6 +14,7 @@ import { ProfileSetupNotice } from '../ProfileSetupNotice'
 import Select from '../ui/Select'
 import Switch from '../ui/Switch'
 import { EntityField } from './EntityField'
+import { priceUnitLabel } from '../../lib/currency'
 import {
     activeControlUnit,
     configDiff,
@@ -395,6 +396,8 @@ function SystemStep(props: StepProps) {
 function LocationStep(props: StepProps) {
     const currencyPath = 'nordpool.currency'
     const currentCurrency = getPath(props.config, currencyPath)
+    // The unit follows the currency chosen in this step, which is not saved yet.
+    const priceUnit = priceUnitLabel(typeof currentCurrency === 'string' ? currentCurrency : null)
     const suggestedCurrency = props.haCurrencySuggestion ?? undefined
     const auto = (path: string, value: unknown) =>
         value !== undefined && value !== null && String(getPath(props.config, path)) === String(value)
@@ -525,7 +528,7 @@ function LocationStep(props: StepProps) {
                     type="number"
                     min={0}
                     step={0.001}
-                    unit="SEK/kWh"
+                    unit={priceUnit}
                     required
                 />
                 <TextField
@@ -536,7 +539,7 @@ function LocationStep(props: StepProps) {
                     type="number"
                     min={0}
                     step={0.001}
-                    unit="SEK/kWh"
+                    unit={priceUnit}
                     required
                 />
             </div>
@@ -1175,6 +1178,17 @@ function ReviewStep(props: StepProps) {
                                             onClick={() => props.onFix(fixStep(check.settings_path))}
                                         >
                                             Fix
+                                        </button>
+                                    )}
+                                    {check.status === 'warn' && check.action?.kind === 'set_sensor_unit' && (
+                                        <button
+                                            className="btn btn-ghost px-2 py-1"
+                                            type="button"
+                                            onClick={() =>
+                                                props.onFix(fixStep(check.action?.path ?? check.settings_path))
+                                            }
+                                        >
+                                            Set unit
                                         </button>
                                     )}
                                 </div>

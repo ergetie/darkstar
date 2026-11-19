@@ -118,5 +118,11 @@ def _send_discord_notification(
         response.raise_for_status()
         return True
     except requests.RequestException as e:
-        logger.warning("Discord notification failed: %s", describe_exception(e))
+        # Message text can embed the secret webhook URL: log class and status only.
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        logger.warning(
+            "Discord notification failed: %s status=%s",
+            type(e).__name__,
+            status if status is not None else "n/a",
+        )
         return False

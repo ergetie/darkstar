@@ -9,6 +9,7 @@ import type {
 import { compactAxisLabel, layoutAxisTicks, type AxisTick } from '../lib/costAxisTicks'
 import { exclusionPhrase } from '../lib/costExclusion'
 import { useElementWidth } from '../lib/useElementWidth'
+import { formatMoney, useCurrency } from '../lib/currency'
 
 interface Props {
     series: CostSeriesResponse | null
@@ -436,8 +437,8 @@ export function computeCostChartGeometry(
     }
 }
 
-function formatKr(value: number): string {
-    return `${value > 0 ? '−' : value < 0 ? '+' : ''}${Math.abs(value).toFixed(2)} kr`
+function formatSignedCost(value: number, currency: string | null): string {
+    return `${value > 0 ? '−' : value < 0 ? '+' : ''}${formatMoney(Math.abs(value), { currency })}`
 }
 
 function pathOf(points: Pick<PlotPoint, 'x' | 'y'>[]): string {
@@ -445,6 +446,7 @@ function pathOf(points: Pick<PlotPoint, 'x' | 'y'>[]): string {
 }
 
 export default function CostSeriesChart({ series, benchmark = null, loading, seriesError = false }: Props) {
+    const currency = useCurrency()
     const [hover, setHover] = useState<number | null>(null)
     // Pointer type of the press in progress; null when the click came from the keyboard.
     const pressType = useRef<string | null>(null)
@@ -531,23 +533,28 @@ export default function CostSeriesChart({ series, benchmark = null, loading, ser
                 </div>
                 {hovered ? (
                     <div className="min-h-4 tabular-nums text-muted" data-testid="cost-chart-readout">
-                        {hoveredLabel} · <span className="text-bad">{formatKr(hovered.importCost)}</span> import /{' '}
+                        {hoveredLabel} ·{' '}
+                        <span className="text-bad">{formatSignedCost(hovered.importCost, currency)}</span> import /{' '}
                         <span className="text-good">
                             {hovered.exportRevenue > 0 ? '+' : hovered.exportRevenue < 0 ? '−' : ''}
-                            {Math.abs(hovered.exportRevenue).toFixed(2)} kr
+                            {formatMoney(Math.abs(hovered.exportRevenue), { currency })}
                         </span>{' '}
                         export
                         {geometry.hasComparison ? (
                             <>
                                 {' · DS '}
-                                <span className="text-text">{formatKr(hovered.dsRunning ?? 0)}</span>
+                                <span className="text-text">{formatSignedCost(hovered.dsRunning ?? 0, currency)}</span>
                                 {' · Grid-only '}
-                                <span className="text-text">{formatKr(hovered.gridRunning ?? 0)}</span>
+                                <span className="text-text">
+                                    {formatSignedCost(hovered.gridRunning ?? 0, currency)}
+                                </span>
                             </>
                         ) : (
                             <>
                                 {' · Actual '}
-                                <span className="text-text">{formatKr(hovered.actualRunning ?? 0)}</span>
+                                <span className="text-text">
+                                    {formatSignedCost(hovered.actualRunning ?? 0, currency)}
+                                </span>
                             </>
                         )}
                         {hoveredExclusions.map((band) => (

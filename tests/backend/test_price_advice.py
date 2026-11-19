@@ -293,9 +293,10 @@ class TestStrategyAdviceIntegration(unittest.IsolatedAsyncioTestCase):
 class TestCycleCostAdvice(unittest.IsolatedAsyncioTestCase):
     """Battery wear advice fires only above HIGH_CYCLE_COST_SEK_KWH (0.5)."""
 
-    async def _battery_advice(self, cycle_cost):
+    async def _battery_advice(self, cycle_cost, currency=None):
         config = {
             "price_forecast": {"enabled": False},
+            **({"nordpool": {"currency": currency}} if currency else {}),
             "battery_economics": {"battery_cycle_cost_kwh": cycle_cost},
         }
         with patch("backend.api.routers.analyst.load_yaml", return_value=config):
@@ -312,6 +313,11 @@ class TestCycleCostAdvice(unittest.IsolatedAsyncioTestCase):
         advice = await self._battery_advice(0.6)
         self.assertEqual(len(advice), 1)
         self.assertEqual(advice[0]["priority"], "warning")
+
+    async def test_warning_message_uses_configured_currency(self):
+        advice = await self._battery_advice(0.6, currency="EUR")
+        self.assertIn("0.6 EUR/kWh", advice[0]["message"])
+        self.assertNotIn("SEK", advice[0]["message"])
 
 
 if __name__ == "__main__":

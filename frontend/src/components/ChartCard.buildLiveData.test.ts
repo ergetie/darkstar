@@ -17,12 +17,25 @@ function makeSlot(startTime: string, overrides: Partial<ScheduleSlot> = {}): Sch
 }
 
 describe('buildLiveData', () => {
+    it('labels the price datasets with the configured price unit', () => {
+        vi.setSystemTime(new Date('2026-07-15T10:07:00Z'))
+        const slots = [makeSlot('2026-07-15T10:00:00Z', { import_price_sek_kwh: 1.5 })]
+        const labels = (unit: string) =>
+            buildLiveData(slots, 'today', {}, undefined, 1.0, [], false, unit)?.datasets.map(
+                (d) => (d as { label?: string }).label,
+            )
+        expect(labels('EUR/kWh')).toEqual(
+            expect.arrayContaining(['Import Price (EUR/kWh)', 'Estimated Price (EUR/kWh)']),
+        )
+        expect(labels('')).toEqual(expect.arrayContaining(['Import Price', 'Estimated Price']))
+    })
+
     it('builds 192 15-min buckets over 48h with correct labels and nowIndex', () => {
         vi.setSystemTime(new Date('2026-07-15T10:07:00Z'))
         const slots: ScheduleSlot[] = []
-        // today 00:00Z through the next 48h at 15-min resolution
+        // Stockholm midnight (22:00Z) through the next 48h at 15-min resolution
         for (let i = 0; i < 96; i++) {
-            const t = new Date(Date.UTC(2026, 6, 15, 0, 0, 0) + i * 15 * 60 * 1000)
+            const t = new Date(Date.UTC(2026, 6, 14, 22, 0, 0) + i * 15 * 60 * 1000)
             slots.push(makeSlot(t.toISOString(), { import_price_sek_kwh: 1.5 }))
         }
         const result = buildLiveData(slots, 'today')
@@ -30,15 +43,15 @@ describe('buildLiveData', () => {
         // 48h at 15-min resolution = 192 buckets
         expect(result?.labels?.length).toBe(192)
         expect(result?.hasNoData).toBe(false)
-        // 10:07 UTC falls in the bucket starting at 10:00 UTC -> index 40
-        expect(result?.nowIndex).toBe(40)
+        // 10:07 UTC is 12:07 Stockholm; the window starts at Stockholm midnight (22:00Z) -> index 48
+        expect(result?.nowIndex).toBe(48)
     })
 
     it('produces null battery series without NaN when slots have no battery fields', () => {
         vi.setSystemTime(new Date('2026-07-15T10:00:00Z'))
         const slots: ScheduleSlot[] = [
-            makeSlot('2026-07-15T00:00:00Z', { import_price_sek_kwh: 1.0 }),
-            makeSlot('2026-07-15T00:15:00Z', { import_price_sek_kwh: 1.1 }),
+            makeSlot('2026-07-14T22:00:00Z', { import_price_sek_kwh: 1.0 }),
+            makeSlot('2026-07-14T22:15:00Z', { import_price_sek_kwh: 1.1 }),
         ]
         const result = buildLiveData(slots, 'today')
         const charge = dsByLabel(result, 'Charge (kW)').data as (number | null)[]
@@ -54,7 +67,7 @@ describe('buildLiveData', () => {
 
     it('produces null EV series without throwing when slots have no EV fields', () => {
         vi.setSystemTime(new Date('2026-07-15T10:00:00Z'))
-        const slots: ScheduleSlot[] = [makeSlot('2026-07-15T00:00:00Z', { import_price_sek_kwh: 1.0 })]
+        const slots: ScheduleSlot[] = [makeSlot('2026-07-14T22:00:00Z', { import_price_sek_kwh: 1.0 })]
         expect(() => buildLiveData(slots, 'today')).not.toThrow()
         const result = buildLiveData(slots, 'today')
         const evCharging = dsByLabel(result, 'EV Charging (kW)').data as (number | null)[]
@@ -73,11 +86,11 @@ describe('buildLiveData', () => {
     it('sums a multi-charger ev_surplus_kw dict, and treats an empty dict as 0', () => {
         vi.setSystemTime(new Date('2026-07-15T10:00:00Z'))
         const slots: ScheduleSlot[] = [
-            makeSlot('2026-07-15T00:00:00Z', {
+            makeSlot('2026-07-14T22:00:00Z', {
                 import_price_sek_kwh: 1.0,
                 ev_surplus_kw: { charger_a: 1.2, charger_b: 0.5 },
             }),
-            makeSlot('2026-07-15T00:15:00Z', {
+            makeSlot('2026-07-14T22:15:00Z', {
                 import_price_sek_kwh: 1.0,
                 ev_surplus_kw: {},
             }),
@@ -91,12 +104,12 @@ describe('buildLiveData', () => {
     it('splits assumed-plugged charger kW into the awaiting plug-in series', () => {
         vi.setSystemTime(new Date('2026-07-15T10:00:00Z'))
         const slots: ScheduleSlot[] = [
-            makeSlot('2026-07-15T00:00:00Z', {
+            makeSlot('2026-07-14T22:00:00Z', {
                 import_price_sek_kwh: 1.0,
                 ev_charging_kw: 10,
                 ev_chargers: { away: 7, home: 3 },
             }),
-            makeSlot('2026-07-15T00:15:00Z', {
+            makeSlot('2026-07-14T22:15:00Z', {
                 import_price_sek_kwh: 1.0,
                 ev_charging_kw: 3,
                 ev_chargers: { home: 3 },
@@ -114,7 +127,7 @@ describe('buildLiveData', () => {
     it('leaves EV charging unchanged when no charger awaits plug-in', () => {
         vi.setSystemTime(new Date('2026-07-15T10:00:00Z'))
         const slots: ScheduleSlot[] = [
-            makeSlot('2026-07-15T00:00:00Z', {
+            makeSlot('2026-07-14T22:00:00Z', {
                 import_price_sek_kwh: 1.0,
                 ev_charging_kw: 7,
                 ev_chargers: { away: 7 },

@@ -26,6 +26,7 @@ import { SystemAlert } from './components/SystemAlert'
 import { ToastProvider } from './components/ui/Toast'
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
 import { getSocket } from './lib/socket'
+import { CurrencyProvider } from './lib/currency'
 
 function RootLayout() {
     const [backendOffline, setBackendOffline] = useState(false)
@@ -113,7 +114,7 @@ function RootLayout() {
     }, [])
 
     return (
-        <>
+        <CurrencyProvider>
             <Sidebar
                 updateAvailable={updater.available && updateReady(updater.status)}
                 onVersionClick={updater.available ? () => setShowUpdateCard(true) : undefined}
@@ -189,7 +190,7 @@ function RootLayout() {
                     <Outlet />
                 )}
             </div>
-        </>
+        </CurrencyProvider>
     )
 }
 

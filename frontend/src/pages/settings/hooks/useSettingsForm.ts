@@ -1,5 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Api, ApiError, ConfigResponse, type ConfigSaveError } from '../../../lib/api'
+import { Api, ApiError, ConfigResponse, type ConfigSaveError, type SensorUnit } from '../../../lib/api'
+import {
+    applyConfigPatch,
+    readUnitOverrides,
+    unitOverridesPatch,
+    withUnitOverride,
+    type SensorUnitControl,
+} from '../../../lib/sensorUnits'
+import { getCurrency, setCurrency, substituteCurrencyTokens } from '../../../lib/currency'
+import { useUnitNeeded } from '../../../lib/useUnitNeeded'
 import { useToast } from '../../../lib/useToast'
 import { BaseField, HaEntity, InverterProfile, standardInverterKeys } from '../types'
 import { buildFormState, buildPatch, evChargerArrayError, getDeepValue } from '../utils'
@@ -28,6 +37,8 @@ export interface UseSettingsFormReturn {
     reset: () => void
     reload: () => Promise<void>
     reloadEntities: () => Promise<void>
+    /** W/kW choice for the pickers of this form; provide it with `SensorUnitContext.Provider`. */
+    sensorUnits: SensorUnitControl
 }
 
 function isValidInstallationStatsEndpoint(value: string): boolean {
@@ -65,6 +76,8 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
     const [haEntities, setHaEntities] = useState<HaEntity[]>([])
     const [haLoading, setHaLoading] = useState(false)
+    // null = untouched; otherwise the full sensor_unit_overrides map chosen in this form.
+    const [overrideDraft, setOverrideDraft] = useState<Record<string, SensorUnit> | null>(null)
 
     // Compute dynamic field list including profile-specific entity fields.
     // Iterates the v2 flat entity registry (dict of EntityDefinition objects)
@@ -112,12 +125,45 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
         return dynamicFields
     }, [config, profiles, baseFields])
 
+    const savedOverrides = useMemo(() => readUnitOverrides(config), [config])
+    const overrides = overrideDraft ?? savedOverrides
+    const overridePatch = useMemo(
+        () => unitOverridesPatch(savedOverrides, overrideDraft),
+        [savedOverrides, overrideDraft],
+    )
+
+    // What saving this form would write, applied on the saved config: the draft the pickers check.
+    const formPatch = useMemo(
+        () => (config && formInitialized ? buildPatch(config as unknown as Record<string, unknown>, form, fields) : {}),
+        [config, form, fields, formInitialized],
+    )
+    const draftConfig = useMemo(
+        () =>
+            config
+                ? applyConfigPatch(config as unknown as Record<string, unknown>, { ...formPatch, ...overridePatch })
+                : null,
+        [config, formPatch, overridePatch],
+    )
+    const { isChoiceVisible } = useUnitNeeded(draftConfig)
+    const setOverride = useCallback(
+        (entityId: string, unit: SensorUnit) => {
+            setOverrideDraft((previous) => withUnitOverride(previous ?? savedOverrides, entityId, unit))
+            setStatusMessage(null)
+        },
+        [savedOverrides],
+    )
+    const sensorUnits = useMemo<SensorUnitControl>(
+        () => ({ isChoiceVisible, overrides, setOverride }),
+        [isChoiceVisible, overrides, setOverride],
+    )
+
     const reload = useCallback(async () => {
         setLoading(true)
         setStatusMessage(null)
         try {
             const cfg = await Api.config()
             setConfig(cfg)
+            setCurrency(cfg.nordpool?.currency)
             // Form will be rebuilt by the fields useMemo effect below
         } catch (err: unknown) {
             console.error('Failed to load configuration', err)
@@ -150,6 +196,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
         if (config && fields.length > 0) {
             // eslint-disable-next-line react-hooks/set-state-in-effect -- guards against wiping in-progress edits on rebuild; render-derivation would lose them
             setForm(buildFormState(config as unknown as Record<string, unknown>, fields))
+            setOverrideDraft(null)
             setFieldErrors({})
             setFormInitialized(true)
         }
@@ -308,6 +355,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
     const reset = useCallback(() => {
         if (config) {
             setForm(buildFormState(config as unknown as Record<string, unknown>, fields))
+            setOverrideDraft(null)
             setFieldErrors({})
             setStatusMessage(null)
             setFormInitialized(true)
@@ -351,7 +399,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                 const missingCount = Object.keys(allRequiredErrors).length
                 const missingFields = fields
                     .filter((f) => allRequiredErrors[f.key])
-                    .map((f) => f.label)
+                    .map((f) => substituteCurrencyTokens(f.label, getCurrency()))
                     .join(', ')
                 toast({
                     message: `${missingCount} required field${missingCount > 1 ? 's' : ''} missing`,
@@ -392,6 +440,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
 
             const patch = {
                 ...buildPatch(config as unknown as Record<string, unknown>, form, fields),
+                ...overridePatch,
                 ...extraPatch,
             }
             console.warn('[CONFIG_SAVE] Generated patch:', patch)
@@ -450,6 +499,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                     }
                     setPendingHeaterErrors({})
                     await reload()
+                    setOverrideDraft(null)
                     // REV UI23: Notify App.tsx to refresh config validation banner
                     window.dispatchEvent(new Event('config-changed'))
                     return true
@@ -478,14 +528,13 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
             }
             return false
         },
-        [config, form, fields, fieldErrors, reload, toast, validateField],
+        [config, form, fields, fieldErrors, overridePatch, reload, toast, validateField],
     )
 
-    const isDirty = useMemo(() => {
-        if (!config || !formInitialized) return false
-        const patch = buildPatch(config as unknown as Record<string, unknown>, form, fields)
-        return Object.keys(patch).length > 0
-    }, [config, form, fields, formInitialized])
+    const isDirty = useMemo(
+        () => Object.keys(formPatch).length > 0 || Object.keys(overridePatch).length > 0,
+        [formPatch, overridePatch],
+    )
 
     return {
         config,
@@ -503,5 +552,6 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
         reset,
         reload,
         reloadEntities,
+        sensorUnits,
     }
 }

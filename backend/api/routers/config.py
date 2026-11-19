@@ -16,7 +16,9 @@ from backend.config_migration import (
     update_config,
     write_config,
 )
+from backend.core.currency import price_unit
 from backend.core.ha_client import get_ha_entity_state
+from backend.core.power_sensors import ENTITY_ID_PATTERN, referenced_entity_ids
 from backend.core.prices import (
     NORDPOOL_CACHE_KEY,
     TRANSFER_FEE_MODE_FLAT,
@@ -364,6 +366,13 @@ async def save_config(
                         "errors": errors,
                         "warnings": warnings,
                     },
+                )
+
+            stale_overrides = _prune_sensor_unit_overrides(data)
+            if stale_overrides:
+                logger.info(
+                    "Dropped sensor_unit_overrides for unreferenced sensors: %s",
+                    ", ".join(stale_overrides),
                 )
 
             return data
@@ -877,6 +886,55 @@ def _validate_ev_loss_settings(ev: dict[str, Any], charger_label: Any) -> list[d
     return issues
 
 
+def _validate_sensor_unit_overrides(overrides: Any) -> list[dict[str, str]]:
+    """Errors for ``sensor_unit_overrides`` entries that are not ``<entity id>: W|kW``."""
+    if overrides is None:
+        return []
+    if not isinstance(overrides, dict):
+        return [
+            {
+                "severity": "error",
+                "field": "sensor_unit_overrides",
+                "message": "sensor_unit_overrides must be a map of entity id to W or kW",
+                "guidance": "Choose W or kW for the sensor in Settings.",
+            }
+        ]
+    issues: list[dict[str, str]] = []
+    for entity_id, unit in cast("dict[Any, Any]", overrides).items():
+        if not isinstance(entity_id, str) or not ENTITY_ID_PATTERN.match(entity_id):
+            issues.append(
+                {
+                    "severity": "error",
+                    "field": "sensor_unit_overrides",
+                    "message": f"sensor_unit_overrides entry {entity_id!r} is not an entity id",
+                    "guidance": "Use the Home Assistant entity id, for example sensor.house_power.",
+                }
+            )
+        elif unit not in ("W", "kW"):
+            issues.append(
+                {
+                    "severity": "error",
+                    "field": f"sensor_unit_overrides.{entity_id}",
+                    "message": f"sensor_unit_overrides.{entity_id} must be W or kW, got {unit!r}",
+                    "guidance": "Choose W or kW for this sensor.",
+                }
+            )
+    return issues
+
+
+def _prune_sensor_unit_overrides(config: dict[str, Any]) -> list[str]:
+    """Drop overrides whose entity is not configured as a power sensor; return the dropped ids."""
+    overrides = config.get("sensor_unit_overrides")
+    if not isinstance(overrides, dict) or not overrides:
+        return []
+    table = cast("dict[str, Any]", overrides)
+    referenced = referenced_entity_ids(config, active_only=False)
+    stale = [entity_id for entity_id in table if entity_id not in referenced]
+    for entity_id in stale:
+        del table[entity_id]
+    return stale
+
+
 def _validate_config_for_save(
     config: dict[str, Any],
     phase_sensor_units: dict[str, dict[str, str]] | None = None,
@@ -938,6 +996,8 @@ def _validate_config_for_save(
                     "guidance": "Enter a percentage greater than 0 and at most 100 in Settings (a fraction in YAML).",
                 }
             )
+
+    issues.extend(_validate_sensor_unit_overrides(config.get("sensor_unit_overrides")))
 
     try:
         validate_water_heating_config(config)
@@ -1009,7 +1069,7 @@ def _validate_config_for_save(
             {
                 "severity": "error",
                 "message": f"kepler.ev_shortfall_penalty_sek_per_kwh must be a positive number (got {raw_penalty})",
-                "guidance": "Set the EV shortfall penalty to a positive SEK/kWh value (default 50).",
+                "guidance": f"Set the EV shortfall penalty to a positive {price_unit(config)} value (default 50).",
             }
         )
 
@@ -2006,7 +2066,7 @@ def _validate_config_for_save(
                         "severity": "warning",
                         "message": (
                             f"executor.excess_pv.priority[{i}] has an effective reward "
-                            f"({effective_rewards[i]:.3f} SEK/kWh) higher than a "
+                            f"({effective_rewards[i]:.3f} {price_unit(config)}) higher than a "
                             "higher-priority entry"
                         ),
                         "guidance": (

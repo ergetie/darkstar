@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocked = vi.hoisted(() => ({
     listProfiles: vi.fn(),
@@ -23,6 +23,7 @@ vi.mock('./components/ProfileSetupHelper', () => ({ ProfileSetupHelper: () => nu
 
 import { SystemTab } from './SystemTab'
 import { systemFieldList } from './types'
+import { setCurrency } from '../../lib/currency'
 
 const genericProfile = {
     name: 'generic',
@@ -91,8 +92,10 @@ describe('SystemTab installation statistics controls', () => {
 })
 
 describe('SystemTab pricing groups and cost recalculation', () => {
+    afterEach(() => setCurrency(null))
     beforeEach(() => {
         vi.clearAllMocks()
+        setCurrency('SEK')
         mocked.listProfiles.mockResolvedValue([genericProfile])
         mocked.recalculatePrices.mockResolvedValue({ from_date: '2026-10-01', repriced: 2880, skipped: 3 })
         mocked.useSettingsForm.mockReturnValue({
@@ -129,6 +132,24 @@ describe('SystemTab pricing groups and cost recalculation', () => {
         expect(screen.getByText('Supplier markup (SEK/kWh, excl. VAT)')).toBeInTheDocument()
         expect(screen.getByText('VAT (%)')).toBeInTheDocument()
         expect(screen.queryByText(/\[FUTURE\]/)).not.toBeInTheDocument()
+    })
+
+    it('offers a currency select with SEK, EUR, NOK and DKK', async () => {
+        renderTab()
+        await screen.findByText('Grid operator')
+        expect(screen.getByText('Currency')).toBeInTheDocument()
+        const select = systemFieldList.find((f) => f.key === 'nordpool.currency')
+        expect(select?.type).toBe('select')
+        expect(select?.options?.map((o) => o.value)).toEqual(['SEK', 'EUR', 'NOK', 'DKK'])
+    })
+
+    it('shows pricing labels in the configured currency', async () => {
+        setCurrency('EUR')
+        renderTab()
+        await screen.findByText('Grid operator')
+        expect(screen.getByText('Monthly subscription fee (EUR, excl. VAT)')).toBeInTheDocument()
+        expect(screen.getByText('Energy tax (EUR/kWh, excl. VAT)')).toBeInTheDocument()
+        expect(screen.queryByText(/SEK/)).not.toBeInTheDocument()
     })
 
     it('documents the learning metric step next to the recalculate action', async () => {

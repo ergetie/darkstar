@@ -1,6 +1,7 @@
 import { TrendingDown, TrendingUp, Target, Zap, DollarSign, Activity } from 'lucide-react'
 import type { AuroraPerformanceData, PriceAccuracyResponse } from '../lib/api'
 import Card from './Card'
+import { formatMoney, priceUnitLabel, useCurrency } from '../lib/currency'
 
 interface KPIStripProps {
     metrics?: {
@@ -13,7 +14,10 @@ interface KPIStripProps {
 }
 
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
-export function computeCostDrift(costSeries?: AuroraPerformanceData['cost_series'] | null): {
+export function computeCostDrift(
+    costSeries?: AuroraPerformanceData['cost_series'] | null,
+    currency: string | null = null,
+): {
     costDrift: number
     costDriftLabel: string
     isSaving: boolean
@@ -30,7 +34,9 @@ export function computeCostDrift(costSeries?: AuroraPerformanceData['cost_series
 
     const costDrift = totalRealized - totalPlanned
     const costDriftLabel =
-        costDrift <= 0 ? `Saved ${Math.abs(costDrift).toFixed(1)} SEK` : `Overspent ${costDrift.toFixed(1)} SEK`
+        costDrift <= 0
+            ? `Saved ${formatMoney(Math.abs(costDrift), { currency, digits: 1 })}`
+            : `Overspent ${formatMoney(costDrift, { currency, digits: 1 })}`
 
     const isSaving = costDrift <= 0
 
@@ -38,8 +44,9 @@ export function computeCostDrift(costSeries?: AuroraPerformanceData['cost_series
 }
 
 export default function KPIStrip({ metrics, perfData, priceAccuracy }: KPIStripProps) {
+    const currency = useCurrency()
     // 1. Calculate Cost Drift (7-day)
-    const { costDriftLabel, isSaving } = computeCostDrift(perfData?.cost_series)
+    const { costDriftLabel, isSaving } = computeCostDrift(perfData?.cost_series, currency)
 
     // 2. Forecast Accuracy
     const pvMae = metrics?.mae_pv_aurora?.toFixed(2) ?? 'N/A'
@@ -47,7 +54,7 @@ export default function KPIStrip({ metrics, perfData, priceAccuracy }: KPIStripP
 
     // 3. Max Price Spread
     const maxSpread = metrics?.max_price_spread
-    const spreadLabel = maxSpread != null ? `${maxSpread.toFixed(2)} SEK` : 'N/A'
+    const spreadLabel = maxSpread != null ? formatMoney(maxSpread, { currency }) : 'N/A'
     const isProfitable = maxSpread != null && maxSpread > 0
 
     return (
@@ -94,7 +101,7 @@ export default function KPIStrip({ metrics, perfData, priceAccuracy }: KPIStripP
                             </div>
                             <div className="text-lg font-semibold text-text">
                                 {priceAccuracy.d1_mae != null ? priceAccuracy.d1_mae.toFixed(2) : 'N/A'}{' '}
-                                <span className="text-xs font-normal text-muted">SEK/kWh</span>
+                                <span className="text-xs font-normal text-muted">{priceUnitLabel(currency)}</span>
                             </div>
                         </div>
                     </div>

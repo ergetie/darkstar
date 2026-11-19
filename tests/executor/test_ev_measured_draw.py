@@ -132,6 +132,33 @@ class TestMeasuredDraw:
         assert dev_state.measured_draw_a == pytest.approx(10.0)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("reported", "overrides", "expected_a"),
+        [
+            ("kW", {}, 10.0),  # 2.3 kW at 230 V
+            (None, {}, 2300.0),  # unitless phase sensor still reads amps
+            (None, {"sensor.l1": "W"}, 10.0),
+            (None, {"sensor.l1": "kW"}, 10_000.0),
+            ("A", {"sensor.l1": "W"}, 2300.0),  # a reported unit wins over the override
+        ],
+    )
+    async def test_per_phase_unit_resolution(
+        self, temp_schedule, temp_db, reported, overrides, expected_a
+    ):
+        cfg = charger(phase_sensor_l1="sensor.l1")
+        eng = make_engine(temp_schedule, temp_db, cfg)
+        raw = "2.3" if reported == "kW" else "2300"
+        attributes = {"unit_of_measurement": reported} if reported else {}
+        eng.ha_client = AsyncMock()
+        eng.ha_client.get_state = AsyncMock(return_value={"state": raw, "attributes": attributes})
+        dev_state = EVChargerState()
+
+        with patch("backend.core.ha_client.get_sensor_unit_overrides", return_value=overrides):
+            await eng._update_ev_measured_draw(cfg, dev_state, PhaseModeController())
+
+        assert dev_state.measured_draw_a == pytest.approx(expected_a)
+
+    @pytest.mark.asyncio
     async def test_sensor_unavailable_is_none(self, temp_schedule, temp_db):
         eng = make_engine(temp_schedule, temp_db, charger())
         eng.ha_client = AsyncMock()

@@ -8,7 +8,12 @@ from typing import Any, cast
 
 import pytz
 
-from backend.core.ha_client import get_power_history_batch, parse_power_states
+from backend.core.ha_client import (
+    get_power_history_batch,
+    normalize_power_for_entity,
+    parse_power_states,
+)
+from backend.core.power_sensors import WATER_POWER
 from backend.core.water_heating import (
     DEFAULT_IDLE_POWER_THRESHOLD_KW,
     normalize_active_power_kw,
@@ -71,8 +76,12 @@ def _history_energy(
                 except ValueError:
                     value = None
                 else:
-                    normalized_value = normalize_active_power_kw(
-                        numeric, unit or cached_unit or "kW", cutoff_kw
+                    normalized_value = normalize_power_for_entity(
+                        numeric,
+                        entity_id,
+                        unit or cached_unit,
+                        path_key=WATER_POWER,
+                        idle_power_threshold_kw=cutoff_kw,
                     )
                     value = max(0.0, normalized_value) if normalized_value is not None else None
         else:

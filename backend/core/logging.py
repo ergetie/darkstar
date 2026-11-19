@@ -2,11 +2,15 @@ import logging
 import os
 from collections import deque
 from datetime import UTC, datetime
-from logging.handlers import TimedRotatingFileHandler
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
 from pythonjsonlogger import json as jsonlogger
+
+# Application log rotation: 10 MiB per file, 5 rotated backups (darkstar.log.1 .. .5).
+LOG_MAX_BYTES = 10 * 1024 * 1024
+LOG_BACKUP_COUNT = 5
 
 
 # Ring Buffer for real-time logs in UI
@@ -91,13 +95,16 @@ def setup_logging():
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
 
-    # 2. File Handler (JSON, Timed Rotation)
+    # 2. File Handler (JSON, size-based rotation)
     log_dir = Path.cwd() / "data"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "darkstar.log"
 
-    file_handler = TimedRotatingFileHandler(
-        log_file, when="midnight", interval=1, backupCount=7, encoding="utf-8"
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
     )
 
     # Custom JSON Formatter

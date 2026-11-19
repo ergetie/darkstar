@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react'
 import { ArrowRight, Gauge, ShieldCheck } from 'lucide-react'
 import Card from './Card'
-import { type PlannerSIndex, type PriceOutlookResponse } from '../lib/api'
+import { type PlannerSIndex, type PriceOutlookDay, type PriceOutlookResponse } from '../lib/api'
+import { currencyInfo, formatPrice, useCurrency } from '../lib/currency'
 
 type PlannerMeta = {
     planned_at?: string
@@ -188,17 +189,34 @@ function weekdayOf(iso: string | null | undefined): string | null {
     return date.toLocaleDateString('en-GB', { weekday: 'long' })
 }
 
-function ore(sekPerKwh: number | null | undefined): string | null {
-    return sekPerKwh == null ? null : `${Math.round(sekPerKwh * 100)} öre`
+function subunitPrice(pricePerKwh: number | null | undefined, currency: string | null): string | null {
+    return pricePerKwh == null
+        ? null
+        : formatPrice(pricePerKwh, { currency, unit: 'sub', digits: currencyInfo(currency)?.subunit ? 0 : 2 })
+}
+
+/** Tooltip lines of one day of the price outlook; values are in the configured price unit. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function buildPriceOutlookTooltip(day: PriceOutlookDay, currency: string | null): string {
+    const show = (value: number) => formatPrice(value, { currency })
+    const lines = [`${day.day_label}: ${show(day.avg_spot_p50 ?? 0)}`]
+    if (day.avg_spot_p10 != null) lines.push(`P10: ${show(day.avg_spot_p10)}`)
+    if (day.avg_spot_p90 != null) lines.push(`P90: ${show(day.avg_spot_p90)}`)
+    if (day.min_hour_p50 != null) lines.push(`Lowest hour: ${show(day.min_hour_p50)}`)
+    if (day.max_hour_p50 != null) lines.push(`Highest hour: ${show(day.max_hour_p50)}`)
+    return lines.join('\n')
 }
 
 /** Plain-words explanation of the price reserve decision. */
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
-export function describePriceReserve(floor: SafetyFloor | undefined): { title: string; detail: string | null } | null {
+export function describePriceReserve(
+    floor: SafetyFloor | undefined,
+    currency: string | null = null,
+): { title: string; detail: string | null } | null {
     if (!floor?.price_reserve_reason) return null
     const day = weekdayOf(floor.unseen_window_start) ?? 'the next unknown day'
-    const now = ore(floor.known_cost_sek_kwh)
-    const later = ore(floor.own_day_cost_sek_kwh)
+    const now = subunitPrice(floor.known_cost_sek_kwh, currency)
+    const later = subunitPrice(floor.own_day_cost_sek_kwh, currency)
     const compare = now && later ? `charging now ~${now} vs ~${later} on ${day}` : null
 
     switch (floor.price_reserve_reason) {
@@ -257,6 +275,7 @@ export default function BatteryStrategyCard({
     priceOutlook,
     currentAction,
 }: BatteryStrategyCardProps) {
+    const currency = useCurrency()
     const sIndex = plannerMeta?.s_index
     const safetyFloor = sIndex?.safety_floor
     const [tooltip, setTooltip] = useState<TooltipState | null>(null)
@@ -273,7 +292,7 @@ export default function BatteryStrategyCard({
     const hideTooltip = useCallback(() => setTooltip(null), [])
 
     const breakdown = computeFloorBreakdown(safetyFloor, batteryCapacity)
-    const reserve = describePriceReserve(safetyFloor)
+    const reserve = describePriceReserve(safetyFloor, currency)
     const reservePriceKwh = breakdown?.zones.find((z) => z.key === 'price')?.kwh ?? 0
     const socKwh = soc != null && batteryCapacity ? (soc / 100) * batteryCapacity : null
     const targetPct = socTarget != null ? Math.max(0, Math.min(100, socTarget)) : null
@@ -318,7 +337,6 @@ export default function BatteryStrategyCard({
                         )}
                         <div className="price-sparkline-bars">
                             {days.map((day, i) => {
-                                const price = day.avg_spot_p50 ?? 0
                                 const colorClass =
                                     {
                                         cheap: 'bg-good',
@@ -328,12 +346,7 @@ export default function BatteryStrategyCard({
                                     }[day.level] || 'bg-muted'
 
                                 // Build tooltip with each value on separate line
-                                const tooltipLines = [`${day.day_label}: ${price.toFixed(1)} öre`]
-                                if (day.avg_spot_p10 != null)
-                                    tooltipLines.push(`Min: ${day.avg_spot_p10.toFixed(1)} öre`)
-                                if (day.avg_spot_p90 != null)
-                                    tooltipLines.push(`Max: ${day.avg_spot_p90.toFixed(1)} öre`)
-                                const tooltipText = tooltipLines.join('\n')
+                                const tooltipText = buildPriceOutlookTooltip(day, currency)
 
                                 return (
                                     <div

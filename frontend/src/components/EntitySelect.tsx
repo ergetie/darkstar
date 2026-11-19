@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, X, Search } from 'lucide-react'
+import { useSensorUnitControl } from '../lib/sensorUnits'
+import SensorUnitSelect from './SensorUnitSelect'
 
 interface Entity {
     entity_id: string
@@ -32,6 +34,7 @@ export default function EntitySelect({
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
     const [highlightIndex, setHighlightIndex] = useState(0)
+    const unitControl = useSensorUnitControl()
     const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 })
 
     const containerRef = useRef<HTMLDivElement>(null)
@@ -294,6 +297,15 @@ export default function EntitySelect({
                     </div>,
                     document.body,
                 )}
+
+            {/* Offered exactly when the backend reports the selected entity has no unit. */}
+            {unitControl && value && unitControl.isChoiceVisible(value) && (
+                <SensorUnitSelect
+                    value={unitControl.overrides[value]}
+                    onChange={(unit) => unitControl.setOverride(value, unit)}
+                    disabled={disabled}
+                />
+            )}
         </div>
     )
 }

@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as timezone from '../lib/timezone'
 import {
     buildSlotInfo,
+    formatClock,
     formatKw,
     formatPercent,
     formatRangeFromLabel,
@@ -124,10 +126,10 @@ describe('estimated prices', () => {
 
 describe('compact line', () => {
     it('summarises the planned slot in one line', () => {
-        const line = buildCompactLine(makeSeries({ socProjected: [50, 52, 64, 54] }), 2)
+        const line = buildCompactLine(makeSeries({ socProjected: [50, 52, 64, 54] }), 2, 'SEK/kWh')
         expect(line?.range).toBe('10:30–10:45')
         expect(line?.badge).toBe('Now')
-        expect(line?.parts.join(' · ')).toBe('Charge 3.2 kW · 1.30 kr/kWh · SoC 64% · PV 3.0 kW · Load 0.7 kW')
+        expect(line?.parts.join(' · ')).toBe('Charge 3.2 kW · 1.30 SEK/kWh · SoC 64% · PV 3.0 kW · Load 0.7 kW')
     })
 
     it('shows measured values for past slots and Hold when idle', () => {
@@ -137,14 +139,18 @@ describe('compact line', () => {
             actualLoad: [0.4, null, null, null],
             actualCharge: [0, null, null, null],
         })
-        const line = buildCompactLine(series, 0)
+        const line = buildCompactLine(series, 0, 'EUR/kWh')
         expect(line?.badge).toBe('Past')
-        expect(line?.parts).toEqual(['Hold', '1.10 kr/kWh', 'SoC 48%', 'PV 1.5 kW', 'Load 0.4 kW'])
+        expect(line?.parts).toEqual(['Hold', '1.10 EUR/kWh', 'SoC 48%', 'PV 1.5 kW', 'Load 0.4 kW'])
+    })
+
+    it('shows the price without a unit while the currency is unknown', () => {
+        expect(buildCompactLine(makeSeries(), 2)?.parts).toContain('1.30')
     })
 
     it('omits missing values and rejects out-of-range slots', () => {
         const line = buildCompactLine(makeSeries({ price: [], socProjected: [] }), 3)
-        expect(line?.parts.some((p) => p.startsWith('SoC') || p.includes('kr'))).toBe(false)
+        expect(line?.parts.some((p) => p.startsWith('SoC') || p.includes('/kWh'))).toBe(false)
         expect(buildCompactLine(makeSeries(), 9)).toBeNull()
     })
 })
@@ -188,6 +194,7 @@ describe('buildSlotInfo', () => {
     it('groups price, battery and energy with the planned values for a future slot', () => {
         const info = buildSlotInfo(makeSeries({ gridImport: [0, 0, 0, 1.5] }), 3, {
             breakdown: { spot: 0.9, feesAndVat: 0.5 },
+            priceUnit: 'SEK/kWh',
         })
         expect(info?.phase).toBe('future')
         expect(info?.range).toBe('10:45–11:00')
@@ -240,5 +247,23 @@ describe('priceAxisMax', () => {
     it('falls back to 1 without usable data', () => {
         expect(priceAxisMax(0)).toBe(1)
         expect(priceAxisMax(Number.NaN)).toBe(1)
+    })
+})
+
+describe('formatClock / formatTimeRange display timezone', () => {
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('defaults to the browser timezone', () => {
+        vi.spyOn(timezone, 'displayTimeZone').mockReturnValue('Pacific/Auckland')
+        // 12:15Z in July is 00:15 the next day in Auckland (NZST, UTC+12)
+        expect(formatTimeRange('2026-07-15T12:15:00Z', 15)).toBe('00:15–00:30')
+        expect(formatClock(new Date('2026-07-15T08:00:00+02:00'))).toBe('18:00')
+    })
+
+    it('uses an explicit timezone over the browser one', () => {
+        vi.spyOn(timezone, 'displayTimeZone').mockReturnValue('Pacific/Auckland')
+        expect(formatTimeRange('2026-07-15T12:15:00Z', 15, 'Europe/Stockholm')).toBe('14:15–14:30')
     })
 })

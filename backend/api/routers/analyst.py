@@ -11,6 +11,7 @@ from typing import Any
 import pytz
 from fastapi import APIRouter
 
+from backend.core.currency import price_unit
 from backend.core.secrets import load_yaml
 
 logger = logging.getLogger("darkstar.api.analyst")
@@ -188,7 +189,7 @@ async def _get_strategy_advice() -> dict[str, Any]:
             advice_items.append(
                 {
                     "category": "battery",
-                    "message": f"High battery cycle cost ({cycle_cost} SEK/kWh). Arbitrage may be limited.",
+                    "message": f"High battery cycle cost ({cycle_cost} {price_unit(config)}). Arbitrage may be limited.",
                     "priority": "warning",
                 }
             )

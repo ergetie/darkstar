@@ -297,6 +297,15 @@ describe('OnboardingWizard', () => {
         expect(screen.getByLabelText(/Longitude/)).toHaveValue(0)
     })
 
+    it('shows price units in the currency chosen for the installation', async () => {
+        const defaults = baseConfig()
+        setup('pricing', { config: { ...defaults, nordpool: { ...defaults.nordpool, currency: 'EUR' } } })
+
+        await screen.findByLabelText(/Latitude/)
+        expect(screen.getAllByText('EUR/kWh').length).toBeGreaterThan(0)
+        expect(screen.queryByText('SEK/kWh')).not.toBeInTheDocument()
+    })
+
     it('keeps a configured profile and offers a different supported suggestion', async () => {
         setup('inverter', {
             profiles: [profile, { ...profile, name: 'sungrow', description: 'Sungrow inverter' }],

@@ -355,6 +355,49 @@ async def test_custom_restore_ignores_stale_power_sensor(temp_schedule, temp_db,
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    ("unit", "device_class", "overrides", "expected_w"),
+    [
+        ("W", None, {}, 2300.0),
+        ("kW", None, {"sensor.pump": "W"}, 2_300_000.0),  # reported unit wins
+        (None, "power", {}, 2300.0),  # unitless power sensor keeps reading as W
+        (None, None, {}, None),  # unitless without a device class is ignored
+        (None, None, {"sensor.pump": "W"}, 2300.0),
+        (None, "power", {"sensor.pump": "kW"}, 2_300_000.0),
+    ],
+)
+async def test_custom_load_power_sensor_unit_resolution(
+    temp_schedule, temp_db, unit, device_class, overrides, expected_w
+):
+    from unittest.mock import patch
+
+    reading = _phase(2300, unit or "")
+    if unit is None:
+        del reading["attributes"]["unit_of_measurement"]
+    if device_class:
+        reading["attributes"]["device_class"] = device_class
+    engine = make_engine(
+        temp_schedule,
+        temp_db,
+        load_balancing_enabled=True,
+        state_overrides={"sensor.pump": reading},
+    )
+    engine.config.load_balancing.loads = [
+        BalancedLoadConfig(
+            device_type=BalancedLoadType.CUSTOM_ENTITY,
+            device_id="pump",
+            entity="switch.pump",
+            phases=[1],
+            power_sensor="sensor.pump",
+        )
+    ]
+    with patch("backend.core.ha_client.get_sensor_unit_overrides", return_value=overrides):
+        state = await engine._gather_system_state()
+    shed_power = state.shed_load_power_w
+    assert (shed_power or {}).get("pump") == expected_w
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "first_value,expected", [("off", False), ("on", True), ("unavailable", None)]
 )
 async def test_balanced_heater_states_are_per_device(temp_schedule, temp_db, first_value, expected):

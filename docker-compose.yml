@@ -28,6 +28,11 @@ services:
       - DARKSTAR_UPDATER_URL=http://updater:5001
       - DARKSTAR_UPDATER_TOKEN=${DARKSTAR_UPDATER_TOKEN:-}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     cap_add:
       - SYS_PTRACE
     healthcheck:
@@ -47,6 +52,11 @@ services:
       dockerfile: updater/Dockerfile
     container_name: darkstar-updater
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       # Empty values are refused by the updater entrypoint (defaults keep `compose config` valid without .env).
       - DARKSTAR_UPDATER_TOKEN=${DARKSTAR_UPDATER_TOKEN:-}

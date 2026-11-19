@@ -36,7 +36,7 @@ async def test_system_status_uses_each_chargers_plug_vocabulary(monkeypatch):
     }
     monkeypatch.setattr(system_router, "load_yaml", lambda _path: config)
 
-    async def read_power(_entity_id: str) -> float:
+    async def read_power(_entity_id: str, **_kwargs: object) -> float:
         return 0.0
 
     async def read_soc(_entity_id: str) -> float:

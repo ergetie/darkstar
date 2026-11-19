@@ -62,7 +62,8 @@ function makeMemoryStorage(): Storage {
     } as Storage
 }
 
-const DAY_START = Date.UTC(2026, 9, 4, 0, 0, 0)
+// Stockholm midnight (CEST, UTC+2): the chart window starts at the start of the browser day.
+const DAY_START = Date.UTC(2026, 9, 3, 22, 0, 0)
 
 function makeSlots(count: number, stepMinutes: number): ScheduleSlot[] {
     return Array.from({ length: count }, (_, i) => ({

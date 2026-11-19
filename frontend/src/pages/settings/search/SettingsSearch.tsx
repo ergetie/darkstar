@@ -3,6 +3,7 @@ import { Search, X, BookOpen, BookA } from 'lucide-react'
 import { search, FieldSearchResult, GuideSearchResult, GlossarySearchResult } from './index'
 import { getFieldVisibility } from './hints'
 import { GuideViewer } from './GuideViewer'
+import { substituteCurrencyTokens, useCurrency } from '../../../lib/currency'
 import { ViewerContent, guideToContent, glossaryToContent } from './viewerContent'
 
 interface SettingsSearchProps {
@@ -17,6 +18,7 @@ type CombinedItem =
     | { type: 'glossary'; result: GlossarySearchResult }
 
 export const SettingsSearch: React.FC<SettingsSearchProps> = ({ advancedMode, config, onJumpToField }) => {
+    const currency = useCurrency()
     const [query, setQuery] = useState('')
     const [isOpen, setIsOpen] = useState(false)
     const [highlightedIndex, setHighlightedIndex] = useState(0)
@@ -165,7 +167,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({ advancedMode, co
                                             >
                                                 <div className="flex items-center justify-between gap-2">
                                                     <span className="text-sm font-medium text-text">
-                                                        {result.entry.label}
+                                                        {substituteCurrencyTokens(result.entry.label, currency)}
                                                     </span>
                                                     <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted">
                                                         {result.entry.tabLabel}
@@ -173,7 +175,7 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({ advancedMode, co
                                                 </div>
                                                 {result.entry.helpText && (
                                                     <p className="mt-0.5 text-xs text-muted line-clamp-2">
-                                                        {result.entry.helpText}
+                                                        {substituteCurrencyTokens(result.entry.helpText, currency)}
                                                     </p>
                                                 )}
                                                 {visibility.hidden && (

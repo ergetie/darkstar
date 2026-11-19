@@ -5,6 +5,7 @@ from typing import Any
 
 from backend.core.ev_power import charger_disabled_reason, charger_max_kw, nominal_voltage_v
 from backend.core.ha_client import get_ha_sensor_kw_normalized
+from backend.core.power_sensors import EV_POWER, WATER_POWER
 from backend.core.water_heating import (
     DEFAULT_IDLE_POWER_THRESHOLD_KW,
     active_water_heaters,
@@ -221,13 +222,20 @@ class LoadDisaggregator:
         """Fetch current power for all loads and return the total controllable load (kW).
 
         Uses get_ha_sensor_kw_normalized to correctly handle both W-reporting
-        and kW-reporting sensors by reading unit_of_measurement from HA.
+        and kW-reporting sensors by resolving each sensor's unit (reported by HA, else the user's override).
         """
         total_controllable_kw = 0.0
 
         for load in self.loads_registry.values():
             try:
-                val = await get_ha_sensor_kw_normalized(load.sensor_key)
+                path_key = (
+                    WATER_POWER
+                    if load.id in self._water_idle_cutoffs_kw
+                    else EV_POWER
+                    if load.id in self._ev_charger_ids
+                    else None
+                )
+                val = await get_ha_sensor_kw_normalized(load.sensor_key, path_key=path_key)
                 if val is None:
                     load.is_healthy = False
                     load.current_power_kw = 0.0

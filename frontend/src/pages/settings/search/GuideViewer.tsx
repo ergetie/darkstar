@@ -2,6 +2,7 @@ import React from 'react'
 import { BookOpen } from 'lucide-react'
 import Modal from '../../../components/ui/Modal'
 import { Guide } from './guides'
+import { substituteCurrencyTokens, useCurrency } from '../../../lib/currency'
 import { ViewerContent } from './viewerContent'
 import { fieldSearchIndex } from './index'
 
@@ -13,12 +14,19 @@ interface GuideViewerProps {
 }
 
 export const GuideViewer: React.FC<GuideViewerProps> = ({ content, onClose, onJumpToField, onOpenGuide }) => {
+    const currency = useCurrency()
     return (
         <Modal open={!!content} onOpenChange={(open) => !open && onClose()} title={content?.title} size="lg">
             {content && (
                 <div className="space-y-4">
-                    {content.summary && <p className="text-sm text-muted italic">{content.summary}</p>}
-                    <div className="text-sm text-text leading-relaxed whitespace-pre-line">{content.body}</div>
+                    {content.summary && (
+                        <p className="text-sm text-muted italic">
+                            {substituteCurrencyTokens(content.summary, currency)}
+                        </p>
+                    )}
+                    <div className="text-sm text-text leading-relaxed whitespace-pre-line">
+                        {substituteCurrencyTokens(content.body, currency)}
+                    </div>
                     {content.relatedFieldKeys.length > 0 && (
                         <div>
                             <div className="text-[10px] font-bold uppercase tracking-wider text-muted mb-2">
@@ -38,7 +46,7 @@ export const GuideViewer: React.FC<GuideViewerProps> = ({ content, onClose, onJu
                                             }}
                                             className="rounded-lg border border-line/50 bg-surface2 px-3 py-1.5 text-xs font-medium text-text hover:border-accent/50 hover:text-accent transition-colors"
                                         >
-                                            {entry.label}
+                                            {substituteCurrencyTokens(entry.label, currency)}
                                             <span className="ml-1.5 text-muted">· {entry.tabLabel}</span>
                                         </button>
                                     )

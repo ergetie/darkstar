@@ -13,6 +13,14 @@ import {
 } from '../../lib/api'
 import type { InverterProfile } from '../../pages/settings/types'
 import { applicableSteps, type StepId, type StepProps } from './steps'
+import {
+    SensorUnitContext,
+    readUnitOverrides,
+    unitOverridesPatch,
+    withUnitOverride,
+    type SensorUnitControl,
+} from '../../lib/sensorUnits'
+import { useUnitNeeded } from '../../lib/useUnitNeeded'
 import { getPath, hasFiniteNumber, isConfigured, prefillHighConfidence, setPath, type WizardConfig } from './helpers'
 
 type Props = { onClose: () => void }
@@ -150,6 +158,19 @@ export function OnboardingWizard({ onClose }: Props) {
     const update = useCallback((path: string, value: unknown) => {
         setConfig((current) => (current ? setPath(current, path, value) : current))
     }, [])
+
+    const { isChoiceVisible } = useUnitNeeded(config)
+    const unitOverrides = useMemo(() => readUnitOverrides(config), [config])
+    const sensorUnits = useMemo<SensorUnitControl>(
+        () => ({
+            isChoiceVisible,
+            overrides: unitOverrides,
+            // The entity id contains a dot, so the whole map is written instead of a dotted path.
+            setOverride: (entityId, unit) =>
+                update('sensor_unit_overrides', withUnitOverride(unitOverrides, entityId, unit)),
+        }),
+        [isChoiceVisible, unitOverrides, update],
+    )
 
     const applyCoreDefaults = useCallback(async () => {
         if (autoDefaultsLoaded.current) return
@@ -350,7 +371,10 @@ export function OnboardingWizard({ onClose }: Props) {
         setErrorMessage(null)
         setWarnings([])
         try {
-            const patch = activeStep.buildPatch(config, profiles)
+            const patch = {
+                ...activeStep.buildPatch(config, profiles),
+                ...unitOverridesPatch(readUnitOverrides(initialConfig), unitOverrides),
+            }
             if (Object.keys(patch).length) {
                 const result = await Api.configSave(patch)
                 setWarnings(result.warnings ?? [])
@@ -567,7 +591,9 @@ export function OnboardingWizard({ onClose }: Props) {
                             you.
                         </div>
                     )}
-                    <StepComponent {...stepProps} />
+                    <SensorUnitContext.Provider value={sensorUnits}>
+                        <StepComponent {...stepProps} />
+                    </SensorUnitContext.Provider>
                 </section>
                 <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface2 p-4 sm:p-6">
                     <div className="flex gap-2">

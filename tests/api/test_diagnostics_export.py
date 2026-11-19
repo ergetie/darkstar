@@ -143,6 +143,40 @@ def test_bundle_contents(env, tmp_path_factory):
     assert _leftovers(env.root) == []
 
 
+def test_bundle_includes_rotated_log_when_present(env):
+    (env.root / "data" / "darkstar.log.1").write_text("older line\n")
+
+    resp = env.client.get("/api/system/diagnostics")
+
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    assert zf.read("darkstar.log.1") == b"older line\n"
+    manifest = json.loads(zf.read("manifest.json"))
+    assert manifest["items"]["darkstar.log.1"] == "included"
+
+
+def test_clear_logs_truncates_active_log_and_removes_backups(env):
+    data = env.root / "data"
+    (data / "darkstar.log").write_text("active\n")
+    for n in range(1, 6):
+        (data / f"darkstar.log.{n}").write_text("old\n")
+    legacy = data / "darkstar.log.2020-01-01"
+    legacy.write_text("legacy\n")
+
+    resp = env.client.delete("/api/system/logs")
+
+    assert resp.status_code == 200
+    assert (data / "darkstar.log").read_text() == ""
+    assert [p.name for p in data.glob("darkstar.log.[0-9]")] == []
+    assert legacy.exists()
+
+
+def test_clear_logs_without_backups(env):
+    resp = env.client.delete("/api/system/logs")
+
+    assert resp.status_code == 200
+    assert (env.root / "data" / "darkstar.log").read_text() == ""
+
+
 def test_bundle_never_reads_secrets(env, monkeypatch):
     (env.root / "secrets.yaml").write_text("home_assistant:\n  token: SECRET\n")
     real_open = Path.read_bytes

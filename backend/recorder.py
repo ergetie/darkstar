@@ -247,7 +247,7 @@ async def record_observation_from_current_state(
     input_sensors = config.get("input_sensors", {})
 
     # Helper to get sensor value and convert W to kW if needed.
-    # Uses get_ha_sensor_kw_normalized which reads unit_of_measurement from HA
+    # Uses get_ha_sensor_kw_normalized which resolves the sensor's unit (resolve_power_unit)
     # and only divides by 1000 when the sensor reports in Watts.
     # This correctly handles both W-reporting (most inverters) and
     # kW-reporting (Fronius SolarNet) sensors automatically.

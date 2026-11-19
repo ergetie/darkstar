@@ -43,12 +43,11 @@ ports_description:
 # NOTE: All other settings (entities, battery, solar, etc.) are configured
 #       via the Darkstar web UI after first boot.
 options:
-  timezone: "Europe/Stockholm"
   log_level: "info"
 
 # Schema (validates options)
 schema:
-  timezone: str
+  timezone: str?
   log_level: list(debug|info|warning|error)
 
 # Data persistence

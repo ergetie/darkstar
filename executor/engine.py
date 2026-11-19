@@ -42,7 +42,9 @@ from backend.core.ev_live_state import (
 )
 from backend.core.ev_plug import is_unreachable_state
 from backend.core.exception_text import describe_exception
+from backend.core.ha_client import resolve_power_unit
 from backend.core.ha_timestamps import reading_timestamp
+from backend.core.power_sensors import EV_PHASE_POWER, LOAD_DEVICE_POWER
 
 # Import existing HA config loader
 from backend.core.secrets import load_home_assistant_config
@@ -1705,6 +1707,7 @@ class ExecutorEngine:
                             await self.dispatcher.notify_error(self._stale_schedule_warning)
                         self._stale_schedule_alerted = True
                 else:
+                    # Valid schedule with no slot covering now (not a schedule-validity cause).
                     logger.warning("No valid slot found for current time")
 
             # 3. Gather system state
@@ -1717,7 +1720,7 @@ class ExecutorEngine:
 
             # D1: Honor manual override — skip all writes but keep telemetry
             skip_writes = state.manual_override_active
-            # Holding on a stale or timestamp-less schedule is not a counted tick.
+            # Idle fallback without a valid schedule is not a counted tick.
             tick_uncounted = (
                 tick_uncounted
                 or skip_writes
@@ -2506,6 +2509,20 @@ class ExecutorEngine:
         self._write_system_state(EV_CHARGE_NOTICE_KEY, json.dumps({"active": False}))
         self._ev_notice_active = False
 
+    def _no_valid_schedule(self, reason: str) -> None:
+        """Record that no valid schedule exists; the tick raises one alert per transition.
+
+        Logs WARNING on the first occurrence of a valid-to-invalid transition and
+        DEBUG once the alert has fired, so a missing schedule does not flood the
+        log every tick.
+        """
+        msg = f"{reason} - no valid schedule, idle fallback"
+        self._stale_schedule_warning = msg
+        if self._stale_schedule_alerted:
+            logger.debug(msg)
+        else:
+            logger.warning(msg)
+
     def _load_current_slot(self, now: datetime) -> tuple[SlotPlan | None, str | None]:
         """
         Load the current slot from schedule.json.
@@ -2514,10 +2531,12 @@ class ExecutorEngine:
         Also sets self._next_slot to the slot starting where the current one
         ends (None if absent, no current slot, or the schedule is stale).
         """
+        # Reset first so a warning never outlives its cause on any early return.
+        self._stale_schedule_warning = None
         self._next_slot = None
         schedule_path = self.config.schedule_path
         if not Path(schedule_path).exists():
-            logger.warning("Schedule file not found: %s", schedule_path)
+            self._no_valid_schedule(f"Schedule file not found: {schedule_path}")
             return None, None
 
         try:
@@ -2525,16 +2544,16 @@ class ExecutorEngine:
                 payload: dict[str, Any] = json.load(f)
             schedule = payload.get("schedule", [])
         except Exception as e:
-            logger.error("Failed to load schedule: %s", e)
+            self._no_valid_schedule(f"Schedule file unreadable ({describe_exception(e)})")
             return None, None
 
         if not schedule:
+            self._no_valid_schedule("Schedule is empty")
             return None, None
 
         tz = pytz.timezone(self.config.timezone)
 
         # D3: Reject stale schedules — planner may be down
-        self._stale_schedule_warning = None
         meta: dict[str, Any] = {}
         raw_meta = payload.get("meta")
         if isinstance(raw_meta, dict):
@@ -2556,21 +2575,17 @@ class ExecutorEngine:
                 generated_at = None
 
         if generated_at is None:
-            msg = "Schedule has no generated_at — holding"
-            logger.warning(msg)
-            self._stale_schedule_warning = msg
+            self._no_valid_schedule("Schedule has no generated_at")
             return None, None
 
         max_age = timedelta(hours=self.config.max_schedule_age_hours)
         age = now - generated_at
         if age > max_age:
             age_hours = age.total_seconds() / 3600
-            msg = (
+            self._no_valid_schedule(
                 f"Schedule is stale ({age_hours:.1f}h old, "
-                f"max {self.config.max_schedule_age_hours}h) — holding"
+                f"max {self.config.max_schedule_age_hours}h)"
             )
-            logger.warning(msg)
-            self._stale_schedule_warning = msg
             return None, None
 
         # Find the slot that contains the current time
@@ -3130,8 +3145,18 @@ class ExecutorEngine:
             if power_value is None:
                 continue
             attrs = cast("dict[str, Any]", power_state.get("attributes") or {})
+            # A user-chosen unit settles a sensor Home Assistant gives none; otherwise
+            # the device class decides, as before.
+            shed_unit = resolve_power_unit(
+                power_entity,
+                attrs.get("unit_of_measurement"),
+                path_key=LOAD_DEVICE_POWER,
+                warn_unitless=False,
+            )
             unit_kind = classify_phase_sensor_unit(
-                cast("str | None", attrs.get("unit_of_measurement")),
+                shed_unit.unit
+                if shed_unit.source != "assumed"
+                else cast("str | None", attrs.get("unit_of_measurement")),
                 cast("str | None", attrs.get("device_class")),
             )
             if unit_kind == "power_kw":
@@ -5153,7 +5178,15 @@ class ExecutorEngine:
                 value = abs(float(value_str))
             except (TypeError, ValueError):
                 continue
-            unit = str(raw_state.get("attributes", {}).get("unit_of_measurement", "")).upper()
+            # A unitless phase sensor reads amps, so only a reported unit or a user
+            # override selects a power unit here.
+            resolved = resolve_power_unit(
+                entity,
+                raw_state.get("attributes", {}).get("unit_of_measurement"),
+                path_key=EV_PHASE_POWER,
+                warn_unitless=False,
+            )
+            unit = resolved.unit.upper() if resolved.source != "assumed" else ""
             if unit == "W":
                 is_active = value > _EV_PHASE_ACTIVE_THRESHOLD_W
                 amps.append(value / voltage_v)

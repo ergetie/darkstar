@@ -18,6 +18,7 @@ import CostSeriesChart from '../components/CostSeriesChart'
 import type { CostSeriesResponse, GridOnlyComparison } from '../lib/api'
 import { BatteryCharging, Flame } from 'lucide-react'
 import { useToast } from '../lib/useToast'
+import { displayTimeZone } from '../lib/timezone'
 
 export default function DesignSystem() {
     const { toast } = useToast()
@@ -44,7 +45,7 @@ export default function DesignSystem() {
         },
     ]
     const axis = {
-        timezone: 'Europe/Stockholm',
+        timezone: displayTimeZone(),
         start: '2026-10-05T00:00:00+02:00',
         end: '2026-10-06T00:00:00+02:00',
     }
@@ -225,7 +226,7 @@ export default function DesignSystem() {
             water_unmeasured_hours: 0,
         },
         time_axis: {
-            timezone: 'Europe/Stockholm',
+            timezone: displayTimeZone(),
             start: '2026-10-25T00:00:00+02:00',
             end: '2026-10-26T00:00:00+01:00',
         },

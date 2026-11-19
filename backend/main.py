@@ -13,7 +13,6 @@ from pathlib import Path
 
 import socketio
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -42,6 +41,7 @@ from backend.api.routers.executor import get_executor_instance
 from backend.api.routers.forecast import forecast_router
 from backend.api.routers.price_forecast import router as price_forecast_router
 from backend.core.websockets import ws_manager
+from backend.middleware.fetch_site import FetchSiteGuard
 
 logger = logging.getLogger("darkstar.main")
 
@@ -296,7 +296,7 @@ def validate_path(base_dir: Path, requested_path: str) -> Path:
         raise HTTPException(status_code=404, detail="Not found") from None
 
 
-def create_app() -> socketio.ASGIApp:
+def create_app() -> FetchSiteGuard:
     """Factory to create the ASGI app."""
 
     # 1. Create FastAPI App
@@ -309,14 +309,8 @@ def create_app() -> socketio.ASGIApp:
         lifespan=lifespan,
     )
 
-    # 2. CORS (Permissive for local dev)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # 2. No CORS: responses carry no Access-Control-Allow-Origin, so browsers cannot
+    # read cross-origin responses. Cross-site writes are rejected by FetchSiteGuard (step 6).
 
     # 3. Timing Middleware for Performance Monitoring (Rev PERF1)
     from backend.middleware.timing import TimingMiddleware
@@ -443,9 +437,11 @@ def create_app() -> socketio.ASGIApp:
     # This intercepts /socket.io requests and passes others to FastAPI
     socket_app = socketio.ASGIApp(ws_manager.sio, other_asgi_app=app)
 
-    return socket_app
+    # 7. Outermost guard: rejects cross-site writes and WebSocket handshakes for both
+    # FastAPI and Socket.IO traffic. Exposes `other_asgi_app` for tests and CI.
+    return FetchSiteGuard(socket_app)
 
 
 # The entry point for uvicorn
 # Usage: uvicorn backend.main:app
-app: socketio.ASGIApp = create_app()
+app: FetchSiteGuard = create_app()

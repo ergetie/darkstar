@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react'
 import Switch from '../../../components/ui/Switch'
 import Select from '../../../components/ui/Select'
 import { NumberInput } from '../../../components/ui/NumberInput'
+import { labelWithUnit, useCurrencyFormat } from '../../../lib/currency'
 import {
     MONTH_LABELS,
     WEEKDAY_LABELS,
@@ -111,8 +112,8 @@ function ruleName(ruleIndex: number | null): string {
     return ruleIndex === null ? 'All other times' : `Rule ${ruleIndex + 1}`
 }
 
-function hourLabel(h: { hour: number; fee: number; ruleIndex: number | null }): string {
-    return `${hourRange(h.hour)}: ${h.fee.toFixed(2)} SEK/kWh (${ruleName(h.ruleIndex)})`
+function hourLabel(h: { hour: number; ruleIndex: number | null }, fee: string): string {
+    return `${hourRange(h.hour)}: ${fee} (${ruleName(h.ruleIndex)})`
 }
 
 interface PreviewProps {
@@ -123,6 +124,7 @@ interface PreviewProps {
 }
 
 export const TransferFeePreview: React.FC<PreviewProps> = ({ mode, rules, flatFee, holidaysAsWeekend }) => {
+    const { price } = useCurrencyFormat()
     const [date, setDate] = useState(todayIso)
     // Computed on every render (24 cheap lookups) so unsaved edits show immediately.
     const hours = /^\d{4}-\d{2}-\d{2}$/.test(date)
@@ -181,7 +183,7 @@ export const TransferFeePreview: React.FC<PreviewProps> = ({ mode, rules, flatFe
             >
                 {hours.map((h, i) => {
                     const strength = max > min ? 0.25 + (0.75 * (h.fee - min)) / (max - min) : 0.5
-                    const label = hourLabel(h)
+                    const label = hourLabel(h, price(h.fee))
                     return (
                         <button
                             key={h.hour}
@@ -213,7 +215,7 @@ export const TransferFeePreview: React.FC<PreviewProps> = ({ mode, rules, flatFe
                         style={{ left: active.x, top: active.y - 6 }}
                     >
                         <div className="font-mono text-text">{hourRange(activeHour.hour)}</div>
-                        <div className="text-text font-semibold">{activeHour.fee.toFixed(2)} SEK/kWh</div>
+                        <div className="text-text font-semibold">{price(activeHour.fee)}</div>
                         <div className="text-muted">{ruleName(activeHour.ruleIndex)}</div>
                     </div>,
                     document.body,
@@ -227,9 +229,7 @@ export const TransferFeePreview: React.FC<PreviewProps> = ({ mode, rules, flatFe
             </div>
             {fees.length > 0 && (
                 <p className="text-[11px] text-muted">
-                    {min === max
-                        ? `${min.toFixed(2)} SEK/kWh all day`
-                        : `${min.toFixed(2)}–${max.toFixed(2)} SEK/kWh (darker = higher)`}
+                    {min === max ? `${price(min)} all day` : `${min.toFixed(2)}–${price(max)} (darker = higher)`}
                 </p>
             )}
         </div>
@@ -247,6 +247,8 @@ export const TransferFeeRulesEditor: React.FC<TransferFeeRulesEditorProps> = ({
     onHolidaysChange,
     disabled,
 }) => {
+    const { priceUnit } = useCurrencyFormat()
+    const feeLabel = labelWithUnit('Fee', priceUnit())
     const updateRule = (index: number, updates: Partial<TransferFeeRule>) => {
         onRulesChange(rules.map((r, i) => (i === index ? { ...r, ...updates } : r)))
     }
@@ -307,7 +309,7 @@ export const TransferFeeRulesEditor: React.FC<TransferFeeRulesEditorProps> = ({
 
             {mode === 'flat' ? (
                 <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-bold text-muted">Fee (SEK/kWh)</label>
+                    <label className="text-[10px] uppercase font-bold text-muted">{feeLabel}</label>
                     <NumberInput
                         aria-label="Flat transfer fee"
                         value={flatFee}
@@ -413,7 +415,7 @@ export const TransferFeeRulesEditor: React.FC<TransferFeeRulesEditorProps> = ({
                                         </div>
                                         <div>
                                             <div className="text-[10px] uppercase font-bold text-muted mb-1.5">
-                                                Fee (SEK/kWh)
+                                                {feeLabel}
                                             </div>
                                             <NumberInput
                                                 aria-label={`Rule ${index + 1} fee`}
@@ -446,7 +448,7 @@ export const TransferFeeRulesEditor: React.FC<TransferFeeRulesEditorProps> = ({
                                 <p className="text-[11px] text-muted">Used when no rule above matches.</p>
                             </div>
                             <div>
-                                <div className="text-[10px] uppercase font-bold text-muted mb-1.5">Fee (SEK/kWh)</div>
+                                <div className="text-[10px] uppercase font-bold text-muted mb-1.5">{feeLabel}</div>
                                 <NumberInput
                                     aria-label="All other times fee"
                                     value={flatFee}

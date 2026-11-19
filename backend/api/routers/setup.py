@@ -1,5 +1,6 @@
 """Backend services for guided setup, without controlling hardware."""
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -15,6 +16,12 @@ from backend.core.onboarding_state import (
 )
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
+
+
+class SensorUnitsRequest(BaseModel):
+    """Draft (unsaved) configuration whose power sensors are checked for a missing unit."""
+
+    config: dict[str, Any]
 
 
 @router.get("/onboarding")
@@ -96,3 +103,32 @@ async def get_readiness() -> dict[str, Any]:
     from backend.core.secrets import load_yaml
 
     return await check_readiness(load_yaml("config.yaml"))
+
+
+@router.post("/sensor-units")
+async def post_sensor_units(body: SensorUnitsRequest) -> dict[str, Any]:
+    """List the draft config's power sensors that need a W or kW choice.
+
+    Reads only the referenced entities' live states from Home Assistant (one request
+    each, concurrently). It never runs the planner and saves nothing.
+    """
+    from backend.core.ha_client import get_ha_entity_state, reported_unit_of
+    from backend.core.power_sensors import compute_unit_needed, referenced_power_sensors
+
+    entity_ids = sorted(
+        {
+            entity_id
+            for _, _, entity_id in referenced_power_sensors(
+                body.config, unitless_reportable_only=True
+            )
+        }
+    )
+    fetched = await asyncio.gather(*(get_ha_entity_state(entity_id) for entity_id in entity_ids))
+    states: dict[str, dict[str, Any]] = {}
+    for entity_id, state in zip(entity_ids, fetched, strict=True):
+        if state:
+            states[entity_id] = {
+                "state": state.get("state"),
+                "unit_of_measurement": reported_unit_of(state),
+            }
+    return {"unit_needed": compute_unit_needed(body.config, states)}

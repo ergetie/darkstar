@@ -5,6 +5,7 @@ import {
     computeSparklineBars,
     SPARKLINE_MIN_BAR_PERCENT,
     describePriceReserve,
+    buildPriceOutlookTooltip,
 } from './BatteryStrategyCard'
 import type { PriceOutlookDay, PriceOutlookResponse } from '../lib/api'
 
@@ -146,9 +147,12 @@ describe('describePriceReserve', () => {
     }
 
     it('explains an active reserve with both costs', () => {
-        const r = describePriceReserve({ ...base, price_reserve_reason: 'active', price_reserve_applied_kwh: 7.2 })
+        const r = describePriceReserve(
+            { ...base, price_reserve_reason: 'active', price_reserve_applied_kwh: 7.2 },
+            'SEK',
+        )
         expect(r!.title).toBe('Holding 7.2 kWh extra for Tuesday')
-        expect(r!.detail).toBe('Cheaper to store it: charging now ~80 öre vs ~140 öre on Tuesday')
+        expect(r!.detail).toBe('Cheaper to store it: charging now ~80 öre/kWh vs ~140 öre/kWh on Tuesday')
     })
 
     it('explains why the reserve is inactive', () => {
@@ -160,5 +164,58 @@ describe('describePriceReserve', () => {
 
     it('returns null when the planner sent no reason', () => {
         expect(describePriceReserve({})).toBeNull()
+    })
+})
+
+describe('describePriceReserve currency', () => {
+    const floor = {
+        price_reserve_reason: 'own_day_cheaper' as const,
+        unseen_window_start: '2026-10-06T00:00:00+02:00',
+        known_cost_sek_kwh: 0.12,
+        own_day_cost_sek_kwh: 0.2,
+    }
+
+    it('uses the configured subunit', () => {
+        expect(describePriceReserve(floor, 'EUR')!.detail).toBe(
+            'Compared charging now ~12 cent/kWh vs ~20 cent/kWh on Tuesday',
+        )
+    })
+
+    it('shows plain numbers before the currency is known', () => {
+        expect(describePriceReserve(floor)!.detail).toBe('Compared charging now ~0.12 vs ~0.20 on Tuesday')
+    })
+})
+
+describe('buildPriceOutlookTooltip', () => {
+    const day = makeDay({
+        day_label: 'Tue',
+        avg_spot_p50: 2.9,
+        avg_spot_p10: 1.5,
+        avg_spot_p90: 4.25,
+        min_hour_p50: 0.8,
+        max_hour_p50: 5.1,
+    })
+
+    it('shows the day average in the price unit, not in subunits', () => {
+        const text = buildPriceOutlookTooltip(day, 'SEK')
+        expect(text.split('\n')[0]).toBe('Tue: 2.90 SEK/kWh')
+        expect(text).not.toContain('öre')
+    })
+
+    it('labels percentiles and hour extremes', () => {
+        expect(buildPriceOutlookTooltip(day, 'SEK').split('\n')).toEqual([
+            'Tue: 2.90 SEK/kWh',
+            'P10: 1.50 SEK/kWh',
+            'P90: 4.25 SEK/kWh',
+            'Lowest hour: 0.80 SEK/kWh',
+            'Highest hour: 5.10 SEK/kWh',
+        ])
+    })
+
+    it('follows the configured currency and omits missing percentiles', () => {
+        const text = buildPriceOutlookTooltip({ ...day, avg_spot_p10: null, avg_spot_p90: null }, 'EUR')
+        expect(text).toContain('Tue: 2.90 EUR/kWh')
+        expect(text).not.toContain('P10')
+        expect(text).not.toContain('SEK')
     })
 })

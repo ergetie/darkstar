@@ -1,4 +1,5 @@
 import { BaseField } from './types'
+import { getCurrency, substituteCurrencyTokens } from '../../lib/currency'
 import { defaultFusePoints } from './fuseCurve'
 
 function displayScaledNumber(value: number, scale: number): number {
@@ -260,7 +261,7 @@ export function listChangedFields(
                 if (parsedCompanion !== currentCompanion) {
                     changes.push({
                         key: field.companionKey,
-                        label: field.label,
+                        label: substituteCurrencyTokens(field.label, getCurrency()),
                         oldValue: displayValue(currentCompanion, 'boolean'),
                         newValue: displayValue(parsedCompanion, 'boolean'),
                     })
@@ -295,7 +296,7 @@ export function listChangedFields(
 
         changes.push({
             key: field.key,
-            label: field.label,
+            label: substituteCurrencyTokens(field.label, getCurrency()),
             oldValue: displayValue(
                 field.displayScale && typeof currentValue === 'number'
                     ? displayScaledNumber(currentValue, field.displayScale)

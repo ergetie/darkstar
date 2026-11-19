@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md,json}\"",
     "extract-help": "node ../scripts/extract-config-help.js",
     "test": "vitest run",

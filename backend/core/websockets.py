@@ -27,7 +27,7 @@ class WebSocketManager:
             # REV F11 DEBUG: Enable verbose logging
             cls._instance.sio = socketio.AsyncServer(
                 async_mode="asgi",
-                cors_allowed_origins="*",
+                cors_allowed_origins=[],  # No CORS headers; cross-site guard lives in FetchSiteGuard
                 logger=False,  # Disable Socket.IO logging (Rev F21)
                 engineio_logger=False,  # Disable Engine.IO logging (Rev F21)
             )

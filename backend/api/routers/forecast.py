@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytz
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import case, func, select
 
@@ -370,11 +370,8 @@ class BriefingRequest(BaseModel):
 
 
 @router.post("/briefing")
-async def aurora_briefing(request: Request):
-    try:
-        dashboard = await request.json()
-    except Exception:
-        raise HTTPException(400, "Invalid JSON") from None
+async def aurora_briefing(body: BriefingRequest):
+    dashboard = body.model_dump()
 
     _, config = _get_engine_and_config()
     try:

@@ -24,6 +24,7 @@ import LoadBalancerStatusCard from '../components/LoadBalancerStatusCard'
 
 import { useSocket } from '../lib/hooks'
 import { Api } from '../lib/api'
+import { displayLocale, displayTimeZone } from '../lib/timezone'
 
 // Must match executor/engine.py's EV_KEEP_ON_REASON_MARKER — history rows have
 // no structured keep-on field (KISS, no DB migration), so the standby badge
@@ -595,7 +596,12 @@ export default function Executor() {
     const formatTime = (iso?: string) => {
         if (!iso) return '—'
         try {
-            return new Date(iso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })
+            return new Date(iso).toLocaleTimeString(displayLocale(), {
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23',
+                timeZone: displayTimeZone(),
+            })
         } catch {
             return iso
         }
@@ -604,7 +610,9 @@ export default function Executor() {
     const formatDateTime = (iso?: string) => {
         if (!iso) return '—'
         try {
-            return new Date(iso).toLocaleString('sv-SE', {
+            return new Date(iso).toLocaleString(displayLocale(), {
+                timeZone: displayTimeZone(),
+                hourCycle: 'h23',
                 month: 'short',
                 day: 'numeric',
                 hour: '2-digit',

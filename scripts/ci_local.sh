@@ -15,7 +15,7 @@ cd "$(git rev-parse --show-toplevel)"
 # the repo as a uv project and regenerates a meaningless uv.lock stub on every call.
 export UV_NO_SYNC=1
 
-echo "▶ [0/5] Upstream sync check"
+echo "▶ [0/8] Upstream sync check"
 # Fail fast (before the slow checks) when the remote branch has commits we lack:
 # the push would be rejected anyway. Offline / no upstream: warn and continue.
 if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)"; then
@@ -34,16 +34,16 @@ else
   echo "  (no upstream configured — skipping upstream check)"
 fi
 
-echo "▶ [1/5] Ruff (lint)"
+echo "▶ [1/8] Ruff (lint)"
 uv run ruff check backend/ planner/ ml/ executor/
 
-echo "▶ [2/5] Pyright (types)"
+echo "▶ [2/8] Pyright (types)"
 uv run pyright
 
-echo "▶ [3/5] Pytest (full suite)"
+echo "▶ [3/8] Pytest (full suite)"
 uv run python -m pytest -q
 
-echo "▶ [4/5] OpenAPI schema export + validate"
+echo "▶ [4/8] OpenAPI schema export + validate"
 uv run python -c "
 import sys
 sys.path.insert(0, '.')
@@ -58,11 +58,32 @@ assert len(schema['paths']) > 50, f'Expected 50+ routes, got {len(schema[\"paths
 print(f'OpenAPI schema valid: {len(schema[\"paths\"])} paths defined')
 "
 
-echo "▶ [5/5] Frontend ESLint"
+echo "▶ [5/8] Frontend ESLint"
 if command -v pnpm >/dev/null 2>&1; then
   (cd frontend && pnpm lint)
 else
   echo "  (pnpm not found — skipping frontend lint; CI still runs it)"
+fi
+
+echo "▶ [6/8] Frontend typecheck (tsc)"
+if command -v pnpm >/dev/null 2>&1; then
+  (cd frontend && pnpm typecheck)
+else
+  echo "  (pnpm not found — skipping frontend typecheck; CI still runs it)"
+fi
+
+echo "▶ [7/8] Frontend tests (vitest)"
+if command -v pnpm >/dev/null 2>&1; then
+  (cd frontend && pnpm test)
+else
+  echo "  (pnpm not found — skipping frontend tests; CI still runs them)"
+fi
+
+echo "▶ [8/8] Frontend build (vite)"
+if command -v pnpm >/dev/null 2>&1; then
+  (cd frontend && pnpm build)
+else
+  echo "  (pnpm not found — skipping frontend build; CI still runs it)"
 fi
 
 echo "✓ All CI checks passed — safe to push."

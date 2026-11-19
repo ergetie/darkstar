@@ -1,6 +1,12 @@
 import logging
+from collections.abc import Iterator
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
+import pytest
 from pythonjsonlogger import json as jsonlogger
-from backend.core.logging import EmojiFormatter, RingBufferHandler
+
+from backend.core.logging import EmojiFormatter, RingBufferHandler, setup_logging
 
 
 def test_emoji_formatter_warning():
@@ -168,3 +174,50 @@ def test_ring_buffer_warning_gets_emoji():
     handler.emit(record)
     logs = handler.get_logs()
     assert logs[-1]["message"].startswith("⚠️")
+
+
+@pytest.fixture
+def file_handler(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[RotatingFileHandler]:
+    """Run setup_logging in a temp working dir and yield the file handler it installs."""
+    root = logging.getLogger()
+    before_handlers = list(root.handlers)
+    before_level = root.level
+    monkeypatch.chdir(tmp_path)
+    setup_logging()
+    added = [h for h in root.handlers if h not in before_handlers]
+    handler = next(h for h in added if isinstance(h, RotatingFileHandler))
+    yield handler
+    for h in added:
+        root.removeHandler(h)
+    handler.close()
+    root.setLevel(before_level)
+
+
+def test_file_handler_is_size_rotating(file_handler: RotatingFileHandler):
+    assert type(file_handler) is RotatingFileHandler
+    assert file_handler.maxBytes == 10 * 1024 * 1024
+    assert file_handler.backupCount == 5
+    assert file_handler.encoding == "utf-8"
+    assert file_handler.mode == "a"
+
+
+def test_file_handler_rolls_over_to_numbered_backup(
+    file_handler: RotatingFileHandler, tmp_path: Path
+):
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname="test.py",
+        lineno=1,
+        msg="x" * (file_handler.maxBytes + 1),
+        args=(),
+        exc_info=None,
+    )
+    file_handler.emit(record)  # exceeds maxBytes, stays in the active file
+    file_handler.emit(record)  # triggers the rollover before writing
+
+    log_dir = tmp_path / "data"
+    assert (log_dir / "darkstar.log.1").is_file()
+    assert (log_dir / "darkstar.log.1").stat().st_size > file_handler.maxBytes
+    assert not (log_dir / "darkstar.log.2").exists()
+    assert (log_dir / "darkstar.log").is_file()

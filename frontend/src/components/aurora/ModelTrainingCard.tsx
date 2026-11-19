@@ -4,6 +4,7 @@ import Card from '../Card'
 import { Api } from '../../lib/api'
 import type { TrainingStatusResponse, TrainingHistoryResponse } from '../../lib/api'
 import { useSocket } from '../../lib/hooks'
+import { displayLocale, displayTimeZone } from '../../lib/timezone'
 
 export default function ModelTrainingCard() {
     const [status, setStatus] = useState<TrainingStatusResponse | null>(null)
@@ -111,10 +112,11 @@ export default function ModelTrainingCard() {
                         <CalendarClock className="h-3 w-3" />
                         <span>
                             Next:{' '}
-                            {new Date(scheduler.next_training_at).toLocaleString('sv-SE', {
+                            {new Date(scheduler.next_training_at).toLocaleString(displayLocale(), {
+                                timeZone: displayTimeZone(),
+                                hourCycle: 'h23',
                                 hour: '2-digit',
                                 minute: '2-digit',
-                                hour12: false,
                             })}
                         </span>
                     </div>
@@ -153,13 +155,14 @@ export default function ModelTrainingCard() {
                                             <AlertTriangle className="h-3 w-3 text-amber-400" />
                                         )}
                                         <span className="text-text">
-                                            {new Date(run.run_date).toLocaleString('sv-SE', {
+                                            {new Date(run.run_date).toLocaleString(displayLocale(), {
+                                                timeZone: displayTimeZone(),
+                                                hourCycle: 'h23',
                                                 year: 'numeric',
                                                 month: '2-digit',
                                                 day: '2-digit',
                                                 hour: '2-digit',
                                                 minute: '2-digit',
-                                                hour12: false,
                                             })}
                                         </span>
                                     </div>

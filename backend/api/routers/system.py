@@ -25,7 +25,15 @@ from backend.api.models.system import (
 )
 from backend.core.ev_plug import DEFAULT_EV_PLUGGED_IN_STATES
 from backend.core.ha_client import get_ha_bool, get_ha_sensor_float, get_ha_sensor_kw_normalized
+from backend.core.logging import LOG_BACKUP_COUNT
 from backend.core.onboarding_state import NoticeId, acknowledge_warning
+from backend.core.power_sensors import (
+    BATTERY_POWER,
+    EV_POWER,
+    GRID_POWER,
+    LOAD_POWER,
+    PV_POWER,
+)
 from backend.core.secrets import load_yaml
 from backend.core.version import get_version as _get_git_version
 from backend.learning.store import LearningStore
@@ -65,15 +73,21 @@ async def get_system_status() -> StatusResponse:
     sensors: dict[str, Any] = config.get("input_sensors", {})
 
     # Define keys to fetch
-    keys = ["battery_soc", "pv_power", "load_power", "battery_power", "grid_power"]
+    keys = [
+        ("battery_soc", None),
+        ("pv_power", PV_POWER),
+        ("load_power", LOAD_POWER),
+        ("battery_power", BATTERY_POWER),
+        ("grid_power", GRID_POWER),
+    ]
     tasks: list[Coroutine[Any, Any, float | None]] = []
-    for key in keys:
+    for key, path_key in keys:
         eid = sensors.get(key)
         if eid:
-            if key == "battery_soc":
+            if path_key is None:
                 tasks.append(get_ha_sensor_float(str(eid)))
             else:
-                tasks.append(get_ha_sensor_kw_normalized(str(eid)))
+                tasks.append(get_ha_sensor_kw_normalized(str(eid), path_key=path_key))
         else:
             tasks.append(asyncio.sleep(0, result=0.0))
 
@@ -87,7 +101,9 @@ async def get_system_status() -> StatusResponse:
     for ev in ev_configs:
         sensor = ev.get("sensor")
         tasks.append(
-            get_ha_sensor_kw_normalized(str(sensor)) if sensor else asyncio.sleep(0, result=0.0)
+            get_ha_sensor_kw_normalized(str(sensor), path_key=EV_POWER)
+            if sensor
+            else asyncio.sleep(0, result=0.0)
         )
 
         soc_sensor = ev.get("soc_sensor")
@@ -128,10 +144,6 @@ async def get_system_status() -> StatusResponse:
     for i, ev in enumerate(ev_configs):
         idx = base_idx + i * 3
         kw = results[idx] or 0.0
-        # If in Watts, convert to kW (best effort if HA provides numeric only, inputs.py float doesn't convert W to kW but ha_socket does)
-        # Assuming inputs.py get_ha_sensor_float returns exact numeric value
-        # But wait, ha_socket converts W to kW if unit_of_measurement is 'W'. Let's not duplicate that complexity unless needed.
-        # Typically people set kW for EVs.
         ev_soc = results[idx + 1]
         plugged = results[idx + 2] or False
 
@@ -202,7 +214,7 @@ async def download_logs():
 @router.delete(
     "/api/system/logs",
     summary="Clear/Truncate Log File",
-    description="Truncates the main log file to zero bytes.",
+    description="Truncates the main log file to zero bytes and deletes rotated backups.",
 )
 async def clear_logs():
     """Clear/Truncate the main log file."""
@@ -211,6 +223,8 @@ async def clear_logs():
         if log_path.exists():
             with log_path.open("w") as f:
                 f.truncate(0)
+        for n in range(1, LOG_BACKUP_COUNT + 1):
+            log_path.with_name(f"{log_path.name}.{n}").unlink(missing_ok=True)
         return {"status": "ok", "message": "Logs cleared"}
     except Exception as e:
         logger.error(f"Failed to clear logs: {e}")
@@ -493,7 +507,10 @@ def _write_bundle_sync(
             ("config.yaml", Path("config.yaml")),
             ("darkstar.log", Path("data/darkstar.log")),
             ("schedule.json", Path("data/schedule.json")),
+            ("darkstar.log.1", Path("data/darkstar.log.1")),
         ):
+            if name == "darkstar.log.1" and not path.is_file():
+                continue  # optional: only present after the first rollover
             try:
                 zf.writestr(name, _read_file(path))
                 items[name] = "included"
@@ -510,7 +527,7 @@ def _write_bundle_sync(
     summary="Export Diagnostics Bundle",
     description=(
         "Returns one zip with a consistent database snapshot, config.yaml as stored on disk, "
-        "the log, schedule.json, version/status/health/monitors output, the load balancer trace and a manifest. "
+        "the log (and the most recent rotated log when present), schedule.json, version/status/health/monitors output, the load balancer trace and a manifest. "
         "Never includes secrets.yaml."
     ),
 )

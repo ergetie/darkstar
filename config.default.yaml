@@ -415,6 +415,11 @@ input_sensors:
 
   synthetic_daily_load_kwh: null  # Estimated daily load (kWh), used when load power history is unusable
 
+# Unit of power sensors that Home Assistant gives no unit_of_measurement (entity id: W or kW).
+# A unit reported by Home Assistant always wins; a sensor without either is read as kW.
+# Normally set from the unit selector next to the sensor in Settings, not by hand.
+sensor_unit_overrides: {}
+
 # Executor (control loop that WRITES to Home Assistant)
 executor:
   enabled: true                                  # Enable executor control loop

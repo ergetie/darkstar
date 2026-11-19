@@ -6,8 +6,10 @@ import zoomPlugin from 'chartjs-plugin-zoom'
 ChartJS.register(zoomPlugin)
 import { sampleChart } from '../lib/sample'
 import { Api, type ConfigResponse } from '../lib/api'
+import { priceUnitLabel, useCurrency } from '../lib/currency'
 import type { ScheduleSlot } from '../lib/types'
-import { formatHour, DaySel, isToday, isTomorrow, wallClockParts } from '../lib/time'
+import { formatHour, DaySel, isToday, isTomorrow, startOfLocalDay, wallClockParts } from '../lib/time'
+import { displayTimeZone } from '../lib/timezone'
 import { hourLabelStep, hourOfLabel } from '../lib/chartTicks'
 import { transferFeeAt, transferFeeConfigFromPricing, type TransferFeeConfig } from '../pages/settings/transferFees'
 import { gridAlpha, isDarkTheme, token, type ChartToken } from '../lib/chartTokens'
@@ -61,9 +63,6 @@ export interface PricingBreakdownConfig {
     timezone: string
 }
 
-/** Backend fallback when `timezone` is unset in config. */
-const DEFAULT_TIMEZONE = 'Europe/Stockholm'
-
 /** Breakdown inputs from `/api/config`; `null` when the config has no `pricing` section. */
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
 export function pricingBreakdownFromConfig(config: ConfigResponse): PricingBreakdownConfig | null {
@@ -74,11 +73,11 @@ export function pricingBreakdownFromConfig(config: ConfigResponse): PricingBreak
         energyTax: p.energy_tax_sek ?? 0,
         supplierMarkup: p.supplier_markup_sek_kwh ?? 0,
         transferFee: transferFeeConfigFromPricing(p),
-        timezone: config.timezone || DEFAULT_TIMEZONE,
+        timezone: config.timezone || displayTimeZone(),
     }
 }
 
-/** Splits a total SEK/kWh price into spot and fees+VAT parts.
+/** Splits a total price per kWh into spot and fees+VAT parts.
  * Total = (Spot + Fees) * (1 + VAT/100); Spot = (Total / (1 + VAT/100)) - Fees.
  * Fees = energy tax + supplier markup + the transfer fee for the slot. In time-of-use mode the fee
  * is resolved from `slotStartIso` (wall-clock in the configured timezone); without a
@@ -285,7 +284,9 @@ const createChartData = (
     values: ChartValues,
     _themeColors: Record<string, string> = {}, // Deprecated - colours come from design tokens
     pricing?: PricingBreakdownConfig,
+    priceUnit = '',
 ): ExtendedChartData => {
+    const withPriceUnit = (name: string) => (priceUnit ? `${name} (${priceUnit})` : name)
     // One colour per series: actual = solid line, plan = dashed line. Before "now" the solid
     // actual runs beside the dashed plan; after "now" only the dashed plan is drawn.
     // Every action (charge/discharge/export/water/EV) is a mark on the strip (see actionStripPlugin).
@@ -364,7 +365,7 @@ const createChartData = (
             // 0: import price (published prices), a soft area behind everything
             {
                 type: 'line',
-                label: 'Import Price (SEK/kWh)',
+                label: withPriceUnit('Import Price'),
                 data: knownPrice,
                 borderColor: () => token('grid', 0.55),
                 backgroundColor: softFill('grid', 0.3),
@@ -478,7 +479,7 @@ const createChartData = (
             // 23: price rests on a forecast (Nordpool not published): lighter, hatched, dashed
             {
                 type: 'line',
-                label: 'Estimated Price (SEK/kWh)',
+                label: withPriceUnit('Estimated Price'),
                 data: estimatedPrice,
                 borderColor: () => token('grid', 0.45),
                 borderDash: [3, 3],
@@ -744,6 +745,7 @@ export default function ChartCard({
     evAwaitingPlugInIds,
     hasWaterHeater = true,
 }: ChartCardProps) {
+    const priceUnit = priceUnitLabel(useCurrency())
     // Stable key so the data effect only re-runs when the set of ids changes.
     const evAwaitingKey = (evAwaitingPlugInIds ?? []).slice().sort().join(',')
     const isMobile = useIsMobile()
@@ -800,11 +802,11 @@ export default function ChartCard({
             typeof price === 'number'
                 ? splitPriceBreakdown(price, liveChartData?.pricingConfig, liveChartData?.slotStarts?.[shownIndex])
                 : null
-        return buildSlotInfo(infoSeries, shownIndex, { breakdown })
-    }, [shownIndex, infoSeries, liveChartData?.pricingConfig, liveChartData?.slotStarts])
+        return buildSlotInfo(infoSeries, shownIndex, { breakdown, priceUnit })
+    }, [shownIndex, infoSeries, liveChartData?.pricingConfig, liveChartData?.slotStarts, priceUnit])
     const compact = useMemo(
-        () => (shownIndex === null || !infoSeries ? null : buildCompactLine(infoSeries, shownIndex)),
-        [shownIndex, infoSeries],
+        () => (shownIndex === null || !infoSeries ? null : buildCompactLine(infoSeries, shownIndex, priceUnit)),
+        [shownIndex, infoSeries, priceUnit],
     )
     const hasEstimated = useMemo(() => estimatedRanges(infoSeries?.estimated).length > 0, [infoSeries])
     const [overlays, setOverlays] = useState(() => {
@@ -1165,6 +1167,7 @@ export default function ChartCard({
                 excessPvPowerKw,
                 evAwaitingKey ? evAwaitingKey.split(',') : [],
                 overlays.showActual,
+                priceUnit,
             )
             if (!liveData) return
 
@@ -1267,6 +1270,7 @@ export default function ChartCard({
         excessPvPowerKw,
         evAwaitingKey,
         hasWaterHeater,
+        priceUnit,
     ])
 
     // Memoize theme colors to prevent unnecessary re-computations
@@ -1465,6 +1469,7 @@ export function buildLiveData(
     excessPvPowerKw: number = 1.0,
     evAwaitingPlugInIds: string[] = [],
     showActual: boolean = false,
+    priceUnit: string = '',
 ): (ExtendedChartData & { hasTomorrowPrices: boolean }) | null {
     const hasTomorrowPrices = slots.some((slot) => isTomorrow(slot.start_time) && slot.import_price_sek_kwh != null)
     const filtered = slots.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
@@ -1492,6 +1497,8 @@ export function buildLiveData(
                     day,
                 },
                 themeColors,
+                undefined,
+                priceUnit,
             ),
             hasTomorrowPrices,
         }
@@ -1514,33 +1521,10 @@ export function buildLiveData(
         }
     }
 
-    // Use the first slot's time as the anchor if available, otherwise fallback to today 00:00
-    // This ensures we align with the actual data being returned, shielding against timezone/date mismatches
-    const anchor = new Date()
-    if (ordered.length > 0) {
-        // Parse the ISO string to extract Date and Offset, resetting time to 00:00:00
-        // Format: YYYY-MM-DDTHH:MM:SS+HH:MM or YYYY-MM-DDTHH:MM:SSZ
-        // We want: YYYY-MM-DDT00:00:00+HH:MM
-        const startStr = ordered[0].start_time
-        try {
-            // Assume ISO 8601 standard length for YYYY-MM-DD
-            const datePart = startStr.substring(0, 10)
-
-            // Robust offset extraction: match Z or +HH:MM or -HH:MM
-            const offsetMatch = startStr.match(/(Z|[+-]\d{2}:?\d{2})$/)
-            const offset = offsetMatch ? offsetMatch[0] : 'Z'
-
-            const midnightIso = `${datePart}T00:00:00${offset}`
-            anchor.setTime(new Date(midnightIso).getTime())
-        } catch (e) {
-            console.error('Failed to parse anchor time from string:', startStr, e)
-            const d = new Date(startStr)
-            d.setHours(0, 0, 0, 0)
-            anchor.setTime(d.getTime())
-        }
-    } else {
-        anchor.setHours(0, 0, 0, 0)
-    }
+    // Anchor the 48 h window at midnight of the browser day of the first slot, the same day
+    // grouping isToday/isTomorrow used above, so no slot is dropped when the browser timezone
+    // differs from the plan timezone the slots were serialized in.
+    const anchor = startOfLocalDay(ordered.length > 0 ? new Date(ordered[0].start_time) : new Date())
 
     const stepMs = resolutionMinutes * 60 * 1000
     const steps = Math.round((48 * 60) / resolutionMinutes)
@@ -1743,6 +1727,7 @@ export function buildLiveData(
             },
             themeColors,
             pricing,
+            priceUnit,
         ),
         slotStarts,
         hasTomorrowPrices,

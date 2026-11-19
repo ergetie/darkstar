@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 
+from backend.core.currency import get_currency_code
 from backend.strategy.history import append_strategy_event
 
 logger = logging.getLogger("darkstar.strategy")
@@ -77,6 +78,7 @@ class StrategyEngine:
             #   - Export Threshold -> High (Don't bother)
 
             kepler_overrides = {}
+            currency = get_currency_code(self.config)
 
             # Dynamic export threshold with continuous scaling based on price spread and risk appetite
             risk_appetite = int(self.config.get("s_index", {}).get("risk_appetite", 3))
@@ -92,25 +94,25 @@ class StrategyEngine:
 
             if spread > 1.5:
                 logger.info(
-                    f"Strategy: High Price Volatility (Spread {spread:.2f} SEK). Engaging Aggressive Mode."
+                    f"Strategy: High Price Volatility (Spread {spread:.2f} {currency}). Engaging Aggressive Mode."
                 )
                 kepler_overrides["wear_cost_sek_per_kwh"] = 0.0
                 kepler_overrides["ramping_cost_sek_per_kw"] = 0.01  # Very low
                 append_strategy_event(
                     "PRICE_VOLATILITY",
-                    f"High Price Spread ({spread:.2f} SEK). Aggressive Mode engaged.",
+                    f"High Price Spread ({spread:.2f} {currency}). Aggressive Mode engaged.",
                     {"spread": spread, "mode": "aggressive", "threshold": export_threshold},
                 )
 
             elif spread < 0.5:
                 logger.info(
-                    f"Strategy: Low Price Volatility (Spread {spread:.2f} SEK). Engaging Conservative Mode."
+                    f"Strategy: Low Price Volatility (Spread {spread:.2f} {currency}). Engaging Conservative Mode."
                 )
                 kepler_overrides["wear_cost_sek_per_kwh"] = 1.0
                 kepler_overrides["ramping_cost_sek_per_kw"] = 0.5  # High damping
                 append_strategy_event(
                     "PRICE_VOLATILITY",
-                    f"Low Price Spread ({spread:.2f} SEK). Conservative Mode engaged.",
+                    f"Low Price Spread ({spread:.2f} {currency}). Conservative Mode engaged.",
                     {"spread": spread, "mode": "conservative", "threshold": export_threshold},
                 )
             else:
@@ -120,7 +122,7 @@ class StrategyEngine:
                 kepler_overrides["wear_cost_sek_per_kwh"] = round(1.0 - med_norm * 1.0, 2)
                 kepler_overrides["ramping_cost_sek_per_kw"] = round(0.5 - med_norm * 0.49, 2)
                 logger.info(
-                    f"Strategy: Medium Price Volatility (Spread {spread:.2f} SEK). Using continuous scaling."
+                    f"Strategy: Medium Price Volatility (Spread {spread:.2f} {currency}). Using continuous scaling."
                 )
 
             if kepler_overrides:

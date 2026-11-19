@@ -5,6 +5,7 @@ import Select from '../../../components/ui/Select'
 import { NumberInput } from '../../../components/ui/NumberInput'
 import OrderedListEditor from '../../../components/ui/OrderedListEditor'
 import { HaEntity } from '../types'
+import { labelWithUnit, useCurrencyFormat } from '../../../lib/currency'
 
 export type ExcessPvSinkType = 'ev' | 'water_heater_boost' | 'custom_entity'
 
@@ -57,6 +58,7 @@ export const ExcessPvPriorityEditor: React.FC<ExcessPvPriorityEditorProps> = ({
     haEntities = [],
     haLoading = false,
 }) => {
+    const { priceUnit } = useCurrencyFormat()
     const entries = parseJsonArray<ExcessPvPriorityEntry>(value)
     const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
 
@@ -260,7 +262,7 @@ export const ExcessPvPriorityEditor: React.FC<ExcessPvPriorityEditorProps> = ({
 
                         <div>
                             <label className="mb-1 block text-[10px] font-bold uppercase text-muted">
-                                Reward Override (SEK/kWh)
+                                {labelWithUnit('Reward Override', priceUnit())}
                             </label>
                             <NumberInput
                                 value={entry.reward_sek_per_kwh ?? ''}

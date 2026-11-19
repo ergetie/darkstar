@@ -11,7 +11,7 @@ interface ContextRadarProps {
     }
     riskFactor: number // 0.9 to 1.5 usually
     forecastAccuracy: number // 0 to 100 (derived from MAE)
-    priceSpread?: number | null // SEK/kWh, typically 0.5 to 2.5
+    priceSpread?: number | null // currency per kWh, typically 0.5 to 2.5
     forecastBias?: number | null // kWh, -2 to +2 typical range
 }
 
@@ -34,7 +34,7 @@ export default function ContextRadar({
     // Forecast Confidence: Inverse of error? Or just passed in accuracy.
     const confidenceScore = forecastAccuracy
 
-    // Price Spread: 0 SEK = 0, 2.5 SEK = 100 (high opportunity)
+    // Price Spread: 0 = 0, 2.5 per kWh = 100 (high opportunity)
     const spreadScore = priceSpread != null ? Math.max(0, Math.min(100, (priceSpread / 2.5) * 100)) : 50 // Default to middle
 
     // Forecast Bias: 0 = centered (50), ±2 kWh = extremes

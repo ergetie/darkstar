@@ -22,6 +22,7 @@ import { NumberInput } from '../../../components/ui/NumberInput'
 import { NumberPresetInput } from './NumberPresetInput'
 import { DEFAULT_NOMINAL_VOLTAGE_V } from '../evPower'
 import { effectiveBatteryKw } from '../batteryPower'
+import { priceUnitLabel, substituteCurrencyTokens, useCurrency } from '../../../lib/currency'
 
 interface SettingsFieldProps {
     field: BaseField
@@ -65,6 +66,14 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
     fullForm = {},
     config,
 }) => {
+    const currency = useCurrency()
+    const priceUnit = priceUnitLabel(currency)
+    // Static labels and help carry {currency} / {priceUnit} tokens, resolved here once per render.
+    const label = substituteCurrencyTokens(field.label, currency)
+    const helpText = substituteCurrencyTokens(
+        (configHelp as Record<string, string>)[field.key] || field.helper || '',
+        currency,
+    )
     const isEnabled = React.useMemo(() => {
         return shouldRenderField(field, fullForm as Record<string, string | boolean | number | undefined>, config)
     }, [field, fullForm, config])
@@ -86,8 +95,8 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                             disabled={isDisabled}
                         />
                         <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-semibold">{field.label}</span>
-                            <Tooltip text={(configHelp as Record<string, string>)[field.key] || field.helper} />
+                            <span className="text-sm font-semibold">{label}</span>
+                            <Tooltip text={helpText || undefined} />
                         </div>
                     </div>
                 )
@@ -297,8 +306,8 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         <div className="space-y-1">
                             <p className="text-xs font-bold text-ai/80 uppercase tracking-wider">Willingness to Pay</p>
                             <p className="text-[11px] text-muted leading-relaxed">
-                                Defines the maximum electricity price (SEK/kWh) you are willing to pay for each charge
-                                level.
+                                Defines the maximum electricity price{priceUnit && ` (${priceUnit})`} you are willing to
+                                pay for each charge level.
                                 <span className="text-text/80 mx-1 border-b border-dotted border-muted/50 pb-0.5 whitespace-nowrap">
                                     High values
                                 </span>{' '}
@@ -322,7 +331,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                             onChange={(val) => onChange(field.key, val)}
                             presets={field.presets.options}
                             customDefault={field.presets.customDefault}
-                            ariaLabel={field.label}
+                            ariaLabel={label}
                             disabled={isDisabled}
                             min={field.min}
                             max={field.max}
@@ -335,7 +344,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                     const numField = field as any
                     return (
                         <NumberInput
-                            aria-label={field.label}
+                            aria-label={label}
                             placeholder={field.placeholder}
                             value={value}
                             onChange={(val) => onChange(field.key, val)}
@@ -380,9 +389,9 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
             )}
             {field.type !== 'boolean' && field.type !== 'info' && (
                 <label className="block text-sm font-medium mb-1.5 flex items-center gap-1.5">
-                    <span className="text-[10px] uppercase tracking-wide text-muted">{field.label}</span>
+                    <span className="text-[10px] uppercase tracking-wide text-muted">{label}</span>
                     {field.notImplemented && <Badge variant="warning">NOT IMPLEMENTED</Badge>}
-                    <Tooltip text={(configHelp as Record<string, string>)[field.key] || field.helper} />
+                    <Tooltip text={helpText || undefined} />
                 </label>
             )}
             {renderInput()}

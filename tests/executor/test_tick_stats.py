@@ -347,6 +347,21 @@ class TestEngineCounting:
         assert stale_engine._stale_schedule_warning
         assert stale_engine._tick_stats.buckets == {}
 
+    @pytest.mark.parametrize("cause", ["missing", "empty"])
+    async def test_missing_and_empty_schedule_ticks_are_not_counted(self, db_path, tmp_path, cause):
+        schedule = tmp_path / "schedule.json"
+        _write_schedule(schedule)
+        if cause == "missing":
+            schedule.unlink()
+        else:
+            payload = json.loads(schedule.read_text(encoding="utf-8"))
+            payload["schedule"] = []
+            schedule.write_text(json.dumps(payload), encoding="utf-8")
+        fallback_engine = _make_engine(db_path, str(schedule))
+        await fallback_engine._tick()
+        assert fallback_engine._stale_schedule_warning
+        assert fallback_engine._tick_stats.buckets == {}
+
     async def test_automation_toggle_off_is_not_counted(self, db_path, tmp_path):
         schedule = tmp_path / "schedule.json"
         _write_schedule(schedule)

@@ -1,3 +1,5 @@
+import { SUPPORTED_CURRENCIES } from '../../lib/currency'
+
 export type FieldType =
     | 'number'
     | 'text'
@@ -256,10 +258,18 @@ export const systemSections: SettingsSection[] = [
                 path: ['nordpool', 'price_area'],
                 type: 'text',
             },
+            {
+                key: 'nordpool.currency',
+                label: 'Currency',
+                path: ['nordpool', 'currency'],
+                type: 'select',
+                options: SUPPORTED_CURRENCIES.map((code) => ({ label: code, value: code })),
+                helper: 'Currency of all prices and costs shown in Darkstar. Existing amounts are not converted.',
+            },
             { key: 'timezone', label: 'Timezone', path: ['timezone'], type: 'text' },
             {
                 key: 'pricing.subscription_fee_sek_per_month',
-                label: 'Monthly subscription fee (SEK, excl. VAT)',
+                label: 'Monthly subscription fee ({currency}, excl. VAT)',
                 helper: 'Fixed monthly fee from your grid operator. Added to actual cost, prorated per day, with VAT.',
                 path: ['pricing', 'subscription_fee_sek_per_month'],
                 type: 'number',
@@ -269,7 +279,7 @@ export const systemSections: SettingsSection[] = [
             {
                 key: 'pricing.transfer_fee_rules',
                 label: 'Grid transfer fee',
-                helper: 'Fee paid to your grid operator for power delivery (SEK/kWh, excl. VAT). Flat, or time-of-use rules by month, weekday and hour.',
+                helper: 'Fee paid to your grid operator for power delivery ({priceUnit}, excl. VAT). Flat, or time-of-use rules by month, weekday and hour.',
                 path: ['pricing', 'transfer_fee_rules'],
                 type: 'transfer_fee_rules',
                 className: 'col-span-2',
@@ -278,7 +288,7 @@ export const systemSections: SettingsSection[] = [
             },
             {
                 key: 'pricing.energy_tax_sek',
-                label: 'Energy tax (SEK/kWh, excl. VAT)',
+                label: 'Energy tax ({priceUnit}, excl. VAT)',
                 helper: 'Swedish energy tax per kWh, excl. VAT. Default 0.36.',
                 path: ['pricing', 'energy_tax_sek'],
                 type: 'number',
@@ -287,7 +297,7 @@ export const systemSections: SettingsSection[] = [
             },
             {
                 key: 'pricing.supplier_fee_sek_per_year',
-                label: 'Yearly supplier fee (SEK, excl. VAT)',
+                label: 'Yearly supplier fee ({currency}, excl. VAT)',
                 helper: 'Fixed yearly fee from your electricity supplier. Added to actual cost, prorated per day, with VAT.',
                 path: ['pricing', 'supplier_fee_sek_per_year'],
                 type: 'number',
@@ -296,7 +306,7 @@ export const systemSections: SettingsSection[] = [
             },
             {
                 key: 'pricing.supplier_markup_sek_kwh',
-                label: 'Supplier markup (SEK/kWh, excl. VAT)',
+                label: 'Supplier markup ({priceUnit}, excl. VAT)',
                 helper: 'Per-kWh markup your supplier adds to the spot price on imports. Included in the import price before VAT.',
                 path: ['pricing', 'supplier_markup_sek_kwh'],
                 type: 'number',
@@ -628,7 +638,7 @@ export const parameterSections: SettingsSection[] = [
         fields: [
             {
                 key: 'kepler.curtailment_penalty_sek',
-                label: 'Curtailment Penalty (SEK)',
+                label: 'Curtailment Penalty ({currency})',
                 helper: 'Penalty for wasting available solar power when battery is not full (higher = more aggressive charging).',
                 path: ['kepler', 'curtailment_penalty_sek'],
                 type: 'number',
@@ -637,7 +647,7 @@ export const parameterSections: SettingsSection[] = [
             },
             {
                 key: 'kepler.ramping_cost_sek_per_kw',
-                label: 'Ramping Cost (SEK/kW)',
+                label: 'Ramping Cost ({currency}/kW)',
                 helper: 'Penalty for rapid battery power changes (higher = smoother power flow, reduces "sawtooth" behavior).',
                 path: ['kepler', 'ramping_cost_sek_per_kw'],
                 type: 'number',
@@ -688,21 +698,21 @@ export const parameterSections: SettingsSection[] = [
             },
             {
                 key: 'learning.max_daily_param_change.battery_use_margin_sek',
-                label: 'Battery margin change (SEK)',
+                label: 'Battery margin change ({currency})',
                 path: ['learning', 'max_daily_param_change', 'battery_use_margin_sek'],
                 type: 'number',
                 isAdvanced: true,
             },
             {
                 key: 'learning.max_daily_param_change.export_profit_margin_sek',
-                label: 'Export margin change (SEK)',
+                label: 'Export margin change ({currency})',
                 path: ['learning', 'max_daily_param_change', 'export_profit_margin_sek'],
                 type: 'number',
                 isAdvanced: true,
             },
             {
                 key: 'learning.max_daily_param_change.future_price_guard_buffer_sek',
-                label: 'Future guard buffer change (SEK)',
+                label: 'Future guard buffer change ({currency})',
                 path: ['learning', 'max_daily_param_change', 'future_price_guard_buffer_sek'],
                 type: 'number',
                 isAdvanced: true,
@@ -1071,7 +1081,7 @@ export const batterySections: SettingsSection[] = [
             },
             {
                 key: 'battery_economics.battery_cycle_cost_kwh',
-                label: 'Battery cycle cost (SEK/kWh)',
+                label: 'Battery cycle cost ({priceUnit})',
                 helper: 'Estimated degradation cost for every kWh cycled. Affects arbitrage profitability.',
                 path: ['battery_economics', 'battery_cycle_cost_kwh'],
                 type: 'number',
@@ -1199,8 +1209,8 @@ export const evSections: SettingsSection[] = [
             },
             {
                 key: 'kepler.ev_shortfall_penalty_sek_per_kwh',
-                label: 'EV shortfall penalty (SEK/kWh)',
-                helper: 'How strongly the planner treats reaching the target SoC by the ready-by time as mandatory. The default 50 SEK/kWh makes the goal near-mandatory while an unreachable goal still plans as much as possible.',
+                label: 'EV shortfall penalty ({priceUnit})',
+                helper: 'How strongly the planner treats reaching the target SoC by the ready-by time as mandatory. The default 50 {priceUnit} makes the goal near-mandatory while an unreachable goal still plans as much as possible.',
                 path: ['kepler', 'ev_shortfall_penalty_sek_per_kwh'],
                 type: 'number',
                 isAdvanced: true,
@@ -1674,7 +1684,7 @@ export const advancedSections: SettingsSection[] = [
             },
             {
                 key: 'executor.excess_pv.boost_reward_sek_per_kwh',
-                label: 'Base Reward (SEK/kWh)',
+                label: 'Base Reward ({priceUnit})',
                 path: ['executor', 'excess_pv', 'boost_reward_sek_per_kwh'],
                 type: 'number',
                 helper: 'Base reward for using excess PV at a sink instead of exporting. Each sink below the top gets 15% less by default (override per-entry above).',
@@ -1710,7 +1720,7 @@ const systemHiddenFields: BaseField[] = [
     },
     {
         key: 'pricing.grid_transfer_fee_sek',
-        label: 'Grid transfer fee (SEK/kWh)',
+        label: 'Grid transfer fee ({priceUnit})',
         path: ['pricing', 'grid_transfer_fee_sek'],
         type: 'number',
         min: 0,

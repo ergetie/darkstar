@@ -3,6 +3,7 @@
  * past/future split and the action strip marks. No Chart.js, no DOM.
  */
 import type { ChartToken } from '../lib/chartTokens'
+import { displayTimeZone } from '../lib/timezone'
 
 export type Series = (number | null)[]
 
@@ -40,15 +41,13 @@ export interface SlotSeries {
     actualEvCharging?: Series
 }
 
-const DISPLAY_TZ = 'Europe/Stockholm'
-
 /** Below this a power value counts as "off" (noise from the planner/recorder). */
 export const ACTIVE_KW = 0.05
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
 /** "HH:MM" in 24h clock for an instant in the display timezone. */
-export function formatClock(date: Date, tz: string = DISPLAY_TZ): string {
+export function formatClock(date: Date, tz: string = displayTimeZone()): string {
     const parts = new Intl.DateTimeFormat('en-GB', {
         hour: '2-digit',
         minute: '2-digit',
@@ -60,7 +59,7 @@ export function formatClock(date: Date, tz: string = DISPLAY_TZ): string {
 }
 
 /** "14:15–14:30" for a slot start (ISO) and length; 24h clock, never AM/PM. */
-export function formatTimeRange(startIso: string, minutes: number, tz: string = DISPLAY_TZ): string {
+export function formatTimeRange(startIso: string, minutes: number, tz: string = displayTimeZone()): string {
     const start = new Date(startIso)
     if (Number.isNaN(start.getTime())) return ''
     const end = new Date(start.getTime() + minutes * 60_000)
@@ -98,8 +97,9 @@ export function formatPercent(v: number | null | undefined): string {
     return isNum(v) ? `${v.toFixed(0)} %` : EMPTY_VALUE
 }
 
-export function formatPrice(v: number | null | undefined): string {
-    return isNum(v) ? `${v.toFixed(2)} SEK/kWh` : EMPTY_VALUE
+/** A price per kWh; `priceUnit` is the configured unit label (e.g. "EUR/kWh"), empty while unknown. */
+export function formatPrice(v: number | null | undefined, priceUnit: string): string {
+    return isNum(v) ? [v.toFixed(2), priceUnit].filter(Boolean).join(' ') : EMPTY_VALUE
 }
 
 export type SlotPhase = 'past' | 'now' | 'future'
@@ -287,6 +287,8 @@ export interface SlotInfo {
 export interface SlotInfoOptions {
     /** Spot / fees+VAT split of the slot's import price, when pricing config is known. */
     breakdown?: { spot: number; feesAndVat: number } | null
+    /** Configured price unit label (e.g. "EUR/kWh"); empty or missing while the currency is unknown. */
+    priceUnit?: string
 }
 
 /** Value for a slot: before "now" the measurement leads and the plan becomes the ghost. */
@@ -318,7 +320,7 @@ export function buildSlotInfo(series: SlotSeries, index: number, opts: SlotInfoO
     const price = at(series.price, index)
     const priceGroup: InfoGroup = {
         title: 'Price',
-        rows: [{ key: 'price', label: 'Import', value: formatPrice(price), tone: 'grid' }],
+        rows: [{ key: 'price', label: 'Import', value: formatPrice(price, opts.priceUnit ?? ''), tone: 'grid' }],
         note:
             opts.breakdown && price !== null
                 ? `Spot ${opts.breakdown.spot.toFixed(2)} + fees ${opts.breakdown.feesAndVat.toFixed(2)}`
@@ -419,10 +421,10 @@ function compactAction(series: SlotSeries, i: number, past: boolean): string {
 }
 
 /**
- * One-line summary of a slot: `14:15–14:30 · Charge 3.2 kW · 1.28 kr/kWh · SoC 64% · PV 2.1 kW · Load 0.8 kW`.
+ * One-line summary of a slot: `14:15–14:30 · Charge 3.2 kW · 1.28 EUR/kWh · SoC 64% · PV 2.1 kW · Load 0.8 kW`.
  * Before "now" the measured SoC / PV / load / actions are shown; otherwise the plan.
  */
-export function buildCompactLine(series: SlotSeries, index: number): CompactLine | null {
+export function buildCompactLine(series: SlotSeries, index: number, priceUnit = ''): CompactLine | null {
     if (index < 0 || index >= series.labels.length) return null
     const phase = slotPhase(index, series.nowIndex)
     const past = phase === 'past'
@@ -435,7 +437,7 @@ export function buildCompactLine(series: SlotSeries, index: number): CompactLine
     const pv = lead(series.actualPv, series.pv)
     const load = lead(series.actualLoad, series.load)
     const parts = [compactAction(series, index, past)]
-    if (price !== null) parts.push(`${price.toFixed(2)} kr/kWh`)
+    if (price !== null) parts.push(formatPrice(price, priceUnit))
     if (soc !== null) parts.push(`SoC ${soc.toFixed(0)}%`)
     if (pv !== null) parts.push(`PV ${kwShort(pv)}`)
     if (load !== null) parts.push(`Load ${kwShort(load)}`)

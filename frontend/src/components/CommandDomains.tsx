@@ -20,10 +20,13 @@ import {
     type BatteryBenchmarkResponse,
 } from '../lib/api'
 import { useSocket } from '../lib/hooks'
+import { useCurrencyFormat } from '../lib/currency'
 import { useEvChargers } from '../lib/useEvChargers'
 import EVChargerCard from './EVChargingCard'
 import CostSeriesChart from './CostSeriesChart'
 import { buildExclusionNotes, buildPartialNotes } from '../lib/costExclusion'
+import { formatHour, shiftedYmdLocal, ymdLocal } from '../lib/time'
+import { displayTimeZone } from '../lib/timezone'
 
 // --- Types ---
 interface GridCardProps {
@@ -71,55 +74,25 @@ export function getDefaultDatesForPeriod(
     prevPeriod: PeriodSel,
     now: Date = new Date(),
 ): { start: string; end: string } {
-    const today = now
-    const todayStr = today.toISOString().split('T')[0]
+    // Local calendar dates, not the UTC date: at 00:30 local the UTC date is still yesterday.
+    const todayStr = shiftedYmdLocal(now, 0)
 
     switch (prevPeriod) {
-        case 'today': {
+        case 'today':
             // Use yesterday to today
-            const yesterday = new Date(today)
-            yesterday.setDate(yesterday.getDate() - 1)
-            return {
-                start: yesterday.toISOString().split('T')[0],
-                end: todayStr,
-            }
-        }
-        case 'yesterday': {
+            return { start: shiftedYmdLocal(now, -1), end: todayStr }
+        case 'yesterday':
             // Single day - yesterday
-            const yesterdayOnly = new Date(today)
-            yesterdayOnly.setDate(yesterdayOnly.getDate() - 1)
-            return {
-                start: yesterdayOnly.toISOString().split('T')[0],
-                end: yesterdayOnly.toISOString().split('T')[0],
-            }
-        }
-        case 'week': {
+            return { start: shiftedYmdLocal(now, -1), end: shiftedYmdLocal(now, -1) }
+        case 'week':
             // 7 days ago to today
-            const weekAgo = new Date(today)
-            weekAgo.setDate(weekAgo.getDate() - 7)
-            return {
-                start: weekAgo.toISOString().split('T')[0],
-                end: todayStr,
-            }
-        }
-        case 'month': {
+            return { start: shiftedYmdLocal(now, -7), end: todayStr }
+        case 'month':
             // 30 days ago to today
-            const monthAgo = new Date(today)
-            monthAgo.setDate(monthAgo.getDate() - 30)
-            return {
-                start: monthAgo.toISOString().split('T')[0],
-                end: todayStr,
-            }
-        }
-        default: {
+            return { start: shiftedYmdLocal(now, -30), end: todayStr }
+        default:
             // Default to 7 days
-            const defaultStart = new Date(today)
-            defaultStart.setDate(defaultStart.getDate() - 7)
-            return {
-                start: defaultStart.toISOString().split('T')[0],
-                end: todayStr,
-            }
-        }
+            return { start: shiftedYmdLocal(now, -7), end: todayStr }
     }
 }
 
@@ -177,6 +150,7 @@ export function isValidDateRange(start: string, end: string): boolean {
 // --- Domain Cards ---
 
 export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false }: GridCardProps) {
+    const { money, moneyUnit } = useCurrencyFormat()
     const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'custom'>('today')
     const [previousPeriod, setPreviousPeriod] = useState<'today' | 'yesterday' | 'week' | 'month'>('today')
     const [startDate, setStartDate] = useState<string>('')
@@ -321,19 +295,12 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
               : 'text-muted'
         : 'text-muted'
     const comparisonSign = comparison ? (comparison.saving_sek > 0 ? '+' : comparison.saving_sek < 0 ? '−' : '') : ''
+    // Labels use the browser timezone; the comparison buckets stay in `time_axis.timezone`.
     const throughLabel = comparison
-        ? new Intl.DateTimeFormat('sv-SE', {
-              timeZone: comparison.time_axis.timezone,
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              hourCycle: 'h23',
-          }).format(new Date(comparison.through))
+        ? `${ymdLocal(new Date(comparison.through))} ${formatHour(comparison.through)}`
         : null
     const exclusionNotes = buildExclusionNotes(comparison?.excluded_spans)
-    const partialNotes = buildPartialNotes(comparison?.partial_spans, comparison?.time_axis.timezone ?? 'UTC')
+    const partialNotes = buildPartialNotes(comparison?.partial_spans, displayTimeZone())
 
     const hindsight = period !== 'today' && benchmark && benchmark.totals.days_total > 0 ? benchmark.totals : null
     const excludedDays = benchmark?.days.filter((day) => day.status !== 'scored') ?? []
@@ -451,7 +418,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                             ? `${displayNetCost > 0 ? '-' : '+'}${Math.abs(displayNetCost).toFixed(2)}`
                             : '—'}
                     </span>
-                    <span className="text-xs text-muted">kr</span>
+                    {moneyUnit && <span className="text-xs text-muted">{moneyUnit}</span>}
                 </div>
                 {rangeData != null && (
                     <div className="flex items-baseline gap-1 mt-0.5">
@@ -461,7 +428,9 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                             {rangeData.net_cost_incl_wear_sek > 0 ? '-' : '+'}
                             {Math.abs(rangeData.net_cost_incl_wear_sek).toFixed(2)}
                         </span>
-                        <span className="text-[9px] text-muted">kr incl. battery wear</span>
+                        <span className="text-[9px] text-muted">
+                            {moneyUnit ? `${moneyUnit} ` : ''}incl. battery wear
+                        </span>
                     </div>
                 )}
                 {comparison && (
@@ -470,7 +439,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                             <span className="text-muted">DS vs grid-only</span>
                             <span className={`text-sm font-semibold tabular-nums ${comparisonTone}`}>
                                 {comparisonSign}
-                                {Math.abs(comparison.saving_sek).toFixed(2)} kr
+                                {money(Math.abs(comparison.saving_sek), 2)}
                             </span>
                             {partialCoverage && (
                                 <span className="text-muted tabular-nums">
@@ -504,32 +473,30 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                                 <div className="mt-1">
                                     Grid-only electricity{' '}
                                     <span className="text-text tabular-nums">
-                                        {comparison.grid_only_cost_sek.toFixed(2)} kr
+                                        {money(comparison.grid_only_cost_sek, 2)}
                                     </span>
                                 </div>
                                 <div>
                                     Grid-only battery wear{' '}
                                     <span className="text-text tabular-nums">
-                                        {comparison.grid_only_wear_cost_sek.toFixed(2)} kr
+                                        {money(comparison.grid_only_wear_cost_sek, 2)}
                                     </span>
                                 </div>
                                 <div className="mt-1">
                                     DS electricity{' '}
                                     <span className="text-text tabular-nums">
-                                        {comparison.ds_electricity_cost_sek.toFixed(2)} kr
+                                        {money(comparison.ds_electricity_cost_sek, 2)}
                                     </span>
                                 </div>
                                 <div>
                                     DS battery wear{' '}
                                     <span className="text-text tabular-nums">
-                                        {comparison.ds_wear_cost_sek.toFixed(2)} kr
+                                        {money(comparison.ds_wear_cost_sek, 2)}
                                     </span>
                                 </div>
                                 <div>
                                     DS incl. battery wear{' '}
-                                    <span className="text-text tabular-nums">
-                                        {comparison.ds_cost_sek.toFixed(2)} kr
-                                    </span>
+                                    <span className="text-text tabular-nums">{money(comparison.ds_cost_sek, 2)}</span>
                                 </div>
                                 <div className="mt-1">
                                     Completed through {throughLabel} · {comparison.coverage.covered_slots} of{' '}
@@ -572,7 +539,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                                         className={`text-sm font-semibold tabular-nums ${hindsight.missed_sek > 0.005 ? 'text-bad' : 'text-muted'}`}
                                     >
                                         {hindsight.missed_sek > 0.005 ? '−' : ''}
-                                        {Math.abs(hindsight.missed_sek).toFixed(2)} kr
+                                        {money(Math.abs(hindsight.missed_sek), 2)}
                                     </span>
                                     {hindsight.score != null && (
                                         <span className="text-muted tabular-nums">
@@ -679,11 +646,11 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                         <div className="flex items-baseline justify-between gap-2">
                             <span className="text-muted">Grid Import</span>
                             <span className="text-bad font-medium tabular-nums whitespace-nowrap">
-                                {`-${rangeData.import_cost_sek.toFixed(1)} kr`}
+                                {`-${money(rangeData.import_cost_sek, 1)}`}
                             </span>
                         </div>
                         {/* EV sub-row: the EV's share of Grid Import. Shown whenever an EV charger is
-                            configured (0 kr · 0 kWh on idle ranges); also kept when historical EV
+                            configured (a zero cost and 0 kWh on idle ranges); also kept when historical EV
                             energy exists after the charger was removed. */}
                         {(hasEvCharger || rangeData.ev_charging_kwh > 0) && (
                             <div
@@ -695,7 +662,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                                     {rangeData.ev_charging_kwh > 0 ? (
                                         <>
                                             <span className="text-bad font-medium tabular-nums whitespace-nowrap">
-                                                {`-${rangeData.ev_cost_sek.toFixed(1)} kr`}
+                                                {`-${money(rangeData.ev_cost_sek, 1)}`}
                                             </span>
                                             <span className="text-muted tabular-nums whitespace-nowrap">
                                                 {`${rangeData.ev_charging_kwh.toFixed(1)} kWh`}
@@ -704,7 +671,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                                     ) : (
                                         <>
                                             <span className="text-muted font-medium tabular-nums whitespace-nowrap">
-                                                0 kr
+                                                {money(0, 0)}
                                             </span>
                                             <span className="text-muted tabular-nums whitespace-nowrap">0 kWh</span>
                                         </>
@@ -729,13 +696,13 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                             Fixed fees
                         </span>
                         <span className="text-bad font-medium tabular-nums whitespace-nowrap">
-                            {`-${rangeData.fixed_fees_sek.toFixed(1)} kr`}
+                            {`-${money(rangeData.fixed_fees_sek, 1)}`}
                         </span>
                     </div>
                     <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
                         <span className="text-muted">Export Rev</span>
                         <span className="text-good font-medium tabular-nums whitespace-nowrap">
-                            {`+${rangeData.export_revenue_sek.toFixed(1)} kr`}
+                            {`+${money(rangeData.export_revenue_sek, 1)}`}
                         </span>
                     </div>
                     <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
@@ -746,13 +713,13 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                             Battery Charge
                         </span>
                         <span className="text-bad font-medium tabular-nums whitespace-nowrap">
-                            {`-${rangeData.grid_charge_cost_sek.toFixed(1)} kr`}
+                            {`-${money(rangeData.grid_charge_cost_sek, 1)}`}
                         </span>
                     </div>
                     <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
                         <span className="text-muted">Battery Wear</span>
                         <span className="text-bad font-medium tabular-nums whitespace-nowrap">
-                            {`-${rangeData.battery_wear_cost_sek.toFixed(1)} kr`}
+                            {`-${money(rangeData.battery_wear_cost_sek, 1)}`}
                         </span>
                     </div>
                 </div>
