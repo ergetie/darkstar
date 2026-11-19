@@ -196,6 +196,13 @@ def _resolve_period(
     return today_local, today_local
 
 
+def _weighted_avg(numerator: Any, denominator: Any) -> float | None:
+    """Weighted average rounded to 4 decimals, or None when no kWh qualifies."""
+    if numerator is None or denominator is None or float(denominator) <= 0:
+        return None
+    return round(float(numerator) / float(denominator), 4)
+
+
 @router.get(
     "/energy/range",
     summary="Get Energy Range",
@@ -209,7 +216,7 @@ async def get_energy_range(
 ) -> dict[str, Any]:
     """Get energy range data from database (SlotObservation table)."""
     import pytz
-    from sqlalchemy import func, select, text
+    from sqlalchemy import case, func, select, text
 
     from backend.learning.models import UNMEASURED_BY_COMPONENT_SQL, SlotObservation
 
@@ -251,6 +258,20 @@ async def get_energy_range(
         ev_grid_slot = ev_slot - ev_solar_slot
         ev_cost_kwh_slot = func.min(
             ev_grid_slot, func.max(0, func.coalesce(SlotObservation.import_kwh, 0))
+        )
+
+        # Import-weighted average prices (cost-card-import-price-averages). Only slots
+        # with import_kwh > 0 and a non-NULL price count; a NULL price is excluded from
+        # numerator and denominator (never treated as 0). Each price has its own kWh
+        # denominator. NOTE: export_price_sek_kwh is the pure Nordpool spot price of the
+        # slot (no fees, tax or VAT) regardless of direction, so weighting it by import
+        # gives the raw spot price of imported energy. import_price_sek_kwh is all-in.
+        # Fixed fees are never part of these averages.
+        spot_ok = (SlotObservation.import_kwh > 0) & SlotObservation.export_price_sek_kwh.is_not(
+            None
+        )
+        allin_ok = (SlotObservation.import_kwh > 0) & SlotObservation.import_price_sek_kwh.is_not(
+            None
         )
 
         async with store.AsyncSession() as session:
@@ -296,6 +317,26 @@ async def get_energy_range(
                 func.sum(ev_grid_slot),
                 func.sum(ev_solar_slot),
                 func.sum(ev_cost_kwh_slot * func.coalesce(SlotObservation.import_price_sek_kwh, 0)),
+                # 16-19: import-weighted average price numerators/denominators (appended
+                # last so the indices above stay valid).
+                func.sum(
+                    case(
+                        (
+                            spot_ok,
+                            SlotObservation.import_kwh * SlotObservation.export_price_sek_kwh,
+                        )
+                    )
+                ),
+                func.sum(case((spot_ok, SlotObservation.import_kwh))),
+                func.sum(
+                    case(
+                        (
+                            allin_ok,
+                            SlotObservation.import_kwh * SlotObservation.import_price_sek_kwh,
+                        )
+                    )
+                ),
+                func.sum(case((allin_ok, SlotObservation.import_kwh))),
             ).where(SlotObservation.slot_start >= start_iso, SlotObservation.slot_start < end_iso)
             result = await session.execute(stmt)
             row = result.fetchone()
@@ -327,6 +368,8 @@ async def get_energy_range(
         ev_solar_kwh = float(row[14] or 0.0)
         ev_cost_sek = float(row[15] or 0.0)
         ev_attributed_kwh = ev_grid_kwh + ev_solar_kwh
+        avg_import_spot = _weighted_avg(row[16], row[17])
+        avg_import_price = _weighted_avg(row[18], row[19])
         ev_solar_share = (
             round(ev_solar_kwh / ev_attributed_kwh, 3) if ev_attributed_kwh > 0 else None
         )
@@ -362,6 +405,8 @@ async def get_energy_range(
             "ev_cost_sek": round(ev_cost_sek, 2),
             "ev_solar_share": ev_solar_share,
             "import_cost_sek": round(import_cost, 2),
+            "avg_import_spot_sek_kwh": avg_import_spot,
+            "avg_import_price_sek_kwh": avg_import_price,
             "export_revenue_sek": round(export_rev, 2),
             "grid_charge_cost_sek": round(grid_charge_cost, 2),
             "self_consumption_savings_sek": round(self_cons_savings, 2),
@@ -392,6 +437,8 @@ async def get_energy_range(
             "ev_cost_sek": 0.0,
             "ev_solar_share": None,
             "import_cost_sek": 0.0,
+            "avg_import_spot_sek_kwh": None,
+            "avg_import_price_sek_kwh": None,
             "export_revenue_sek": 0.0,
             "grid_charge_cost_sek": 0.0,
             "self_consumption_savings_sek": 0.0,

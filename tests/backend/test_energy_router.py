@@ -43,6 +43,10 @@ def _base_row(
     ev_grid=0.0,
     ev_solar=0.0,
     ev_cost=0.0,
+    spot_num=None,
+    spot_den=None,
+    allin_num=None,
+    allin_den=None,
 ):
     return [
         grid_imp,
@@ -61,6 +65,10 @@ def _base_row(
         ev_grid,
         ev_solar,
         ev_cost,
+        spot_num,
+        spot_den,
+        allin_num,
+        allin_den,
     ]
 
 

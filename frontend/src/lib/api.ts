@@ -1269,6 +1269,9 @@ export type EnergyRangeResponse = {
     ev_cost_sek: number
     ev_solar_share: number | null
     import_cost_sek: number
+    // Import-kWh-weighted average prices; null when no priced import. Spot excludes fees, tax and VAT; all-in includes them. Fixed fees never included.
+    avg_import_spot_sek_kwh?: number | null
+    avg_import_price_sek_kwh?: number | null
     export_revenue_sek: number
     grid_charge_cost_sek: number
     self_consumption_savings_sek: number

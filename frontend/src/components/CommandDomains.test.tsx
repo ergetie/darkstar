@@ -250,6 +250,76 @@ describe('GridDomain fixed fees row', () => {
     })
 })
 
+describe('GridDomain average import price rows', () => {
+    it('shows both weighted averages per kWh below Grid Import, not in Net', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(
+            rangeResponse({ avg_import_spot_sek_kwh: 0.4321, avg_import_price_sek_kwh: 1.2345 }),
+        )
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        const spot = await screen.findByText('Avg spot price (imported)')
+        const allIn = screen.getByText('Avg import price (all-in)')
+        const gridImport = screen.getByText('Grid Import')
+        const fees = screen.getByText('Fixed fees')
+        expect(spot.parentElement).toHaveTextContent('0.43 SEK/kWh')
+        expect(allIn.parentElement).toHaveTextContent('1.23 SEK/kWh')
+        expect(gridImport.compareDocumentPosition(spot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(spot.compareDocumentPosition(allIn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(allIn.compareDocumentPosition(fees) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(screen.getAllByText('-37.00').length).toBeGreaterThan(0)
+    })
+
+    it('explains both averages in tooltips', async () => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse())
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        expect(await screen.findByText('Avg spot price (imported)')).toHaveAttribute(
+            'title',
+            'Raw Nordpool spot price, weighted by imported kWh. No fees, tax or VAT.',
+        )
+        expect(screen.getByText('Avg import price (all-in)')).toHaveAttribute(
+            'title',
+            'Includes grid fees, energy tax, VAT and markups, weighted by imported kWh. Fixed fees are not included.',
+        )
+    })
+
+    it('shows the averages for the newly selected period', async () => {
+        vi.mocked(Api.energyRange).mockImplementation(async (period) =>
+            period === 'today'
+                ? rangeResponse({ avg_import_spot_sek_kwh: 0.4321, avg_import_price_sek_kwh: 1.2345 })
+                : rangeResponse({ avg_import_spot_sek_kwh: 0.9876, avg_import_price_sek_kwh: 2.3456 }),
+        )
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        const spot = await screen.findByText('Avg spot price (imported)')
+        expect(spot.parentElement).toHaveTextContent('0.43 SEK/kWh')
+        fireEvent.click(screen.getByRole('button', { name: '30d' }))
+        await waitFor(() =>
+            expect(screen.getByText('Avg spot price (imported)').parentElement).toHaveTextContent('0.99 SEK/kWh'),
+        )
+        expect(screen.getByText('Avg import price (all-in)').parentElement).toHaveTextContent('2.35 SEK/kWh')
+    })
+
+    it.each([
+        ['null', { avg_import_spot_sek_kwh: null, avg_import_price_sek_kwh: null }],
+        ['absent', {}],
+    ])('shows a dash when the averages are %s', async (_name, overrides) => {
+        vi.mocked(Api.energyRange).mockResolvedValue(rangeResponse(overrides))
+
+        render(<GridDomain netCost={null} importKwh={null} exportKwh={null} />)
+
+        for (const label of ['Avg spot price (imported)', 'Avg import price (all-in)']) {
+            const row = (await screen.findByText(label)).parentElement
+            expect(row?.textContent).toBe(`${label}—`)
+            expect(row?.lastElementChild).toHaveClass('text-muted')
+        }
+        expect(screen.queryByText(/NaN|null/)).not.toBeInTheDocument()
+    })
+})
+
 const gridOnlyAxis = {
     timezone: 'Europe/Stockholm',
     start: '2026-10-05T00:00:00+02:00',

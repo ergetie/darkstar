@@ -24,6 +24,7 @@ import { useCurrencyFormat } from '../lib/currency'
 import { useEvChargers } from '../lib/useEvChargers'
 import EVChargerCard from './EVChargingCard'
 import CostSeriesChart from './CostSeriesChart'
+import { formatPrice } from './ChartCard.logic'
 import { buildExclusionNotes, buildPartialNotes } from '../lib/costExclusion'
 import { formatHour, shiftedYmdLocal, ymdLocal } from '../lib/time'
 import { displayTimeZone } from '../lib/timezone'
@@ -150,7 +151,7 @@ export function isValidDateRange(start: string, end: string): boolean {
 // --- Domain Cards ---
 
 export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false }: GridCardProps) {
-    const { money, moneyUnit } = useCurrencyFormat()
+    const { money, moneyUnit, priceUnit } = useCurrencyFormat()
     const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'custom'>('today')
     const [previousPeriod, setPreviousPeriod] = useState<'today' | 'yesterday' | 'week' | 'month'>('today')
     const [startDate, setStartDate] = useState<string>('')
@@ -159,6 +160,8 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
     const [fetchError, setFetchError] = useState<string | null>(null)
     const [rangeData, setRangeData] = useState<{
         import_cost_sek: number
+        avg_import_spot_sek_kwh: number | null
+        avg_import_price_sek_kwh: number | null
         export_revenue_sek: number
         grid_charge_cost_sek: number
         self_consumption_savings_sek: number
@@ -239,6 +242,8 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                 if (!cancelled) {
                     setRangeData({
                         import_cost_sek: data.import_cost_sek,
+                        avg_import_spot_sek_kwh: data.avg_import_spot_sek_kwh ?? null,
+                        avg_import_price_sek_kwh: data.avg_import_price_sek_kwh ?? null,
                         export_revenue_sek: data.export_revenue_sek,
                         grid_charge_cost_sek: data.grid_charge_cost_sek,
                         self_consumption_savings_sek: data.self_consumption_savings_sek,
@@ -688,6 +693,35 @@ export function GridDomain({ netCost, importKwh, exportKwh, hasEvCharger = false
                             </div>
                         )}
                     </div>
+                    {/* Import-kWh-weighted average prices: informational, not added to Net. */}
+                    {(
+                        [
+                            {
+                                label: 'Avg spot price (imported)',
+                                title: 'Raw Nordpool spot price, weighted by imported kWh. No fees, tax or VAT.',
+                                value: rangeData.avg_import_spot_sek_kwh,
+                            },
+                            {
+                                label: 'Avg import price (all-in)',
+                                title: 'Includes grid fees, energy tax, VAT and markups, weighted by imported kWh. Fixed fees are not included.',
+                                value: rangeData.avg_import_price_sek_kwh,
+                            },
+                        ] as const
+                    ).map((row) => (
+                        <div
+                            key={row.label}
+                            className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30"
+                        >
+                            <span className="text-muted cursor-help" title={row.title}>
+                                {row.label}
+                            </span>
+                            <span
+                                className={`${row.value == null ? 'text-muted' : 'text-text'} font-medium tabular-nums whitespace-nowrap`}
+                            >
+                                {formatPrice(row.value, priceUnit())}
+                            </span>
+                        </div>
+                    ))}
                     <div className="flex items-baseline justify-between gap-2 p-1.5 rounded bg-surface2/30">
                         <span
                             className="text-muted cursor-help"
