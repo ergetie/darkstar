@@ -36,6 +36,12 @@ _SLOT = timedelta(minutes=15)
 # A load model rejected for schema mismatch triggers a retrain, at most once per interval.
 LOAD_SCHEMA_RETRAIN_MIN_INTERVAL = timedelta(hours=1)
 
+# Daily Aurora Reflex run (local time). Placed after the default 03:00 ML training so
+# Reflex analyses the freshest observations. Reflex itself rate-limits each parameter
+# to one change per day, so an extra run (e.g. manual API trigger) is harmless.
+REFLEX_RUN_HOUR = 4
+REFLEX_RUN_MINUTE = 30
+
 # Goal-change replan requests are collapsed over this window so a burst of goal
 # edits (e.g. HA writing target SoC and ready-by as two events) yields one run.
 GOAL_CHANGE_DEBOUNCE_S = 2.0
@@ -75,6 +81,12 @@ class SchedulerStatus:
     last_price_forecast_at: datetime | None = None
     next_price_forecast_at: datetime | None = None
     last_post_publication_forecast_at: datetime | None = None
+
+    # Daily Aurora Reflex status
+    reflex_enabled: bool = False
+    last_reflex_at: datetime | None = None
+    next_reflex_at: datetime | None = None
+    last_reflex_status: str | None = None
 
 
 class SchedulerService:
@@ -224,6 +236,11 @@ class SchedulerService:
                 config.get("price_forecast", {})
             )
 
+        # Initial Reflex schedule
+        self._status.reflex_enabled = self._reflex_enabled(config)
+        if self._status.reflex_enabled:
+            self._status.next_reflex_at = self._compute_next_reflex(config)
+
         while self._running:
             try:
                 await asyncio.sleep(30)  # Check every 30 seconds
@@ -288,6 +305,9 @@ class SchedulerService:
                 # Check post-publication price forecast (once tomorrow's prices are out)
                 if self._status.price_forecast_enabled and self._status.current_task == "idle":
                     await self._check_post_publication_forecast()
+
+                # Check daily Aurora Reflex
+                await self._check_reflex(config)
 
             except asyncio.CancelledError:
                 logger.info("Scheduler loop cancelled")
@@ -406,6 +426,79 @@ class SchedulerService:
         self._status.current_task = "idle"
         # Schedule next run regardless of success/failure (don't get stuck)
         self._status.next_training_at = self._compute_next_training(config)
+
+    @staticmethod
+    def _reflex_enabled(config: dict[str, Any]) -> bool:
+        """Reflex runs only when learning and Reflex are both enabled."""
+        learning: dict[str, Any] = config.get("learning", {}) or {}
+        return bool(learning.get("enable", False)) and bool(learning.get("reflex_enabled", False))
+
+    def _compute_next_reflex(self, config: dict[str, Any], now: datetime | None = None) -> datetime:
+        """Next REFLEX_RUN_HOUR:REFLEX_RUN_MINUTE in the configured local timezone (as UTC)."""
+        import pytz
+
+        tz_name = str(config.get("timezone") or "Europe/Stockholm")
+        try:
+            tz = pytz.timezone(tz_name)
+        except pytz.UnknownTimeZoneError:
+            logger.warning("Unknown timezone %s for Reflex schedule, using UTC", tz_name)
+            tz = pytz.UTC
+
+        now_local = (now or datetime.now(UTC)).astimezone(tz)
+        candidate_date = now_local.date()
+        if (now_local.hour, now_local.minute) >= (REFLEX_RUN_HOUR, REFLEX_RUN_MINUTE):
+            candidate_date += timedelta(days=1)
+        # Localize per date so the run stays at local 04:30 across DST changes.
+        candidate = tz.localize(
+            datetime(
+                candidate_date.year,
+                candidate_date.month,
+                candidate_date.day,
+                REFLEX_RUN_HOUR,
+                REFLEX_RUN_MINUTE,
+            )
+        )
+        return candidate.astimezone(UTC)
+
+    async def _check_reflex(self, config: dict[str, Any]) -> None:
+        """Run Aurora Reflex once per day when it is due and the scheduler is idle."""
+        enabled = self._reflex_enabled(config)
+        if enabled and not self._status.reflex_enabled:
+            # Enabled live: schedule the next slot instead of running immediately.
+            self._status.next_reflex_at = self._compute_next_reflex(config)
+        self._status.reflex_enabled = enabled
+        if not enabled:
+            self._status.next_reflex_at = None
+            return
+
+        if self._status.next_reflex_at is None:
+            self._status.next_reflex_at = self._compute_next_reflex(config)
+            return
+
+        if self._status.current_task != "idle" or datetime.now(UTC) < self._status.next_reflex_at:
+            return
+
+        await self._run_reflex(config)
+
+    async def _run_reflex(self, config: dict[str, Any]) -> None:
+        """Execute the daily Aurora Reflex run (tunes config parameters from history)."""
+        from backend.learning.reflex import AuroraReflex
+
+        self._status.current_task = "reflex"
+        logger.info("Starting daily Aurora Reflex run...")
+        try:
+            report = await AuroraReflex().run(dry_run=False)
+            self._status.last_reflex_status = "success"
+            for line in report:
+                logger.info("Aurora Reflex: %s", line)
+        except Exception:
+            logger.exception("Daily Aurora Reflex run failed")
+            self._status.last_reflex_status = "error"
+        finally:
+            self._status.last_reflex_at = datetime.now(UTC)
+            self._status.current_task = "idle"
+            # Always advance, success or not, so a failing run cannot loop.
+            self._status.next_reflex_at = self._compute_next_reflex(config)
 
     def _compute_next_training(self, config: dict[str, Any]) -> datetime:
         """Calculate next training date based on frequency and run_time.
@@ -684,6 +777,8 @@ class SchedulerService:
                 "jitter_minutes": int(schedule.get("jitter_minutes", 0)),
                 "ml_training": automation.get("ml_training", {}),
                 "price_forecast": cfg.get("price_forecast", {}),
+                "learning": cfg.get("learning", {}),
+                "timezone": cfg.get("timezone", "Europe/Stockholm"),
             }
         except Exception as e:
             logger.warning(f"Failed to load scheduler config: {e}")
@@ -693,6 +788,8 @@ class SchedulerService:
                 "jitter_minutes": 0,
                 "ml_training": {"enabled": False},
                 "price_forecast": {"enabled": False},
+                "learning": {},
+                "timezone": "Europe/Stockholm",
             }
 
 

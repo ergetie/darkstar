@@ -99,6 +99,11 @@ async def get_scheduler_status():
         if status.last_training_at
         else None,
         "last_training_status": status.last_training_status,
+        # Daily Aurora Reflex
+        "reflex_enabled": status.reflex_enabled,
+        "next_reflex_at": status.next_reflex_at.isoformat() if status.next_reflex_at else None,
+        "last_reflex_at": status.last_reflex_at.isoformat() if status.last_reflex_at else None,
+        "last_reflex_status": status.last_reflex_status,
     }
 
 
