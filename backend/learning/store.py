@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, cast as type_cast
 
 import pandas as pd
-from sqlalchemy import Integer, cast, desc, func, select, text
+from sqlalchemy import Integer, cast, desc, func, or_, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -508,7 +508,9 @@ class LearningStore:
                 "base_load_forecast_kwh": stmt.excluded.base_load_forecast_kwh,
                 "base_load_p10": stmt.excluded.base_load_p10,
                 "base_load_p90": stmt.excluded.base_load_p90,
-                "temp_c": stmt.excluded.temp_c,
+                # The planner re-upserts its forecast rows without weather; keep the
+                # temperature written by the forward ML pass (same as the raw residual).
+                "temp_c": func.coalesce(stmt.excluded.temp_c, SlotForecast.temp_c),
                 "created_at": func.current_timestamp(),
             },
         )
@@ -611,9 +613,26 @@ class LearningStore:
             await session.commit()
 
     async def get_last_observation_time(self) -> datetime | None:
-        """Get the timestamp of the last recorded observation using Async SQLAlchemy."""
+        """Get the timestamp of the last recorded observation using Async SQLAlchemy.
+
+        store_slot_prices upserts price-only rows into slot_observations, including
+        future day-ahead and forecast slots. Those are not observations: counting them
+        put "last observation" days ahead, so the startup backfill saw a negative gap,
+        reported "Data is up to date" and never filled downtime gaps. Only rows written
+        by the recorder/backfill (they always carry quality_flags; older rows carry SoC)
+        that have started by now count.
+        """
+        now_iso = datetime.now(self.timezone).isoformat()
         async with self.AsyncSession() as session:
-            result = await session.scalar(select(func.max(SlotObservation.slot_start)))
+            result = await session.scalar(
+                select(func.max(SlotObservation.slot_start)).where(
+                    or_(
+                        SlotObservation.quality_flags.is_not(None),
+                        SlotObservation.soc_end_percent.is_not(None),
+                    ),
+                    SlotObservation.slot_start <= now_iso,
+                )
+            )
             if result:
                 dt = datetime.fromisoformat(result)
                 if dt.tzinfo is None:
