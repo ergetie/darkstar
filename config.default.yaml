@@ -265,7 +265,7 @@ learning:
 
 # Nordpool API Configuration (electricity prices)
 nordpool:
-  price_area: "SE4"                    # Nordpool bidding zone (SE1-SE4, NO1-NO5, DK1-DK2, FI, etc.)
+  price_area: "SE4"                    # Nordpool bidding zone (Sweden only: SE1-SE4)
   currency: "SEK"                      # Price currency
   resolution_minutes: 15               # Slot resolution (15, 30, or 60)
 

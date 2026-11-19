@@ -47,7 +47,7 @@
     "automation.ml_training.enabled": "Enable automatic ML model retraining",
     "automation.ml_training.run_days": "Days of week to train (0=Mon, 6=Sun)",
     "automation.ml_training.run_time": "Time of day to run training (HH:MM)",
-    "nordpool.price_area": "Nordpool bidding zone (SE1-SE4, NO1-NO5, DK1-DK2, FI, etc.)",
+    "nordpool.price_area": "Nordpool bidding zone (Sweden only: SE1-SE4)",
     "nordpool.currency": "Price currency",
     "nordpool.resolution_minutes": "Slot resolution (15, 30, or 60)",
     "pricing.vat_percent": "VAT percentage on electricity",

@@ -2,9 +2,14 @@
 
 > [!IMPORTANT]
 > **HAVE YOU INSTALLED YET?**
-> This guide is for *configuring* Darkstar after it is running. If you haven't installed the software yet, please follow the [README.md Installation Steps](https://github.com/ergetie/darkstar/README.md#installation) first.
+> This guide is for *configuring* Darkstar after it is running. If you haven't installed the software yet, please follow the [README Install section](../README.md#install) first.
 
-Welcome to the Darkstar Public Beta! This guide will walk you through tuning your system for maximum savings and safety. All changes should be made via the **Settings** tab in the Darkstar Web UI. You can also directly edit the config.yaml file if you prefer, but that requires a restart of the Darkstar service after changes.
+This guide walks you through tuning your system for maximum savings and safety. All changes should be made via the **Settings** tab in the Darkstar Web UI. You can also directly edit the config.yaml file if you prefer, but that requires a restart of the Darkstar service after changes.
+
+On first start Darkstar opens a setup wizard (up to 10 steps, depending on your setup: Connect, My system, Location & pricing, Inverter, Core sensors, Solar, Battery, Water heater, EV, Review & readiness). It fills in most of what this guide describes and ends with a readiness check, so use this guide to review and tune the result. You can relaunch the wizard at any time from **Settings -> Advanced -> Relaunch Setup Wizard** (Advanced Mode) or by opening the UI with `?setup_wizard=true`.
+
+> [!NOTE]
+> Darkstar supports Sweden only (Nord Pool price areas SE1, SE2, SE3 and SE4). Other countries and price areas are not supported.
 
 ---
 
@@ -16,7 +21,7 @@ Navigate to **Settings -> System**. These are the "foundations" of your optimiza
 The first and most important setting is your **Inverter Profile**. Darkstar uses profiles to automatically configure the correct entities and control logic for your specific hardware.
 - **Select Profile**: Choose your brand (e.g., `Deye`, `Fronius`).
 - **Generic Profile**: Use this if your brand is not listed. You will need to manually map all entities.
-- **Custom Profiles**: If you want to create your own profile, see the **[Profile Creation Guide](CREATING_INVERTER_PROFILES.md)**.
+- **Custom Profiles**: If you want to create your own profile, see the **[Profile Creation Guide](inverter-profiles/CREATING_INVERTER_PROFILES.md)**.
 
 #### Deye / SunSynk: Time of Use program 6
 Darkstar writes the battery SoC target directly to **Time of Use program 6 SoC** (default `number.inverter_program_6_soc`). On the inverter:
@@ -50,13 +55,6 @@ actions:
       value: "{{ states('input_number.master_soc_target') | float(0) }}"
 ```
 
-> [!WARNING]
-> **Check Your Units! (Watts vs kW)"
-> This is the #1 setup error. Ensure Darkstar knows the correct unit:
-> - If your sensor emits **Watts** (e.g., `1500`), ensure your configuration matches (often auto-detected or specified in config).
-> - If your sensor emits **Kilowatts** (e.g., `1.5`), ensure units align.
-> *Mixing these up will cause the planner to think you have 1000x more power than you do!*
-
 ### 1.2 Location & Solar Array
 Darkstar uses the **Open-Meteo API** to predict your solar production based on weather forecasts.
 - **Latitude / Longitude**: Must be accurate for weather-based forecasting.
@@ -74,8 +72,8 @@ Darkstar automatically aggregates these arrays into a single site forecast while
 - **Min/Max SoC (%)**: Your safe operating range (e.g., 12% to 100%). Darkstar will never plan a target outside this range.
 
 ### 1.4 Pricing & Timezone
-- **Nordpool Price Area**: Your region (e.g., `SE4`, `NO1`, `FI`).
-- **Timezone**: Must be in **IANA format** (e.g., `Europe/Stockholm`, `America/New_York`).
+- **Nordpool Price Area**: Your Swedish price area, `SE1`, `SE2`, `SE3` or `SE4` (printed on your electricity bill).
+- **Timezone**: Must be in **IANA format** (e.g., `Europe/Stockholm`).
 - **VAT & Fees**: Enter your local tax and grid transfer fees (SEK/kWh) to ensure ROI calculations are correct.
 
 ### 1.5 Smart EV Charging (Optional)
@@ -90,6 +88,10 @@ Darkstar can intelligently manage your EV charging to ensure it uses the cheapes
     - **Min Target SoC**: The minimum level you want your car to reach (e.g., 40%). Darkstar will prioritize reaching this level as quickly as possible during cheap windows.
     - **Max Power (kW)**: The maximum charging speed of your wallbox.
     - **Battery Capacity (kWh)**: The total size of your EV's battery.
+
+### 1.6 Installation Statistics
+Darkstar sends one small anonymous heartbeat per day, and this is on by default. You can switch it off in **Settings -> System**.
+See [Installation statistics](../README.md#installation-statistics) for exactly what is sent.
 
 ---
 
@@ -158,7 +160,7 @@ Once configured, verify the system is working:
 1.  **Check Status**: Look at the bottom of the **Sidebar**. The small status dot should be **Green** (Online).
 2.  **Verify Sensors**: The "Current SoC" on the Dashboard should match your inverter's real SoC.
 3.  **Generate Schedule**: Go to the **Schedule** tab. It might take up to 30 minutes for the first plan to appear. You can also trigger a plan manually by pressing the "Run Planner" button.
-4.  **Check Logs**: If no schedule appears, go to **Settings -> Advanced -> Logs** to see if the solver is reporting errors.
+4.  **Check Logs**: If no schedule appears, go to **Settings -> Debug** (first switch on Advanced Mode with the button at the top right of the Settings page) to see if the solver is reporting errors.
 5.  **Test Execution**: Enable a manual charge slot and verify that your inverter actually starts charging. You can test this with the top-up button or water heating boost button.
 
 ---
@@ -167,8 +169,8 @@ Once configured, verify the system is working:
 
 By default, Darkstar might be in **Shadow Mode**. In this mode, the system calculates everything and logs what it *would* have done, but it does **not** change any entities in Home Assistant.
 
-- **To Observe**: Keep `executor.shadow_mode` enabled (found in **Settings -> Advanced**).
-- **To Go Live**: Disable `shadow_mode` and ensure `darkstar_enable` (Automation Toggle) is ON in Home Assistant.
+- **To Observe**: Keep **Shadow Mode** on (toggle on the **Executor** page).
+- **To Go Live**: Switch **Shadow Mode** off on the **Executor** page and ensure `darkstar_enable` (Automation Toggle) is ON in Home Assistant.
 
 > [!WARNING]
 > Always monitor the system during the first 24 hours of live execution. Ensure your inverter safety limits are configured correctly in the inverter itself!

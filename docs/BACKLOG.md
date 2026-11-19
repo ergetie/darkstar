@@ -43,6 +43,60 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🐛 Fixes
 
+#### [Security] API Open To Any Website (CORS) And No Optional Auth
+
+**Goal:** Restrict CORS to Darkstar's own origin so random websites in a LAN browser cannot drive the API; offer optional auth for users who expose the port. Local-only or reverse-proxy-with-login setups need no login.
+
+**Notes:** Priority P1 (beta exit, lowered from P0 2026-11-19). Status Confirmed. 34 write routes and 74 GET routes have no auth: executor control (`backend/api/routers/executor.py:112-536`), config writes (`config.py:137`, `:2023`), HA writes (`ha.py:299`, `:343`), EV actions (`ev.py:126`, `:771`, `:811`), updater apply (`updater.py:76`). Listens on `0.0.0.0:5000` (`darkstar/run.sh:356`, `scripts/docker-entrypoint.sh:125`); Docker publishes `5000:5000` (`docker-compose.yml:14-15`); add-on publishes 5000 besides ingress (`darkstar/config.yaml:30-38`). CORS allows any origin with credentials (`backend/main.py:313-319`). Source: beta-exit audit 2026-11.
+
+#### [Database] Upgrades Cannot Be Undone (Backup And Rollback)
+
+**Goal:** Make every migration recoverable with a consistent, pruned DB backup and an updater rollback.
+
+**Notes:** Priority P0 (beta exit). Status Confirmed. Docker start-up backup is a plain `cp` of the live DB without WAL checkpoint, runs every start, never pruned (819 MB each), and migrates anyway if it fails (`scripts/docker-entrypoint.sh:81-92`). Add-on runs `alembic upgrade head` with no backup (`darkstar/run.sh:327-340`). No downgrade is invoked anywhere; `docs/OPERATIONS.md:39` says no automatic backup. Source: beta-exit audit 2026-11.
+
+#### [Database] Database Grows Forever (Retention And Vacuum)
+
+**Goal:** Prune old rows and reclaim space so the planner database stops growing without bound.
+
+**Notes:** Priority P0 (beta exit). Status Confirmed. `ExecutionLog.cleanup_old_records` (`executor/history.py:279`) has no call sites outside tests; `history_retention_days` is parsed but unused (`executor/config.py:1432`). Six tables unpruned: `slot_observations`, `slot_forecasts`, `slot_plans`, `planner_debug`, `execution_log`, `price_forecasts`. No `VACUUM`. Local `data/planner_learning.db` is 819 MB. Source: beta-exit audit 2026-11.
+
+#### [Updater] Updater Integrity, Pinned Origin And Rollback
+
+**Goal:** Make updates verifiable and recoverable, and keep apply from being a root-on-host path.
+
+**Notes:** Priority P1 (beta exit); P0 if port 5000 is reachable (see API login item). Status Confirmed. Unauthenticated `/api/updater/apply` and `PUT /api/updater/channel` (`backend/api/routers/updater.py`; CORS `*`, `backend/main.py:313-319`). Only the git ref is verified: no tag or commit signature check, origin URL not pinned (`updater/repo.py:63-66`), tags force-fetched, and the fetched Dockerfile is built with `/var/run/docker.sock` mounted (`docker-compose.yml:57`) = root on host. Caller can only pick dev/stable. Add `git verify-tag` against a pinned key and assert origin is `github.com/ergetie/darkstar`. No rollback after a migrated DB or unhealthy start (`updater/service.py:361-364`); apply flow at `service.py:309-348`. Source: beta-exit audit 2026-11.
+
+#### [Diagnostics] Diagnostics Bundle Has No Redaction
+
+**Goal:** Redact secrets and sensitive data from the diagnostics bundle before users post it publicly.
+
+**Notes:** Priority P1 (beta exit). Status Confirmed. `/api/system/diagnostics` has no login and bundles raw `config.yaml`, full log, full DB and `schedule.json` with no redaction (`backend/api/routers/system.py:481-577`); `secrets.yaml` is excluded, HA token never logged. A failed Discord webhook post logs the full webhook URL including its secret via `describe_exception` (`backend/core/notify.py:118-121`, `backend/core/exception_text.py:6-24`), which reaches the bundle: scrub URLs. P2: HA URL is logged. Users post bundles on Discord. Source: beta-exit audit 2026-11.
+
+#### [Executor] Stale Or Missing Schedule: Alerting And Wording
+
+**Goal:** Make the stale or missing schedule fallback visible and correctly reported.
+
+**Notes:** Priority P1 (beta exit). Status Confirmed (traced 2026-11-18). Behaviour is safe: a stale (>2h, `executor/config.py:394`) or missing/empty/unreadable schedule makes `_load_current_slot` return `(None, None)` (`executor/engine.py:2515-2575`), then `SLOT_FAILURE_FALLBACK` (`executor/override.py:183-197`) selects idle: grid charging off, soc_target=current SoC, water temp_off, EV off. No forced charge or export. Gaps: (P1) missing/empty file sends no `notify_error`, only a per-tick log; (P1) `_stale_schedule_warning` resets only after early returns (`engine.py:2537`), so stale-then-deleted file leaves it stuck, alert muted, tick uncounted; (P2) log says "holding", should say idle fallback; (P2) idle differs per profile (deye 15A discharge allowed, sungrow self-consumption + 10W, generic CONFIGURE_ME in `profiles/*.yaml`), not verified intentional. Source: beta-exit audit 2026-11.
+
+#### [Planner] Price Fetch Failure Handling
+
+**Goal:** Handle price fetch failures gracefully with fallback, correct classification and notification.
+
+**Notes:** Priority P1 (beta exit). Status Confirmed (traced 2026-11-18). `backend/core/prices.py:16-139` catches all errors, returns `[]`, 10s timeout, no retries, no last-good cache fallback (TTL 3600s). Planner fails, `schedule.json` untouched; executor follows the old plan until 2h stale, then idle. Gaps: (P1) tomorrow fetch failing after 13:00 discards today's good prices (`prices.py:78-94`, same try); (P1) add last-good-cache fallback; (P1) empty prices likely raise IndexError at `planner/pipeline.py:1736`, classified UNKNOWN instead of PRICES_UNAVAILABLE (not verified by running): check prices at start of `generate_schedule`; (P2) no push notification for planner failures, only WebSocket `planner_error` (`planner_service.py:421`); (P2) after 13:00 with no tomorrow data the cache is invalidated every call, causing repeated 10s fetches. Source: beta-exit audit 2026-11.
+
+#### [Sensors] Unitless Sensor Silently Treated As kW
+
+**Goal:** Fail or warn loudly instead of assuming kW for sensors without a unit.
+
+**Notes:** Priority P1 (beta exit). Status Confirmed. W/kW are normalised (`backend/core/ha_client.py:217-228`); no unit is assumed kW with a log line only (`ha_client.py:249-257`), the 1000x mistake the docs warn about. Unexpected unit is only a warning in the readiness check (`backend/core/readiness.py:136-145`). Source: beta-exit audit 2026-11.
+
+#### [Logging] Log Files Have No Size Cap
+
+**Goal:** Cap log size so a single day cannot grow unbounded.
+
+**Notes:** Priority P2 (beta exit). Status Confirmed. Rotation keeps 7 daily files (`backend/core/logging.py:99-100`) but one day's file reached 45 MB. Source: beta-exit audit 2026-11.
+
 ---
 
 ## 🔧 Improvements
@@ -52,6 +106,42 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 **Goal:** Tell the user when a setting is outside the range Darkstar's own learning would ever choose, or contradicts what the recorded data shows, and what it is likely costing them.
 
 **Notes:** Found 2026-10-06 (cmon89): `forecasting.pv_confidence_percent` was 60 while Reflex only moves it within 70–120 (`backend/learning/reflex.py:22`) and his forecasts were 96 % accurate over 30 days (PV 938 actual vs 905 forecast). Nothing warned him. A replay estimated 60 % vs 83 % at ~53 kr over 25 days. His `learning.max_daily_param_change.pv_confidence_percent` was also 60 (default 1.0). Must cover every Reflex-tuned parameter (bounds table in `reflex.py`) and similar settings, e.g. max-daily-change values far from defaults. Harmless leftovers (e.g. an enabled `water_heaters` entry with `has_water_heater: false`, which the planner ignores) get at most a one-time info note, not a warning.
+
+#### [Release] Stable Channel Is Dead, No Promotion Gate
+
+**Goal:** Revive the stable channel with a soak period between dev and stable.
+
+**Notes:** Priority P0 (beta exit). Status Confirmed. Last tag `v2.7.1-beta` (2026-09-26); main is 110 commits ahead. `darkstar/config.yaml` (stable) still 2.7.1-beta, while `darkstar-dev/` gets an image on every push. Discord users run darkstar-dev, so every push lands on them directly. Source: beta-exit audit 2026-11.
+
+#### [Release] High Fix Volume
+
+**Goal:** Reduce regressions and release more regularly.
+
+**Notes:** Priority P1 (beta exit). Status Confirmed. Last 90 days: 145 commits, 61 fixes, 37 features; fixes by area: executor 9, forecasting 7, settings 5, EV 5, config 3, updater 2, recording 2, load profile 2, battery 2. Only 2 releases (v2.7.0 09-18, v2.7.1 09-26). Source: beta-exit audit 2026-11.
+
+#### [Support] Support Depends On One Person On Discord
+
+**Goal:** Move support toward a structure that does not rely on one maintainer.
+
+**Notes:** Priority P1 (beta exit). Status Confirmed. GitHub has 5 issues total (1 open: #6 Sungrow battery never discharges below 20 percent) and 1 PR. Last 100 Discord messages (2026-11-04 to 11-16): 8 distinct non-maintainer authors. Themes: EV planning and catch-up charging, water heater scheduling, flat or low load forecast, graph data stopping mid-day, cost vs supplier bill, requests for new inverter profiles and non-Nordpool price providers. Source: beta-exit audit 2026-11.
+
+#### [Testing] Test And CI Gaps (Updater, E2E, tsc, Build, Pre-push)
+
+**Goal:** Close the thinnest test and CI gaps.
+
+**Notes:** Priority P2 (beta exit), with a P1 sub-item. Status Confirmed. Updater has 1 test file and a run of recent fixes; no browser-level e2e (`tests/e2e/` has 2 files). CI (`.github/workflows/ci.yml`) runs eslint+vitest but no `tsc` and no `vite build` (`package.json` build is `vite build` without tsc); `scripts/lint.sh` does run tsc. (P1) add `tsc --noEmit` to CI lint-frontend and `scripts/ci_local.sh`; (P2) add `pnpm build` to CI; (P2) pre-push gate lacks vitest. Source: beta-exit audit 2026-11.
+
+#### [Docs] Inverter Profiles Have No Tested Marker
+
+**Goal:** Mark which inverter profiles are tested and correct the docs claims.
+
+**Notes:** Priority P2 (beta exit). Status Confirmed. Profiles: Deye, Fronius, Sungrow and generic; none has a tested/untested field, yet README lists all as "Supported". The setup guide cheat sheet calls Solis, Huawei and GoodWe mode strings "verified" although no such profile exists. Source: beta-exit audit 2026-11.
+
+#### [Repo] Repo Not Ready For Outside Contributors
+
+**Goal:** Add community files and remove stray tracked files.
+
+**Notes:** Priority P2 (beta exit). Status Confirmed. No CONTRIBUTING, CODE_OF_CONDUCT, SECURITY.md or issue template. Stray tracked files: `history_debug_dump.json`, `msg_bad`, `data/history.db`, `frontend/package.json.bak`, `conductor/` (13 files). Source: beta-exit audit 2026-11.
 
 ---
 
@@ -96,3 +186,9 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ---
 
 ## 💡 Future Ideas / Deferred
+
+#### [Planner] Nordic Support (NO/FI/DK)
+
+**Goal:** Support Norwegian, Finnish and Danish price areas properly.
+
+**Notes:** Deferred 2026-11-19 (Sweden-only for beta exit). Traced 2026-11-18: nordpool lib fetches these areas, but currency is hard-labelled SEK (`KPIStrip.tsx:33`, `:50`, `:97`; `_sek` names in `prices.py`), tax defaults are Swedish (`config.default.yaml:274-276`), weather/ML regions are SE only (`ml/regions.json`, `ml/weather.py:856-873`), frontend timezone hardcoded `Europe/Stockholm` (`ChartCard.logic.ts:43`, `lib/time.ts:10`), no price_area/currency validation. Revisit when a non-Swedish user asks.

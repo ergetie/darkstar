@@ -91,9 +91,12 @@ The comfort level controls **two key parameters**:
 Set `enable_top_ups: false` in config to force single-block bulk heating regardless of comfort level. This preserves reliability penalties but allows one large heating session per day.
 
 ### Shadow Mode
-In **Settings -> Advanced**, you can enable **Shadow Mode**.
+On the **Executor** page, use the **Shadow Mode** toggle.
 *   **ON**: Darkstar calculates the plan but **DOES NOT** send commands to your inverter. It just watches. Great for testing.
 *   **OFF**: Darkstar has full control.
+
+### Installation Statistics
+Darkstar sends one small anonymous heartbeat per day to `telemetry.wxl.se`. It contains a random installation ID, the Darkstar version, release channel, installation type, CPU architecture, inverter profile and executor mode (shadow, live or unknown). Energy data, location, entity names, credentials and detailed configuration are never sent, and the receiver does not keep IP addresses. Reporting is on by default. Turn it off at any time in **Settings -> System -> Installation statistics** (switch **Report installation statistics** off), or set `installation_stats.enabled: false` in `config.yaml`. In the setup wizard it can also be switched off on the last step.
 
 ---
 

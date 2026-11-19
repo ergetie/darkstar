@@ -252,7 +252,7 @@ export const systemSections: SettingsSection[] = [
             {
                 key: 'nordpool.price_area',
                 label: 'Nordpool Price Area',
-                helper: 'e.g. SE4, NO1, DK2',
+                helper: 'Swedish price area: SE1, SE2, SE3 or SE4',
                 path: ['nordpool', 'price_area'],
                 type: 'text',
             },
