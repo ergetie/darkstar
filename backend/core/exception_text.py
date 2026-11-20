@@ -16,7 +16,7 @@ _URL_PARTS_RE = re.compile(
 )
 _TOKEN_PARAM_RE = re.compile(
     r"\b(?P<key>access_token|api_key|token|key|password)(?P<sep>=)"
-    r"(?P<quote>[\"']?)[^\s&\"',;]+",
+    r"(?P<quote>(?:\\*[\"'])?)[^\s&\"',;\\]+",
     re.IGNORECASE,
 )
 _BEARER_RE = re.compile(r"\b(?P<prefix>bearer\s+)[A-Za-z0-9._~+/=-]+", re.IGNORECASE)

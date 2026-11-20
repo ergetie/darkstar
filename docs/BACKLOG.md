@@ -43,24 +43,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🐛 Fixes
 
-#### [Updater] Updater Integrity And Pinned Origin
-
-**Goal:** Make updates verifiable, and keep apply from being a root-on-host path.
-
-**Notes:** Priority P1 (beta exit). Status Confirmed. Unauthenticated `/api/updater/apply` and `PUT /api/updater/channel` (`backend/api/routers/updater.py`); browser cross-site writes are blocked by OpenSpec change `beta-exit-hardening` (Sec-Fetch-Site guard), but any non-browser client that can reach the port can still call them. Only the git ref is verified: no tag or commit signature check, origin URL not pinned (`updater/repo.py:63-66`), tags force-fetched, and the fetched Dockerfile is built with `/var/run/docker.sock` mounted (`docker-compose.yml:57`) = root on host. Caller can only pick dev/stable. Add `git verify-tag` against a pinned key and assert origin is `github.com/ergetie/darkstar`. Source: beta-exit audit 2026-11.
-
-#### [Diagnostics] Diagnostics Bundle Has No Redaction
-
-**Goal:** Redact secrets and sensitive data from the diagnostics bundle before users post it publicly.
-
-**Notes:** Priority P1 (beta exit). Status Confirmed. `/api/system/diagnostics` has no login and bundles raw `config.yaml`, full log, full DB and `schedule.json` with no redaction (`backend/api/routers/system.py:481-577`); `secrets.yaml` is excluded, HA token never logged. P2: HA URL is logged. Users post bundles on Discord. Source: beta-exit audit 2026-11.
-
-#### [Planner] Price Fetch Failure Handling
-
-**Goal:** Handle price fetch failures gracefully with fallback, correct classification and notification.
-
-**Notes:** Priority P1 (beta exit). Status Confirmed (traced 2026-11-18). `backend/core/prices.py:16-139` catches all errors, returns `[]`, 10s timeout, no retries, no last-good cache fallback (TTL 3600s). Planner fails, `schedule.json` untouched; executor follows the old plan until 2h stale, then idle. Gaps: (P1) tomorrow fetch failing after 13:00 discards today's good prices (`prices.py:78-94`, same try); (P1) add last-good-cache fallback; (P1) empty prices likely raise IndexError at `planner/pipeline.py:1736`, classified UNKNOWN instead of PRICES_UNAVAILABLE (not verified by running): check prices at start of `generate_schedule`; (P2) no push notification for planner failures, only WebSocket `planner_error` (`planner_service.py:421`); (P2) after 13:00 with no tomorrow data the cache is invalidated every call, causing repeated 10s fetches. Source: beta-exit audit 2026-11.
-
 #### [Planner] Price Reserve Flaps On Biased D+1 Price Forecast
 
 **Goal:** Stop the price reserve from raising the SoC target on a D+1 price gap that is smaller than the forecast's own error.
@@ -89,6 +71,21 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ---
 
 ## 🔧 Improvements
+
+#### [Learning] Replace Reflex With Measured, Stored Learned Parameters
+
+**Goal:** Make Darkstar self-adapt where it actually helps: measure each home's physical facts (battery round-trip losses, real usable capacity, EV charging losses, real max charge/discharge power) from data, store them outside `config.yaml` with evidence, confidence and history, and use them unless the user locks their own value. Notify on every change; never auto-tune user preferences (risk, min SoC). Prove benefit with the hindsight benchmark.
+
+**Notes:** Status Investigated 2026-11-19/20 (code + prod data). Design via openspec-explore before any change; not scheduled yet. Facts:
+- Reflex (`backend/learning/reflex.py`) has not run automatically since the FastAPI migration (`06b40f9a`); it edits `config.yaml` directly.
+- Backtest on a prod DB copy, 368 days (2025-11-17 to 2026-11-19), day-by-day dry run (`~/.cache/darkstar-reflex-backtest/`): 18 changes. `base_factor` 1.10 → 1.00 in 10 days (prod had 0 low-SoC events in 16–20h; missing history counted as "no events"). `pv_confidence` 83 → 70 in 3 days (June), stuck at the bound 115 days, then 70 → 95 in 5 days (Nov 15–19). Capacity 0 changes. EV losses 0 changes (14 starts, needs 20).
+- `pv_confidence` tuning cannot converge: Reflex measures the stored forecast, but the factor is applied later in the planner (`planner/inputs/data_prep.py:206`), so its own changes never reach what it measures.
+- `pv_confidence` cuts an already ML-corrected forecast: Aurora's `pv_forecast_kwh` = Open-Meteo baseline + bounded, weighted ML residual (`ml/forward.py:176`, `:739`); prod runs hybrid mode at 100 % weight (91/14 paired days). Prod 2026-11-01 to 11-19 (1824 slots, latest stored forecast per slot, not day-ahead): Open-Meteo 169.7 kWh, Aurora 104.2 kWh, planner after 83 % = 86.5 kWh, actual 117.0 kWh.
+- `base_factor` is only the fallback when the default `probabilistic` S-index (`config.default.yaml:204`) fails; the margin already adapts from forecast p10/p90.
+- Capacity estimator (`store.py` `get_capacity_estimate`) is not usable: 1 % SoC steps per 15-min slot, rejects estimates ≤ 10 kWh, and prod has `soc_start_percent` in only 11 rows. The existing hindsight capacity warning covers degradation.
+- Lesson from #8: a learned value must expire and say so when stale (the old `learning_daily_metrics` row overrode `base_factor` with 1.4066 from 2026-03-15 to 2026-11-19).
+- Related: memory note on treating `pv_confidence` as a safety margin only (PV forecast fix list, 2026-11-04).
+Source: GitHub #8 review and Reflex backtest.
 
 #### [Learning] Remove Dead Error-Correction Config And Models
 

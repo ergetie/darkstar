@@ -34,6 +34,12 @@ from backend.core.power_sensors import (
     LOAD_POWER,
     PV_POWER,
 )
+from backend.core.redaction import (
+    RedactionError,
+    mask_config_versions,
+    redact_config,
+    redact_text,
+)
 from backend.core.secrets import load_yaml
 from backend.core.version import get_version as _get_git_version
 from backend.learning.store import LearningStore
@@ -198,17 +204,24 @@ async def get_log_info() -> LogInfoResponse:
 @router.get(
     "/api/system/logs",
     summary="Download Log File",
-    description="Returns the main log file as a downloadable attachment.",
+    description=(
+        "Returns the main log file as a downloadable attachment, redacted the same way as the "
+        "diagnostics bundle (public hosts and IPs, credentials, tokens and coordinates removed)."
+    ),
 )
 async def download_logs():
-    """Download the main log file."""
-    from fastapi.responses import FileResponse
-
+    """Download the main log file with identifying values redacted."""
     log_path = Path("data/darkstar.log")
-    if not log_path.exists():
+    if not log_path.is_file():
         raise HTTPException(status_code=404, detail="Log file not found")
 
-    return FileResponse(path=log_path, filename="darkstar.log", media_type="text/plain")
+    redacted = await asyncio.to_thread(_redact_log_to_temp_file, log_path)
+    return FileResponse(
+        path=redacted,
+        filename="darkstar.log",
+        media_type="text/plain",
+        background=BackgroundTask(_remove_file, redacted),
+    )
 
 
 @router.delete(
@@ -396,6 +409,25 @@ def _temp_file(directory: Path, prefix: str, suffix: str) -> Path:
     return Path(name)
 
 
+def _redact_log_to_temp_file(log_path: Path) -> Path:
+    """Write a redacted copy of ``log_path`` line by line (bounded memory).
+
+    The caller must delete the returned file. It is removed here if writing fails.
+    """
+    dest = _temp_file(log_path.parent, ".logs-", ".log")
+    try:
+        with (
+            log_path.open("r", encoding="utf-8", errors="replace", newline="") as src,
+            dest.open("w", encoding="utf-8", newline="") as dst,
+        ):
+            for line in src:
+                dst.write(redact_text(line))
+    except BaseException:
+        _remove_file(dest)
+        raise
+    return dest
+
+
 def _snapshot_database_sync(db_path: Path) -> Path:
     """Copy the database with SQLite's online backup into a temporary file.
 
@@ -486,10 +518,40 @@ def _json_bytes(data: Any) -> bytes:
     return json.dumps(data, indent=2, default=str).encode("utf-8")
 
 
+def _redacted_json_bytes(data: Any) -> bytes:
+    return redact_text(_json_bytes(data).decode("utf-8")).encode("utf-8")
+
+
 def _read_file(path: Path) -> bytes:
     if not path.is_file():
         raise FileNotFoundError(f"{path} not found")
     return path.read_bytes()
+
+
+def _read_redacted_config(path: Path) -> bytes:
+    """Read ``config.yaml`` redacted. Never falls back to the raw file."""
+    raw = _read_file(path).decode("utf-8")
+    try:
+        return redact_config(raw).encode("utf-8")
+    except RedactionError as e:
+        logger.error(f"Diagnostics: config redaction failed: {e}")
+        raise RuntimeError("could not redact config") from e
+
+
+def _read_redacted_text(path: Path) -> bytes:
+    return redact_text(_read_file(path).decode("utf-8", errors="replace")).encode("utf-8")
+
+
+def _write_redacted_log(zf: zipfile.ZipFile, name: str, path: Path) -> None:
+    """Stream a log into the zip, redacting line by line (bounded memory)."""
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} not found")
+    with (
+        path.open("r", encoding="utf-8", errors="replace", newline="") as src,
+        zf.open(name, "w") as dst,
+    ):
+        for line in src:
+            dst.write(redact_text(line).encode("utf-8"))
 
 
 def _write_bundle_sync(
@@ -512,13 +574,20 @@ def _write_bundle_sync(
             if name == "darkstar.log.1" and not path.is_file():
                 continue  # optional: only present after the first rollover
             try:
-                zf.writestr(name, _read_file(path))
+                if name.startswith("darkstar.log"):
+                    _write_redacted_log(zf, name, path)
+                elif name == "config.yaml":
+                    zf.writestr(name, _read_redacted_config(path))
+                else:
+                    zf.writestr(name, _read_redacted_text(path))
                 items[name] = "included"
             except Exception as e:
                 items[name] = f"error: {e}"
         for name, payload in json_payloads.items():
             zf.writestr(name, payload)
-        manifest = {**manifest_base, "items": items}
+        # Error reasons can carry exception text (hosts, paths); redact them too.
+        safe_items = {name: redact_text(status) for name, status in items.items()}
+        manifest = {**manifest_base, "redacted": True, "items": safe_items}
         zf.writestr("manifest.json", json.dumps(manifest, indent=2))
 
 
@@ -526,8 +595,8 @@ def _write_bundle_sync(
     "/api/system/diagnostics",
     summary="Export Diagnostics Bundle",
     description=(
-        "Returns one zip with a consistent database snapshot, config.yaml as stored on disk, "
-        "the log (and the most recent rotated log when present), schedule.json, version/status/health/monitors output, the load balancer trace and a manifest. "
+        "Returns one zip with a consistent database snapshot (secret values in stored config versions masked, nothing else changed; omitted if masking fails), redacted config.yaml, "
+        "the redacted log (and the most recent rotated log when present), redacted schedule.json, version/status/health/monitors output, the load balancer trace and a manifest. "
         "Never includes secrets.yaml."
     ),
 )
@@ -544,10 +613,20 @@ async def export_diagnostics(
         snapshot: Path | None = None
         try:
             snapshot = await _snapshot_database(Path(store.db_path))
-            items["planner_learning.db"] = "included"
         except Exception as e:
             logger.error(f"Diagnostics: database snapshot failed: {e}")
             items["planner_learning.db"] = f"error: {e}"
+        if snapshot is not None:
+            try:
+                # Only the temporary copy is masked; the live database is never touched.
+                await asyncio.to_thread(mask_config_versions, snapshot)
+                items["planner_learning.db"] = "included"
+            except Exception as e:
+                # Fail closed: never ship a copy whose config versions are unmasked.
+                logger.error(f"Diagnostics: masking config versions failed: {e}")
+                _remove_file(snapshot)
+                snapshot = None
+                items["planner_learning.db"] = "error: could not mask config versions"
 
         try:
             json_payloads: dict[str, bytes] = {}
@@ -560,7 +639,7 @@ async def export_diagnostics(
             }
             for name, handler in sources.items():
                 try:
-                    json_payloads[name] = _json_bytes(await handler())
+                    json_payloads[name] = _redacted_json_bytes(await handler())
                     items[name] = "included"
                 except Exception as e:
                     logger.error(f"Diagnostics: {name} failed: {e}")

@@ -38,6 +38,12 @@ Docker installs can update from the UI: click the version in the sidebar (a dot 
 
 An update is refused when tracked files were modified locally, or when the target does not contain your database's migration version (for example Dev to Stable). Downgrades are never automatic. Every update that needs a database migration is preceded by an automatic backup (see [Database safety](#database-safety)).
 
+**Update safety rules.** The updater only fetches from and applies code of `github.com/ergetie/darkstar` (https, `git@github.com:` and `ssh://git@github.com/` forms, with or without `.git`). Before every check and update it reads `origin` and refuses anything else with "Origin is not github.com/ergetie/darkstar". If you cloned from a fork or mirror, point origin back at the official repository:
+```bash
+git remote set-url origin https://github.com/ergetie/darkstar.git
+```
+Release tags are never overwritten or pruned locally. If a tag was moved upstream, the check still succeeds and shows a warning naming the tag, and your local tag is kept; a tag deleted upstream also stays. The update installs the exact commit resolved when you press **Update**, not a name that could move meanwhile. `stable` refuses a target older than the installed version ("Target is older than the installed version"); switching from `dev` to `stable` is not affected by this rule. `dev` only fast-forwards: if your local history is not an ancestor of `origin/main` the update is refused ("Dev branch history diverged, refusing non-fast-forward update") before anything is checked out.
+
 **Opt-in setup.** The updater is a separate `updater` container that only starts when enabled. Without it nothing changes and you can keep updating manually. To enable it, add these values to a `.env` file next to `docker-compose.yml`, then rebuild once:
 ```bash
 echo "DARKSTAR_UPDATER_TOKEN=$(openssl rand -hex 32)" >> .env
@@ -118,6 +124,28 @@ A background task prunes old rows once a day (first check about 10 minutes after
 `0` means keep forever and is only accepted by the keys whose default is 0. The learning data grows by roughly 80 MB per year.
 
 **One-time shrink.** On the first start with this version the database is backed up, old rows are pruned and the database is rebuilt once with incremental auto-vacuum, which can take from seconds to a few minutes and needs free disk space of about 1.2 times the used database size plus 64 MB (otherwise the rebuild is skipped with a warning and retried at the next start; the pruning stays). A large database (for example 800 MB) typically ends up around 230 MB.
+
+---
+
+## 🔎 Diagnostics bundle
+
+`GET /api/system/diagnostics` (the diagnostics download on the Debug page) returns one zip meant to be attached to a bug report. It is redacted so it can be posted publicly, while keeping what is needed to debug the planner and executor.
+
+**Removed or masked**
+- Logs (`darkstar.log`, `darkstar.log.1`), `schedule.json` and the JSON outputs (version, status, health, monitors, balancer trace): URL credentials, paths and queries, `token=` style parameters and bearer values are removed; hosts that are not private, local or a known service (for example a `*.ui.nabu.casa` or DDNS name) become `<redacted-host>`; public IPv4 addresses become `<redacted-ip>`; numeric latitude/longitude values become `<redacted>` (`"<redacted>"` in JSON, so the files stay valid JSON).
+- `config.yaml`: values of keys named like token, secret, password, api key, webhook, credential, authorization, bearer or private key (at any depth) become `<redacted>` when set; latitude and longitude are rounded to one decimal; URL strings follow the text rules above. Comments and key order are kept. `secrets.yaml` is never read.
+- Database: `planner_learning.db` is always included as a consistent snapshot. In the copy only, secret-named keys inside the stored config versions are masked (a version that cannot be parsed is replaced by a placeholder). If masking fails the database is left out and `manifest.json` shows `error: could not mask config versions`; a raw copy is never used instead.
+- If `config.yaml` cannot be parsed it is left out and `manifest.json` shows `error: could not redact config`; the raw file is never used instead.
+
+**Kept as is**
+- Entity ids, device names, tariffs and battery, inverter and solar parameters, price area, timezone, log levels, messages and timestamps.
+- Private and local addresses and names, such as `http://192.168.0.100:8123` or `homeassistant`, and known public service hosts (Open-Meteo and similar).
+- Everything in the database apart from the secret-named keys in stored config versions. Coordinates and other non-secret values in stored config versions are not rounded or masked.
+- Free text you typed yourself is not redacted. Look through the files before posting if in doubt; `manifest.json` records `redacted: true` and the status of each item.
+
+**Other downloads**
+- `GET /api/system/logs` (log download) is redacted the same way as the logs in the bundle. The log file on disk is not changed.
+- `GET /api/config/download` and `GET /api/system/db-snapshot` are raw backups and are not redacted. Do not post them publicly.
 
 ---
 

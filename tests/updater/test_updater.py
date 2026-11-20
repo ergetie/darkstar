@@ -32,6 +32,7 @@ GIT_ENV = {
     "GIT_COMMITTER_EMAIL": "t@example.invalid",
 }
 TOKEN = "s3cret-token"
+PINNED_URL = "https://github.com/ergetie/darkstar.git"
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -106,6 +107,8 @@ class Fixture:
         commit(self.pusher, "dev-260102.0000", "rev_b")
         git(self.pusher, "push", "origin", "main", "--tags")
         git(tmp_path, "clone", "-b", "main", str(self.origin), str(self.work))
+        self._redirect: Path | None = None
+        self.point_origin_at(self.origin)
         self.docker = FakeDocker()
         self.db = tmp_path / "planner_learning.db"
         self.running = "dev-260102.0000"
@@ -121,6 +124,14 @@ class Fixture:
             running_version=lambda: self.running,
             sleep=lambda _s: None,
         )
+
+    def point_origin_at(self, remote: Path) -> None:
+        """Keep the pinned GitHub URL as origin; redirect it to a local bare repo (no network)."""
+        git(self.work, "remote", "set-url", "origin", PINNED_URL)
+        if self._redirect is not None:
+            git(self.work, "config", "--unset-all", f"url.{self._redirect}.insteadOf")
+        self._redirect = remote
+        git(self.work, "config", f"url.{remote}.insteadOf", PINNED_URL)
 
     def push_dev(self, version: str) -> str:
         sha = commit(self.pusher, version)
@@ -190,7 +201,7 @@ def test_offline_fetch_reports_error_and_offers_nothing(fx: Fixture) -> None:
     fx.push_dev("dev-260103.0000")
     fx.updater.check(force=True)
     assert fx.updater.status()["update_available"] is True
-    git(fx.work, "remote", "set-url", "origin", str(fx.origin) + ".gone")
+    fx.point_origin_at(fx.origin.with_name("origin.git.gone"))
     fx.updater.check(force=True)
     status = fx.updater.status()
     assert status["update_available"] is False
@@ -254,6 +265,51 @@ def test_stable_apply_detaches_at_tag(fx: Fixture) -> None:
     assert git(fx.work, "rev-parse", "HEAD") == git(fx.work, "rev-parse", "v1.0.0^{commit}")
     assert fx.docker.calls[0][1]["DARKSTAR_RELEASE_CHANNEL"] == "stable"
     assert fx.updater.status()["current"]["version"] == "1.0.0"
+
+
+def test_dev_refuses_diverged_history_before_checkout(fx: Fixture) -> None:
+    local = commit(fx.work, "dev-local.0000")
+    fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    with pytest.raises(ApplyRejected, match="Dev branch history diverged"):
+        fx.updater.begin_apply()
+    assert git(fx.work, "rev-parse", "HEAD") == local
+    assert fx.docker.calls == []
+    assert not fx.updater.apply_in_progress()
+
+
+def test_stable_refuses_older_target(fx: Fixture) -> None:
+    git(fx.work, "checkout", "--detach", "origin/main")
+    fx.updater.set_channel("stable")
+    fx.updater.check(force=True)
+    with pytest.raises(ApplyRejected, match="Target is older than the installed version"):
+        fx.updater.begin_apply()
+    assert git(fx.work, "rev-parse", "HEAD") == git(fx.work, "rev-parse", "origin/main")
+    assert fx.docker.calls == []
+    assert not fx.updater.apply_in_progress()
+
+
+def test_dev_to_stable_switch_is_allowed_to_older_tag(fx: Fixture) -> None:
+    assert git(fx.work, "symbolic-ref", "--short", "HEAD") == "main"
+    fx.updater.set_channel("stable")
+    fx.updater.check(force=True)
+    fx.running = "1.0.0"
+    fx.updater.start_apply(threaded=False)
+    assert git(fx.work, "rev-parse", "HEAD") == git(fx.work, "rev-parse", "v1.0.0^{commit}")
+    assert fx.updater.status()["apply"]["state"] == "done"
+
+
+def test_apply_installs_resolved_commit_after_tag_moves(fx: Fixture) -> None:
+    fx.updater.set_channel("stable")
+    fx.updater.check(force=True)
+    fx.running = "1.0.0"
+    plan = fx.updater.begin_apply()
+    assert plan.commit == git(fx.work, "rev-parse", "v1.0.0^{commit}")
+    # the tag moves between the gates and the checkout
+    git(fx.work, "tag", "-f", "v1.0.0", "origin/main")
+    fx.updater._run_apply(plan)  # type: ignore[reportPrivateUsage]
+    assert git(fx.work, "rev-parse", "HEAD") == plan.commit
+    assert plan.commit != git(fx.work, "rev-parse", "origin/main")
 
 
 def test_build_failure_restores_checkout_and_leaves_container(fx: Fixture) -> None:
@@ -584,37 +640,94 @@ def test_git_rewrites_ssh_github_urls_to_https_and_never_prompts(tmp_path: Path)
 
     def runner(argv: Any, **kwargs: Any) -> CommandResult:
         seen.append((list(argv), kwargs["env"]))
-        return CommandResult(0, "")
+        return CommandResult(0, "git@github.com:ergetie/darkstar.git\n")
 
     Repo(str(tmp_path), runner).fetch()
-    argv, env = seen[0]
+    argv, env = next(c for c in seen if "fetch" in c[0])
     assert "url.https://github.com/.insteadOf=git@github.com:" in argv
     assert "url.https://github.com/.insteadOf=ssh://git@github.com/" in argv
     assert argv.index("fetch") > max(i for i, a in enumerate(argv) if a == "-c")
     assert env["GIT_TERMINAL_PROMPT"] == "0"
 
 
-def test_fetch_force_updates_retagged_remote_tags(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_fetch_never_forces_or_prunes_tags(tmp_path: Path) -> None:
     from updater.repo import Repo
 
-    for key, value in GIT_ENV.items():
-        monkeypatch.setenv(key, value)
-    remote = tmp_path / "remote"
-    remote.mkdir()
-    git(remote, "init", "-q", "-b", "main")
-    commit(remote, "1.0.0")
-    git(remote, "tag", "v1.0.0")
-    clone = tmp_path / "clone"
-    git(tmp_path, "clone", "-q", str(remote), str(clone))
+    seen: list[list[str]] = []
 
-    new_commit = commit(remote, "1.0.1")
-    git(remote, "tag", "-f", "v1.0.0", new_commit)
+    def runner(argv: Any, **kwargs: Any) -> CommandResult:
+        seen.append(list(argv))
+        return CommandResult(0, PINNED_URL)
 
-    Repo(str(clone), run_command).fetch()
+    Repo(str(tmp_path), runner).fetch()
+    fetch = next(c for c in seen if "fetch" in c)
+    assert fetch[fetch.index("fetch") :] == ["fetch", "--prune", "--tags", "origin"]
 
-    assert git(clone, "rev-parse", "v1.0.0^{commit}") == new_commit
+
+def test_foreign_origin_gives_check_error_and_never_fetches(fx: Fixture) -> None:
+    calls: list[list[str]] = []
+    real = fx.docker
+
+    def spy(argv: Any, **kwargs: Any) -> CommandResult:
+        calls.append(list(argv))
+        return real(argv, **kwargs)
+
+    fx.updater.repo._runner = spy  # type: ignore[reportPrivateUsage]
+    git(fx.work, "remote", "set-url", "origin", "https://github.com/evil/darkstar.git")
+    fx.updater.check(force=True)
+    last = fx.updater.status()["last_check"]
+    assert last["ok"] is False
+    assert last["error"] == "Origin is not github.com/ergetie/darkstar"
+    assert not any("fetch" in c for c in calls)
+
+
+def test_foreign_origin_rejects_apply(fx: Fixture) -> None:
+    fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    git(fx.work, "remote", "set-url", "origin", "https://github.com/evil/darkstar.git")
+    with pytest.raises(ApplyRejected, match=r"Origin is not github\.com/ergetie/darkstar"):
+        fx.updater.begin_apply()
+    assert not fx.updater.apply_in_progress()
+
+
+def test_moved_tag_keeps_local_tag_and_warns(fx: Fixture) -> None:
+    fx.updater.set_channel("stable")
+    fx.updater.check(force=True)
+    old = git(fx.work, "rev-parse", "v1.0.0^{commit}")
+    git(fx.pusher, "tag", "-f", "v1.0.0", commit(fx.pusher, "dev-260103.0000"))
+    git(fx.pusher, "push", "origin", "main")
+    git(fx.pusher, "push", "-f", "origin", "v1.0.0")
+    fx.updater.check(force=True)
+    last = fx.updater.status()["last_check"]
+    assert last["ok"] is True
+    assert last["warnings"] == ["Tag v1.0.0 changed upstream; keeping the local tag"]
+    assert last["target"]["commit"] == old
+    assert git(fx.work, "rev-parse", "v1.0.0^{commit}") == old
+    # branches still advanced despite the rejected tag
+    assert git(fx.work, "rev-parse", "origin/main") == git(fx.pusher, "rev-parse", "HEAD")
+
+
+def test_deleted_upstream_tag_stays_local(fx: Fixture) -> None:
+    git(fx.pusher, "tag", "v1.1.0")
+    git(fx.pusher, "push", "origin", "v1.1.0")
+    fx.updater.set_channel("stable")
+    fx.updater.check(force=True)
+    assert fx.updater.status()["target"]["version"] == "1.1.0"
+    git(fx.pusher, "push", "origin", ":refs/tags/v1.1.0")
+    fx.updater.check(force=True)
+    last = fx.updater.status()["last_check"]
+    assert last["ok"] is True
+    assert last["warnings"] == []
+    assert last["target"]["version"] == "1.1.0"
+    assert git(fx.work, "tag", "--list", "v1.1.0") == "v1.1.0"
+
+
+def test_other_fetch_failure_is_still_an_error(fx: Fixture) -> None:
+    fx.point_origin_at(fx.origin.with_name("origin.git.gone"))
+    fx.updater.check(force=True)
+    last = fx.updater.status()["last_check"]
+    assert last["ok"] is False
+    assert "fetch" in last["error"]
 
 
 # ---- updater self-recreate -------------------------------------------------------------------

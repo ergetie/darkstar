@@ -167,7 +167,7 @@ class Updater:
             channel = self.state.channel
             checked_at = _now()
             try:
-                self.repo.fetch()
+                warnings = self.repo.fetch()
                 target = self.repo.resolve_target(channel)
                 if target is None:
                     raise GitError("No stable release found")
@@ -189,6 +189,7 @@ class Updater:
                     "blocked": blocked_message(
                         self.repo, self.config.db_path, target.commit, channel
                     ),
+                    "warnings": warnings,
                 }
                 self.state.update(last_check=result, last_success_at=checked_at)
             except (GitError, ValueError) as exc:
@@ -300,6 +301,7 @@ class Updater:
         if not self._apply_lock.acquire(blocking=False):
             raise ApplyBusy
         try:
+            self.repo.assert_origin()
             files = self.repo.dirty_files()
             if files:
                 raise ApplyRejected("Local changes to tracked files block the update", files)
@@ -312,6 +314,15 @@ class Updater:
             blocked = blocked_message(self.repo, self.config.db_path, target.commit, channel)
             if blocked:
                 raise ApplyRejected(blocked)
+            head = self.repo.head()
+            if channel == "dev":
+                if not self.repo.is_ancestor(head, target.commit):
+                    raise ApplyRejected(
+                        "Dev branch history diverged, refusing non-fast-forward update"
+                    )
+            elif self.repo.current_branch() is None and self.repo.is_ancestor(target.commit, head):
+                # Detached HEAD is a stable install; a dev install (on a branch) may switch freely.
+                raise ApplyRejected("Target is older than the installed version")
         except (ApplyRejected, GitError) as exc:
             self._apply_lock.release()
             if isinstance(exc, GitError):
@@ -389,9 +400,9 @@ class Updater:
         try:
             if plan.channel == "dev":
                 self.repo.run("checkout", "main")
-                self.repo.run("merge", "--ff-only", "origin/main")
+                self.repo.run("merge", "--ff-only", plan.commit)
             else:
-                self.repo.run("checkout", "--detach", plan.ref)
+                self.repo.run("checkout", "--detach", plan.commit)
         except GitError as exc:
             self._restore(prev_commit, prev_branch)
             self._fail(plan, str(exc))

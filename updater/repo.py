@@ -24,8 +24,41 @@ _HTTPS_REWRITE = (
 )
 
 
+PINNED_REPO = "ergetie/darkstar"
+PINNED_ORIGIN = f"https://github.com/{PINNED_REPO}"
+_ORIGIN_FORMS = (
+    ("https://github.com/", "https://github.com/"),
+    ("git@github.com:", "https://github.com/"),
+    ("ssh://git@github.com/", "https://github.com/"),
+)
+_CLOBBER_RE = re.compile(
+    r"^\s*!\s+\[rejected\]\s+(\S+)\s+->\s+\S+\s+\(would clobber existing tag\)\s*$"
+)
+_FETCH_NOISE_RE = re.compile(r"^error: some local refs could not be updated")
+
+
 class GitError(RuntimeError):
     pass
+
+
+def normalize_origin(url: str) -> str:
+    """Canonical https form of a GitHub remote URL (host lowercased, no `.git`, no trailing `/`).
+
+    Anything that is not a plain GitHub https/ssh/scp-style URL is returned stripped but
+    otherwise unchanged, so it can never equal the pinned origin by accident.
+    """
+    url = url.strip()
+    lowered = url.lower()
+    for prefix, https in _ORIGIN_FORMS:
+        if lowered.startswith(prefix):
+            url = https + url[len(prefix) :]
+            break
+    else:
+        return url
+    url = url.rstrip("/")
+    url = url.removesuffix(".git").rstrip("/")
+    # GitHub treats host, owner and repo names case-insensitively.
+    return url.lower()
 
 
 @dataclass(frozen=True)
@@ -62,8 +95,37 @@ class Repo:
             raise GitError(f"git {args[0]} failed: {result.output.strip()}")
         return result
 
-    def fetch(self) -> None:
-        self.run("fetch", "--tags", "--force", "--prune", "--prune-tags", "origin")
+    def assert_origin(self) -> None:
+        """Refuse any origin other than the pinned GitHub repository."""
+        # `config --get` returns the stored URL; `remote get-url` would apply insteadOf rewrites.
+        result = self.run("config", "--get", "remote.origin.url", check=False)
+        if result.returncode != 0 or normalize_origin(result.output) != PINNED_ORIGIN:
+            raise GitError("Origin is not github.com/ergetie/darkstar")
+
+    def fetch(self) -> list[str]:
+        """Fetch branches and new tags from the pinned origin; returns non-fatal warnings.
+
+        Tags are never force-updated or pruned: a tag that moved upstream is rejected by git
+        ("would clobber existing tag"), reported as a warning, and the local tag is kept. Any
+        other failure raises.
+        """
+        self.assert_origin()
+        result = self.run("fetch", "--prune", "--tags", "origin", check=False)
+        if result.returncode == 0:
+            return []
+        warnings: list[str] = []
+        problems: list[str] = []
+        for line in result.output.splitlines():
+            clobber = _CLOBBER_RE.match(line)
+            if clobber:
+                warnings.append(f"Tag {clobber.group(1)} changed upstream; keeping the local tag")
+            elif line.lstrip().startswith(("!", "error:", "fatal:")) and not _FETCH_NOISE_RE.match(
+                line
+            ):
+                problems.append(line)
+        if problems or not warnings:
+            raise GitError(f"git fetch failed: {result.output.strip()}")
+        return warnings
 
     def head(self) -> str:
         return self.run("rev-parse", "HEAD").output.strip()
@@ -71,6 +133,13 @@ class Repo:
     def current_branch(self) -> str | None:
         result = self.run("symbolic-ref", "-q", "--short", "HEAD", check=False)
         return result.output.strip() if result.returncode == 0 else None
+
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        """True when `ancestor` is reachable from `descendant` (a commit is its own ancestor)."""
+        result = self.run("merge-base", "--is-ancestor", ancestor, descendant, check=False)
+        if result.returncode not in (0, 1):
+            raise GitError(f"git merge-base failed: {result.output.strip()}")
+        return result.returncode == 0
 
     def short(self, commit: str) -> str:
         return commit[:7]
