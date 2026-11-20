@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import shutil
 import sqlite3
@@ -287,6 +288,42 @@ def _fast_sqlite() -> Iterator[None]:
         yield
     finally:
         event.remove(Engine, "connect", _set_pragmas)
+
+
+@pytest.fixture(autouse=True)
+def _restore_logging_state() -> Iterator[None]:
+    """Undo logging changes a test leaks into later tests in the same worker.
+
+    ``alembic/env.py`` calls ``logging.config.fileConfig`` (``disable_existing_loggers``),
+    which disables every logger created so far and replaces the root handlers; tests that
+    run an in-process ``command.upgrade`` would otherwise break ``caplog`` assertions in
+    unrelated tests that run later on the same xdist worker.
+    """
+    root = logging.getLogger()
+    manager = logging.root.manager
+    root_state = (root.level, root.handlers[:], root.disabled)
+    saved = {
+        name: (lg.disabled, lg.level, lg.propagate, lg.handlers[:])
+        for name, lg in manager.loggerDict.items()
+        if isinstance(lg, logging.Logger)
+    }
+    disable_level = manager.disable
+    try:
+        yield
+    finally:
+        manager.disable = disable_level
+        root.setLevel(root_state[0])
+        root.handlers[:] = root_state[1]
+        root.disabled = root_state[2]
+        for name, lg in list(manager.loggerDict.items()):
+            if not isinstance(lg, logging.Logger):
+                continue
+            if name in saved:
+                lg.disabled, level, lg.propagate, handlers = saved[name]
+                lg.setLevel(level)
+                lg.handlers[:] = handlers
+            else:
+                lg.disabled = False
 
 
 def _alembic_config() -> Config:

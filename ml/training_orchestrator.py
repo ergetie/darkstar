@@ -270,11 +270,6 @@ async def train_all_models(
             # Price model failure should not fail the entire training
             logger.warning(f"[ML-TRAIN] Price model training failed: {price_err}")
 
-        # 3. Cleanup old history
-        deleted_runs = await store.cleanup_learning_runs(days_back=30)
-        if deleted_runs > 0:
-            logger.info(f"Cleaned up {deleted_runs} old training records.")
-
     except Exception as e:
         logger.exception("Unified training failed unexpectedly.")
         results["status"] = "error"

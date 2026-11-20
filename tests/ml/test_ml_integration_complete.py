@@ -46,9 +46,7 @@ async def test_stale_lock_detection():
         patch("ml.training_orchestrator.get_learning_engine") as mock_engine,
     ):
         mock_engine.return_value = MagicMock(
-            store=MagicMock(
-                log_learning_run=AsyncMock(), cleanup_learning_runs=AsyncMock(return_value=0)
-            ),
+            store=MagicMock(log_learning_run=AsyncMock()),
             db_path="data/test_learning.db",
         )
 
@@ -74,9 +72,7 @@ async def test_websocket_events_integration():
         patch("ml.training_orchestrator._backup_models"),
     ):
         mock_engine.return_value = MagicMock(
-            store=MagicMock(
-                log_learning_run=AsyncMock(), cleanup_learning_runs=AsyncMock(return_value=0)
-            ),
+            store=MagicMock(log_learning_run=AsyncMock()),
             db_path="data/test_learning.db",
         )
 

@@ -14,7 +14,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from .runner import run_command
-from .service import ApplyBusy, ApplyRejected, Config, Updater, tree_digest
+from .service import ApplyBusy, ApplyRejected, Config, Updater, fingerprint
 from .state import StateStore
 
 logger = logging.getLogger("darkstar.updater")
@@ -114,6 +114,15 @@ def _background_checks(updater: Updater) -> None:
         stop.wait(CHECK_INTERVAL_S)
 
 
+def _own_fingerprint(own_dir: Path, repo_dir: str) -> str | None:
+    """Baked updater source plus the repo compose file; None when the compose file is unreadable."""
+    try:
+        return fingerprint(str(own_dir), str(Path(repo_dir) / "docker-compose.yml"))
+    except OSError:
+        logger.warning("Cannot fingerprint the updater (docker-compose.yml unreadable)")
+        return None
+
+
 def build_updater(token_env: dict[str, str] | None = None) -> Updater:
     env = token_env if token_env is not None else dict(os.environ)
     repo_dir = env["DARKSTAR_REPO_DIR"]
@@ -127,7 +136,12 @@ def build_updater(token_env: dict[str, str] | None = None) -> Updater:
     version = version_file.read_text().strip() if version_file.is_file() else ""
     state = StateStore(config.state_dir, "dev" if version.startswith("dev-") else "stable")
     own_dir = Path(__file__).resolve().parent
-    return Updater(config, run_command, state, updater_digest=tree_digest(str(own_dir)))
+    return Updater(
+        config,
+        run_command,
+        state,
+        updater_fingerprint=_own_fingerprint(own_dir, repo_dir),
+    )
 
 
 def main() -> int:
@@ -141,6 +155,7 @@ def main() -> int:
         return 1
     updater = build_updater()
     updater.mark_interrupted()
+    updater.reconcile_self_update()
     threading.Thread(target=_background_checks, args=(updater,), daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), make_handler(updater, token))
     server.daemon_threads = True

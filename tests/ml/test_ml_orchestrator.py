@@ -87,7 +87,6 @@ async def test_train_all_models_flow(mock_get_engine, mock_train_main, setup_tes
     # Setup mocks
     mock_store = MagicMock()
     mock_store.log_learning_run = AsyncMock()
-    mock_store.cleanup_learning_runs = AsyncMock(return_value=0)
 
     mock_engine = MagicMock()
     mock_engine.store = mock_store
@@ -114,7 +113,6 @@ async def test_train_all_models_low_graduation(mock_get_engine, mock_train_main,
 
     mock_store = MagicMock()
     mock_store.log_learning_run = AsyncMock()
-    mock_store.cleanup_learning_runs = AsyncMock(return_value=0)
 
     mock_engine = MagicMock()
     mock_engine.store = mock_store
@@ -138,7 +136,6 @@ async def test_train_all_models_error_recovery(mock_get_engine, setup_test_dirs,
     # Setup mocks
     mock_store = MagicMock()
     mock_store.log_learning_run = AsyncMock()
-    mock_store.cleanup_learning_runs = AsyncMock(return_value=0)
 
     mock_engine = MagicMock()
     mock_engine.store = mock_store
@@ -175,7 +172,6 @@ async def test_generate_price_forecasts_called_when_training_fails(
     # Setup mocks
     mock_store = MagicMock()
     mock_store.log_learning_run = AsyncMock()
-    mock_store.cleanup_learning_runs = AsyncMock(return_value=0)
 
     mock_engine = MagicMock()
     mock_engine.store = mock_store

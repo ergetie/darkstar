@@ -98,6 +98,7 @@ export function UpdateCard({ updater, onClose }: { updater: UseUpdater; onClose:
     const channel = status?.channel
     const dirty = status?.dirty_files ?? []
     const lastChecked = status?.last_success_at ? new Date(status.last_success_at).toLocaleString() : 'never'
+    const selfUpdate = status?.self_update
     const failedTail = applyState === 'failed' && !inProgress ? (status?.apply?.log_tail ?? []) : []
 
     const blockedReason =
@@ -173,7 +174,22 @@ export function UpdateCard({ updater, onClose }: { updater: UseUpdater; onClose:
                                 <span className="font-mono">{dirty.join(', ')}</span>
                             </div>
                         )}
-                        {status?.updater_outdated && (
+                        {selfUpdate?.state === 'started' && (
+                            <div className="banner banner-info mb-0">
+                                Recreating the updater with the new version...
+                            </div>
+                        )}
+                        {selfUpdate?.state === 'done' && (
+                            <div className="banner banner-success mb-0">
+                                The updater was recreated with the new version.
+                            </div>
+                        )}
+                        {selfUpdate?.state === 'failed' && (
+                            <div className="banner banner-warning mb-0 flex-col items-start gap-1">
+                                <span>{selfUpdate.message ?? 'The updater could not be recreated.'}</span>
+                            </div>
+                        )}
+                        {status?.updater_outdated && selfUpdate?.state !== 'failed' && (
                             <div className="banner banner-info mb-0 flex-col items-start gap-1">
                                 <span>The updater itself is outdated. Run:</span>
                                 <code className="font-mono break-all">docker compose up -d --build updater</code>

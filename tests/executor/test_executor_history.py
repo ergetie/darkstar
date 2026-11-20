@@ -400,50 +400,6 @@ class TestGetStats:
         assert stats["override_count"] == 1
 
 
-class TestCleanupOldRecords:
-    """Test ExecutionHistory.cleanup_old_records."""
-
-    def test_cleanup_removes_old_records(self, temp_db):
-        """cleanup_old_records removes records older than retention period."""
-        history = ExecutionHistory(temp_db, timezone="Europe/Stockholm")
-        Base.metadata.create_all(history.engine)
-
-        tz = pytz.timezone("Europe/Stockholm")
-        now = datetime.now(tz)
-
-        # Insert old and new records
-        # Note: log_execution uses text dates, so we can just use isoformat
-        old_time = (now - timedelta(days=40)).isoformat()
-        new_time = (now - timedelta(days=5)).isoformat()
-
-        history.log_execution(
-            ExecutionRecord(
-                executed_at=old_time,
-                slot_start=old_time,
-                commanded_work_mode="Old",
-                success=1,
-            )
-        )
-        history.log_execution(
-            ExecutionRecord(
-                executed_at=new_time,
-                slot_start=new_time,
-                commanded_work_mode="New",
-                success=1,
-            )
-        )
-
-        # Cleanup with 30-day retention
-        deleted = history.cleanup_old_records(retention_days=30)
-
-        assert deleted == 1
-
-        # Only new record should remain
-        records = history.get_history()
-        assert len(records) == 1
-        assert records[0]["commanded_work_mode"] == "New"
-
-
 class TestHistorySourceFilter:
     """fix-ev-current-charger-control 4.1: optional source filter."""
 

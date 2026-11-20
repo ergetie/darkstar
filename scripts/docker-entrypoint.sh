@@ -6,7 +6,8 @@ set -e
 # Manages: FastAPI Server (with in-process scheduler, recorder, executor)
 # ==============================================================================
 
-export PYTHONPATH="${PYTHONPATH:-.}:/app"
+APP_DIR="${APP_DIR:-/app}"
+export PYTHONPATH="${PYTHONPATH:-.}:$APP_DIR"
 export PYTHONUNBUFFERED=1
 
 log() {
@@ -33,7 +34,7 @@ cleanup() {
 
 trap cleanup SIGTERM SIGINT SIGHUP
 
-APP_VERSION=$(cat /app/VERSION 2>/dev/null || echo "unknown")
+APP_VERSION=$(cat "$APP_DIR/VERSION" 2>/dev/null || echo "unknown")
 log "=========================================="
 log "  Darkstar Energy Manager ${APP_VERSION}"
 log "=========================================="
@@ -41,27 +42,27 @@ log "=========================================="
 # Check for required config files
 # NOTE: Docker creates DIRECTORIES when bind mount sources don't exist!
 # If you see these errors, delete the directory and create the file.
-if [ -d "/app/config.yaml" ]; then
-    log "ERROR: /app/config.yaml is a DIRECTORY, not a file!"
+if [ -d "$APP_DIR/config.yaml" ]; then
+    log "ERROR: $APP_DIR/config.yaml is a DIRECTORY, not a file!"
     log "This happens when Docker starts without the source file existing."
     log "FIX: On host, run: rm -rf ./config.yaml && cp config.default.yaml config.yaml"
     exit 1
 fi
 
-if [ ! -f "/app/config.yaml" ]; then
-    log "ERROR: /app/config.yaml not found. Mount your config file."
+if [ ! -f "$APP_DIR/config.yaml" ]; then
+    log "ERROR: $APP_DIR/config.yaml not found. Mount your config file."
     log "HINT: Copy config.default.yaml to config.yaml and customize it."
     exit 1
 fi
 
-if [ -d "/app/secrets.yaml" ]; then
-    log "ERROR: /app/secrets.yaml is a DIRECTORY, not a file!"
+if [ -d "$APP_DIR/secrets.yaml" ]; then
+    log "ERROR: $APP_DIR/secrets.yaml is a DIRECTORY, not a file!"
     log "FIX: On host, run: rm -rf ./secrets.yaml && cp secrets.example.yaml secrets.yaml"
     exit 1
 fi
 
-if [ ! -f "/app/secrets.yaml" ]; then
-    log "ERROR: /app/secrets.yaml not found. Mount your secrets file."
+if [ ! -f "$APP_DIR/secrets.yaml" ]; then
+    log "ERROR: $APP_DIR/secrets.yaml not found. Mount your secrets file."
     exit 1
 fi
 
@@ -76,44 +77,45 @@ fi
 log "Config migration complete."
 
 # 2. Database Migration
+# backend.db_safety backs the database up before a migration (or the one-time
+# storage-format switch), restores that backup if the migration fails, and
+# compacts the file afterwards. The database path is resolved the same way the
+# application does it (DB_PATH, learning.sqlite_path, data/planner_learning.db).
 log "Checking database state..."
-# Ensure data directory exists for SQLite
-mkdir -p /data/backups
-
-DB_FILE="/data/planner_learning.db"
-# Try to detect DB path from config/env if possible, but /data/planner_learning.db is standard
-if [ -f "$DB_FILE" ]; then
-    BACKUP_FILE="/data/backups/planner_learning_$(date +%Y%m%d_%H%M%S).db.bak"
-    log "Backing up database to $BACKUP_FILE..."
-    if cp "$DB_FILE" "$BACKUP_FILE"; then
-        log "✅ Database backup created successfully."
-    else
-        log "WARNING: Database backup failed! Proceeding with caution."
+if [ -f "$APP_DIR/alembic.ini" ]; then
+    # stdout is the backup path (empty when nothing was backed up); logs go to stderr.
+    if ! DB_BACKUP=$(python3 -m backend.db_safety pre-migrate); then
+        log "ERROR: Database backup failed, migration aborted. Database left untouched."
+        exit 1
     fi
-fi
 
-log "Running database migrations (Alembic)..."
-if [ -f "/app/alembic.ini" ]; then
+    log "Running database migrations (Alembic)..."
     if ! alembic upgrade head; then
         log "ERROR: Database migration failed!"
-        log "--------------------------------------------------------"
-        log "HINT: If this is a 'table already exists' error, we've"
-        log "attempted to make the baseline idempotent. Check logs above."
-        log "RECOVERY: You can restore from the backup in /data/backups/"
-        log "by running: cp $BACKUP_FILE $DB_FILE"
-        log "--------------------------------------------------------"
+        if [ -n "$DB_BACKUP" ]; then
+            if python3 -m backend.db_safety restore "$DB_BACKUP"; then
+                log "Database restored from backup $DB_BACKUP"
+            else
+                log "ERROR: Automatic restore failed! Restore manually from $DB_BACKUP"
+                log "RECOVERY: python3 -m backend.db_safety restore $DB_BACKUP"
+            fi
+        fi
         exit 1
     fi
     log "Database migration complete."
+
+    # One-time prune and shrink. Never blocks start-up.
+    python3 -m backend.db_safety compact "$DB_BACKUP" ||
+        log "WARNING: Database compaction failed, continuing."
 else
-    log "WARNING: /app/alembic.ini not found, skipping DB migrations."
+    log "WARNING: $APP_DIR/alembic.ini not found, skipping DB migrations."
     log "HINT: Ensure alembic.ini is present in the container root."
 fi
 
 # Initialize schedule.json if missing or corrupted (e.g., was a directory)
-if [ ! -f "/app/schedule.json" ] || [ -d "/app/schedule.json" ]; then
-    rm -rf /app/schedule.json 2>/dev/null || true
-    echo '{"schedule": [], "meta": {"initialized": true}}' > /app/schedule.json
+if [ ! -f "$APP_DIR/schedule.json" ] || [ -d "$APP_DIR/schedule.json" ]; then
+    rm -rf "$APP_DIR/schedule.json" 2>/dev/null || true
+    echo '{"schedule": [], "meta": {"initialized": true}}' > "$APP_DIR/schedule.json"
     log "Created empty schedule.json (planner will populate it)"
 fi
 

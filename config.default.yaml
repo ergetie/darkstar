@@ -251,6 +251,13 @@ learning:
   reflex_enabled: true                 # Enable Reflex: tunes physical/policy parameters (S-Index, PV confidence, capacity) based on safety/confidence/capacity analysis
   min_sample_threshold: 2              # Minimum data points required before applying learned adjustments (prevents premature tuning with insufficient data)
 
+  # Database retention (cleanup runs daily in the background; 0 = keep forever)
+  retention_days: 0                    # Keep slot observations, plans and forecasts for N days (0 = forever; otherwise at least 400)
+  price_forecast_retention_days: 0     # Keep price forecasts for N days (0 = forever; otherwise at least 400)
+  learning_runs_retention_days: 0      # Keep learning run history for N days (0 = forever; otherwise at least 365)
+  s_index_history_retention_days: 365  # Keep S-Index calibration history for N days (at least 90)
+  planner_debug_retention_days: 14     # Keep planner debug payloads for N days (at least 1)
+
   # Rate Limits for Aurora Reflex Parameter Tuning
   # These limits prevent instability by capping how much each parameter can change per day
   # Reflex analyzes historical data and gradually adjusts parameters within these bounds
@@ -426,7 +433,7 @@ executor:
   shadow_mode: true                              # Log actions but don't execute (for testing)
   interval_seconds: 60                           # How often to run (default: 1 minute)
   pause_reminder_minutes: 30                     # Notify if paused longer than this
-  history_retention_days: 30                     # Keep execution history for N days
+  history_retention_days: 30                     # Keep the execution log for N days (at least 7; pruned daily in the background)
   max_schedule_age_hours: 2                      # Reject stale schedules older than this (hold + alert)
   soc_deviation_replan_percent: 10               # Replan when battery SoC differs from the plan by more than this many points for 5 minutes (0 disables, 0-50)
   # HTTP Timeout: All Home Assistant API calls use a 5-second timeout with automatic

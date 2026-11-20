@@ -55,7 +55,7 @@ async def test_record_s_index_history_inserts_one_row(store, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_record_s_index_history_prunes_old_rows(store, monkeypatch):
+async def test_record_s_index_history_does_not_delete_old_rows(store, monkeypatch):
     monkeypatch.setattr(
         "planner.observability.logging.get_learning_engine", lambda: FakeEngine(store)
     )
@@ -75,10 +75,11 @@ async def test_record_s_index_history_prunes_old_rows(store, monkeypatch):
         rows = (await session.execute(select(SIndexHistory))).scalars().all()
 
     created_ats = {r.created_at for r in rows}
-    assert old_ts not in created_ats
+    # Pruning lives in the maintenance service; a write never deletes rows.
+    assert old_ts in created_ats
     assert recent_ts in created_ats
-    # recent row + the just-inserted row
-    assert len(rows) == 2
+    # old row + recent row + the just-inserted row
+    assert len(rows) == 3
 
 
 @pytest.mark.asyncio

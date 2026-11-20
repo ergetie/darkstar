@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -16,7 +17,7 @@ import pytest
 
 from updater.runner import CommandResult, run_command
 from updater.server import main, make_handler
-from updater.service import ApplyBusy, ApplyRejected, Config, Updater
+from updater.service import ApplyBusy, ApplyRejected, Config, Updater, fingerprint
 from updater.state import StateStore
 
 if TYPE_CHECKING:
@@ -60,6 +61,9 @@ class FakeDocker:
     def __init__(self) -> None:
         self.calls: list[tuple[list[str], dict[str, str]]] = []
         self.fail_build = False
+        self.fail_up_first = 0  # number of leading `up` calls that return non-zero
+        self.fail_stop = False
+        self.on_up: Any = None  # called on every `up` (simulates the new container migrating)
 
     def __call__(
         self,
@@ -76,6 +80,14 @@ class FakeDocker:
             self.calls.append((argv, dict(env or {})))
             if on_line:
                 on_line("fake docker output")
+            if "up" in argv:
+                if self.on_up:
+                    self.on_up()
+                if self.fail_up_first > 0:
+                    self.fail_up_first -= 1
+                    return CommandResult(1, "")
+            if "stop" in argv and self.fail_stop:
+                return CommandResult(1, "")
             return CommandResult(1 if self.fail_build and "build" in argv else 0, "")
         assert argv[0] == "git", f"unexpected command {argv[0]}"
         return run_command(argv, cwd=cwd, env={**GIT_ENV, **(env or {})}, on_line=on_line)
@@ -260,14 +272,213 @@ def test_build_failure_restores_checkout_and_leaves_container(fx: Fixture) -> No
     assert "fake docker output" in "\n".join(apply["log_tail"])
 
 
-def test_unhealthy_after_up_fails_without_rollback(fx: Fixture) -> None:
-    sha = fx.push_dev("dev-260103.0000")
-    fx.updater.check(force=True)
-    clock = iter(range(0, 10_000, 100))
+def _verbs(fx: Fixture) -> list[str]:
+    known = ("stop", "build", "up")
+    return [next(v for v in known if v in argv) for argv, _ in fx.docker.calls]
+
+
+def _fast_clock(fx: Fixture) -> None:
+    clock = iter(range(0, 100_000, 100))
     fx.updater._monotonic = lambda: float(next(clock))  # type: ignore[reportPrivateUsage]
-    fx.updater.start_apply(threaded=False)  # running version never changes
-    assert fx.updater.status()["apply"]["state"] == "failed"
-    assert git(fx.work, "rev-parse", "HEAD") == sha
+
+
+def _make_db(path: Path, value: str) -> None:
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE IF NOT EXISTS t (v TEXT)")
+    conn.execute("DELETE FROM t")
+    conn.execute("INSERT INTO t VALUES (?)", (value,))
+    conn.commit()
+    conn.close()
+
+
+def _db_value(path: Path) -> str:
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute("SELECT v FROM t").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _simulate_migration(fx: Fixture, name: str = "pre-migration-20260101T000000Z-rev_b.db") -> Path:
+    """Live DB holds the old content; on `up` the new container backs it up, then 'migrates'."""
+    _make_db(fx.db, "old")
+    backup = fx.db.parent / "backups" / name
+
+    def on_up() -> None:
+        if not backup.exists():  # only the first `up` is the new version's
+            backup.parent.mkdir(exist_ok=True)
+            shutil.copyfile(fx.db, backup)
+            _make_db(fx.db, "migrated")
+            fx.db.with_name(fx.db.name + "-wal").write_text("stale")
+
+    fx.docker.on_up = on_up
+    return backup
+
+
+def _unhealthy_apply(fx: Fixture) -> str:
+    fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    _fast_clock(fx)
+    fx.updater.start_apply(threaded=False)  # running version never becomes the target
+    apply = fx.updater.status()["apply"]
+    assert apply["state"] == "failed"
+    return str(apply["message"])
+
+
+def test_unhealthy_after_up_rolls_back(fx: Fixture) -> None:
+    before = git(fx.work, "rev-parse", "HEAD")
+    message = _unhealthy_apply(fx)
+
+    assert git(fx.work, "rev-parse", "HEAD") == before
+    assert git(fx.work, "rev-parse", "--abbrev-ref", "HEAD") == "main"
+    assert _verbs(fx) == ["build", "up", "stop", "build", "up"]
+    rebuild_env = fx.docker.calls[3][1]
+    assert rebuild_env["DARKSTAR_VERSION"] == "dev-260102.0000"
+    assert rebuild_env["DARKSTAR_RELEASE_CHANNEL"] == "dev"
+    assert rebuild_env["DARKSTAR_COMMIT"] == before[:7]
+    assert fx.docker.calls[4][1] == rebuild_env
+    assert "Rolled back to dev-260102.0000" in message
+    assert "database was unchanged" in message
+    assert "no automatic rollback" not in message
+    assert not fx.updater.apply_in_progress()
+
+
+def test_stable_rollback_uses_previous_channel(fx: Fixture) -> None:
+    git(fx.work, "checkout", "--detach", "v1.0.0")
+    fx.running = "1.0.0"
+    fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    _fast_clock(fx)
+    fx.updater.start_apply(threaded=False)
+    assert fx.docker.calls[3][1]["DARKSTAR_RELEASE_CHANNEL"] == "stable"
+    assert fx.docker.calls[3][1]["DARKSTAR_VERSION"] == "1.0.0"
+    assert git(fx.work, "rev-parse", "HEAD") == git(fx.work, "rev-parse", "v1.0.0^{commit}")
+
+
+def test_start_failure_rolls_back(fx: Fixture) -> None:
+    fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    fx.docker.fail_up_first = 1
+    fx.updater.start_apply(threaded=False)
+
+    assert _verbs(fx) == ["build", "up", "stop", "build", "up"]
+    apply = fx.updater.status()["apply"]
+    assert apply["state"] == "failed"
+    assert "starting the new container failed" in apply["message"]
+    assert "Rolled back to dev-260102.0000" in apply["message"]
+
+
+def test_migrated_db_is_restored(fx: Fixture) -> None:
+    backup = _simulate_migration(fx)
+    message = _unhealthy_apply(fx)
+
+    assert _db_value(fx.db) == "old"
+    assert not fx.db.with_name(fx.db.name + "-wal").exists()
+    assert backup.exists()
+    assert "database backup was restored" in message
+
+
+def test_no_backup_leaves_db_untouched(fx: Fixture) -> None:
+    _make_db(fx.db, "old")
+    message = _unhealthy_apply(fx)
+
+    assert _db_value(fx.db) == "old"
+    assert "database was unchanged" in message
+
+
+def test_backup_older_than_apply_is_ignored(fx: Fixture) -> None:
+    _make_db(fx.db, "live")
+    backups = fx.db.parent / "backups"
+    backups.mkdir()
+    stale = backups / "pre-migration-20250101T000000Z-x.db"
+    shutil.copyfile(fx.db, stale)
+    os.utime(stale, (1, 1))
+    _make_db(fx.db, "kept")
+    _unhealthy_apply(fx)
+    assert _db_value(fx.db) == "kept"
+
+
+def test_build_failure_has_no_rollback(fx: Fixture) -> None:
+    fx.docker.fail_build = True
+    fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    fx.updater.start_apply(threaded=False)
+    assert _verbs(fx) == ["build"]  # no stop, no up
+
+
+def test_restore_error_reports_backup_and_manual_command(
+    fx: Fixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backup = _simulate_migration(fx)
+
+    def boom(_db: str, _backup: Path) -> None:
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr("updater.db_restore.restore", boom)
+    message = _unhealthy_apply(fx)
+
+    assert "database restore failed (disk on fire)" in message
+    assert backup.name in message
+    assert "cp data/backups/" in message
+    assert _verbs(fx) == ["build", "up", "stop"]  # no rebuild, no retry loop
+
+
+def test_corrupt_backup_aborts_rollback(fx: Fixture) -> None:
+    backup = _simulate_migration(fx)
+    fx.docker.on_up = lambda: (
+        backup.parent.mkdir(exist_ok=True),
+        backup.write_bytes(b"not a database" * 100),
+    )
+    message = _unhealthy_apply(fx)
+    assert "Automatic rollback failed" in message
+    assert backup.name in message
+    assert _verbs(fx) == ["build", "up", "stop"]
+
+
+def test_rollback_stop_failure_is_reported(fx: Fixture) -> None:
+    fx.docker.fail_stop = True
+    message = _unhealthy_apply(fx)
+    assert "could not stop darkstar" in message
+    assert _verbs(fx) == ["build", "up", "stop"]
+
+
+def test_previous_version_unhealthy_after_rollback(fx: Fixture) -> None:
+    fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    fx.running = "something-else"
+    _fast_clock(fx)
+    fx.updater.start_apply(threaded=False)
+    apply = fx.updater.status()["apply"]
+    assert apply["state"] == "failed"
+    assert "Automatic rollback failed" in apply["message"]
+    assert "dev-260102.0000 did not become healthy" in apply["message"]
+    assert _verbs(fx) == ["build", "up", "stop", "build", "up"]  # one attempt only
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_read_only_data_dir_skips_restore(fx: Fixture) -> None:
+    data = fx.db.parent / "ro"
+    data.mkdir()
+    fx.db = data / "planner_learning.db"
+    fx.updater.config = types.SimpleNamespace(**{**vars(fx.updater.config), "db_path": str(fx.db)})  # type: ignore[assignment]
+    backup = _simulate_migration(fx)
+    # the migration step runs before the mount turns read-only in this simulation
+    original = fx.docker.on_up
+
+    def on_up() -> None:
+        original()
+        data.chmod(0o555)
+
+    fx.docker.on_up = on_up
+    try:
+        message = _unhealthy_apply(fx)
+    finally:
+        data.chmod(0o755)
+    assert _db_value(fx.db) == "migrated"
+    assert "NOT restored" in message
+    assert backup.name in message
+    assert "Rolled back to dev-260102.0000" in message
+    assert _verbs(fx) == ["build", "up", "stop", "build", "up"]
 
 
 def test_single_flight(fx: Fixture) -> None:
@@ -404,3 +615,183 @@ def test_fetch_force_updates_retagged_remote_tags(
     Repo(str(clone), run_command).fetch()
 
     assert git(clone, "rev-parse", "v1.0.0^{commit}") == new_commit
+
+
+# ---- updater self-recreate -------------------------------------------------------------------
+IMAGE_ID = "sha256:" + "ab" * 32
+
+
+class SelfUpdateDocker(FakeDocker):
+    """FakeDocker that also answers the helper-container commands."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.helper_exit = "0"
+        self.helper_logs = ["helper: building"]
+        self.inspect_rc = 0
+
+    def __call__(self, argv: Any, **kwargs: Any) -> CommandResult:
+        argv = list(argv)
+        if argv[0] == "docker" and argv[1] in ("rm", "inspect", "run", "logs", "wait"):
+            self.calls.append((argv, {}))
+            if argv[1] == "inspect":
+                return CommandResult(self.inspect_rc, IMAGE_ID + "\n")
+            if argv[1] == "logs":
+                for line in self.helper_logs:
+                    kwargs["on_line"](line)
+            if argv[1] == "wait":
+                return CommandResult(0, self.helper_exit + "\n")
+            return CommandResult(0, "")
+        return super().__call__(argv, **kwargs)
+
+
+def _helper_verbs(fx: Fixture) -> list[str]:
+    return [a[1] for a, _ in fx.docker.calls if a[1] in ("rm", "inspect", "run", "logs", "wait")]
+
+
+@pytest.fixture
+def su(tmp_path: Path) -> Fixture:
+    """Fixture whose repo carries `updater/` and `docker-compose.yml`, baked fingerprint set."""
+    fx = Fixture(tmp_path)
+    fx.docker = SelfUpdateDocker()
+    fx.updater._runner = fx.docker  # type: ignore[reportPrivateUsage]
+    fx.updater.repo._runner = fx.docker  # type: ignore[reportPrivateUsage]
+    _push_files(fx, "dev-260102.1000", {"updater/a.py": "a = 1\n", "docker-compose.yml": "v: 1\n"})
+    git(fx.work, "pull", "--ff-only", "origin", "main")
+    fx.running = "dev-260102.1000"
+    fx.updater._updater_fingerprint = fingerprint(  # type: ignore[reportPrivateUsage]
+        str(fx.work / "updater"), str(fx.work / "docker-compose.yml")
+    )
+    return fx
+
+
+def _push_files(fx: Fixture, version: str, files: dict[str, str]) -> None:
+    for name, text in files.items():
+        path = fx.pusher / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    commit(fx.pusher, version)
+    git(fx.pusher, "push", "origin", "main")
+
+
+def _apply(fx: Fixture, version: str, files: dict[str, str]) -> dict[str, Any]:
+    _push_files(fx, version, files)
+    fx.updater.check(force=True)
+    fx.running = version
+    fx.updater.start_apply(threaded=False)
+    return fx.updater.state.get("apply")
+
+
+@pytest.mark.parametrize(
+    ("files", "outdated"),
+    [
+        ({}, False),
+        ({"updater/a.py": "a = 2\n"}, True),
+        ({"docker-compose.yml": "v: 2\n"}, True),
+    ],
+)
+def test_outdated_follows_updater_tree_and_compose(
+    su: Fixture, files: dict[str, str], outdated: bool
+) -> None:
+    assert su.updater.status()["updater_outdated"] is False
+    assert su.updater.status()["self_update"] is None
+    _push_files(su, "dev-260103.0000", files)
+    git(su.work, "pull", "--ff-only", "origin", "main")
+    assert su.updater.status()["updater_outdated"] is outdated
+
+
+def test_launch_recreate_command_and_state(su: Fixture) -> None:
+    _apply(su, "dev-260103.0000", {"updater/a.py": "a = 2\n"})
+    repo = str(su.work)
+    calls = [a for a, _ in su.docker.calls if a[1] in ("rm", "inspect", "run")]
+    assert calls[0] == ["docker", "rm", "-f", "darkstar-updater-recreate"]
+    assert calls[1] == ["docker", "inspect", "--format", "{{.Image}}", "darkstar-updater"]
+    assert calls[2] == [
+        "docker", "run", "-d", "--name", "darkstar-updater-recreate", "--entrypoint", "sh",
+        "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", f"{repo}:{repo}", IMAGE_ID,
+        "-c", f"sleep 3; exec docker compose --project-directory {repo} up -d --build --no-deps updater",
+    ]  # fmt: skip
+    state = su.updater.state.get("self_update")
+    assert state["fingerprint"] == su.updater._repo_fingerprint()  # type: ignore[reportPrivateUsage]
+    assert state["at"]
+
+
+def test_recreate_triggered_once_per_fingerprint(su: Fixture) -> None:
+    _apply(su, "dev-260103.0000", {"updater/a.py": "a = 2\n"})
+    assert _helper_verbs(su).count("run") == 1
+    _apply(su, "dev-260104.0000", {})  # same updater tree: fingerprint already attempted
+    assert _helper_verbs(su).count("run") == 1
+    _apply(su, "dev-260105.0000", {"updater/a.py": "a = 3\n"})  # newer fingerprint: retried
+    assert _helper_verbs(su).count("run") == 2
+
+
+def test_no_recreate_when_up_to_date(su: Fixture) -> None:
+    apply = _apply(su, "dev-260103.0000", {})
+    assert apply["state"] == "done"
+    assert _helper_verbs(su) == []
+    assert su.updater.state.get("self_update") is None
+
+
+def test_no_recreate_after_rollback_or_failed_apply(su: Fixture) -> None:
+    _push_files(su, "dev-260103.0000", {"updater/a.py": "a = 2\n"})
+    su.updater.check(force=True)
+    _fast_clock(su)  # new version never healthy -> rollback
+    su.updater.start_apply(threaded=False)
+    assert su.updater.state.get("apply")["state"] == "failed"
+    su.docker.fail_build = True
+    su.updater.check(force=True)
+    su.updater.start_apply(threaded=False)
+    assert _helper_verbs(su) == []
+    assert su.updater.state.get("self_update") is None
+
+
+def test_helper_failure_keeps_old_updater_and_is_not_retried(su: Fixture) -> None:
+    su.docker.helper_exit = "1"
+    su.docker.helper_logs = ["helper: build failed"]
+    apply = _apply(su, "dev-260103.0000", {"updater/a.py": "a = 2\n"})
+    assert apply["state"] == "done"
+    state = su.updater.state.get("self_update")
+    assert state["state"] == "failed"
+    assert "docker compose up -d --build updater" in state["message"]
+    assert "helper: build failed" in "\n".join(state["log_tail"])
+    assert "helper: build failed" in su.updater.read_log(0)[0]
+    assert _helper_verbs(su)[-2:] == ["wait", "rm"]
+    status = su.updater.status()
+    assert status["updater_outdated"] is True  # old updater still answers
+    assert status["apply"]["state"] == "done"
+    assert status["self_update"] == {"state": "failed", "message": state["message"]}
+    su.updater.check(force=True)
+    su.updater._maybe_recreate()  # type: ignore[reportPrivateUsage]
+    assert _helper_verbs(su).count("run") == 1
+
+
+def test_helper_start_failure_is_recorded(su: Fixture) -> None:
+    su.docker.inspect_rc = 1
+    _apply(su, "dev-260103.0000", {"updater/a.py": "a = 2\n"})
+    assert su.updater.state.get("self_update")["state"] == "failed"
+    assert "run" not in _helper_verbs(su)
+
+
+def _reconcile(su: Fixture, own: str | None, fingerprint_in_state: str = "fp") -> dict[str, Any]:
+    su.updater.state.update(self_update={"state": "started", "fingerprint": fingerprint_in_state})
+    su.updater._updater_fingerprint = own  # type: ignore[reportPrivateUsage]
+    su.updater.reconcile_self_update()
+    return su.updater.state.get("self_update")
+
+
+def test_reconcile_equal_fingerprint_is_done(su: Fixture) -> None:
+    assert _reconcile(su, "fp")["state"] == "done"
+    assert _helper_verbs(su) == ["rm"]
+
+
+def test_reconcile_different_fingerprint_is_failed(su: Fixture) -> None:
+    result = _reconcile(su, "other")
+    assert result["state"] == "failed"
+    assert "docker compose up -d --build updater" in result["message"]
+    assert _helper_verbs(su) == ["rm"]
+
+
+def test_reconcile_without_state_does_nothing(su: Fixture) -> None:
+    su.updater.reconcile_self_update()
+    assert su.updater.state.get("self_update") is None
+    assert su.docker.calls == []

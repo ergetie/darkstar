@@ -294,6 +294,8 @@ export type ProgramTimesStatus = {
 export type UpdaterChannel = 'dev' | 'stable'
 export type UpdaterApplyState = 'idle' | 'building' | 'restarting' | 'done' | 'failed'
 
+export type UpdaterSelfUpdateState = 'started' | 'done' | 'failed'
+
 export type UpdaterStatus = {
     /** False when the updater sidecar cannot be reached (docker install). */
     reachable: boolean
@@ -309,6 +311,8 @@ export type UpdaterStatus = {
     last_success_at?: string | null
     apply?: { state: UpdaterApplyState; message?: string; target_version?: string; log_tail?: string[] }
     updater_outdated?: boolean
+    /** Outcome of the last attempt to recreate the updater container; null/absent when none. */
+    self_update?: { state: UpdaterSelfUpdateState; message?: string | null } | null
 }
 
 export type UpdaterLogChunk = { text: string; offset: number }

@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from backend.learning.models import Base, LearningRun
 from backend.learning.store import LearningStore
@@ -57,33 +57,19 @@ async def test_log_learning_run_full(store):
 
 
 @pytest.mark.asyncio
-async def test_cleanup_learning_runs(store):
-    """Test that cleanup removes old records but keeps recent ones."""
-    now = datetime.now(UTC)
-    old = now - timedelta(days=40)
-    recent = now - timedelta(days=10)
+async def test_graduation_level_counts_runs_older_than_30_days(store):
+    """Learning runs are no longer cut at 30 days, so old runs keep counting."""
+    from types import SimpleNamespace
 
-    async with store.AsyncSession() as session:
-        # Manually add records to bypass log_learning_run logic if needed,
-        # but log_learning_run supports started_at
-        pass
+    from backend.api.routers.forecast import _compute_graduation_level
 
-    await store.log_learning_run(status="old", started_at=old)
-    await store.log_learning_run(status="recent", started_at=recent)
+    old = datetime.now(UTC) - timedelta(days=40)
+    for _ in range(14):
+        await store.log_learning_run(status="success", started_at=old)
 
-    # Cleanup runs older than 30 days
-    deleted = await store.cleanup_learning_runs(days_back=30)
-    assert deleted == 1
+    level = await _compute_graduation_level(SimpleNamespace(store=store))  # type: ignore[arg-type]
 
-    async with store.AsyncSession() as session:
-        stmt = select(func.count(LearningRun.id))
-        count = await session.scalar(stmt)
-        assert count == 1
-
-        stmt_check = select(LearningRun).limit(1)
-        res = await session.execute(stmt_check)
-        run = res.scalar_one()
-        assert run.status == "recent"
+    assert level == {"label": "statistician", "runs": 14}
 
 
 @pytest.mark.asyncio

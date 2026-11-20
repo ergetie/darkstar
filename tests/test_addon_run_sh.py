@@ -1,12 +1,15 @@
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 from ruamel.yaml import YAML
+from script_stubs import dump_db, log_lines, make_behind_db, make_stub_bin, run_script
 
 from backend.addon_bootstrap import apply_addon_options, merge_ha_secrets
 
@@ -188,3 +191,102 @@ def test_run_sh_syntax(name):
 def test_dockerfile_ships_backend_package(dockerfile):
     assert "COPY backend/ ./backend/" in (ROOT / dockerfile).read_text(encoding="utf-8")
     assert (ROOT / "backend/addon_bootstrap.py").is_file()
+
+
+ADDON_SCRIPTS = ["darkstar/run.sh", "darkstar-dev/run.sh"]
+DB_SAFETY_CALL = re.compile(r"backend\.db_safety (pre-migrate|restore|compact)")
+
+
+def _db_safety_commands(text: str) -> list[str]:
+    """Commands in order of first use (a restore hint in a log line may repeat one)."""
+    return list(dict.fromkeys(DB_SAFETY_CALL.findall(text)))
+
+
+def test_run_sh_and_entrypoint_use_same_db_safety_commands():
+    """Guards against drift between the Docker entrypoint and the add-on scripts."""
+    entrypoint = (ROOT / "scripts/docker-entrypoint.sh").read_text(encoding="utf-8")
+    expected = _db_safety_commands(entrypoint)
+    assert expected == ["pre-migrate", "restore", "compact"]
+    for name in ADDON_SCRIPTS:
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert _db_safety_commands(text) == expected, name
+
+
+@pytest.fixture
+def addon(tmp_path):
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    for name in ("alembic.ini", "secrets.example.yaml", "config.default.yaml"):
+        (app_dir / name).write_text("", encoding="utf-8")
+    share = tmp_path / "share" / "darkstar"
+    return SimpleNamespace(
+        app=app_dir,
+        share=share,
+        db=share / "planner_learning.db",
+        backups=share / "backups",
+        config=tmp_path / "config" / "darkstar",
+        bin=make_stub_bin(tmp_path / "bin"),
+        log=tmp_path / "calls.log",
+    )
+
+
+def _run_addon(addon, name, *, alembic_fails=False):
+    return run_script(
+        ROOT / name,
+        cwd=addon.app,
+        stub_bin=addon.bin,
+        log=addon.log,
+        env={
+            "APP_DIR": str(addon.app),
+            "CONFIG_DIR": str(addon.config),
+            "SHARE_DIR": str(addon.share),
+            "CONFIG_PATH": str(addon.app / "no-options.json"),
+            "PYTHON": str(addon.bin / "python3"),
+            "SUPERVISOR_TOKEN": "",
+        },
+        alembic_fails=alembic_fails,
+    )
+
+
+@pytest.mark.parametrize("name", ADDON_SCRIPTS)
+def test_failed_migration_restores_backup_and_exits_nonzero(addon, name):
+    make_behind_db(addon.db)
+    before = dump_db(addon.db)
+
+    result = _run_addon(addon, name, alembic_fails=True)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert dump_db(addon.db) == before
+    assert len(list(addon.backups.glob("pre-migration-*.db"))) == 1
+    assert "[ALEMBIC] boom: migration exploded" in result.stdout
+    assert "Database restored from backup" in result.stdout
+    assert log_lines(addon.log) == ["alembic upgrade head"]
+    assert not (addon.share / "alembic-upgrade.log").exists()
+
+
+@pytest.mark.parametrize("name", ADDON_SCRIPTS)
+def test_successful_migration_backs_up_and_compacts(addon, name):
+    make_behind_db(addon.db)
+
+    result = _run_addon(addon, name)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    (backup,) = addon.backups.glob("pre-migration-*.db")
+    assert "[ALEMBIC] stub upgrade ok" in result.stdout
+    assert log_lines(addon.log)[:2] == [
+        "alembic upgrade head",
+        f"compact -m backend.db_safety compact {backup}",
+    ]
+
+
+@pytest.mark.parametrize("name", ADDON_SCRIPTS)
+def test_backup_failure_aborts_before_migration(addon, name):
+    make_behind_db(addon.db)
+    addon.backups.write_text("not a directory", encoding="utf-8")
+    before = dump_db(addon.db)
+
+    result = _run_addon(addon, name)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert dump_db(addon.db) == before
+    assert log_lines(addon.log) == []

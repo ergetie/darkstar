@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import pytz
-from sqlalchemy import create_engine, delete, desc, func, select, text
+from sqlalchemy import create_engine, desc, func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import sessionmaker
 
@@ -275,21 +275,6 @@ class ExecutionHistory:
             )
             session.execute(stmt)
             session.commit()
-
-    def cleanup_old_records(self, retention_days: int = 30) -> int:
-        """
-        Delete execution records older than retention_days using SQLAlchemy.
-        """
-        cutoff = (datetime.now(self.timezone) - timedelta(days=retention_days)).isoformat()
-        with self.Session() as session:
-            stmt = delete(ExecutionLog).where(ExecutionLog.executed_at < cutoff)
-            result = session.execute(stmt)
-            deleted: int = int(getattr(result, "rowcount", 0) or 0)
-            session.commit()
-
-            if deleted > 0:
-                logger.info("Cleaned up %d old execution records", deleted)
-            return deleted
 
     def get_stats(self, days: int = 7) -> dict[str, Any]:
         """

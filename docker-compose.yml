@@ -66,7 +66,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DARKSTAR_REPO_DIR:-/opt/darkstar-repo-unset}:${DARKSTAR_REPO_DIR:-/opt/darkstar-repo-unset}
-      - ./data:/data:ro
+      # Writable: a rollback puts the pre-migration database backup back (data/backups).
+      - ./data:/data
       - updater-state:/state
 
 volumes:

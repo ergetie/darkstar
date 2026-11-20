@@ -1,16 +1,12 @@
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
-
-from sqlalchemy import delete
 
 from backend.learning import get_learning_engine
 from backend.learning.models import PlannerDebug, SIndexHistory
 
 logger = logging.getLogger(__name__)
-
-S_INDEX_HISTORY_RETENTION_DAYS = 365
 
 
 # ensure_learning_schema is no longer needed as Alembic handles schema.
@@ -65,12 +61,10 @@ async def record_s_index_history(s_index_debug: dict[str, Any]) -> None:
             return
 
         timestamp = datetime.now(UTC).isoformat()
-        cutoff = (datetime.now(UTC) - timedelta(days=S_INDEX_HISTORY_RETENTION_DAYS)).isoformat()
 
         async with engine.store.AsyncSession() as session:
             record = SIndexHistory(created_at=timestamp, payload=json.dumps(s_index_debug))
             session.add(record)
-            await session.execute(delete(SIndexHistory).where(SIndexHistory.created_at < cutoff))
             await session.commit()
 
     except Exception as e:

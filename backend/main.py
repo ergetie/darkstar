@@ -152,6 +152,7 @@ async def lifespan(app: FastAPI):
     start_ha_socket_client()
 
     # Initialize Async LearningStore (REV ARC10)
+    learning_db_path: str | None = None
     try:
         config = load_yaml("config.yaml")
         # Respect DB_PATH env var if present (for consistency with Alembic)
@@ -164,6 +165,7 @@ async def lifespan(app: FastAPI):
         store = LearningStore(db_path, pytz.timezone(tz_name))
         await store.ensure_wal_mode()
         app.state.learning_store = store
+        learning_db_path = db_path
         logger.info(f"✅ LearningStore initialized (Async) at {db_path}")
 
         from ml.price_forecast import cleanup_price_forecast_duplicates
@@ -182,6 +184,15 @@ async def lifespan(app: FastAPI):
     if app.state.learning_store is not None:
         await benchmark_service.start(app.state.learning_store)
 
+    from backend.services.db_maintenance_service import db_maintenance_service
+
+    if app.state.learning_store is not None and learning_db_path is not None:
+        try:
+            await db_maintenance_service.start(app.state.learning_store, learning_db_path)
+        except Exception as e:
+            # Maintenance is optional and never blocks the main app.
+            logger.warning("Database maintenance service failed to start: %s", type(e).__name__)
+
     from backend.services.installation_stats_service import installation_stats_service
 
     try:
@@ -199,6 +210,11 @@ async def lifespan(app: FastAPI):
         await installation_stats_service.stop()
     except Exception as e:
         logger.warning("Installation statistics service shutdown failed: %s", type(e).__name__)
+
+    try:
+        await db_maintenance_service.stop()
+    except Exception as e:
+        logger.warning("Database maintenance service shutdown failed: %s", type(e).__name__)
 
     # Close shared HA HTTP client
     try:

@@ -387,7 +387,6 @@ class ExecutorConfig:
     # planner's charger-power model (backend.core.ev_power).
     ev_nominal_voltage_v: float = DEFAULT_NOMINAL_VOLTAGE_V
 
-    history_retention_days: int = 30
     schedule_path: str = "data/schedule.json"
     timezone: str = "Europe/Stockholm"
     pause_reminder_minutes: int = 30  # Send notification after N minutes paused
@@ -1429,7 +1428,6 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         excess_pv=excess_pv,
         load_balancing=load_balancing,
         ev_nominal_voltage_v=nominal_voltage_v(data),
-        history_retention_days=int(executor_data.get("history_retention_days", 30)),
         schedule_path=str(executor_data.get("schedule_path", "data/schedule.json")),
         timezone=timezone,
         pause_reminder_minutes=int(executor_data.get("pause_reminder_minutes", 30)),

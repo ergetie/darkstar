@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import threading
 import time
 import urllib.request
@@ -11,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from . import db_restore, self_update
 from .gate import blocked_message
 from .repo import CHANNELS, GitError, Repo
 
@@ -43,6 +45,17 @@ class ApplyPlan:
     ref: str
 
 
+@dataclass(frozen=True)
+class PreviousState:
+    """What to return to when an apply has to be rolled back."""
+
+    commit: str
+    branch: str | None
+    version: str
+    channel: str
+    started: float
+
+
 class ApplyRejected(Exception):
     """Apply refused before any change (dirty tree, DB gate, nothing to do)."""
 
@@ -70,6 +83,14 @@ def tree_digest(directory: str) -> str:
     return digest.hexdigest()
 
 
+def fingerprint(updater_dir: str, compose_file: str) -> str:
+    """Digest of the updater source plus the compose file (what a recreate of the updater adopts)."""
+    digest = hashlib.sha256()
+    digest.update(tree_digest(updater_dir).encode())
+    digest.update(Path(compose_file).read_bytes())
+    return digest.hexdigest()
+
+
 def fetch_running_version(url: str) -> str | None:
     """Version reported by the running Darkstar container, or None if unreachable."""
     import json
@@ -92,7 +113,7 @@ class Updater:
         running_version: Callable[[], str | None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
-        updater_digest: str | None = None,
+        updater_fingerprint: str | None = None,
     ) -> None:
         self.config = config
         self.repo = Repo(config.repo_dir, runner)
@@ -103,7 +124,7 @@ class Updater:
         )
         self._sleep = sleep
         self._monotonic = monotonic
-        self._updater_digest = updater_digest
+        self._updater_fingerprint = updater_fingerprint
         self._check_lock = threading.Lock()
         self._apply_lock = threading.Lock()
         self._last_check_started = float("-inf")
@@ -196,6 +217,7 @@ class Updater:
             last = {"ok": False, "at": _now(), "channel": channel, "error": str(exc)}
         target = last.get("target") if last and last.get("ok") else None
         available = bool(target and target["commit"] != current["commit"])
+        recreate: dict[str, Any] = self.state.get("self_update") or {}
         return {
             "channel": channel,
             "current": current,
@@ -208,16 +230,60 @@ class Updater:
             "last_success_at": self.state.get("last_success_at"),
             "apply": self.state.get("apply") or {"state": "idle"},
             "updater_outdated": self._updater_outdated(),
+            "self_update": (
+                {"state": recreate["state"], "message": recreate.get("message")}
+                if recreate.get("state")
+                else None
+            ),
         }
 
-    def _updater_outdated(self) -> bool:
-        if self._updater_digest is None:
-            return False
-        source = Path(self.config.repo_dir) / "updater"
+    def _repo_fingerprint(self) -> str | None:
+        """Fingerprint of the updater source and compose file currently in the repo."""
+        repo = Path(self.config.repo_dir)
         try:
-            return tree_digest(str(source)) != self._updater_digest
+            return fingerprint(str(repo / "updater"), str(repo / "docker-compose.yml"))
         except OSError:
+            return None
+
+    def _updater_outdated(self) -> bool:
+        if self._updater_fingerprint is None:
             return False
+        current = self._repo_fingerprint()
+        return current is not None and current != self._updater_fingerprint
+
+    # ---- self update -----------------------------------------------------
+    def _maybe_recreate(self) -> None:
+        """After a successful apply, recreate the updater once per changed fingerprint."""
+        if not self._updater_outdated():
+            return
+        current = self._repo_fingerprint()
+        attempted: dict[str, Any] = self.state.get("self_update") or {}
+        if current is None or attempted.get("fingerprint") == current:
+            return
+        config = self.config
+        if self_update.launch_recreate(
+            self._runner,
+            self.state,
+            repo_dir=config.repo_dir,
+            fingerprint=current,
+            log=self._log,
+        ):
+            self_update.follow_helper(
+                self._runner,
+                self.state,
+                repo_dir=config.repo_dir,
+                log=self._log,
+                tail=self._log_tail,
+            )
+
+    def reconcile_self_update(self) -> None:
+        """Settle a recreate left `started` by the previous process (call at start-up)."""
+        self_update.reconcile(
+            self._runner,
+            self.state,
+            own_fingerprint=self._updater_fingerprint,
+            repo_dir=self.config.repo_dir,
+        )
 
     # ---- apply -----------------------------------------------------------
     def apply_in_progress(self) -> bool:
@@ -288,7 +354,7 @@ class Updater:
             *args,
         ]
 
-    def _restore(self, prev_commit: str, prev_branch: str | None) -> None:
+    def _restore(self, prev_commit: str, prev_branch: str | None) -> bool:
         try:
             if prev_branch:
                 self.repo.run("checkout", "-f", "-B", prev_branch, prev_commit)
@@ -297,6 +363,8 @@ class Updater:
             self._log(f"Restored checkout to {prev_commit[:7]}")
         except GitError as exc:
             self._log(f"WARNING: could not restore previous checkout: {exc}")
+            return False
+        return True
 
     def _run_apply(self, plan: ApplyPlan) -> None:
         try:
@@ -309,6 +377,14 @@ class Updater:
     def _apply_steps(self, plan: ApplyPlan) -> None:
         prev_commit = self.repo.head()
         prev_branch = self.repo.current_branch()
+        # Dev runs on a branch, stable on a detached tag (matches how apply checks out).
+        prev = PreviousState(
+            commit=prev_commit,
+            branch=prev_branch,
+            version=self.repo.current_version(),
+            channel="dev" if prev_branch else "stable",
+            started=time.time(),
+        )
         self._log(f"Checking out {plan.ref} ({plan.commit[:7]})")
         try:
             if plan.channel == "dev":
@@ -346,20 +422,103 @@ class Updater:
             on_line=self._log,
         )
         if started.returncode != 0:
-            self._fail(plan, "Starting the new container failed, see the log")
+            self._rollback(plan, prev, "starting the new container failed")
             return
 
         self._set_apply("restarting", f"Restarting on {plan.version}", plan)
+        if self._wait_for_version(plan.version):
+            self._log("New version is up")
+            self._set_apply("done", f"Updated to {plan.version}", plan)
+            self._maybe_recreate()
+            return
+        self._rollback(plan, prev, "the new version did not become healthy within 5 minutes")
+
+    def _wait_for_version(self, version: str) -> bool:
         deadline = self._monotonic() + HEALTH_TIMEOUT_S
         while self._monotonic() < deadline:
-            if self._running_version() == plan.version.lstrip("vV"):
-                self._log("New version is up")
-                self._set_apply("done", f"Updated to {plan.version}", plan)
-                return
+            if self._running_version() == version.lstrip("vV"):
+                return True
             self._sleep(HEALTH_POLL_S)
-        self._fail(
-            plan,
-            "The new version did not become healthy within 5 minutes. "
-            "Check `docker compose logs darkstar` and the updater log; the database may "
-            "already be migrated, so no automatic rollback was done.",
+        return False
+
+    # ---- rollback --------------------------------------------------------
+    def _manual_restore_hint(self, backup: Path | None) -> str:
+        """Host-side commands (the repo is mounted at its host path, `data` sits inside it)."""
+        repo = self.config.repo_dir
+        if backup is None:
+            return f"Check `docker compose logs {self.config.service}` in {repo}."
+        db = Path(self.config.db_path).name
+        return (
+            f"Backup: {backup.name} (in {repo}/data/{db_restore.BACKUP_DIR_NAME}). To restore it "
+            f"manually: cd {repo} && docker compose stop {self.config.service} && "
+            f"cp data/{db_restore.BACKUP_DIR_NAME}/{backup.name} data/{db} && "
+            f"rm -f data/{db}-wal data/{db}-shm && docker compose up -d {self.config.service}"
         )
+
+    def _rollback(self, plan: ApplyPlan, prev: PreviousState, reason: str) -> None:
+        """Return to the previous version after a failed start; report what could (not) be done."""
+        failure = f"Update to {plan.version} failed ({reason})."
+        self._set_apply("restarting", f"Rolling back to {prev.version}", plan)
+        self._log(f"Rolling back to {prev.version}: {reason}")
+        backup: Path | None = None
+        try:
+            backup = db_restore.find_backup(self.config.db_path, prev.started)
+        except OSError as exc:
+            self._log(f"WARNING: could not look for a database backup: {exc}")
+
+        def abort(problem: str) -> None:
+            self._fail(
+                plan,
+                f"{failure} Automatic rollback failed: {problem}. "
+                f"{self._manual_restore_hint(backup)}",
+            )
+
+        stopped = self._runner(
+            self._compose("stop", self.config.service),
+            cwd=self.config.repo_dir,
+            on_line=self._log,
+        )
+        if stopped.returncode != 0:
+            abort(f"could not stop {self.config.service}")
+            return
+
+        database = "The database was unchanged."
+        if backup is not None:
+            if os.access(Path(self.config.db_path).parent, os.W_OK):
+                try:
+                    db_restore.restore(self.config.db_path, backup)
+                except (OSError, db_restore.RestoreError) as exc:
+                    abort(f"database restore failed ({exc})")
+                    return
+                self._log(f"Restored database from {backup.name}")
+                database = "The database backup was restored."
+            else:
+                self._log("Data directory is read-only, database not restored")
+                database = (
+                    "The database was NOT restored because the updater's data directory is "
+                    f"read-only. {self._manual_restore_hint(backup)}"
+                )
+
+        if not self._restore(prev.commit, prev.branch):
+            abort("could not restore the previous checkout")
+            return
+        env = {
+            "DARKSTAR_VERSION": prev.version,
+            "DARKSTAR_RELEASE_CHANNEL": prev.channel,
+            "DARKSTAR_COMMIT": prev.commit[:7],
+        }
+        self._log(f"Rebuilding {self.config.service} {prev.version}")
+        for args in (("build",), ("up", "-d", "--no-deps")):
+            result = self._runner(
+                self._compose(*args, self.config.service),
+                cwd=self.config.repo_dir,
+                env=env,
+                on_line=self._log,
+            )
+            if result.returncode != 0:
+                abort(f"`docker compose {args[0]}` failed for the previous version")
+                return
+        if not self._wait_for_version(prev.version):
+            abort(f"the previous version {prev.version} did not become healthy")
+            return
+        self._fail(plan, f"{failure} Rolled back to {prev.version}. {database}")

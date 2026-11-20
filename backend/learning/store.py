@@ -1515,17 +1515,6 @@ class LearningStore:
             session.add(run)
             await session.commit()
 
-    async def cleanup_learning_runs(self, days_back: int = 30) -> int:
-        """Delete learning run records older than days_back (ARC11)."""
-        cutoff = datetime.now(UTC) - timedelta(days=days_back)
-        async with self.AsyncSession() as session:
-            from sqlalchemy import delete
-
-            stmt = delete(LearningRun).where(LearningRun.started_at < cutoff)
-            result = await session.execute(stmt)
-            await session.commit()
-            return result.rowcount  # type: ignore
-
     async def get_latest_metrics(self) -> dict[str, Any] | None:
         """Get the latest daily metrics for overlays using Async SQLAlchemy."""
         async with self.AsyncSession() as session:

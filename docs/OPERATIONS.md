@@ -36,7 +36,7 @@ Darkstar automatically retrains its forecasting models twice a week (default: Mo
 ### Updating Darkstar
 Docker installs can update from the UI: click the version in the sidebar (a dot appears when an update is available), pick a channel (`dev` = latest `main`, `stable` = latest `v*` release tag), then **Update**. Darkstar is rebuilt locally from git and restarted; a failed build leaves the running container untouched.
 
-An update is refused when tracked files were modified locally, or when the target does not contain your database's migration version (for example Dev to Stable). Downgrades are never automatic and there is no automatic backup.
+An update is refused when tracked files were modified locally, or when the target does not contain your database's migration version (for example Dev to Stable). Downgrades are never automatic. Every update that needs a database migration is preceded by an automatic backup (see [Database safety](#database-safety)).
 
 **Opt-in setup.** The updater is a separate `updater` container that only starts when enabled. Without it nothing changes and you can keep updating manually. To enable it, add these values to a `.env` file next to `docker-compose.yml`, then rebuild once:
 ```bash
@@ -46,7 +46,9 @@ echo "COMPOSE_PROFILES=updater" >> .env
 git pull
 docker compose up -d --build
 ```
-Later changes to the updater itself are not applied from the UI (the card shows a hint); run `docker compose up -d --build updater` after pulling them.
+**Rollback.** If the new version fails to start or does not report the new version within 5 minutes, the updater stops it, restores the database backup made just before the migration, rebuilds the previous version and starts it. The card then shows the update as failed and says what was restored. If a rollback step itself fails, the message names the backup file and the manual restore command.
+
+**Updater updates.** After a successful update, if the updater code or `docker-compose.yml` changed, the updater recreates itself automatically (one attempt per change; the card shows the result and, if it failed, the command to run by hand). Rollback is only active in an updater that has been rebuilt once: see [First update that ships database safety](#first-update-that-ships-database-safety).
 
 **Security note.** The `updater` container mounts the Docker socket, which is root-equivalent on the host. It has no published port, only accepts requests carrying `DARKSTAR_UPDATER_TOKEN`, and only performs fixed operations (check, switch channel, update Darkstar). The Darkstar container itself never gets the socket. Keep `.env` private.
 
@@ -56,6 +58,66 @@ git pull
 docker compose build
 docker compose up -d
 ```
+
+---
+
+## 🛡️ Database safety
+
+### Automatic backup before a migration
+At every start Darkstar checks whether a database migration is pending (or the one-time storage switch below). Only then it writes a consistent copy of the database to `backups/` next to the database file, named `pre-migration-<UTC timestamp>-<previous revision>.db`:
+
+| Install | Backup folder |
+|---------|---------------|
+| Docker Compose | `./data/backups/` |
+| Home Assistant add-on | `/share/darkstar/backups/` |
+
+The newest 3 backups are kept, older ones are removed after a new backup has been verified. A start with nothing pending makes no backup. If the backup fails (for example not enough free disk space: the database size plus 64 MB is needed), a pending migration is **not run** and the container stops with a message in the log; the database is left untouched.
+
+If the migration itself fails, the backup is restored automatically and the start is aborted. Darkstar never runs Alembic downgrades.
+
+The old `planner_learning_*.db.bak` files in the data folder and the files in `/host_backups` (`./backups` on the host) came from the previous backup mechanism. They are no longer used or touched and you may delete them.
+
+### Restoring a backup manually
+Docker Compose (run in the folder with `docker-compose.yml`):
+```bash
+docker compose stop darkstar
+docker compose run --rm --no-deps darkstar python -m backend.db_safety restore data/backups/<backup file>
+docker compose up -d darkstar
+```
+Add-on: open a terminal in the add-on container and run `DB_PATH=/share/darkstar/planner_learning.db python -m backend.db_safety restore /share/darkstar/backups/<backup file>`, then restart the add-on.
+
+The restore replaces the database file atomically and removes the old `-wal` and `-shm` files. Rows written after the backup are lost. If the previous version is not running afterwards, also go back to it (`git checkout` the previous tag or commit and `docker compose build darkstar`).
+
+### Automatic rollback (Docker with the updater)
+See **Updating Darkstar** above. The Home Assistant add-on has no automatic rollback of the version (Home Assistant owns add-on versions); it gets the backup and the automatic restore after a failed migration.
+
+### First update that ships database safety
+The updater that is already running has the old code and a read-only data mount, and an old updater cannot change itself. So the update that first ships this change is applied by the old updater:
+
+- Protected: a failed build (old container untouched), a failed backup (migration not run), and a failed migration (the new container restores the backup).
+- Not protected: the new container failing to start, or being unhealthy, after a successful migration. The old updater then reports that no automatic rollback was done; use the manual restore above with the newest file in `data/backups/`.
+
+After that update, the card shows a hint to rebuild the updater once:
+```bash
+docker compose up -d --build updater
+```
+From then on rollback is active and the updater recreates itself automatically whenever it or `docker-compose.yml` changes.
+
+### Retention and database size
+A background task prunes old rows once a day (first check about 10 minutes after start) in small batches, then returns the freed space to the filesystem without pausing the executor. Settings in `config.yaml` (defaults in `config.default.yaml`); values below the minimum are raised to it, invalid values fall back to the default:
+
+| Key | Default | Minimum if set | Data |
+|-----|---------|----------------|------|
+| `executor.history_retention_days` | 30 | 7 | Executor history (`execution_log`) |
+| `learning.retention_days` | 0 (forever) | 400 | Slot observations, plans and forecasts |
+| `learning.price_forecast_retention_days` | 0 (forever) | 400 | Price forecasts |
+| `learning.learning_runs_retention_days` | 0 (forever) | 365 | Learning run history |
+| `learning.s_index_history_retention_days` | 365 | 90 | S-Index calibration history |
+| `learning.planner_debug_retention_days` | 14 | 1 | Planner debug payloads |
+
+`0` means keep forever and is only accepted by the keys whose default is 0. The learning data grows by roughly 80 MB per year.
+
+**One-time shrink.** On the first start with this version the database is backed up, old rows are pruned and the database is rebuilt once with incremental auto-vacuum, which can take from seconds to a few minutes and needs free disk space of about 1.2 times the used database size plus 64 MB (otherwise the rebuild is skipped with a warning and retried at the next start; the pruning stays). A large database (for example 800 MB) typically ends up around 230 MB.
 
 ---
 

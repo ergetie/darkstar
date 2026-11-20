@@ -101,6 +101,27 @@ describe('UpdateCard', () => {
         expect(screen.getByText('Building...')).toBeTruthy()
     })
 
+    it('shows the updater self-update state', () => {
+        const render_ = (self_update: UpdaterStatus['self_update']) =>
+            render(<UpdateCard updater={fakeUpdater({ status: status({ self_update }) })} onClose={() => undefined} />)
+        const started = render_({ state: 'started', message: null })
+        expect(screen.getByText(/Recreating the updater/)).toBeTruthy()
+        started.unmount()
+        const done = render_({ state: 'done', message: null })
+        expect(screen.getByText(/updater was recreated/)).toBeTruthy()
+        done.unmount()
+        const failed = render_({
+            state: 'failed',
+            message: 'Updater could not be recreated; run `docker compose up -d --build updater`',
+        })
+        expect(screen.getByText(/Updater could not be recreated/)).toBeTruthy()
+        failed.unmount()
+        render_(null)
+        expect(screen.queryByText(/Recreating the updater/)).toBeNull()
+        expect(screen.queryByText(/updater was recreated/)).toBeNull()
+        expect(screen.queryByText(/could not be recreated/)).toBeNull()
+    })
+
     it('disables Update and explains when blocked', () => {
         render(
             <UpdateCard
