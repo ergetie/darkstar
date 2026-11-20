@@ -41,7 +41,7 @@ from planner.inputs.weather import fetch_temperature_forecast
 from planner.output.schedule import DEFAULT_SCHEDULE_PATH, save_schedule_to_json
 from planner.output.soc_target import apply_soc_target_percent
 from planner.plan_store_status import clear_plan_store_failure, record_plan_store_failure
-from planner.preflight import run_preflight
+from planner.preflight import PRICE_HORIZON_MIN_HOURS, run_preflight
 from planner.solver.adapter import (
     config_to_kepler_config,
     kepler_result_to_dataframe,
@@ -1534,6 +1534,14 @@ class PlannerPipeline:
         if overrides:
             active_config = self._apply_overrides(self.config, overrides)
         validate_water_heating_config(active_config)
+
+        # Empty prices must fail as PRICES_UNAVAILABLE (transient backoff, price hint)
+        # before prepare_df, which would otherwise crash with IndexError.
+        if not input_data.get("price_data"):
+            raise PlannerError(
+                PlannerErrorCode.PRICES_UNAVAILABLE,
+                details={"price_slot_count": 0, "min_required_hours": PRICE_HORIZON_MIN_HOURS},
+            )
 
         # System Profile Toggles (Rev O1)
         system_cfg = active_config.get("system", {})

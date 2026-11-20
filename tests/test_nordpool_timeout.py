@@ -210,6 +210,6 @@ async def test_get_nordpool_partial_timeout(temp_config_file):
 
         # Should have attempted both calls
         assert call_count == 2
-        # But should return empty list because tomorrow failed
-        # (implementation returns [] if any fetch fails)
-        assert result == []
+        # Today's slots are kept even though tomorrow failed
+        assert len(result) == 24
+        assert all(slot["start_time"].date() == today for slot in result)

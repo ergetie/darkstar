@@ -13,7 +13,9 @@ import pandas as pd
 import pytest
 import pytz
 
+from planner.errors import PlannerError, PlannerErrorCode
 from planner.pipeline import PlannerPipeline
+from planner.preflight import PRICE_HORIZON_MIN_HOURS
 from tests.fault_injection.test_dst_transitions import make_inputs, planner_config
 
 
@@ -38,16 +40,32 @@ class TestTotalPriceFailure:
         pipeline = PlannerPipeline(planner_config())
         inputs = {"price_data": [], "forecast_data": [], "initial_state": {}}
 
-        try:
-            df = await pipeline.generate_schedule(inputs, mode="baseline", save_to_file=True)
-            # If it returns instead of raising, it must return nothing plannable...
-            assert df.empty, "planner fabricated a schedule from zero price slots"
-        except Exception:
-            pass  # declining loudly is acceptable safe behavior
+        with pytest.raises(PlannerError) as exc_info:
+            await pipeline.generate_schedule(inputs, mode="baseline", save_to_file=True)
+        assert exc_info.value.code == PlannerErrorCode.PRICES_UNAVAILABLE
 
-        # ...and the last good schedule must survive either way.
+        # The last good schedule must survive.
         preserved = json.loads(Path("schedule.json").read_text(encoding="utf-8"))
         assert preserved == last_good, "empty-price run overwrote the last good schedule"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["baseline", "full"])
+    async def test_empty_price_data_raises_prices_unavailable_with_details(
+        self, tmp_path, monkeypatch, mode
+    ):
+        """Empty price_data fails typed (no IndexError) with the pre-flight details."""
+        monkeypatch.chdir(tmp_path)
+        pipeline = PlannerPipeline(planner_config())
+        inputs = {"price_data": [], "forecast_data": [], "initial_state": {}}
+
+        with pytest.raises(PlannerError) as exc_info:
+            await pipeline.generate_schedule(inputs, mode=mode, save_to_file=False)
+
+        assert exc_info.value.code == PlannerErrorCode.PRICES_UNAVAILABLE
+        assert exc_info.value.details == {
+            "price_slot_count": 0,
+            "min_required_hours": PRICE_HORIZON_MIN_HOURS,
+        }
 
 
 class TestPartialPrices:

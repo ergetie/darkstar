@@ -242,6 +242,21 @@ def isolated_load_profile_state(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolated_nordpool_last_good(monkeypatch, tmp_path):
+    """Per-test last-good Nordpool price file and fetch state.
+
+    A complete price fetch writes the last-good file, so tests must never touch the real
+    data/ file or inherit another test's stored prices, retry window or fallback log state.
+    """
+    from backend.core import prices
+
+    monkeypatch.setattr(prices, "_LAST_GOOD_PATH", tmp_path / "nordpool_last_good.json")
+    prices.reset_price_fetch_state()
+    yield
+    prices.reset_price_fetch_state()
+
+
+@pytest.fixture(autouse=True)
 def isolated_ml_state(monkeypatch, tmp_path_factory):
     """Keep ML global state and model files from leaking between tests.
 

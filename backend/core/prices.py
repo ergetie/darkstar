@@ -1,4 +1,7 @@
+import asyncio
+import json
 import logging
+import time
 from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any, cast
@@ -7,6 +10,7 @@ import pytz
 import yaml
 from nordpool.elspot import Prices
 
+from backend.core.atomic_json import write_json_atomic
 from backend.core.cache import cache_sync
 from backend.core.time_windows import matches, parse_window
 
@@ -14,6 +18,234 @@ logger = logging.getLogger("darkstar.core.prices")
 
 # Processed Nordpool slots (import prices include fees); invalidated on pricing change.
 NORDPOOL_CACHE_KEY = "nordpool_data"
+
+# Seconds to serve an incomplete or failed fetch result before fetching again. Equals the
+# planner's backoff cap so retries stay aligned, and bounds fetch timeouts to one per window.
+FETCH_RETRY_SECONDS = 300.0
+FETCH_TIMEOUT_SECONDS = 10.0
+# Hour (local time) from which tomorrow's prices are expected to be published.
+TOMORROW_PUBLISH_HOUR = 13
+
+_LAST_GOOD_PATH = Path("data/nordpool_last_good.json")
+# Stored entries that ended longer ago than this are dropped when the store is rewritten.
+_LAST_GOOD_RETAIN = timedelta(days=1)
+
+# Last complete set of published prices, mirrored from disk (loaded lazily on first use).
+_last_good: dict[str, Any] | None = None
+_last_good_loaded = False
+# time.monotonic() before which a negative-cached result is served without refetching.
+_retry_after = 0.0
+# Whether the stored-price fallback was already announced at warning level.
+_fallback_logged = False
+# Whether the cached result came from a total fetch failure (stored future slots or empty).
+_cached_total_failure = False
+
+
+def reset_price_fetch_state() -> None:
+    """Forget the in-memory last-good prices, the retry window and the fallback log state."""
+    global _last_good, _last_good_loaded, _retry_after, _fallback_logged, _cached_total_failure
+    _last_good = None
+    _last_good_loaded = False
+    _retry_after = 0.0
+    _fallback_logged = False
+    _cached_total_failure = False
+
+
+def _log_fetch_failure(day: str, exc: BaseException) -> None:
+    if isinstance(exc, TimeoutError):
+        logger.warning(
+            "Nordpool %s price fetch timed out after %.0f seconds", day, FETCH_TIMEOUT_SECONDS
+        )
+    else:
+        logger.warning("Failed to fetch Nordpool %s prices: %s", day, exc, exc_info=True)
+
+
+def _parse_last_good(payload: Any) -> dict[str, Any]:
+    """Validate a stored payload and return it with datetimes parsed. Raises on bad format."""
+    if not isinstance(payload, dict):
+        raise ValueError("payload is not an object")
+    payload = cast("dict[str, Any]", payload)
+    entries: list[dict[str, Any]] = [
+        {
+            "start": datetime.fromisoformat(e["start"]),
+            "end": datetime.fromisoformat(e["end"]),
+            "value": float(e["value"]),
+        }
+        for e in payload["entries"]
+    ]
+    if any(e["start"].tzinfo is None or e["end"].tzinfo is None for e in entries):
+        raise ValueError("entry timestamps must be timezone-aware")
+    return {
+        "price_area": str(payload["price_area"]),
+        "currency": str(payload["currency"]),
+        "resolution_minutes": int(payload["resolution_minutes"]),
+        "saved_at": str(payload["saved_at"]),
+        "entries": entries,
+    }
+
+
+def _load_last_good(
+    price_area: str, currency: str, resolution_minutes: int
+) -> dict[str, Any] | None:
+    """
+    Return the stored published prices if they match the configured area, currency and
+    resolution, else ``None``. Reads the file once (lazily); a missing, unparsable or
+    mismatched store is ignored, and corruption is logged once at warning.
+    """
+    global _last_good, _last_good_loaded
+    if not _last_good_loaded:
+        _last_good_loaded = True
+        try:
+            _last_good = _parse_last_good(json.loads(_LAST_GOOD_PATH.read_text(encoding="utf-8")))
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            logger.warning("Ignoring stored Nordpool prices %s: %r", _LAST_GOOD_PATH, exc)
+    stored = _last_good
+    if stored is None:
+        return None
+    if (
+        stored["price_area"] != price_area
+        or stored["currency"] != currency
+        or stored["resolution_minutes"] != resolution_minutes
+    ):
+        return None
+    return stored
+
+
+async def _save_last_good(
+    entries: list[dict[str, Any]],
+    price_area: str,
+    currency: str,
+    resolution_minutes: int,
+    now: datetime,
+) -> None:
+    """
+    Remember a complete set of raw published entries, in memory and on disk.
+
+    Entries that ended more than a day ago are dropped. A disk failure is logged and
+    never raised; the in-memory copy is still updated.
+    """
+    global _last_good, _last_good_loaded
+    cutoff = now - _LAST_GOOD_RETAIN
+    kept: list[dict[str, Any]] = [
+        {"start": e["start"], "end": e["end"], "value": float(e["value"])}
+        for e in entries
+        if e["end"] > cutoff
+    ]
+    saved_at = now.isoformat()
+    _last_good = {
+        "price_area": price_area,
+        "currency": currency,
+        "resolution_minutes": resolution_minutes,
+        "saved_at": saved_at,
+        "entries": kept,
+    }
+    _last_good_loaded = True
+    payload: dict[str, Any] = {
+        "price_area": price_area,
+        "currency": currency,
+        "resolution_minutes": resolution_minutes,
+        "saved_at": saved_at,
+        "entries": [
+            {"start": e["start"].isoformat(), "end": e["end"].isoformat(), "value": e["value"]}
+            for e in kept
+        ],
+    }
+    try:
+        await asyncio.to_thread(write_json_atomic, _LAST_GOOD_PATH, payload)
+    except Exception as exc:
+        logger.warning("Could not store Nordpool prices %s: %r", _LAST_GOOD_PATH, exc)
+
+
+async def _fetch_day(
+    client: Any,
+    day: Any,
+    price_area: str,
+    resolution_minutes: int,
+    local_tz: tzinfo,
+) -> list[dict[str, Any]]:
+    """Fetch the raw price entries starting on ``day`` (local date). Raises on failure."""
+    raw = await asyncio.wait_for(
+        asyncio.to_thread(
+            client.fetch,
+            end_date=day,
+            areas=[price_area],
+            resolution=resolution_minutes,
+        ),
+        timeout=FETCH_TIMEOUT_SECONDS,
+    )
+    if not raw or "areas" not in raw or price_area not in raw["areas"]:
+        return []
+    values = raw["areas"][price_area].get("values", [])
+    return [v for v in values if v["start"].astimezone(local_tz).date() == day]
+
+
+def _stored_gap_entries(
+    price_area: str,
+    currency: str,
+    resolution_minutes: int,
+    now: datetime,
+    fresh_starts: set[datetime],
+) -> tuple[list[dict[str, Any]], str]:
+    """
+    Stored entries that have not ended and are not already fetched, plus the store's saved_at.
+
+    The running slot is included; ended slots are never returned.
+    """
+    stored = _load_last_good(price_area, currency, resolution_minutes)
+    if stored is None:
+        return [], ""
+    entries = [e for e in stored["entries"] if e["end"] > now and e["start"] not in fresh_starts]
+    return entries, stored["saved_at"]
+
+
+def _announce_fallback(count: int, saved_at: str) -> None:
+    """Log that stored prices are in use: warning on first use, info on repeats."""
+    global _fallback_logged
+    log = logger.info if _fallback_logged else logger.warning
+    log("Nordpool fetch incomplete, using stored prices (%d slots, saved %s)", count, saved_at)
+    _fallback_logged = True
+
+
+def _reset_fallback_log() -> None:
+    global _fallback_logged
+    _fallback_logged = False
+
+
+def _cache_prices(processed: list[dict[str, Any]], *, complete: bool, total_failure: bool) -> None:
+    """Cache a result: normally for an hour, briefly (and without refetching) if incomplete."""
+    global _retry_after, _cached_total_failure
+    if complete:
+        _retry_after = 0.0
+        ttl = 3600.0
+    else:
+        _retry_after = time.monotonic() + FETCH_RETRY_SECONDS
+        ttl = FETCH_RETRY_SECONDS
+    _cached_total_failure = total_failure
+    cache_sync.set(NORDPOOL_CACHE_KEY, processed, ttl_seconds=ttl)
+
+
+def _serve_stored_after_error(
+    config: dict[str, Any],
+    price_area: str,
+    currency: str,
+    resolution_minutes: int,
+    now: datetime,
+) -> list[dict[str, Any]]:
+    """Total failure outside the fetch itself: serve stored future slots (or []) and back off."""
+    try:
+        entries, saved_at = _stored_gap_entries(
+            price_area, currency, resolution_minutes, now, set()
+        )
+        if entries:
+            _announce_fallback(len(entries), saved_at)
+        processed = _process_nordpool_data(entries, config) if entries else []
+    except Exception as exc:
+        logger.warning("Could not use stored Nordpool prices: %s", exc, exc_info=True)
+        processed = []
+    _cache_prices(processed, complete=False, total_failure=True)
+    return processed
 
 
 async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
@@ -27,7 +259,12 @@ async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, 
     now = datetime.now(local_tz)
     today = now.date()
 
-    if cached and len(cached) > 0:
+    if cached is not None and _cached_total_failure:
+        # A cached [] is a hit too; slots that ended since caching must not be served.
+        return [s for s in cached if s["end_time"] > now]
+
+    if cached:
+        retry_pending = time.monotonic() < _retry_after
         first_slot = cached[0]["start_time"]
         first_slot_date = first_slot.date() if hasattr(first_slot, "date") else today
         has_tomorrow = any(
@@ -43,7 +280,8 @@ async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, 
             if first_slot > current_slot_start:
                 cached = None
 
-        if cached and now.hour >= 13 and not has_tomorrow:
+        # Missing tomorrow is refetched, but not before the retry window has elapsed.
+        if cached and now.hour >= 13 and not has_tomorrow and not retry_pending:
             cached = None
 
         if cached:
@@ -54,48 +292,60 @@ async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, 
     currency = nordpool_config.get("currency", "SEK")
     resolution_minutes = nordpool_config.get("resolution_minutes", 60)
 
-    import asyncio
-
     prices_client = Prices(currency=currency)
 
     try:
-        # Fetch prices for today and tomorrow using to_thread with timeout
-        raw_today = await asyncio.wait_for(
-            asyncio.to_thread(
-                prices_client.fetch,
-                end_date=today,
-                areas=[price_area],
-                resolution=resolution_minutes,
-            ),
-            timeout=10.0,
-        )
-        today_values = []
-        if raw_today and "areas" in raw_today and price_area in raw_today["areas"]:
-            today_raw = raw_today["areas"][price_area].get("values", [])
-            today_values = [v for v in today_raw if v["start"].astimezone(local_tz).date() == today]
-
-        tomorrow_values = []
-        if now.hour >= 13:
-            tomorrow = today + timedelta(days=1)
-            raw_tomorrow = await asyncio.wait_for(
-                asyncio.to_thread(
-                    prices_client.fetch,
-                    end_date=tomorrow,
-                    areas=[price_area],
-                    resolution=resolution_minutes,
-                ),
-                timeout=10.0,
+        # Today and tomorrow are fetched separately so a failed tomorrow keeps today's prices.
+        today_values: list[dict[str, Any]] = []
+        today_failed = False
+        try:
+            today_values = await _fetch_day(
+                prices_client, today, price_area, resolution_minutes, local_tz
             )
-            if raw_tomorrow and "areas" in raw_tomorrow and price_area in raw_tomorrow["areas"]:
-                all_raw = raw_tomorrow["areas"][price_area].get("values", [])
-                tomorrow_values = [
-                    v for v in all_raw if v["start"].astimezone(local_tz).date() == tomorrow
-                ]
+        except Exception as exc:
+            # Nordpool is unreachable; a second attempt for tomorrow would only add a timeout.
+            today_failed = True
+            _log_fetch_failure("today", exc)
+
+        tomorrow_values: list[dict[str, Any]] = []
+        if now.hour >= TOMORROW_PUBLISH_HOUR and not today_failed:
+            try:
+                tomorrow_values = await _fetch_day(
+                    prices_client,
+                    today + timedelta(days=1),
+                    price_area,
+                    resolution_minutes,
+                    local_tz,
+                )
+            except Exception as exc:
+                _log_fetch_failure("tomorrow", exc)
 
         all_entries = today_values + tomorrow_values
+        total_failure = not today_values
+        complete = not total_failure and (now.hour < TOMORROW_PUBLISH_HOUR or bool(tomorrow_values))
+
+        # Only a complete fetch replaces the stored prices: today, and tomorrow once published.
+        if complete:
+            await _save_last_good(all_entries, price_area, currency, resolution_minutes, now)
+            _reset_fallback_log()
+        else:
+            # Fill the gap with stored prices that have not ended; fresh entries win.
+            gap_entries, saved_at = _stored_gap_entries(
+                price_area,
+                currency,
+                resolution_minutes,
+                now,
+                {e["start"] for e in all_entries},
+            )
+            if gap_entries:
+                _announce_fallback(len(gap_entries), saved_at)
+                all_entries = all_entries + gap_entries
 
         # If no tomorrow data yet (before ~13:00 CET auction), try forecast fallback
-        if not tomorrow_values and now.hour < 13:
+        has_tomorrow_slots = any(
+            e["start"].astimezone(local_tz).date() > today for e in all_entries
+        )
+        if not has_tomorrow_slots and now.hour < TOMORROW_PUBLISH_HOUR:
             try:
                 from ml.price_forecast import get_d1_price_forecast_fallback
 
@@ -127,18 +377,15 @@ async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, 
             except Exception as exc:
                 logger.warning("Failed to get D+1 price forecast fallback: %s", exc)
 
-        if not all_entries:
-            return []
-
-        processed = _process_nordpool_data(all_entries, config)
-        cache_sync.set(cache_key, processed, ttl_seconds=3600.0)
+        processed = _process_nordpool_data(all_entries, config) if all_entries else []
+        _cache_prices(processed, complete=complete, total_failure=total_failure)
         return processed
     except TimeoutError:
-        logger.warning("Nordpool price fetch timed out after 10 seconds, returning empty data")
-        return []
+        logger.warning("Nordpool price fetch timed out after 10 seconds")
+        return _serve_stored_after_error(config, price_area, currency, resolution_minutes, now)
     except Exception as exc:
         logger.warning("Failed to fetch Nordpool prices: %s", exc, exc_info=True)
-        return []
+        return _serve_stored_after_error(config, price_area, currency, resolution_minutes, now)
 
 
 DEFAULT_GRID_TRANSFER_FEE_SEK = 0.2456

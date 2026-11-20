@@ -175,3 +175,33 @@ async def test_unexpected_planner_failure_result_uses_aware_utc_timestamp():
 
     assert result.error_code == PlannerErrorCode.UNKNOWN.value
     assert result.planned_at.tzinfo == UTC
+
+
+@pytest.mark.asyncio
+async def test_empty_prices_error_uses_transient_backoff_and_price_hint():
+    from planner.errors import PlannerError
+    from planner.preflight import PRICE_HORIZON_MIN_HOURS
+
+    svc = _fresh_service()
+    svc._emit_progress = AsyncMock()
+    svc._notify_error = AsyncMock()
+
+    async def run_planner(**kwargs):
+        raise PlannerError(
+            PlannerErrorCode.PRICES_UNAVAILABLE,
+            details={"price_slot_count": 0, "min_required_hours": PRICE_HORIZON_MIN_HOURS},
+        )
+
+    with patch("bin.run_planner.main", side_effect=run_planner):
+        for expected_delay in _BACKOFF_STEPS[:2]:
+            before = datetime.now(UTC)
+            result = await svc.run_once()
+
+            assert result.success is False
+            assert result.error_code == "PRICES_UNAVAILABLE"
+            assert result.fix_hint
+            assert svc.retry_suspended is False
+            delay = (svc._next_retry_at - before).total_seconds()
+            assert abs(delay - expected_delay) < 2.0, (
+                f"expected ~{expected_delay}s transient backoff, got {delay:.1f}s"
+            )
