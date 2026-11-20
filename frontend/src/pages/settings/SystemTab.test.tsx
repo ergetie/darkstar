@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -91,6 +91,45 @@ describe('SystemTab installation statistics controls', () => {
     })
 })
 
+describe('SystemTab profile status badge', () => {
+    const mountWithProfile = (profile: Record<string, unknown>) => {
+        vi.clearAllMocks()
+        mocked.listProfiles.mockResolvedValue([profile])
+        mocked.useSettingsForm.mockReturnValue({
+            config: { system: { inverter_profile: 'generic' } },
+            form: Object.fromEntries(
+                systemFieldList.map((field) => [field.key, field.key === 'system.inverter_profile' ? 'generic' : '']),
+            ),
+            fields: systemFieldList,
+            fieldErrors: {},
+            loading: false,
+            saving: false,
+            statusMessage: null,
+            haEntities: [],
+            haLoading: false,
+            handleChange: mocked.handleChange,
+            save: mocked.save,
+            reloadEntities: vi.fn(),
+            isDirty: false,
+        })
+        render(
+            <MemoryRouter>
+                <SystemTab />
+            </MemoryRouter>,
+        )
+    }
+
+    it('shows Tested for a tested profile', async () => {
+        mountWithProfile({ ...genericProfile, status: 'tested' })
+        expect(await screen.findByText('Tested')).toHaveClass('badge-good')
+    })
+
+    it('shows Community for a profile without status', async () => {
+        mountWithProfile(genericProfile)
+        expect(await screen.findByText('Community')).toHaveClass('badge-muted')
+    })
+})
+
 describe('SystemTab pricing groups and cost recalculation', () => {
     afterEach(() => setCurrency(null))
     beforeEach(() => {
@@ -159,12 +198,15 @@ describe('SystemTab pricing groups and cost recalculation', () => {
 
     it('confirms in a modal before recalculating and toasts the counts', async () => {
         renderTab()
-        const dateInput = (await screen.findByTestId('recalculate-costs')).querySelector('input[type="date"]')
+        // Role queries are scoped to the panel: a full-tree getByRole over the advanced Settings DOM
+        // is slow enough to time out under the parallel full-suite run.
+        const panel = await screen.findByTestId('recalculate-costs')
+        const dateInput = panel.querySelector('input[type="date"]')
         fireEvent.change(dateInput as Element, { target: { value: '2026-10-01' } })
-        fireEvent.click(screen.getByRole('button', { name: 'Recalculate costs from 2026-10-01' }))
+        fireEvent.click(within(panel).getByRole('button', { name: 'Recalculate costs from 2026-10-01' }))
 
         expect(mocked.recalculatePrices).not.toHaveBeenCalled()
-        fireEvent.click(await screen.findByRole('button', { name: 'Yes, Recalculate' }))
+        fireEvent.click(await screen.findByText('Yes, Recalculate', { selector: 'button' }))
 
         await waitFor(() => expect(mocked.recalculatePrices).toHaveBeenCalledWith('2026-10-01'))
         await waitFor(() =>
@@ -178,8 +220,9 @@ describe('SystemTab pricing groups and cost recalculation', () => {
     it('toasts an error when recalculation fails', async () => {
         mocked.recalculatePrices.mockRejectedValue(new Error('boom'))
         renderTab()
-        fireEvent.click(await screen.findByRole('button', { name: /Recalculate costs from/ }))
-        fireEvent.click(await screen.findByRole('button', { name: 'Yes, Recalculate' }))
+        const panel = await screen.findByTestId('recalculate-costs')
+        fireEvent.click(within(panel).getByRole('button', { name: /Recalculate costs from/ }))
+        fireEvent.click(await screen.findByText('Yes, Recalculate', { selector: 'button' }))
         await waitFor(() =>
             expect(mocked.toast).toHaveBeenCalledWith({
                 message: 'Recalculation failed: boom',

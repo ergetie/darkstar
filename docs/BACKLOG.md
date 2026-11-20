@@ -99,24 +99,6 @@ Source: GitHub #8 review and Reflex backtest.
 
 **Notes:** Found 2026-10-06 (cmon89): `forecasting.pv_confidence_percent` was 60 while Reflex only moves it within 70–120 (`backend/learning/reflex.py:22`) and his forecasts were 96 % accurate over 30 days (PV 938 actual vs 905 forecast). Nothing warned him. A replay estimated 60 % vs 83 % at ~53 kr over 25 days. His `learning.max_daily_param_change.pv_confidence_percent` was also 60 (default 1.0). Must cover every Reflex-tuned parameter (bounds table in `reflex.py`) and similar settings, e.g. max-daily-change values far from defaults. Harmless leftovers (e.g. an enabled `water_heaters` entry with `has_water_heater: false`, which the planner ignores) get at most a one-time info note, not a warning.
 
-#### [Testing] Test Gaps (Updater, E2E)
-
-**Goal:** Close the thinnest test gaps.
-
-**Notes:** Priority P2 (beta exit). Status Confirmed. Updater has 1 test file and a run of recent fixes; no browser-level e2e (`tests/e2e/` has 2 files). Source: beta-exit audit 2026-11.
-
-#### [Docs] Inverter Profiles Have No Tested Marker
-
-**Goal:** Mark which inverter profiles are tested and correct the docs claims.
-
-**Notes:** Priority P2 (beta exit). Status Confirmed. Profiles: Deye, Fronius, Sungrow and generic; none has a tested/untested field, yet README lists all as "Supported". The setup guide cheat sheet calls Solis, Huawei and GoodWe mode strings "verified" although no such profile exists. Source: beta-exit audit 2026-11.
-
-#### [Repo] Repo Not Ready For Outside Contributors
-
-**Goal:** Add community files and remove stray tracked files.
-
-**Notes:** Priority P2 (beta exit). Status Confirmed. No CONTRIBUTING, CODE_OF_CONDUCT, SECURITY.md or issue template. Stray tracked files: `history_debug_dump.json`, `msg_bad`, `data/history.db`, `frontend/package.json.bak`, `conductor/` (13 files). Source: beta-exit audit 2026-11.
-
 ---
 
 ## ✨ New Features

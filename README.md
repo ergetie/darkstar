@@ -38,10 +38,10 @@ Darkstar runs next to Home Assistant and decides when your battery should charge
 
 | Inverter | Status |
 | --- | --- |
-| Deye, SunSynk, Sol-Ark | Supported |
-| Fronius GEN24 | Supported |
-| Sungrow | Supported |
-| Other brands | Generic profile, entities mapped by hand |
+| Deye, SunSynk, Sol-Ark, Turbo Energy | Tested |
+| Fronius GEN24 | Tested |
+| Sungrow | Tested |
+| Other brands | Community-mapped / Generic profile, entities mapped by hand |
 
 - **Electricity prices**: Nord Pool, Swedish price areas SE1-SE4 only.
 - **Region**: Darkstar supports Sweden only (Nord Pool price areas SE1, SE2, SE3 and SE4). Other countries and price areas are not supported.

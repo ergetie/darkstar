@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in Darkstar does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please do not post access tokens or passwords. For security problems, use private vulnerability reporting instead (see SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Darkstar version
+      description: Shown in Settings or on the Debug page.
+      placeholder: e.g. v2.7.1-beta
+    validations:
+      required: true
+  - type: dropdown
+    id: install_type
+    attributes:
+      label: Install type
+      options:
+        - Home Assistant add-on
+        - Docker
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: inverter_profile
+    attributes:
+      label: Inverter profile
+      description: The profile selected in Settings, System.
+      placeholder: e.g. deye, fronius, sungrow, generic
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened?
+      description: What did you expect and what happened instead? Include steps to reproduce.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics bundle
+      description: Download the diagnostics bundle from the Debug page and attach the zip here. It is redacted, but check it before posting.
+      placeholder: Drag the zip file into this box.
+    validations:
+      required: true

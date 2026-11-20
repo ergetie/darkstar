@@ -17,6 +17,9 @@ metadata:
   name: "brand_name"           # Profile identifier (lowercase, matches filename)
   version: "2.0.0"             # Profile version (semantic versioning)
   schema_version: 2            # MUST be 2 for v2 profiles
+  # Optional. tested | community (default: community). New contributed profiles
+  # start as community; a maintainer promotes to tested after hardware verification.
+  status: community
   description: "Human-readable description of the profile"
   supported_brands:            # List of brand names for UI display
     - "Brand A"

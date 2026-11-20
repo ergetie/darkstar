@@ -30,6 +30,7 @@ metadata:
   supported_brands:
     - "Brand A"
     - "Brand B"
+  status: community        # Optional, see "Profile Status" below
   setup_notice:            # Optional, see "Setup Notice" below
     title: "Inverter setup"
     severity: info
@@ -45,6 +46,17 @@ modes:
 behavior:
   # Executor behavior parameters
 ```
+
+### Profile Status (optional)
+
+`metadata.status` tells users whether a profile has been verified on real hardware. The UI shows it as a badge in the onboarding and Settings profile pickers, and `GET /api/profiles` returns it as `status`.
+
+| Value | Meaning |
+|-------|---------|
+| `community` | Contributed profile, not verified by a maintainer. This is the default when the field is absent. |
+| `tested` | Verified on real hardware by a maintainer. |
+
+New contributed profiles start as `community`. A maintainer promotes a profile to `tested` after hardware verification; do not set `tested` yourself in a contribution. Any other value fails profile validation.
 
 ### Setup Notice (optional)
 

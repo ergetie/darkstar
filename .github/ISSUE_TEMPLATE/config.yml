@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and community help
+    url: https://discord.gg/SFnJf4NnMM
+    about: Ask on Discord for setup help and general questions.
+  - name: Report a security vulnerability
+    url: https://github.com/ergetie/darkstar/security/advisories/new
+    about: Report vulnerabilities privately. Do not open a public issue.

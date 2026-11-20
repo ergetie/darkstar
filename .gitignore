@@ -151,3 +151,9 @@ ops/
 
 # Local agent scratch output (lint logs, screenshots)
 logs/
+
+# Frontend lint output dumps and Playwright smoke test artifacts
+frontend/lint*.txt
+frontend/e2e/.runtime/
+frontend/test-results/
+frontend/playwright-report/

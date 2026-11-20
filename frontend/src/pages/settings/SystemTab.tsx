@@ -16,6 +16,7 @@ import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard'
 import { RecalculateCostsPanel } from './components/RecalculateCostsPanel'
 import { ProfileSetupHelper } from './components/ProfileSetupHelper'
 import { ProfileSetupNotice } from '../../components/ProfileSetupNotice'
+import { ProfileStatusBadge } from '../../components/ProfileStatusBadge'
 import { useDismissedNotices } from '../../lib/useDismissedNotices'
 
 export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) => {
@@ -434,6 +435,12 @@ export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }
                                                 </div>
                                             )}
                                         </Card>
+                                        {section.title === 'System Profile' && selectedProfile && (
+                                            <div className="mt-4 flex items-center gap-2 text-xs text-muted">
+                                                <span>Profile status</span>
+                                                <ProfileStatusBadge status={selectedProfile.status} />
+                                            </div>
+                                        )}
                                         {section.title === 'System Profile' && selectedProfile?.setup_notice && (
                                             <div className="mt-4">
                                                 <ProfileSetupNotice

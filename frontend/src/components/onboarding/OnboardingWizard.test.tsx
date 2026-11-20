@@ -60,6 +60,7 @@ const profile = {
     entities: {},
     modes: {},
     behavior: { control_unit: 'W' as const },
+    status: undefined as 'tested' | 'community' | undefined,
 }
 
 const baseConfig = () => ({
@@ -260,6 +261,16 @@ describe('OnboardingWizard', () => {
 
         expect(await screen.findByText('sungrow — Sungrow inverter')).toBeInTheDocument()
         expect(api.listProfiles).toHaveBeenCalledOnce()
+    })
+
+    it('shows the status badge of the selected profile in the profile picker', async () => {
+        setup('inverter', { profiles: [{ ...profile, status: 'tested' as const }] })
+        expect(await screen.findByText('Tested')).toHaveClass('badge-good')
+    })
+
+    it('shows a profile without a status as Community in the profile picker', async () => {
+        setup('inverter')
+        expect(await screen.findByText('Community')).toHaveClass('badge-muted')
     })
 
     it('preselects the shipped suggested profile only when the profile field is empty', async () => {

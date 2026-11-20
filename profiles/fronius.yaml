@@ -7,6 +7,7 @@ metadata:
   name: "fronius"
   version: "2.0.0"
   schema_version: 2
+  status: tested
   description: "Fronius GEN24 hybrid inverters using Watts-based control"
   supported_brands:
     - "Fronius"

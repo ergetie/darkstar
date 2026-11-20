@@ -1,0 +1,42 @@
+name: Inverter profile request
+description: Ask for support for an inverter that has no Darkstar profile yet
+labels: [inverter-profile]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Profiles are YAML files that map Home Assistant entities to inverter modes. See the profile creation guide in `docs/inverter-profiles/CREATING_INVERTER_PROFILES.md`. New profiles start as community profiles.
+  - type: input
+    id: inverter
+    attributes:
+      label: Inverter brand and model
+      placeholder: e.g. Solis S6-EH1P
+    validations:
+      required: true
+  - type: input
+    id: integration
+    attributes:
+      label: Home Assistant integration
+      description: The integration that exposes the inverter (for example Solarman or Modbus).
+    validations:
+      required: true
+  - type: textarea
+    id: entities
+    attributes:
+      label: Entities and mode names
+      description: List the entities for work mode, grid charging, charge and discharge limits and SoC target, and the exact case-sensitive mode strings.
+    validations:
+      required: true
+  - type: dropdown
+    id: can_test
+    attributes:
+      label: Can you test a profile on your hardware?
+      options:
+        - "Yes"
+        - "No"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else

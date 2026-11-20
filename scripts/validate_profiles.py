@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from executor.profiles import (
+    PROFILE_STATUSES,
     REQUIRED_MODES,
     VALID_CATEGORIES,
     VALID_DOMAINS,
@@ -53,6 +54,12 @@ def validate_file(path: Path) -> list[str]:
 
     if not profile.metadata.supported_brands:
         errors.append("  ✗ metadata.supported_brands must list at least one brand")
+
+    if profile.metadata.status not in PROFILE_STATUSES:
+        errors.append(
+            f"  ✗ metadata.status '{profile.metadata.status}' is invalid "
+            f"(valid: {list(PROFILE_STATUSES)})"
+        )
 
     # 3. Required modes
     for mode_name in REQUIRED_MODES:

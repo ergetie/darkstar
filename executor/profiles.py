@@ -90,6 +90,10 @@ class ProfileBehavior:
     requires_mode_settling: bool = False
 
 
+PROFILE_STATUSES = ("tested", "community")
+DEFAULT_PROFILE_STATUS = "community"
+
+
 @dataclass
 class ProfileMetadata:
     """Profile metadata."""
@@ -104,6 +108,8 @@ class ProfileMetadata:
     # Optional {title, severity: info|warning, items: [str]} shown in setup UIs.
     # Kept raw here; validate() reports malformed notices.
     setup_notice: Any = None
+    # "tested" = verified on real hardware by a maintainer, "community" = contributed.
+    status: str = DEFAULT_PROFILE_STATUS
 
 
 @dataclass
@@ -201,6 +207,11 @@ class InverterProfile:
                     isinstance(x, str) for x in cast("list[Any]", value)
                 ):
                     errors.append("metadata.detect values must be lists of strings")
+        if self.metadata.status not in PROFILE_STATUSES:
+            errors.append(
+                f"Invalid metadata.status: {self.metadata.status!r}. "
+                f"Must be one of: {', '.join(PROFILE_STATUSES)}"
+            )
         errors.extend(validate_setup_notice(self.metadata.setup_notice))
         from backend.core.entity_roles import ROLE_RULES
 
@@ -420,6 +431,7 @@ def parse_profile(data: dict[str, Any]) -> InverterProfile:
         detect=metadata_data.get("detect", {}),
         role_overrides=metadata_data.get("role_overrides", {}),
         setup_notice=metadata_data.get("setup_notice"),
+        status=metadata_data.get("status", DEFAULT_PROFILE_STATUS),
     )
 
     entities: dict[str, EntityDefinition] = {}
@@ -569,6 +581,7 @@ def list_profiles(profiles_dir: str | Path = "profiles") -> list[dict[str, Any]]
                     "version": profile.metadata.version,
                     "schema_version": profile.metadata.schema_version,
                     "setup_notice": setup_notice_payload(profile),
+                    "status": profile.metadata.status,
                     "entities": {
                         k: {
                             "default_entity": v.default_entity,

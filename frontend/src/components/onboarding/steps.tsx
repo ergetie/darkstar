@@ -11,6 +11,7 @@ import type {
 } from '../../lib/api'
 import type { InverterProfile } from '../../pages/settings/types'
 import { ProfileSetupNotice } from '../ProfileSetupNotice'
+import { ProfileStatusBadge } from '../ProfileStatusBadge'
 import Select from '../ui/Select'
 import Switch from '../ui/Switch'
 import { EntityField } from './EntityField'
@@ -579,7 +580,10 @@ function InverterStep(props: StepProps) {
                 </p>
             )}
             {profile && (
-                <p className="text-xs text-muted">{profile.supported_brands.join(', ') || profile.description}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                    <ProfileStatusBadge status={profile.status} />
+                    <p className="text-xs text-muted">{profile.supported_brands.join(', ') || profile.description}</p>
+                </div>
             )}
             <ProfileSetupNotice
                 profile={profile}

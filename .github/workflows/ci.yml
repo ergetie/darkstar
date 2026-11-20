@@ -166,3 +166,57 @@ jobs:
           print(f'✓ OpenAPI schema valid: {len(schema[\"paths\"])} paths defined')
           print(json.dumps(schema['info'], indent=2))
           "
+
+  e2e-smoke:
+    name: Browser Smoke Test (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: 'requirements*.txt'
+
+      # The smoke test launches the backend with .venv/bin/python.
+      - name: Install backend dependencies
+        run: uv venv && uv pip install -r requirements.txt
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Builds the frontend, then runs the smoke test against the real backend.
+      - name: Run browser smoke test
+        working-directory: frontend
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

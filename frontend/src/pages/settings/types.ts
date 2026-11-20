@@ -89,6 +89,7 @@ export interface InverterProfile {
     version: string
     schema_version: number
     setup_notice?: ProfileSetupNotice | null
+    status?: 'tested' | 'community'
     entities: Record<
         string,
         {

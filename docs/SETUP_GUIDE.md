@@ -118,14 +118,12 @@ Darkstar writes to these entities to execute the plan:
 
 > [!TIP]
 > **Hardware Cheat Sheet: Common Inverter Mode Strings**
-> If you are using the **Generic Profile**, you must provide the exact mode strings. Here are verified strings for popular brands:
+> If you are using the **Generic Profile**, you must provide the exact mode strings. These strings are community-reported and not verified by Darkstar: check them against your inverter integration. Solis, Huawei and GoodWe have no profile and are not verified. Deye / SunSynk and Fronius have dedicated profiles, so use those instead of the Generic Profile.
 > | Brand | Export Mode String | Solar/Self-Use Mode String |
 > | :--- | :--- | :--- |
 > | **Solis** | `Feed-in Priority` | `Self-Use` |
-> | **Deye / SunSynk** | `Export First` | `Zero Export to CT` |
 > | **Huawei** | `General Mode` | `Time of Use` |
 > | **GoodWe** | `General Mode` | `Eco Mode` |
-> | **Fronius** | `Discharge to grid` | `Auto` |
 > *Check your inverter integration documentation for exact case-sensitive strings.*
 >
 > **Deye / SunSynk**: the SoC target goes to Time of Use program 6 SoC, so enable Time of Use and set all six program times to 00:00 (see [1.1 Inverter Profile](#deye--sunsynk-time-of-use-program-6)).

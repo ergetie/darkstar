@@ -1,8 +1,0 @@
-{
-  "track_id": "config_soft_merge_20260131",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-01-31T12:00:00Z",
-  "updated_at": "2026-01-31T12:00:00Z",
-  "description": "DX14 — Config Soft Merge Improvement: Improve the config soft merge functionality so new keys are added to the same location as they appear in the default config file, maintaining proper structure and organization."
-}

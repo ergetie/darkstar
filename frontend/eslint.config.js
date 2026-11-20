@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint';
 import prettier from 'eslint-plugin-prettier/recommended'; // Use recommended helper
 
 export default tseslint.config(
-    { ignores: ['dist', '.eslintrc.cjs', 'src/pages/archive/**'] },
+    { ignores: ['dist', '.eslintrc.cjs', 'src/pages/archive/**', 'e2e/.runtime/**', 'playwright-report/**', 'test-results/**'] },
     {
         extends: [
             js.configs.recommended,

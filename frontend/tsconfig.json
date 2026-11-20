@@ -15,7 +15,9 @@
     "noEmit": true
   },
   "include": [
-    "src"
+    "src",
+    "e2e",
+    "playwright.config.ts"
   ],
   "exclude": [
     "src/pages/archive"

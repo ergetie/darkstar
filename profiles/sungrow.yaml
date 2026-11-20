@@ -7,6 +7,7 @@ metadata:
   name: "sungrow"
   version: "2.0.0"
   schema_version: 2
+  status: tested
   description: "Sungrow hybrid inverters using Watts-based control with composite modes"
   supported_brands:
     - "Sungrow"
