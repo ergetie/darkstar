@@ -69,10 +69,7 @@ async def benchmark_db_reads(store: LearningStore):
     logger.info("Benchmarking readout speed...")
     start = time.perf_counter()
 
-    # 1. Get latest metrics
-    await store.get_latest_metrics()
-
-    # 2. Raw query simulation for history
+    # 1. Raw query simulation for history
     async with store.async_engine.connect() as conn:
         from sqlalchemy import text
 

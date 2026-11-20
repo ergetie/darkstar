@@ -397,14 +397,6 @@ export type LearningHistoryResponse = {
     recent_changes?: LearningParamChange[]
 }
 
-export type LearningDailyMetricsResponse = {
-    date?: string
-    pv_error_mean_abs_kwh?: number | null
-    load_error_mean_abs_kwh?: number | null
-    s_index_base_factor?: number | null
-    message?: string
-}
-
 export type DebugResponse = {
     s_index?: {
         mode?: string
@@ -470,14 +462,6 @@ export type LearningRunResponse = {
     loops_run?: number
     changes_proposed?: number
     changes_applied?: number
-    [key: string]: unknown
-}
-
-export type LearningLoopsResponse = {
-    forecast_calibrator?: { status?: string; result?: unknown }
-    threshold_tuner?: { status?: string; result?: unknown }
-    s_index_tuner?: { status?: string; result?: unknown }
-    export_guard_tuner?: { status?: string; result?: unknown }
     [key: string]: unknown
 }
 
@@ -1700,9 +1684,7 @@ export const Api = {
     learningTrainingStatus: () => getJSON<TrainingStatusResponse>('/api/learning/training-status'),
     learningTrainingHistory: (limit = 5) =>
         getJSON<TrainingHistoryResponse>(`/api/learning/training-history?limit=${limit}`),
-    learningDailyMetrics: () => getJSON<LearningDailyMetricsResponse>('/api/learning/daily_metrics'),
     learningRun: () => getJSON<LearningRunResponse>('/api/learning/run', 'POST'),
-    learningLoops: () => getJSON<LearningLoopsResponse>('/api/learning/loops'),
     learningTrain: () => getJSON<{ status: string; message: string }>('/api/learning/train', 'POST'),
     theme: () => getJSON<ThemeResponse>('/api/themes'),
     runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner', 'POST'),

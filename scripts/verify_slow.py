@@ -55,8 +55,6 @@ OLD_ROUTES = [
     ("GET", "/api/learning/status"),
     ("GET", "/api/learning/history"),
     ("POST", "/api/learning/run"),
-    ("GET", "/api/learning/loops"),
-    ("GET", "/api/learning/daily_metrics"),
     ("GET", "/api/learning/changes"),
     ("POST", "/api/learning/record_observation"),
     ("GET", "/api/analyst/advice"),

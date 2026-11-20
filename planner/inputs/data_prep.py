@@ -194,7 +194,7 @@ def apply_safety_margins(
     Args:
         df: DataFrame with forecasts
         config: Full configuration dictionary
-        overlays: Learning overlays dictionary
+        overlays: Reserved overlay dictionary (currently always empty)
         effective_load_margin: Calculated load inflation factor (S-Index)
 
     Returns:

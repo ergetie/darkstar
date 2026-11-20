@@ -447,7 +447,7 @@ class SchedulerService:
                 return check_date.astimezone(pytz.UTC)
             else:
                 # Weekly retraining on specific days
-                run_days = config.get("run_days", [1, 4])  # Default Mon/Thu for backward compat
+                run_days = config.get("run_days", [1, 4])  # Default Tue/Fri (weekday() 1 and 4)
                 if not isinstance(run_days, list) or not all(
                     isinstance(d, int) and 0 <= d <= 6
                     for d in run_days  # type: ignore[arg-type]

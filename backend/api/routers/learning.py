@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import desc, select
 
-from backend.learning.models import ConfigVersion, LearningDailyMetric, LearningRun
+from backend.learning.models import ConfigVersion, LearningRun
 
 if TYPE_CHECKING:
     from backend.learning.store import LearningStore
@@ -135,53 +135,6 @@ async def learning_run() -> dict[str, Any]:
     except Exception as e:
         logger.exception("Failed to run full learning cycle")
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get(
-    "/api/learning/loops",
-    summary="Get Learning Loops",
-    description="Get status of individual learning loops.",
-)
-async def learning_loops() -> dict[str, Any]:
-    """Get status of individual learning loops (Mocked as real-time status)."""
-    # Note: learning_loops table noted in legacy code was not found in schema.
-    # Defining known loops for UI compatibility.
-    known_loops = ["pv_forecast", "load_forecast", "s_index", "arbitrage"]
-    result = {}
-    for loop in known_loops:
-        result[loop] = {"status": "active", "last_run": None, "error": None}
-
-    return {"loops": result}
-
-
-@router.get(
-    "/api/learning/daily_metrics",
-    summary="Get Daily Metrics",
-    description="Get latest daily metrics from learning engine.",
-)
-async def learning_daily_metrics():
-    """Get latest daily metrics from learning engine using Async SQLAlchemy."""
-    try:
-        engine = _get_learning_engine()
-        store: LearningStore = engine.store
-
-        async with store.AsyncSession() as session:
-            stmt = select(LearningDailyMetric).order_by(desc(LearningDailyMetric.date)).limit(1)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-
-            if not row:
-                return {"message": "No daily metrics yet"}
-
-            return {
-                "date": row.date,
-                "pv_error_mean_abs_kwh": row.pv_error_mean_abs_kwh,
-                "load_error_mean_abs_kwh": row.load_error_mean_abs_kwh,
-                "s_index_base_factor": row.s_index_base_factor,
-            }
-    except Exception as e:
-        logger.warning(f"Failed to get daily metrics: {e}")
-        return {"message": f"Daily metrics unavailable: {e!s}"}
 
 
 @router.get(

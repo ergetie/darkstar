@@ -36,7 +36,6 @@ from backend.learning.store import LearningStore
 from planner.battery_limits import resolve_battery_power_limits
 from planner.errors import PlannerError, PlannerErrorCode
 from planner.inputs.data_prep import apply_safety_margins, prepare_df
-from planner.inputs.learning import load_learning_overlays
 from planner.inputs.weather import fetch_temperature_forecast
 from planner.output.schedule import DEFAULT_SCHEDULE_PATH, save_schedule_to_json
 from planner.output.soc_target import apply_soc_target_percent
@@ -1558,11 +1557,6 @@ class PlannerPipeline:
         )
 
         # 2. Load Inputs
-        # Load learning overlays (PV/Load bias, S-Index base)
-        learning_overlays = {}
-        if mode == "full":
-            learning_overlays = await load_learning_overlays(active_config.get("learning", {}))
-
         # Rev WH2: Load previous schedule to check for active water heating (Mid-block locking)
         previous_schedule = _load_previous_schedule()
 
@@ -1626,13 +1620,6 @@ class PlannerPipeline:
 
             s_index_cfg = active_config.get("s_index", {}) or {}
             base_factor = float(s_index_cfg.get("base_factor", 1.05))
-
-            # Apply learned base factor
-            if "s_index_base_factor" in learning_overlays:
-                base_factor = float(learning_overlays["s_index_base_factor"])
-                # Update cfg copy so functions see the learned value
-                s_index_cfg = s_index_cfg.copy()
-                s_index_cfg["base_factor"] = base_factor
 
             # Mode Check: Probabilistic vs Dynamic
             s_debug: dict[str, Any] = {}
@@ -1733,7 +1720,7 @@ class PlannerPipeline:
             }
 
             # Apply Safety Margins (PV confidence, Load inflation, Overlays)
-            df = apply_safety_margins(df, active_config, learning_overlays, effective_load_margin)
+            df = apply_safety_margins(df, active_config, {}, effective_load_margin)
         else:
             # Baseline mode: No safety margins, raw forecasts
             df["adjusted_pv_kwh"] = df["pv_forecast_kwh"]

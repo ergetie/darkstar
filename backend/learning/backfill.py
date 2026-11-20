@@ -287,8 +287,8 @@ class BackfillEngine:
         # 1. Sync from Home Assistant (Primary Source)
         try:
             # Check last observation time
-            last_obs = await self.store.get_last_observation_time()
             now = datetime.now(self.timezone)
+            last_obs = await self.store.get_last_observation_time(now)
 
             if last_obs:
                 gap = now - last_obs

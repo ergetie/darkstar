@@ -358,3 +358,65 @@ async def test_device_without_history_is_unknown_not_mixed_or_measured(make_engi
     assert (components["ev"]["method"], components["ev"]["owner"]) == ("unknown", "backfill")
     assert components["water"]["method"] == "power_history"
     assert row["ev_charging_kwh"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_gap_is_filled_when_future_price_rows_are_stored(tmp_path):
+    """Future price-only rows must not hide a downtime gap from the startup backfill."""
+    from backend.learning.models import Base
+    from backend.learning.store import LearningStore
+
+    store = LearningStore(str(tmp_path / "backfill.db"), TZ)
+    async with store.async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        recorded = TZ.localize(datetime(2026, 10, 1, 5, 0))  # about 6 hours before NOW
+        await store.store_slot_observations(
+            pd.DataFrame(
+                [
+                    {
+                        "slot_start": recorded,
+                        "slot_end": recorded + timedelta(minutes=15),
+                        "load_kwh": 0.3,
+                        "pv_kwh": 0.0,
+                        "import_kwh": 0.3,
+                        "export_kwh": 0.0,
+                        "soc_end_percent": 50.0,
+                    }
+                ]
+            )
+        )
+        tomorrow = TZ.localize(datetime(2026, 10, 2, 0, 0))
+        await store.store_slot_prices(
+            [
+                {
+                    "start_time": tomorrow + timedelta(minutes=15 * i),
+                    "end_time": tomorrow + timedelta(minutes=15 * (i + 1)),
+                    "import_price_sek_kwh": 3.0,
+                    "export_price_sek_kwh": 2.0,
+                }
+                for i in range(8)
+            ]
+        )
+
+        with (
+            patch("backend.learning.backfill.get_learning_engine") as get_engine,
+            patch(
+                "backend.learning.backfill.BackfillEngine._load_config",
+                return_value=make_config(),
+            ),
+        ):
+            learning_engine = MagicMock()
+            learning_engine.store = store
+            learning_engine.store_slot_observations = AsyncMock()
+            get_engine.return_value = learning_engine
+            engine = BackfillEngine("dummy_config.yaml")
+
+        history_mock = await run(engine, constant_history(with_core({})))
+
+        history_mock.assert_awaited()
+        df = stored(learning_engine)
+        assert df.iloc[0]["slot_start"] == recorded + timedelta(minutes=15)
+        assert df.iloc[-1]["slot_start"] == TZ.localize(datetime(2026, 10, 1, 10, 45))
+    finally:
+        await store.close()

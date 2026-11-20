@@ -7,14 +7,13 @@ from pathlib import Path
 from typing import Any, cast as type_cast
 
 import pandas as pd
-from sqlalchemy import Integer, cast, desc, func, select, text
+from sqlalchemy import Integer, cast, desc, func, or_, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.core.water_heating import parse_water_heater_energy_metadata, water_component_recording
 from backend.learning.models import (
     EvChargerObservation,
-    LearningDailyMetric,
     LearningRun,
     ReflexState,
     SlotForecast,
@@ -23,7 +22,7 @@ from backend.learning.models import (
     SystemState,
     unmeasured_device_clause,
 )
-from backend.learning.pv_cleaning import clean_pv_slots
+from backend.learning.pv_cleaning import SLOT_MINUTES, clean_pv_slots
 from backend.measurement_provenance import (
     metadata_object,
     parse_quality_flags,
@@ -509,7 +508,9 @@ class LearningStore:
                 "base_load_forecast_kwh": stmt.excluded.base_load_forecast_kwh,
                 "base_load_p10": stmt.excluded.base_load_p10,
                 "base_load_p90": stmt.excluded.base_load_p90,
-                "temp_c": stmt.excluded.temp_c,
+                # Keep the stored temperature when the new row carries none
+                # (planner re-upserts have no temp_c); unknown stays NULL.
+                "temp_c": func.coalesce(stmt.excluded.temp_c, SlotForecast.temp_c),
                 "created_at": func.current_timestamp(),
             },
         )
@@ -611,10 +612,34 @@ class LearningStore:
             await session.execute(stmt, rows)
             await session.commit()
 
-    async def get_last_observation_time(self) -> datetime | None:
-        """Get the timestamp of the last recorded observation using Async SQLAlchemy."""
+    async def get_last_observation_time(self, now: datetime | None = None) -> datetime | None:
+        """Get the start of the latest completed, recorded slot.
+
+        Only recorder/backfill rows count (``quality_flags`` set, or legacy
+        ``soc_end_percent`` set); price-only rows written for future slots do not.
+        A slot counts once it has completed (``slot_start <= now - SLOT_MINUTES``).
+        Ordering and cutoff compare instants (SQLite ``datetime()`` normalises the
+        UTC offset), so DST changes cannot misorder rows.
+        """
+        if now is None:
+            now = datetime.now(self.timezone)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=self.timezone)
+        cutoff_utc = (now - timedelta(minutes=SLOT_MINUTES)).astimezone(UTC)
+        cutoff = cutoff_utc.strftime("%Y-%m-%d %H:%M:%S")
         async with self.AsyncSession() as session:
-            result = await session.scalar(select(func.max(SlotObservation.slot_start)))
+            result = await session.scalar(
+                select(SlotObservation.slot_start)
+                .where(
+                    or_(
+                        SlotObservation.quality_flags.is_not(None),
+                        SlotObservation.soc_end_percent.is_not(None),
+                    ),
+                    func.datetime(SlotObservation.slot_start) <= cutoff,
+                )
+                .order_by(func.datetime(SlotObservation.slot_start).desc())
+                .limit(1)
+            )
             if result:
                 dt = datetime.fromisoformat(result)
                 if dt.tzinfo is None:
@@ -1514,19 +1539,3 @@ class LearningStore:
             )
             session.add(run)
             await session.commit()
-
-    async def get_latest_metrics(self) -> dict[str, Any] | None:
-        """Get the latest daily metrics for overlays using Async SQLAlchemy."""
-        async with self.AsyncSession() as session:
-            stmt = select(LearningDailyMetric).order_by(LearningDailyMetric.date.desc()).limit(1)
-            result = await session.execute(stmt)
-            metric = result.scalar_one_or_none()
-            if not metric:
-                return None
-
-            return {
-                "date": metric.date,
-                "pv_adjustment_by_hour_kwh": metric.pv_adjustment_by_hour_kwh,
-                "load_adjustment_by_hour_kwh": metric.load_adjustment_by_hour_kwh,
-                "s_index_base_factor": metric.s_index_base_factor,
-            }
