@@ -1,3 +1,37 @@
+## [v2.8.0-beta] - Onboarding, Bill-Accurate Costs, Safer Executor & Self-Updates - 2026-11-21
+
+> [!IMPORTANT]
+> **Upgrade notes**
+> - **Energy counter sensors are no longer used.** Slot energy is now calculated from power sensor history. The `total_*` counter settings are removed automatically on upgrade.
+> - **Cross-site API writes are blocked.** The open CORS policy is replaced with a same-origin check. Open Darkstar from its own address or through your reverse proxy.
+> - **Anonymous installation statistics are on by default.** You can turn them off in onboarding or Settings.
+> - Unused error-correction settings and their stale models are removed automatically.
+> - The database is backed up automatically before every migration.
+
+**✨ New**
+
+- **Setup wizard**: resumable onboarding with auto-discovery of your HA sensors and readiness checks.
+- **Bill-accurate costs**: time-of-use grid fees, fixed fees, supplier markup and recalculation of history. The cost card shows the average spot price and the all-in import price.
+- **In-app Docker updates** with stable and dev channels and rollback.
+- **Grid-only comparison**: savings are compared with plain grid costs and a self-use inverter baseline instead of a simulation. There's also a daily battery hindsight benchmark.
+- **Redesigned dashboard cards** for battery, grid, EV and the schedule chart.
+- **Load balancing**: thermal fuse overload timing, coordinated ramping with safe restores, and house battery grid charging gives way when a phase is overloaded.
+- **EV**: planned phase switching, single-phase chargers kept under the main fuse, charging losses modelled, and the house battery kept free while the car is away.
+- **Water heaters** are planned on their wired phase with an exact model of their rules.
+- **Solar forecast** learns to correct for shading and is trained on real weather history.
+- **Deye**: program 6 SoC is controlled directly, and config changes apply without a restart.
+- **Planner**: reserves energy for the first price day it hasn't seen yet and uses all CPU cores.
+- **Sensor unit override** (W/kW) for power sensors that don't report a unit, prices in your configured currency, and times in your browser's timezone.
+- **Diagnostics**: database snapshot and a diagnostics bundle download (secrets redacted).
+- **Database care**: retention, incremental vacuum and pre-migration backups.
+- **Inverter profile status**: each profile is labelled tested or community, with a badge in the UI.
+
+**🐛 Bug Fixes**
+
+The battery no longer discharges in hold slots, at min SoC, or while the EV is charging, and it no longer cycles around min SoC. Executor writes are clamped to each entity's range, a single bad sensor no longer blocks load balancing, and water boost is never cancelled on low battery. Prices: today's prices are kept when tomorrow's fetch fails, and the last good prices are used as a fallback. Forecasts never plan zero solar when the PV forecast is missing, handle DST correctly, and retry Open-Meteo outages. EV plug state survives short charger outages, idle car-sensor drift no longer inflates delivered energy, and missed-goal catch-up charging stops at expensive prices. Recording keeps slots with unknown data instead of treating them as zero, backfills gaps after restarts, and shows why slots are partial. The price reserve no longer flaps when the price forecast is consistently too high or too low, and the 00:00 price slot is no longer missing from forecast days. The battery benchmark still gives a result on days that exceed the recorded battery limits, and labels them "limits relaxed". Saving config no longer makes config.yaml grow, and saves are durable. Logs are size-capped and no longer leak webhook URLs.
+
+---
+
 ## [v2.7.1-beta] - EV Fixes & Quick Actions - 2026-09-26
 
 **✨ New**
