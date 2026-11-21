@@ -6,7 +6,7 @@
     <br>
     <h3>Cut your electricity bill. Let Darkstar optimize your battery, solar, EV and water heater!</h3>
     <a href="https://github.com/ergetie/darkstar/releases">
-        <img src="https://img.shields.io/github/v/release/ergetie/darkstar?label=release&color=cyan">
+        <img src="https://img.shields.io/github/v/release/ergetie/darkstar?label=release&color=cyan&include_prereleases">
     </a>
     <a href="https://github.com/ergetie/darkstar/actions/workflows/ci.yml">
         <img src="https://github.com/ergetie/darkstar/actions/workflows/ci.yml/badge.svg">
