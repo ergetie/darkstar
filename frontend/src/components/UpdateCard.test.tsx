@@ -61,6 +61,7 @@ function fakeUpdater(overrides: Partial<UseUpdater> = {}): UseUpdater {
         status: status(),
         error: null,
         busy: false,
+        applyInFlight: false,
         refresh: vi.fn(async () => status()),
         check: vi.fn(async () => undefined),
         setChannel: vi.fn(async () => undefined),
@@ -155,6 +156,43 @@ describe('UpdateCard', () => {
         )
         expect(screen.getByText('Updater unavailable')).toBeTruthy()
         expect(screen.getByText('docker compose up -d updater')).toBeTruthy()
+    })
+
+    it('shows no command hint while an update is building, even with an outdated updater', () => {
+        render(
+            <UpdateCard
+                updater={fakeUpdater({
+                    status: status({ apply: { state: 'building', target_version: 'dev-2' }, updater_outdated: true }),
+                })}
+                onClose={() => undefined}
+            />,
+        )
+        expect(screen.queryByText(/docker compose/)).toBeNull()
+        expect(screen.getByText('Building...')).toBeTruthy()
+    })
+
+    it('shows the outdated-updater hint when idle', () => {
+        render(
+            <UpdateCard
+                updater={fakeUpdater({ status: status({ updater_outdated: true }) })}
+                onClose={() => undefined}
+            />,
+        )
+        expect(screen.getByText('docker compose up -d --build updater')).toBeTruthy()
+    })
+
+    it('shows no command when the updater is unreachable mid-update, also after reopening the card', () => {
+        const unreachable = fakeUpdater({
+            applyInFlight: true,
+            status: { reachable: false, error: 'connection refused' },
+        })
+        const first = render(<UpdateCard updater={unreachable} onClose={() => undefined} />)
+        expect(screen.getByText(/Updater not responding, the update continues/)).toBeTruthy()
+        expect(screen.queryByText(/docker compose/)).toBeNull()
+        first.unmount()
+        render(<UpdateCard updater={unreachable} onClose={() => undefined} />)
+        expect(screen.getByText(/Updater not responding, the update continues/)).toBeTruthy()
+        expect(screen.queryByText('Updater unavailable')).toBeNull()
     })
 
     it('switches channel and checks on request', () => {
@@ -277,5 +315,44 @@ describe('useUpdater', () => {
         })
         expect(ok).toBe(false)
         expect(result.current.error).toBe('Local changes: VERSION')
+    })
+
+    it('keeps the in-flight guard across an unreachable reply and expires after 10 minutes', async () => {
+        vi.useFakeTimers()
+        vi.mocked(Api.updater.status)
+            .mockResolvedValueOnce(status({ apply: { state: 'restarting', target_version: 'dev-2' } }))
+            .mockResolvedValue({ reachable: false, error: 'connection refused' })
+        const { result } = renderHook(() => useUpdater())
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10)
+        })
+        expect(result.current.applyInFlight).toBe(true)
+
+        await act(async () => {
+            await result.current.refresh()
+        })
+        expect(result.current.status?.reachable).toBe(false)
+        expect(result.current.applyInFlight).toBe(true)
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 100)
+        })
+        expect(result.current.applyInFlight).toBe(false)
+    })
+
+    it('ends the guard on a reachable status without an update in progress, and starts it on apply', async () => {
+        vi.mocked(Api.updater.status).mockResolvedValue(status())
+        vi.mocked(Api.updater.apply).mockResolvedValueOnce(status({ apply: { state: 'idle' } }))
+        const { result } = renderHook(() => useUpdater())
+        await waitFor(() => expect(result.current.available).toBe(true))
+        expect(result.current.applyInFlight).toBe(false)
+        await act(async () => {
+            await result.current.apply()
+        })
+        expect(result.current.applyInFlight).toBe(true)
+        await act(async () => {
+            await result.current.refresh()
+        })
+        expect(result.current.applyInFlight).toBe(false)
     })
 })

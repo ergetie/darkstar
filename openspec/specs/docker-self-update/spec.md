@@ -82,7 +82,7 @@ Apply SHALL re-run the gates, check out the target, build Darkstar locally and r
 - **THEN** status is `restarting`, then `done` once the new container reports the target version
 
 ### Requirement: UI feedback and reconnect
-The UI SHALL show update state, let the user switch channel, check, and confirm an update, show live progress, and reconnect automatically after the restart.
+The UI SHALL show update state, let the user switch channel, check, and confirm an update, show live progress, and reconnect automatically after the restart. While an update is in progress, including the Darkstar restart it causes, the UI SHALL NOT show any instruction to run a host command; it SHALL show progress or a neutral "updater not responding, the update continues" message instead.
 
 #### Scenario: Layout
 - **WHEN** an update is available
@@ -95,6 +95,18 @@ The UI SHALL show update state, let the user switch channel, check, and confirm 
 #### Scenario: Restart
 - **WHEN** the container restarts after apply
 - **THEN** the UI shows "Restarting" and reconnects automatically without manual reload
+
+#### Scenario: Updater outdated mid-update
+- **WHEN** the checkout already holds a newer updater (updater reports `updater_outdated`) while the apply is `building` or `restarting`
+- **THEN** the "run docker compose up -d --build updater" hint is hidden
+
+#### Scenario: Updater not responding mid-update
+- **WHEN** the updater answers `reachable: false` after the user started an update and the card was closed and reopened
+- **THEN** the card shows "Updater not responding, the update continues" and no command; the hint to run `docker compose up -d updater` only appears when no update is in progress
+
+#### Scenario: Guard expires
+- **WHEN** no in-progress apply state has been observed for 10 minutes while the updater stays unreachable
+- **THEN** the in-progress guard ends and the "updater unavailable" hint may appear
 
 ### Requirement: Test isolation
 Automated tests SHALL NOT access the network, GitHub or Docker; git and docker invocations SHALL go through injectable fakes.
@@ -146,6 +158,10 @@ After an apply that ends `done`, when the updater source or `docker-compose.yml`
 #### Scenario: After a rollback
 - **WHEN** an apply was rolled back
 - **THEN** no self-recreate is started
+
+#### Scenario: Self-recreate errors after a normal apply
+- **WHEN** the self-recreate raises after a normal apply reached `done`
+- **THEN** the apply stays `done`, and a warning is written to the apply log
 
 ### Requirement: Rollback needs a writable data mount
 When the updater's data directory is not writable, rollback SHALL restore the code, leave the database untouched and report the manual restore command and backup file instead of failing.
@@ -204,3 +220,38 @@ The dev channel SHALL apply only when the current commit is an ancestor of the t
 #### Scenario: Diverged history
 - **WHEN** the local commit is not an ancestor of `origin/main`
 - **THEN** apply is rejected with "Dev branch history diverged, refusing non-fast-forward update" before any checkout
+
+### Requirement: Interrupted apply recovery
+When the updater starts and the persisted apply is `building` or `restarting`, it SHALL decide the outcome from the version the Darkstar container reports, not from the interruption itself, and the apply SHALL stay in progress meanwhile. The apply record SHALL persist the previous commit, branch, version and channel before the first change to the checkout.
+
+#### Scenario: Target is running
+- **WHEN** the updater restarts mid-apply and the container reports the target version
+- **THEN** the apply becomes `done` ("Updated to <target>"), so an open UI reloads onto the new version, and the updater self-recreate rule applies as after a normal `done`
+
+#### Scenario: Old version still running
+- **WHEN** the updater restarts during checkout or build and the container reports the previous version on two consecutive polls
+- **THEN** the checkout is restored to the previous commit and branch, and the apply is `failed` with "Update was interrupted; nothing changed, safe to retry"
+
+#### Scenario: Restore fails
+- **WHEN** the old version is running but the checkout cannot be restored
+- **THEN** the apply is `failed` with a message naming the manual `git checkout` command for the previous commit
+
+#### Scenario: Container still starting
+- **WHEN** the container is unreachable at start-up and reports the target within 5 minutes
+- **THEN** the apply becomes `done`, the checkout is untouched
+
+#### Scenario: Uncertain outcome
+- **WHEN** the container stays unreachable, or reports neither the target nor the previous version, for 5 minutes
+- **THEN** the apply is `failed` with "Update was interrupted and Darkstar did not report the expected version; the checkout was left untouched", pointing at `docker compose logs darkstar`, and nothing is restored
+
+#### Scenario: Record without previous state
+- **WHEN** the interrupted record has no previous state (killed before it was written)
+- **THEN** a running target is `done`; anything else is `failed` with the checkout left untouched
+
+#### Scenario: Decision in progress
+- **WHEN** the updater is deciding the outcome of an interrupted apply
+- **THEN** the apply is `restarting`, new applies and checks are refused, the running version is polled for at most 5 minutes (the apply health timeout), and neither the checkout nor the database is changed unless the outcome is certain
+
+#### Scenario: Stale failure for the installed version
+- **WHEN** a `failed` apply targets the version the running container reports (also after a check)
+- **THEN** the apply is cleared to `idle`; an unreachable container or another running version leaves the record untouched, including when only the checkout is at the target

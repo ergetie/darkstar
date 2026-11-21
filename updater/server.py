@@ -154,8 +154,8 @@ def main() -> int:
         logger.error("DARKSTAR_REPO_DIR is not set, refusing to start")
         return 1
     updater = build_updater()
-    updater.mark_interrupted()
     updater.reconcile_self_update()
+    updater.recover_interrupted()
     threading.Thread(target=_background_checks, args=(updater,), daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), make_handler(updater, token))
     server.daemon_threads = True

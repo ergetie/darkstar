@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import threading
@@ -192,6 +193,7 @@ class Updater:
                     "warnings": warnings,
                 }
                 self.state.update(last_check=result, last_success_at=checked_at)
+                self._settle_completed_failure()
             except (GitError, ValueError) as exc:
                 self.state.update(
                     last_check={
@@ -253,6 +255,13 @@ class Updater:
         return current is not None and current != self._updater_fingerprint
 
     # ---- self update -----------------------------------------------------
+    def _recreate_after_done(self) -> None:
+        """Run the self-recreate once an apply is `done`; its failure never undoes the update."""
+        try:
+            self._maybe_recreate()
+        except Exception as exc:  # the update itself succeeded: never turn it into failed
+            self._log(f"WARNING: updater self-recreate failed: {exc}")
+
     def _maybe_recreate(self) -> None:
         """After a successful apply, recreate the updater once per changed fingerprint."""
         if not self._updater_outdated():
@@ -290,11 +299,111 @@ class Updater:
     def apply_in_progress(self) -> bool:
         return self._apply_lock.locked()
 
-    def mark_interrupted(self) -> None:
+    def recover_interrupted(self, *, threaded: bool = True) -> None:
+        """Settle an apply left `building`/`restarting` by the previous process (at start-up).
+
+        The outcome is decided from the version the Darkstar container reports, not from the
+        interruption: the apply may have finished (or never changed anything) while the updater
+        was down. The apply lock is held until the decision is made, so checks and applies are
+        refused meanwhile; the decision itself runs in a daemon thread to let the server start.
+        """
         apply: dict[str, Any] = self.state.get("apply") or {}
-        if apply.get("state") in ("building", "restarting"):
-            apply.update(state="failed", message="Updater restarted during the update")
-            self.state.update(apply=apply)
+        if apply.get("state") not in ("building", "restarting"):
+            self._settle_completed_failure()
+            return
+        if not self._apply_lock.acquire(blocking=False):
+            return
+        try:
+            plan = ApplyPlan(
+                channel=str(apply.get("channel") or self.state.channel),
+                commit="",
+                version=str(apply.get("target_version") or ""),
+                ref="",
+            )
+            self._log("Updater restarted during the update, checking its outcome")
+            self._set_apply(
+                "restarting", "Updater restarted, checking the outcome of the update", plan
+            )
+            previous = apply.get("previous")
+            if threaded:
+                threading.Thread(
+                    target=self._run_recovery, args=(plan, previous), daemon=True
+                ).start()
+                return
+        except BaseException:
+            self._apply_lock.release()
+            raise
+        self._run_recovery(plan, previous)
+
+    def _run_recovery(self, plan: ApplyPlan, previous: dict[str, Any] | None) -> None:
+        try:
+            self._decide_interrupted(plan, previous)
+        except Exception as exc:
+            # If even recording fails (state file unwritable) the lock must still be released.
+            with contextlib.suppress(Exception):
+                self._fail(plan, f"Unexpected error while recovering the update: {exc}")
+        finally:
+            self._apply_lock.release()
+
+    def _decide_interrupted(self, plan: ApplyPlan, previous: dict[str, Any] | None) -> None:
+        target = plan.version.lstrip("vV")
+        # Without a recorded commit there is nothing safe to restore.
+        restorable = previous if previous and previous.get("commit") else None
+        old_version = str((restorable or {}).get("version") or "").lstrip("vV")
+        old_seen = 0
+        deadline = self._monotonic() + HEALTH_TIMEOUT_S
+        while self._monotonic() < deadline:
+            running = self._running_version()
+            if target and running == target:
+                self._log("New version is up")
+                self._set_apply("done", f"Updated to {plan.version}", plan)
+                self._recreate_after_done()
+                return
+            # Two consecutive polls: an interrupted `up` may still be stopping the old container.
+            old_seen = old_seen + 1 if old_version and running == old_version else 0
+            if restorable and old_seen >= 2:
+                self._restore_interrupted(plan, restorable)
+                return
+            self._sleep(HEALTH_POLL_S)
+        self._fail(
+            plan,
+            "Update was interrupted and Darkstar did not report the expected version; "
+            f"the checkout was left untouched. {self._manual_restore_hint(None)}",
+        )
+
+    def _restore_interrupted(self, plan: ApplyPlan, previous: dict[str, Any]) -> None:
+        commit = str(previous["commit"])
+        branch = previous.get("branch")
+        if self._restore(commit, branch):
+            self._fail(plan, "Update was interrupted; nothing changed, safe to retry")
+            return
+        if branch:
+            command = f"git checkout -f -B {branch} {commit}"
+        else:
+            command = f"git checkout -f --detach {commit}"
+        self._fail(
+            plan,
+            "Update was interrupted and the checkout could not be restored. "
+            f"To restore it manually: cd {self.config.repo_dir} && {command}",
+        )
+
+    def _settle_completed_failure(self) -> None:
+        """Drop a stale failed apply whose target is the version now installed.
+
+        An updater restart mid-apply is recorded as failed even when the apply went on to
+        finish; the running container then already reports the target and the failure is
+        noise. The check uses the version the live container reports, not the checkout: the
+        checkout moves to the target before the build, so an apply killed mid-build leaves the
+        repo at the target while the old version keeps running. A genuine failure, or an
+        unreachable container, leaves the record untouched.
+        """
+        apply: dict[str, Any] = self.state.get("apply") or {}
+        target = apply.get("target_version")
+        if apply.get("state") != "failed" or not target:
+            return
+        running = self._running_version()
+        if running is not None and running == str(target).lstrip("vV"):
+            self.state.update(apply={"state": "idle"})
 
     def begin_apply(self) -> ApplyPlan:
         """Acquire the single-flight lock and run the gates. Raises on refusal."""
@@ -340,17 +449,20 @@ class Updater:
             self._run_apply(plan)
 
     def _set_apply(self, state: str, message: str, plan: ApplyPlan, **extra: Any) -> None:
-        previous: dict[str, Any] = self.state.get("apply") or {}
-        self.state.update(
-            apply={
-                "state": state,
-                "message": message,
-                "target_version": plan.version,
-                "channel": plan.channel,
-                "started_at": previous.get("started_at") or _now(),
-                **extra,
-            }
-        )
+        prior: dict[str, Any] = self.state.get("apply") or {}
+        record: dict[str, Any] = {
+            "state": state,
+            "message": message,
+            "target_version": plan.version,
+            "channel": plan.channel,
+            "started_at": prior.get("started_at") or _now(),
+            **extra,
+        }
+        # The previous state lets a restarted updater recover; it is moot once the apply ended.
+        carried = record.pop("previous", None) or prior.get("previous")
+        if carried and state not in ("done", "failed"):
+            record["previous"] = carried
+        self.state.update(apply=record)
 
     def _fail(self, plan: ApplyPlan, message: str) -> None:
         self._log(f"FAILED: {message}")
@@ -396,6 +508,18 @@ class Updater:
             channel="dev" if prev_branch else "stable",
             started=time.time(),
         )
+        # Persisted before the first checkout change so a restarted updater can recover.
+        self._set_apply(
+            "building",
+            f"Updating to {plan.version}",
+            plan,
+            previous={
+                "commit": prev.commit,
+                "branch": prev.branch,
+                "version": prev.version,
+                "channel": prev.channel,
+            },
+        )
         self._log(f"Checking out {plan.ref} ({plan.commit[:7]})")
         try:
             if plan.channel == "dev":
@@ -440,7 +564,7 @@ class Updater:
         if self._wait_for_version(plan.version):
             self._log("New version is up")
             self._set_apply("done", f"Updated to {plan.version}", plan)
-            self._maybe_recreate()
+            self._recreate_after_done()
             return
         self._rollback(plan, prev, "the new version did not become healthy within 5 minutes")
 

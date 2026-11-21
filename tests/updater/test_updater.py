@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import subprocess
 import threading
+import time
 import types
 from http.server import ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
@@ -111,7 +112,7 @@ class Fixture:
         self.point_origin_at(self.origin)
         self.docker = FakeDocker()
         self.db = tmp_path / "planner_learning.db"
-        self.running = "dev-260102.0000"
+        self.running: str | None = "dev-260102.0000"
         self.updater = Updater(
             Config(
                 repo_dir=str(self.work),
@@ -545,10 +546,294 @@ def test_single_flight(fx: Fixture) -> None:
         fx.updater.begin_apply()
 
 
-def test_interrupted_apply_marked_failed(fx: Fixture) -> None:
-    fx.updater.state.update(apply={"state": "building"})
-    fx.updater.mark_interrupted()
+def _failed_apply(target: str) -> dict:
+    return {
+        "state": "failed",
+        "message": "Updater restarted during the update",
+        "target_version": target,
+        "channel": "dev",
+        "started_at": "2026-01-01T00:00:00+00:00",
+    }
+
+
+def test_recovery_clears_stale_failure_at_target(fx: Fixture) -> None:
+    fx.updater.state.update(apply=_failed_apply("dev-260102.0000"))
+    fx.updater.recover_interrupted(threaded=False)
+    assert fx.updater.state.get("apply") == {"state": "idle"}
+    assert fx.updater.status()["apply"] == {"state": "idle"}
+
+
+def test_stale_failed_apply_cleared_on_successful_check(fx: Fixture) -> None:
+    fx.updater.state.update(apply=_failed_apply("dev-260102.0000"))
+    fx.updater.check(force=True)
+    assert fx.updater.state.get("apply") == {"state": "idle"}
+
+
+def test_failed_apply_with_different_version_is_kept(fx: Fixture) -> None:
+    failed = _failed_apply("dev-260109.0000")
+    fx.updater.state.update(apply=failed)
+    fx.updater.check(force=True)
+    fx.updater.recover_interrupted(threaded=False)
+    assert fx.updater.state.get("apply") == failed
+
+
+def test_failed_apply_kept_when_checkout_at_target_but_old_version_running(fx: Fixture) -> None:
+    # Apply killed mid-build: the checkout already moved to the target, the old build still runs.
+    fx.running = "dev-260101.0000"
+    failed = _failed_apply("dev-260102.0000")
+    fx.updater.state.update(apply=failed)
+    fx.updater.check(force=True)
+    fx.updater.recover_interrupted(threaded=False)
+    assert fx.updater.state.get("apply") == failed
+
+
+def test_failed_apply_kept_when_running_version_unreachable(fx: Fixture) -> None:
+    fx.running = None
+    failed = _failed_apply("dev-260102.0000")
+    fx.updater.state.update(apply=failed)
+    fx.updater.check(force=True)
+    assert fx.updater.state.get("apply") == failed
+
+
+# ---- interrupted apply recovery ---------------------------------------------------------------
+def _interrupted(fx: Fixture, state: str, *, moved: bool, previous: bool = True) -> tuple[str, str]:
+    """Record an apply killed in `state` towards a new dev version; returns (old, target) commits.
+
+    `moved` leaves the checkout at the target (killed after the checkout), else at the previous.
+    """
+    old = git(fx.work, "rev-parse", "HEAD")
+    target = fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    record: dict[str, Any] = {
+        "state": state,
+        "message": "x",
+        "target_version": "dev-260103.0000",
+        "channel": "dev",
+        "started_at": "2026-01-01T00:00:00+00:00",
+    }
+    if previous:
+        record["previous"] = {
+            "commit": old,
+            "branch": "main",
+            "version": "dev-260102.0000",
+            "channel": "dev",
+        }
+    fx.updater.state.update(apply=record)
+    if moved:
+        git(fx.work, "merge", "--ff-only", target)
+    return old, target
+
+
+def _running_sequence(fx: Fixture, *versions: str | None) -> None:
+    """Successive polls report `versions`; the last one repeats."""
+    seq = iter(versions)
+    last: list[str | None] = [None]
+
+    def running() -> str | None:
+        last[0] = next(seq, last[0])
+        return last[0]
+
+    fx.updater._running_version = running  # type: ignore[reportPrivateUsage]
+
+
+def test_apply_record_holds_previous_until_it_ends(fx: Fixture) -> None:
+    old = git(fx.work, "rev-parse", "HEAD")
+    fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    seen: list[dict[str, Any]] = []
+
+    def on_up() -> None:
+        seen.append(fx.updater.state.get("apply"))
+
+    fx.docker.on_up = on_up
+    fx.running = "dev-260103.0000"
+    fx.updater.start_apply(threaded=False)
+
+    expected = {"commit": old, "branch": "main", "version": "dev-260102.0000", "channel": "dev"}
+    assert seen[0]["state"] == "building"
+    assert seen[0]["previous"] == expected
+    assert fx.updater.state.get("apply")["state"] == "done"
+    assert "previous" not in fx.updater.state.get("apply")
+
+
+def test_restarting_record_keeps_previous_and_failure_drops_it(fx: Fixture) -> None:
+    old = git(fx.work, "rev-parse", "HEAD")
+    fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    states: list[dict[str, Any]] = []
+    original = fx.updater._wait_for_version  # type: ignore[reportPrivateUsage]
+
+    def wait(version: str) -> bool:
+        states.append(fx.updater.state.get("apply"))
+        return original(version)
+
+    fx.updater._wait_for_version = wait  # type: ignore[reportPrivateUsage]
+    _fast_clock(fx)
+    fx.updater.start_apply(threaded=False)  # never healthy -> rollback -> failed
+
+    assert states[0]["state"] == "restarting"
+    assert states[0]["previous"]["commit"] == old
+    failed = fx.updater.state.get("apply")
+    assert failed["state"] == "failed"
+    assert "previous" not in failed
+
+
+def test_recovery_target_running_is_done(fx: Fixture) -> None:
+    _, target = _interrupted(fx, "restarting", moved=True)
+    fx.running = "dev-260103.0000"
+    fx.updater.recover_interrupted(threaded=False)
+    apply = fx.updater.state.get("apply")
+    assert apply["state"] == "done"
+    assert apply["message"] == "Updated to dev-260103.0000"
+    assert "previous" not in apply
+    assert git(fx.work, "rev-parse", "HEAD") == target
+    assert not fx.updater.apply_in_progress()
+
+
+def test_recovery_waits_for_target_after_unreachable_polls(fx: Fixture) -> None:
+    _, target = _interrupted(fx, "restarting", moved=True)
+    _running_sequence(fx, None, None, "dev-260103.0000")
+    fx.updater.recover_interrupted(threaded=False)
+    assert fx.updater.state.get("apply")["state"] == "done"
+    assert git(fx.work, "rev-parse", "HEAD") == target
+
+
+def test_recovery_old_version_restores_checkout_then_retry_works(fx: Fixture) -> None:
+    old, target = _interrupted(fx, "building", moved=True)
+    fx.updater.recover_interrupted(threaded=False)  # running stays at the old version
+    apply = fx.updater.state.get("apply")
+    assert apply["state"] == "failed"
+    assert apply["message"] == "Update was interrupted; nothing changed, safe to retry"
+    assert "previous" not in apply
+    assert git(fx.work, "rev-parse", "HEAD") == old
+    assert git(fx.work, "rev-parse", "--abbrev-ref", "HEAD") == "main"
+
+    fx.updater.check(force=True)
+    fx.running = "dev-260103.0000"
+    fx.updater.start_apply(threaded=False)
+    assert fx.updater.state.get("apply")["state"] == "done"
+    assert git(fx.work, "rev-parse", "HEAD") == target
+
+
+def test_recovery_old_once_then_target_is_not_restored(fx: Fixture) -> None:
+    _, target = _interrupted(fx, "restarting", moved=True)
+    _running_sequence(fx, "dev-260102.0000", "dev-260103.0000")
+    fx.updater.recover_interrupted(threaded=False)
+    assert fx.updater.state.get("apply")["state"] == "done"
+    assert git(fx.work, "rev-parse", "HEAD") == target
+
+
+def test_recovery_unreachable_until_timeout_leaves_checkout(fx: Fixture) -> None:
+    _, target = _interrupted(fx, "restarting", moved=True)
+    fx.running = None
+    _fast_clock(fx)
+    fx.updater.recover_interrupted(threaded=False)
+    apply = fx.updater.state.get("apply")
+    assert apply["state"] == "failed"
+    assert "did not report the expected version" in apply["message"]
+    assert "docker compose logs darkstar" in apply["message"]
+    assert git(fx.work, "rev-parse", "HEAD") == target
+    assert not fx.updater.apply_in_progress()
+
+
+def test_recovery_third_version_leaves_checkout(fx: Fixture) -> None:
+    _, target = _interrupted(fx, "restarting", moved=True)
+    fx.running = "dev-260199.0000"
+    _fast_clock(fx)
+    fx.updater.recover_interrupted(threaded=False)
     assert fx.updater.state.get("apply")["state"] == "failed"
+    assert git(fx.work, "rev-parse", "HEAD") == target
+
+
+def test_recovery_restore_failure_names_manual_command(fx: Fixture) -> None:
+    old, _ = _interrupted(fx, "building", moved=True)
+    (fx.work / ".git" / "index.lock").write_text("")
+    fx.updater.recover_interrupted(threaded=False)
+    apply = fx.updater.state.get("apply")
+    assert apply["state"] == "failed"
+    assert f"git checkout -f -B main {old}" in apply["message"]
+
+
+def test_recovery_without_previous_never_restores(fx: Fixture) -> None:
+    _, target = _interrupted(fx, "building", moved=True, previous=False)
+    _fast_clock(fx)
+    fx.updater.recover_interrupted(threaded=False)  # old version keeps running
+    assert fx.updater.state.get("apply")["state"] == "failed"
+    assert git(fx.work, "rev-parse", "HEAD") == target
+
+
+def test_recovery_without_previous_target_running_is_done(fx: Fixture) -> None:
+    _interrupted(fx, "restarting", moved=True, previous=False)
+    fx.running = "dev-260103.0000"
+    fx.updater.recover_interrupted(threaded=False)
+    assert fx.updater.state.get("apply")["state"] == "done"
+
+
+def test_recovery_refuses_checks_and_applies_while_deciding(fx: Fixture) -> None:
+    _interrupted(fx, "restarting", moved=False)
+    seen: dict[str, Any] = {}
+    fx.running = "dev-260103.0000"
+
+    def running() -> str:
+        seen["state"] = fx.updater.state.get("apply")["state"]
+        seen["busy"] = fx.updater.apply_in_progress()
+        with pytest.raises(ApplyBusy):
+            fx.updater.begin_apply()
+        before = fx.updater.state.get("last_check")
+        fx.updater.check(force=True)
+        seen["check_skipped"] = fx.updater.state.get("last_check") == before
+        return "dev-260103.0000"
+
+    fx.updater._running_version = running  # type: ignore[reportPrivateUsage]
+    fx.updater.recover_interrupted(threaded=False)
+    assert seen == {"state": "restarting", "busy": True, "check_skipped": True}
+
+
+def test_recovery_threaded_holds_lock_until_decided(fx: Fixture) -> None:
+    _interrupted(fx, "restarting", moved=True)
+    gate = threading.Event()
+
+    def running() -> str:
+        gate.wait(5)
+        return "dev-260103.0000"
+
+    fx.updater._running_version = running  # type: ignore[reportPrivateUsage]
+    fx.updater.recover_interrupted()
+    assert fx.updater.apply_in_progress()
+    assert fx.updater.state.get("apply")["state"] == "restarting"
+    gate.set()
+    deadline = time.monotonic() + 5
+    while fx.updater.apply_in_progress() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert fx.updater.state.get("apply")["state"] == "done"
+
+
+def test_recovery_done_runs_self_recreate(su: Fixture) -> None:
+    _push_files(su, "dev-260103.0000", {"updater/a.py": "a = 2\n"})
+    su.updater.check(force=True)
+    target = git(su.pusher, "rev-parse", "HEAD")
+    su.updater.state.update(
+        apply={
+            "state": "restarting",
+            "message": "x",
+            "target_version": "dev-260103.0000",
+            "channel": "dev",
+            "started_at": "2026-01-01T00:00:00+00:00",
+        }
+    )
+    git(su.work, "merge", "--ff-only", target)
+    su.running = "dev-260103.0000"
+    su.updater.recover_interrupted(threaded=False)
+    assert su.updater.state.get("apply")["state"] == "done"
+    assert "run" in _helper_verbs(su)
+
+
+def test_recovery_ignores_idle_and_done_records(fx: Fixture) -> None:
+    done = {"state": "done", "message": "Updated", "target_version": "dev-260102.0000"}
+    fx.updater.state.update(apply=done)
+    fx.updater.recover_interrupted(threaded=False)
+    assert fx.updater.state.get("apply") == done
+    assert not fx.updater.apply_in_progress()
 
 
 @pytest.fixture
@@ -908,3 +1193,60 @@ def test_reconcile_without_state_does_nothing(su: Fixture) -> None:
     su.updater.reconcile_self_update()
     assert su.updater.state.get("self_update") is None
     assert su.docker.calls == []
+
+
+def test_recovery_unexpected_error_fails_and_releases_lock(fx: Fixture) -> None:
+    _interrupted(fx, "restarting", moved=True)
+
+    def boom() -> str:
+        raise RuntimeError("boom")
+
+    fx.updater._running_version = boom  # type: ignore[reportPrivateUsage]
+    fx.updater.recover_interrupted(threaded=False)
+    apply = fx.updater.state.get("apply")
+    assert apply["state"] == "failed"
+    assert "boom" in apply["message"]
+    assert not fx.updater.apply_in_progress()
+
+
+def test_recovery_threaded_error_releases_lock(fx: Fixture) -> None:
+    _interrupted(fx, "restarting", moved=True)
+
+    def boom() -> str:
+        raise RuntimeError("boom")
+
+    fx.updater._running_version = boom  # type: ignore[reportPrivateUsage]
+    fx.updater.recover_interrupted()
+    deadline = time.monotonic() + 5
+    while fx.updater.apply_in_progress() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not fx.updater.apply_in_progress()
+    assert fx.updater.state.get("apply")["state"] == "failed"
+
+
+def test_recovery_self_recreate_error_keeps_done(fx: Fixture) -> None:
+    _interrupted(fx, "restarting", moved=True)
+    fx.running = "dev-260103.0000"
+
+    def boom() -> None:
+        raise RuntimeError("recreate boom")
+
+    fx.updater._maybe_recreate = boom  # type: ignore[reportPrivateUsage]
+    fx.updater.recover_interrupted(threaded=False)
+    assert fx.updater.state.get("apply")["state"] == "done"
+    assert not fx.updater.apply_in_progress()
+
+
+def test_apply_self_recreate_error_keeps_done(fx: Fixture) -> None:
+    fx.push_dev("dev-260103.0000")
+    fx.updater.check(force=True)
+    fx.running = "dev-260103.0000"
+
+    def boom() -> None:
+        raise RuntimeError("recreate boom")
+
+    fx.updater._maybe_recreate = boom  # type: ignore[reportPrivateUsage]
+    fx.updater.start_apply(threaded=False)
+    assert fx.updater.state.get("apply")["state"] == "done"
+    assert "WARNING: updater self-recreate failed: recreate boom" in fx.updater.read_log(0)[0]
+    assert not fx.updater.apply_in_progress()

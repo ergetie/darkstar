@@ -20,7 +20,7 @@ export function UpdateCard({ updater, onClose }: { updater: UseUpdater; onClose:
     const logBox = useRef<HTMLPreElement>(null)
 
     const applyState = status?.apply?.state
-    const inProgress = awaiting || applyState === 'building' || applyState === 'restarting'
+    const inProgress = updater.applyInFlight || awaiting || applyState === 'building' || applyState === 'restarting'
     const targetVersion = status?.apply?.target_version ?? status?.target?.version
 
     useEffect(() => {
@@ -140,6 +140,9 @@ export function UpdateCard({ updater, onClose }: { updater: UseUpdater; onClose:
                     </div>
                 ) : (
                     <>
+                        {status && !status.reachable && (
+                            <div className="banner banner-info mb-0">Updater not responding, the update continues.</div>
+                        )}
                         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                             <dt className="text-muted">Current</dt>
                             <dd className="font-mono text-text">{status?.current?.version ?? '...'}</dd>
@@ -189,7 +192,7 @@ export function UpdateCard({ updater, onClose }: { updater: UseUpdater; onClose:
                                 <span>{selfUpdate.message ?? 'The updater could not be recreated.'}</span>
                             </div>
                         )}
-                        {status?.updater_outdated && selfUpdate?.state !== 'failed' && (
+                        {status?.updater_outdated && selfUpdate?.state !== 'failed' && !inProgress && (
                             <div className="banner banner-info mb-0 flex-col items-start gap-1">
                                 <span>The updater itself is outdated. Run:</span>
                                 <code className="font-mono break-all">docker compose up -d --build updater</code>
