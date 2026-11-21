@@ -204,20 +204,24 @@ def test_file_handler_is_size_rotating(file_handler: RotatingFileHandler):
 def test_file_handler_rolls_over_to_numbered_backup(
     file_handler: RotatingFileHandler, tmp_path: Path
 ):
-    record = logging.LogRecord(
-        name="test",
-        level=logging.INFO,
-        pathname="test.py",
-        lineno=1,
-        msg="x" * (file_handler.maxBytes + 1),
-        args=(),
-        exc_info=None,
-    )
-    file_handler.emit(record)  # exceeds maxBytes, stays in the active file
-    file_handler.emit(record)  # triggers the rollover before writing
+    def record(msg: str) -> logging.LogRecord:
+        return logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg=msg,
+            args=(),
+            exc_info=None,
+        )
+
+    # Start with a non-empty file: Python < 3.12.3 also rolls over an empty
+    # file, so an oversized first record would behave differently by version.
+    file_handler.emit(record("small"))
+    file_handler.emit(record("x" * (file_handler.maxBytes + 1)))  # rolls over first
 
     log_dir = tmp_path / "data"
     assert (log_dir / "darkstar.log.1").is_file()
-    assert (log_dir / "darkstar.log.1").stat().st_size > file_handler.maxBytes
+    assert (log_dir / "darkstar.log.1").stat().st_size < file_handler.maxBytes
     assert not (log_dir / "darkstar.log.2").exists()
-    assert (log_dir / "darkstar.log").is_file()
+    assert (log_dir / "darkstar.log").stat().st_size > file_handler.maxBytes
