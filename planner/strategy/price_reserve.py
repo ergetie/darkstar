@@ -15,13 +15,13 @@ floor combines the result with the deficit floor via ``max`` (never addition).
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from datetime import datetime
 
 # Profitability threshold per delivered kWh (SEK) by risk appetite. A cautious
@@ -67,6 +67,16 @@ class PriceReserveResult:
     known_cost_sek_kwh: float | None = None
     own_day_cost_sek_kwh: float | None = None
     capped_by: str | None = None
+    # Forecast accuracy used to correct the prices (see PriceReserveInputs); the
+    # effective threshold is None when the reserve never got as far as sizing.
+    effective_threshold_sek_kwh: float | None = None
+    forecast_bias_sek_kwh: float = 0.0
+    forecast_error_sek_kwh: float = 0.0
+    accuracy_fallback: bool = True
+    accuracy_by_horizon: Mapping[int, Mapping[str, Any]] = field(
+        default_factory=lambda: dict[int, Mapping[str, Any]]()
+    )
+    corrected_known_slots: int = 0
 
     @property
     def active(self) -> bool:
@@ -88,6 +98,15 @@ class PriceReserveInputs:
     slot_hours: float = 0.25
     forecast_issue_timestamp: str | None = None
     error: str | None = None  # set when gathering inputs failed (e.g. forecast_read_error)
+    # Forecast accuracy correction. The prices above are already de-biased; these
+    # fields describe it. Defaults reproduce the uncorrected behaviour.
+    forecast_bias_sek_kwh: float = 0.0  # spot domain, display only
+    forecast_error_sek_kwh: float = 0.0  # typical (de-biased MAE) error, import domain
+    accuracy_fallback: bool = True  # True when no slot was corrected
+    accuracy_by_horizon: Mapping[int, Mapping[str, Any]] = field(
+        default_factory=lambda: dict[int, Mapping[str, Any]]()
+    )
+    corrected_known_slots: int = 0
 
 
 class _CostCurve:
@@ -223,7 +242,47 @@ def inactive_price_reserve(reason: str) -> PriceReserveResult:
     return PriceReserveResult(0.0, reason)
 
 
+def effective_reserve_threshold(risk_appetite: int, forecast_error_sek_kwh: float) -> float:
+    """Activation threshold: the risk margin, raised to the typical forecast error."""
+    return max(reserve_threshold_sek(risk_appetite), max(0.0, forecast_error_sek_kwh))
+
+
 def evaluate_price_reserve(
+    inputs: PriceReserveInputs | None,
+    full_forecast_df: pd.DataFrame | None,
+    window_start: datetime | pd.Timestamp,
+    window_end: datetime | pd.Timestamp,
+    *,
+    risk_appetite: int,
+    min_soc_kwh: float,
+    max_soc_kwh: float,
+) -> PriceReserveResult:
+    """Evaluate the reserve and attach the forecast accuracy that shaped it."""
+    result = _evaluate_price_reserve(
+        inputs,
+        full_forecast_df,
+        window_start,
+        window_end,
+        risk_appetite=risk_appetite,
+        min_soc_kwh=min_soc_kwh,
+        max_soc_kwh=max_soc_kwh,
+    )
+    if inputs is None or inputs.error:
+        return result
+    return replace(
+        result,
+        effective_threshold_sek_kwh=effective_reserve_threshold(
+            risk_appetite, inputs.forecast_error_sek_kwh
+        ),
+        forecast_bias_sek_kwh=inputs.forecast_bias_sek_kwh,
+        forecast_error_sek_kwh=inputs.forecast_error_sek_kwh,
+        accuracy_fallback=inputs.accuracy_fallback,
+        accuracy_by_horizon=inputs.accuracy_by_horizon,
+        corrected_known_slots=inputs.corrected_known_slots,
+    )
+
+
+def _evaluate_price_reserve(
     inputs: PriceReserveInputs | None,
     full_forecast_df: pd.DataFrame | None,
     window_start: datetime | pd.Timestamp,
@@ -290,7 +349,7 @@ def evaluate_price_reserve(
         charge_efficiency=inputs.charge_efficiency,
         discharge_efficiency=inputs.discharge_efficiency,
         wear_cost_sek_kwh=inputs.wear_cost_sek_kwh,
-        threshold_sek_kwh=reserve_threshold_sek(risk_appetite),
+        threshold_sek_kwh=effective_reserve_threshold(risk_appetite, inputs.forecast_error_sek_kwh),
         usable_capacity_kwh=max(0.0, max_soc_kwh - min_soc_kwh),
         current_soc_above_min_kwh=max(0.0, inputs.current_soc_kwh - min_soc_kwh),
     )

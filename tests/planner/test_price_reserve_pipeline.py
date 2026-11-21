@@ -59,7 +59,14 @@ def make_full_inputs(start_utc: datetime) -> dict:
     }
 
 
-def make_forecast_db(path: Path, start_utc: datetime, *, price: float = 0.9, evening: float = 2.0):
+def make_forecast_db(
+    path: Path,
+    start_utc: datetime,
+    *,
+    price: float = 0.9,
+    evening: float = 2.0,
+    days_ahead: int = 2,
+):
     """price_forecasts rows (spot_p50) for the unseen day; evening slots are expensive."""
     conn = sqlite3.connect(path)
     conn.execute(
@@ -71,8 +78,13 @@ def make_forecast_db(path: Path, start_utc: datetime, *, price: float = 0.9, eve
         slot = (unseen_start + i * QUARTER).astimezone(TZ)
         conn.execute(
             "INSERT INTO price_forecasts (slot_start, issue_timestamp, days_ahead, spot_p50) "
-            "VALUES (?, ?, 2, ?)",
-            (slot.isoformat(), "2026-01-01T13:30:00+01:00", evening if 70 <= i < 74 else price),
+            "VALUES (?, ?, ?, ?)",
+            (
+                slot.isoformat(),
+                "2026-01-01T13:30:00+01:00",
+                days_ahead,
+                evening if 70 <= i < 74 else price,
+            ),
         )
     conn.commit()
     conn.close()

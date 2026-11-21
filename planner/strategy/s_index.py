@@ -660,10 +660,23 @@ def _price_reserve_debug(
 ) -> dict[str, Any]:
     """Price reserve debug fields; every key is present whether or not the reserve is active."""
     applied = max(0.0, final_floor_kwh - safety_floor_kwh)
+    base_threshold = reserve_threshold_sek(risk_appetite)
     debug: dict[str, Any] = {
         "price_reserve_active": reserve.active,
         "price_reserve_reason": reserve.reason,
-        "price_reserve_threshold_sek": reserve_threshold_sek(risk_appetite),
+        "price_reserve_threshold_sek": base_threshold,
+        "price_reserve_effective_threshold_sek": (
+            reserve.effective_threshold_sek_kwh
+            if reserve.effective_threshold_sek_kwh is not None
+            else base_threshold
+        ),
+        "price_reserve_forecast_bias_sek_kwh": round(reserve.forecast_bias_sek_kwh, 4),
+        "price_reserve_forecast_error_sek_kwh": round(reserve.forecast_error_sek_kwh, 4),
+        "price_reserve_accuracy_fallback": reserve.accuracy_fallback,
+        "price_reserve_forecast_accuracy": {
+            int(h): dict(v) for h, v in reserve.accuracy_by_horizon.items()
+        },
+        "price_reserve_corrected_known_slots": reserve.corrected_known_slots,
         "unseen_window_start": str(window_start) if window_start is not None else None,
         "unseen_window_end": str(window_end) if window_end is not None else None,
         "known_cost_sek_kwh": reserve.known_cost_sek_kwh,

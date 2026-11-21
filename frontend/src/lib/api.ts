@@ -22,6 +22,16 @@ export type PlannerSIndex = {
         price_reserve_kwh?: number
         price_reserve_applied_kwh?: number
         price_reserve_capped_by?: string
+        price_reserve_threshold_sek?: number
+        price_reserve_effective_threshold_sek?: number
+        price_reserve_forecast_bias_sek_kwh?: number
+        price_reserve_forecast_error_sek_kwh?: number
+        price_reserve_accuracy_fallback?: boolean
+        price_reserve_forecast_accuracy?: Record<
+            string,
+            { bias: number; debiased_mae: number; sample_days: number; used_fallback: boolean }
+        >
+        price_reserve_corrected_known_slots?: number
         known_cost_sek_kwh?: number | null
         own_day_cost_sek_kwh?: number | null
         unseen_window_start?: string | null

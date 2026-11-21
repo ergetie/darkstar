@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -17,7 +18,10 @@ import pandas as pd
 import pytz
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import datetime
+
+    from ml.price_accuracy import ForecastAccuracy
 
 
 from backend.core.ev_goal import (
@@ -33,9 +37,10 @@ from backend.core.ev_power import (
 from backend.core.version import get_version
 from backend.core.water_heating import active_water_heaters, validate_water_heating_config
 from backend.learning.store import LearningStore
+from ml.price_accuracy import load_forecast_accuracy
 from planner.battery_limits import resolve_battery_power_limits
 from planner.errors import PlannerError, PlannerErrorCode
-from planner.inputs.data_prep import apply_safety_margins, prepare_df
+from planner.inputs.data_prep import apply_safety_margins, normalize_timestamp, prepare_df
 from planner.inputs.weather import fetch_temperature_forecast
 from planner.output.schedule import DEFAULT_SCHEDULE_PATH, save_schedule_to_json
 from planner.output.soc_target import apply_soc_target_percent
@@ -53,6 +58,7 @@ from planner.strategy.ev_deferral import (
     DeferralPlan,
     build_deferral_plan,
     fetch_forecast_spot_sync,
+    fetch_forecast_spot_with_horizon_sync,
     fetch_trailing_import_avg_sync,
     planned_by_day,
     read_deferral_settings,
@@ -1045,14 +1051,14 @@ PRICE_RESERVE_EVENT_DELTA_KWH = 1.0
 
 def _fetch_unseen_forecast_sync(
     db_path: str, start: datetime, end: datetime, tz: pytz.BaseTzInfo
-) -> tuple[dict[datetime, float], str | None]:
-    """Latest-issue ``spot_p50`` per slot start in ``[start, end)`` plus the latest issue used.
+) -> tuple[dict[datetime, tuple[float, int]], str | None]:
+    """Latest-issue ``(spot_p50, days_ahead)`` per slot start in ``[start, end)`` plus the issue.
 
     Raises on DB errors so the caller can degrade to the deficit-based floor.
     """
     import sqlite3
 
-    spots = fetch_forecast_spot_sync(db_path, start, end, tz)
+    spots = fetch_forecast_spot_with_horizon_sync(db_path, start, end, tz)
     if not spots:
         return spots, None
     conn = sqlite3.connect(db_path, timeout=30)
@@ -1070,6 +1076,43 @@ def _fetch_unseen_forecast_sync(
     return spots, (str(row[0]) if row and row[0] else None)
 
 
+def _load_accuracy_by_horizon_sync(db_path: str, horizons: set[int]) -> dict[int, ForecastAccuracy]:
+    """Shared forecast accuracy per horizon (always includes D+1, the fallback horizon)."""
+    return {h: load_forecast_accuracy(db_path, h) for h in sorted(horizons | {1})}
+
+
+def _resolve_accuracy(
+    horizon: int, accuracy: Mapping[int, ForecastAccuracy]
+) -> tuple[int, ForecastAccuracy] | None:
+    """Own-horizon accuracy if usable, else D+1 (a lower bound), else ``None``."""
+    for candidate in (horizon, 1):
+        acc = accuracy.get(candidate)
+        if acc is not None and acc.ok and acc.bias is not None:
+            return candidate, acc
+    return None
+
+
+def forecast_slot_horizons(price_data: list[dict[str, Any]], tz_name: str) -> dict[datetime, int]:
+    """Slot start to forecast horizon for the forecast-sourced slots of ``price_data``.
+
+    Slots with ``price_source == "forecast"`` use their carried ``forecast_days_ahead``
+    (horizon 1 when absent or invalid). Published (Nordpool) slots are not included.
+    """
+    horizons: dict[datetime, int] = {}
+    for entry in price_data:
+        if entry.get("price_source") != "forecast":
+            continue
+        start = normalize_timestamp(entry.get("start_time"), tz_name)
+        if not isinstance(start, pd.Timestamp):
+            continue
+        try:
+            horizon = int(entry.get("forecast_days_ahead") or 1)
+        except (TypeError, ValueError):
+            horizon = 1
+        horizons[start.to_pydatetime()] = max(1, horizon)
+    return horizons
+
+
 async def build_price_reserve_inputs(
     active_config: dict[str, Any],
     df: pd.DataFrame,
@@ -1077,6 +1120,7 @@ async def build_price_reserve_inputs(
     price_horizon_end: pd.Timestamp | None,
     timezone_name: str,
     current_soc_kwh: float,
+    forecast_slot_starts: Mapping[datetime, int] | None = None,
 ) -> PriceReserveInputs | None:
     """Gather the price reserve inputs; ``None`` when price forecasting is disabled.
 
@@ -1086,6 +1130,15 @@ async def build_price_reserve_inputs(
     user's pricing (VAT, tax, flat or time-of-use transfer fee). The forecast read
     runs off the event loop; a failure is reported through ``error`` (the run
     continues with the deficit-based floor).
+
+    Every forecast-sourced price is de-biased with the measured bias of its own
+    horizon (shared accuracy function, D+1 then no correction as fallbacks): the
+    unseen-window spots and the known-window slots in ``forecast_slot_starts`` (slot
+    start to horizon, the D+1 fallback slots before tomorrow's prices are published).
+    Published slots are never touched, and only these reserve inputs change: the
+    planner df and the solver keep the uncorrected prices. The typical forecast error
+    (largest de-biased MAE of the horizons used) is returned in the import-price
+    domain for the noise gate. Accuracy failures never raise: no correction applies.
     """
     if not active_config.get("price_forecast", {}).get("enabled", False):
         return None
@@ -1131,14 +1184,77 @@ async def build_price_reserve_inputs(
             known_slots=known_slots, unseen_prices={}, error="forecast_read_error", **common
         )
 
-    unseen_prices = {
-        slot_dt: spot_to_import_price(spot, active_config, slot_dt)
-        for slot_dt, spot in spots.items()
+    known_horizons: dict[pd.Timestamp, int] = {
+        pd.Timestamp(ts): h for ts, h in (forecast_slot_starts or {}).items()
     }
+    known_forecast_idx = [
+        i for i, slot_ in enumerate(known_slots) if pd.Timestamp(slot_.start) in known_horizons
+    ]
+    needed = {h for _, h in spots.values()} | {
+        known_horizons[pd.Timestamp(known_slots[i].start)] for i in known_forecast_idx
+    }
+    accuracy: dict[int, ForecastAccuracy] = {}
+    if needed:
+        try:
+            accuracy = await asyncio.to_thread(_load_accuracy_by_horizon_sync, db_path, needed)
+        except Exception as exc:
+            logger.warning("Price reserve: forecast accuracy unavailable (%s); not correcting", exc)
+
+    # Import price is linear in spot (VAT scaling); fees cancel in the difference.
+    k = spot_to_import_price(1.0, active_config) - spot_to_import_price(0.0, active_config)
+
+    used: dict[int, tuple[int, ForecastAccuracy] | None] = {}
+    horizon_slots: dict[int, int] = {}
+
+    def resolved(horizon: int) -> tuple[int, ForecastAccuracy] | None:
+        if horizon not in used:
+            used[horizon] = _resolve_accuracy(horizon, accuracy)
+        return used[horizon]
+
+    unseen_prices: dict[datetime, float] = {}
+    for slot_dt, (spot, horizon) in spots.items():
+        horizon_slots[horizon] = horizon_slots.get(horizon, 0) + 1
+        res = resolved(horizon)
+        bias = float(res[1].bias or 0.0) if res else 0.0
+        unseen_prices[slot_dt] = spot_to_import_price(spot - bias, active_config, slot_dt)
+
+    corrected_known = 0
+    for i in known_forecast_idx:
+        known_slot = known_slots[i]
+        res = resolved(known_horizons[pd.Timestamp(known_slot.start)])
+        if res is None:
+            continue
+        known_slots[i] = replace(known_slot, price=known_slot.price - float(res[1].bias or 0.0) * k)
+        corrected_known += 1
+
+    used_accuracy = [res[1] for res in used.values() if res is not None]
+    typical_error = (
+        max(float(acc.debiased_mae or 0.0) for acc in used_accuracy) * k if used_accuracy else 0.0
+    )
+    main_horizon = max(horizon_slots, key=lambda h: horizon_slots[h]) if horizon_slots else None
+    main_res = resolved(main_horizon) if main_horizon is not None else None
+    corrected_unseen = any(resolved(h) is not None for h in horizon_slots)
+
+    by_horizon: dict[int, dict[str, Any]] = {}
+    for horizon in sorted(used):
+        res = used[horizon]
+        own = accuracy.get(horizon)
+        by_horizon[horizon] = {
+            "bias": round(float(res[1].bias or 0.0), 4) if res else 0.0,
+            "debiased_mae": round(float(res[1].debiased_mae or 0.0), 4) if res else 0.0,
+            "sample_days": res[1].sample_days if res else (own.sample_days if own else 0),
+            "used_fallback": res is None or res[0] != horizon,
+        }
+
     return PriceReserveInputs(
         known_slots=known_slots,
         unseen_prices=unseen_prices,
         forecast_issue_timestamp=issue_timestamp,
+        forecast_bias_sek_kwh=float(main_res[1].bias or 0.0) if main_res else 0.0,
+        forecast_error_sek_kwh=typical_error,
+        accuracy_fallback=not (corrected_unseen or corrected_known),
+        accuracy_by_horizon=by_horizon,
+        corrected_known_slots=corrected_known,
         **common,
     )
 
@@ -1174,6 +1290,12 @@ def _log_price_reserve_event(debug: dict[str, Any]) -> None:
                 f"cheapest known hours ({known_cost:.2f}) before a pricier unseen day "
                 f"(own cheapest {own_cost:.2f})"
             )
+            if not debug.get("price_reserve_accuracy_fallback", True):
+                message += (
+                    f"; forecast bias {float(debug.get('price_reserve_forecast_bias_sek_kwh') or 0.0):+.2f} "
+                    f"removed, effective threshold "
+                    f"{float(debug.get('price_reserve_effective_threshold_sek') or 0.0):.2f}"
+                )
         else:
             message = f"Price reserve inactive ({debug.get('price_reserve_reason')})"
         append_strategy_event(
@@ -1189,6 +1311,21 @@ def _log_price_reserve_event(debug: dict[str, Any]) -> None:
                 "own_day_cost_sek_kwh": debug.get("own_day_cost_sek_kwh"),
                 "unseen_window_start": debug.get("unseen_window_start"),
                 "unseen_window_end": debug.get("unseen_window_end"),
+                "price_reserve_threshold_sek": debug.get("price_reserve_threshold_sek"),
+                "price_reserve_effective_threshold_sek": debug.get(
+                    "price_reserve_effective_threshold_sek"
+                ),
+                "price_reserve_forecast_bias_sek_kwh": debug.get(
+                    "price_reserve_forecast_bias_sek_kwh"
+                ),
+                "price_reserve_forecast_error_sek_kwh": debug.get(
+                    "price_reserve_forecast_error_sek_kwh"
+                ),
+                "price_reserve_accuracy_fallback": debug.get("price_reserve_accuracy_fallback"),
+                "price_reserve_forecast_accuracy": debug.get("price_reserve_forecast_accuracy"),
+                "price_reserve_corrected_known_slots": debug.get(
+                    "price_reserve_corrected_known_slots"
+                ),
             },
         )
     except Exception as exc:
@@ -1675,6 +1812,7 @@ class PlannerPipeline:
                 price_horizon_end,
                 timezone_name,
                 initial_soc_kwh,
+                forecast_slot_horizons(input_data.get("price_data") or [], timezone_name),
             )
 
             target_soc_kwh, soc_debug = calculate_safety_floor(

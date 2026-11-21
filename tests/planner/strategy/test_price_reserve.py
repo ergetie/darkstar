@@ -261,6 +261,106 @@ class TestEvaluate:
         assert result.reason == "insufficient_forecast"
 
 
+class TestNoiseGate:
+    """Activation threshold is max(risk threshold, typical forecast error)."""
+
+    horizon_end = pd.Timestamp(T0 + 40 * QUARTER)
+
+    def _evaluate(self, inputs, *, risk=3):
+        df = _forecast_df(self.horizon_end, load=0.0, pv=0.0)
+        df.iloc[70:74, df.columns.get_loc("load_forecast_kwh")] = 1.5
+        return evaluate_price_reserve(
+            inputs,
+            df,
+            self.horizon_end,
+            self.horizon_end + timedelta(hours=24),
+            risk_appetite=risk,
+            min_soc_kwh=MIN_SOC_KWH,
+            max_soc_kwh=27.0,
+        )
+
+    def _gap(self) -> float:
+        base = self._evaluate(_inputs(self.horizon_end))
+        assert base.known_cost_sek_kwh is not None and base.own_day_cost_sek_kwh is not None
+        return base.own_day_cost_sek_kwh - base.known_cost_sek_kwh
+
+    def test_gap_smaller_than_forecast_error_gives_zero(self):
+        gap = self._gap()
+        result = self._evaluate(_inputs(self.horizon_end, forecast_error_sek_kwh=gap + 0.1))
+        assert result.reserve_kwh == 0.0
+        assert result.reason == "below_threshold"
+        assert result.effective_threshold_sek_kwh == pytest.approx(gap + 0.1)
+
+    def test_accurate_forecast_behaves_as_before(self):
+        before = self._evaluate(_inputs(self.horizon_end))
+        accurate = self._evaluate(
+            _inputs(self.horizon_end, forecast_error_sek_kwh=0.02, accuracy_fallback=False)
+        )
+        assert before.reason == "active"
+        assert accurate.reserve_kwh == pytest.approx(before.reserve_kwh)
+        assert accurate.effective_threshold_sek_kwh == pytest.approx(0.10)
+
+    def test_default_inputs_equal_current_behaviour(self):
+        result = self._evaluate(_inputs(self.horizon_end))
+        assert result.accuracy_fallback is True
+        assert result.forecast_bias_sek_kwh == 0.0 and result.forecast_error_sek_kwh == 0.0
+        assert result.effective_threshold_sek_kwh == pytest.approx(0.10)
+        assert result.reserve_kwh == pytest.approx(6.0 / 0.95)
+
+    def test_large_real_gap_still_reserves(self):
+        gap = self._gap()
+        result = self._evaluate(_inputs(self.horizon_end, forecast_error_sek_kwh=gap / 3))
+        assert result.reason == "active"
+
+    def test_boundary_is_strictly_greater_than(self):
+        gap = self._gap()
+        at = self._evaluate(_inputs(self.horizon_end, forecast_error_sek_kwh=gap))
+        below = self._evaluate(_inputs(self.horizon_end, forecast_error_sek_kwh=gap - 1e-6))
+        assert at.reserve_kwh == 0.0
+        assert below.reserve_kwh > 0.0
+
+    def test_risk_five_is_still_gated_by_error(self):
+        gap = self._gap()
+        assert self._evaluate(_inputs(self.horizon_end), risk=5).reason == "active"
+        gated = self._evaluate(_inputs(self.horizon_end, forecast_error_sek_kwh=gap + 0.1), risk=5)
+        assert gated.reserve_kwh == 0.0
+        assert gated.effective_threshold_sek_kwh == pytest.approx(gap + 0.1)
+
+    def test_bias_error_and_flags_are_carried_to_the_result(self):
+        result = self._evaluate(
+            _inputs(
+                self.horizon_end,
+                forecast_bias_sek_kwh=0.38,
+                forecast_error_sek_kwh=0.05,
+                accuracy_fallback=False,
+                corrected_known_slots=7,
+                accuracy_by_horizon={2: {"bias": 0.38}},
+            )
+        )
+        assert result.forecast_bias_sek_kwh == 0.38
+        assert result.forecast_error_sek_kwh == 0.05
+        assert result.accuracy_fallback is False
+        assert result.corrected_known_slots == 7
+        assert result.accuracy_by_horizon == {2: {"bias": 0.38}}
+
+    def test_read_error_keeps_fallback_values(self):
+        result = self._evaluate(
+            _inputs(self.horizon_end, error="forecast_read_error", unseen_prices={})
+        )
+        assert result.reason == "forecast_read_error"
+        assert result.effective_threshold_sek_kwh is None
+        assert result.accuracy_fallback is True
+
+    def test_debug_keys_present_when_inactive(self):
+        _, debug = _safety_floor(None)
+        assert debug["price_reserve_effective_threshold_sek"] == pytest.approx(0.10)
+        assert debug["price_reserve_forecast_bias_sek_kwh"] == 0.0
+        assert debug["price_reserve_forecast_error_sek_kwh"] == 0.0
+        assert debug["price_reserve_accuracy_fallback"] is True
+        assert debug["price_reserve_forecast_accuracy"] == {}
+        assert debug["price_reserve_corrected_known_slots"] == 0
+
+
 def _safety_floor(inputs, *, load=1.5, pv=0.0, battery=BATTERY, evening_only=False):
     horizon_end = pd.Timestamp(T0 + 40 * QUARTER)
     idx = pd.date_range(T0, horizon_end, freq="15min")

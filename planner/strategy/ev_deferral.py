@@ -143,26 +143,32 @@ def post_horizon_slot_starts(
     return out
 
 
-def fetch_forecast_spot_sync(
-    db_path: str, start: datetime, end: datetime, tz: pytz.BaseTzInfo
-) -> dict[datetime, float]:
-    """Latest-issue ``spot_p50`` per slot start in ``[start, end)``.
+def _fetch_latest_issue_sync(
+    db_path: str,
+    start: datetime,
+    end: datetime,
+    tz: pytz.BaseTzInfo,
+    *,
+    with_horizon: bool,
+) -> dict[datetime, tuple[float, int]]:
+    """Latest-issue ``(spot_p50, days_ahead)`` per slot start in ``[start, end)``.
 
-    Raises on DB errors so the caller can record the fallback source.
+    ``days_ahead`` is only read when ``with_horizon`` (1 when the row has none).
     """
+    horizon_column = "days_ahead" if with_horizon else "NULL AS days_ahead"
     conn = sqlite3.connect(db_path, timeout=30)
     try:
         conn.row_factory = sqlite3.Row
         cursor = conn.execute(
-            """
-            SELECT slot_start, issue_timestamp, spot_p50
+            f"""
+            SELECT slot_start, issue_timestamp, spot_p50, {horizon_column}
             FROM price_forecasts
             WHERE slot_start >= ? AND slot_start < ?
               AND spot_p50 IS NOT NULL
             """,
             (start.isoformat(), end.isoformat()),
         )
-        best: dict[datetime, tuple[str, float]] = {}
+        best: dict[datetime, tuple[str, float, int]] = {}
         for r in cursor.fetchall():
             try:
                 slot_dt = datetime.fromisoformat(r["slot_start"]).astimezone(tz)
@@ -171,10 +177,37 @@ def fetch_forecast_spot_sync(
             issue = str(r["issue_timestamp"] or "")
             existing = best.get(slot_dt)
             if existing is None or issue > existing[0]:
-                best[slot_dt] = (issue, float(r["spot_p50"]))
-        return {k: v[1] for k, v in best.items()}
+                horizon = int(r["days_ahead"]) if r["days_ahead"] is not None else 1
+                best[slot_dt] = (issue, float(r["spot_p50"]), horizon)
+        return {k: (v[1], v[2]) for k, v in best.items()}
     finally:
         conn.close()
+
+
+def fetch_forecast_spot_with_horizon_sync(
+    db_path: str, start: datetime, end: datetime, tz: pytz.BaseTzInfo
+) -> dict[datetime, tuple[float, int]]:
+    """Latest-issue ``(spot_p50, days_ahead)`` per slot start in ``[start, end)``.
+
+    ``days_ahead`` is the forecast horizon of the issue the value came from.
+    Raises on DB errors so the caller can record the fallback source.
+    """
+    return _fetch_latest_issue_sync(db_path, start, end, tz, with_horizon=True)
+
+
+def fetch_forecast_spot_sync(
+    db_path: str, start: datetime, end: datetime, tz: pytz.BaseTzInfo
+) -> dict[datetime, float]:
+    """Latest-issue ``spot_p50`` per slot start in ``[start, end)``.
+
+    Raises on DB errors so the caller can record the fallback source.
+    """
+    return {
+        slot: spot
+        for slot, (spot, _) in _fetch_latest_issue_sync(
+            db_path, start, end, tz, with_horizon=False
+        ).items()
+    }
 
 
 def fetch_trailing_import_avg_sync(

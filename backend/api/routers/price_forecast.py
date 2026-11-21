@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from backend.core.secrets import load_yaml
 from backend.learning import get_learning_engine
+from ml.price_accuracy import load_forecast_accuracy
 from ml.price_forecast import derive_consumer_prices, get_price_forecasts_from_db
 
 logger = logging.getLogger("darkstar.api.price_forecast")
@@ -83,25 +84,6 @@ def _fetch_training_samples_count(db_path: str) -> int:
     try:
         count = conn.execute("SELECT COUNT(*) FROM price_forecasts").fetchone()
         return count[0] if count else 0
-    finally:
-        conn.close()
-
-
-def _fetch_accuracy_rows(db_path: str) -> list[sqlite3.Row]:
-    conn = sqlite3.connect(db_path, timeout=30)
-    try:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT pf.slot_start, pf.spot_p50, so.export_price_sek_kwh
-            FROM price_forecasts pf
-            JOIN slot_observations so ON so.slot_start = pf.slot_start
-            WHERE pf.days_ahead = 1
-              AND pf.spot_p50 IS NOT NULL
-              AND so.export_price_sek_kwh IS NOT NULL
-              AND pf.slot_start >= datetime('now', '-7 days')
-        """)
-        return list(cursor.fetchall())
     finally:
         conn.close()
 
@@ -304,26 +286,22 @@ async def get_price_forecast_accuracy(request: Request) -> dict[str, Any]:
     except Exception:
         db_path = "data/planner_learning.db"
 
-    rows = await asyncio.to_thread(_fetch_accuracy_rows, db_path)
+    accuracy = await asyncio.to_thread(load_forecast_accuracy, db_path, 1)
 
-    errors = [abs(float(r["spot_p50"]) - float(r["export_price_sek_kwh"])) for r in rows]
-    biases = [float(r["spot_p50"]) - float(r["export_price_sek_kwh"]) for r in rows]
-    unique_days = len({r["slot_start"][:10] for r in rows})
-
-    if unique_days < 2:
+    if not accuracy.ok:
         return {
             "enabled": True,
             "d1_mae": None,
             "d1_bias": None,
-            "sample_days": unique_days,
+            "sample_days": accuracy.sample_days,
             "status": "insufficient_data",
         }
 
     return {
         "enabled": True,
-        "d1_mae": round(sum(errors) / len(errors), 4),
-        "d1_bias": round(sum(biases) / len(biases), 4),
-        "sample_days": unique_days,
+        "d1_mae": round(accuracy.mae or 0.0, 4),
+        "d1_bias": round(accuracy.bias or 0.0, 4),
+        "sample_days": accuracy.sample_days,
         "status": "ok",
     }
 
