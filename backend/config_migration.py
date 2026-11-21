@@ -165,6 +165,13 @@ DEPRECATED_NESTED_KEYS = {
     "learning": [
         # recorder-slot-aligned-energy: only mapped counter series to canonical names
         "sensor_map",
+        # remove-dead-corrector left these flags behind; no component reads them.
+        "error_correction_enabled",
+        "auto_tune_enabled",
+    ],
+    "automation.ml_training": [
+        # remove-dead-corrector: the error-correction model no longer exists.
+        "error_correction_enabled",
     ],
     "load_balancing": [
         # load-balancing-completion: replaced (together with loads[].priority)

@@ -12,7 +12,7 @@ This module generates 7-day price forecasts by:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -389,6 +389,9 @@ async def get_price_forecasts_from_db(
     db_path: str = "data/planner_learning.db",
     days_ahead: int | None = None,
     limit: int = 1000,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    only_predictions: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Retrieve price forecasts from the database.
@@ -397,6 +400,10 @@ async def get_price_forecasts_from_db(
         db_path: Path to SQLite database
         days_ahead: Filter by specific days_ahead value (optional)
         limit: Maximum number of records to return
+        start_date: Only slots whose local start date is on or after this date (optional)
+        end_date: Only slots whose local start date is on or before this date (optional)
+        only_predictions: Ignore weather-only rows (null ``spot_p50``) before picking the
+            latest issue per slot
 
     Returns:
         List of forecast records
@@ -406,13 +413,24 @@ async def get_price_forecasts_from_db(
         SessionLocal = sessionmaker(bind=engine)
         session = SessionLocal()
 
+        # Stored slot_start values are local ISO strings, so the first 10 characters
+        # are the local date of the slot.
+        slot_date = func.substr(PriceForecast.slot_start, 1, 10)
+        date_filters: list[Any] = []
+        if start_date is not None:
+            date_filters.append(slot_date >= start_date.isoformat())
+        if end_date is not None:
+            date_filters.append(slot_date <= end_date.isoformat())
+        if only_predictions:
+            date_filters.append(PriceForecast.spot_p50.isnot(None))
+
         if days_ahead is not None:
             latest_per_slot = (
                 session.query(
                     PriceForecast.slot_start,
                     func.max(PriceForecast.issue_timestamp).label("latest_issue"),
                 )
-                .filter(PriceForecast.days_ahead == days_ahead)
+                .filter(PriceForecast.days_ahead == days_ahead, *date_filters)
                 .group_by(PriceForecast.slot_start)
                 .subquery()
             )
@@ -432,6 +450,7 @@ async def get_price_forecasts_from_db(
                     PriceForecast.days_ahead,
                     func.max(PriceForecast.issue_timestamp).label("latest_issue"),
                 )
+                .filter(*date_filters)
                 .group_by(PriceForecast.slot_start, PriceForecast.days_ahead)
                 .subquery()
             )
@@ -485,48 +504,39 @@ async def get_d1_price_forecast_fallback(
     forecasts are returned to the planner.
     """
     try:
+        tomorrow_local = datetime.now(
+            pytz.timezone(config.get("timezone", "Europe/Stockholm"))
+        ).date() + timedelta(days=1)
+        # Tomorrow's slots by target date across all days_ahead values; the read keeps
+        # the latest issue per slot_start. 7 horizons x 100 slots fits the limit.
         forecasts = await get_price_forecasts_from_db(
             db_path=db_path,
-            days_ahead=1,
-            limit=96,  # 24 hours * 4 slots per hour
+            start_date=tomorrow_local,
+            end_date=tomorrow_local,
+            only_predictions=True,
+            limit=1000,
         )
 
         # Filter out weather-only rows (null-prediction rows)
         valid_forecasts = [f for f in forecasts if f.get("spot_p50") is not None]
 
-        # Deduplicate on slot_start (defence-in-depth against DB duplicates leaking through)
-        seen: set[str] = set()
-        deduped: list[dict[str, Any]] = []
-        for f in valid_forecasts:
-            slot = f["slot_start"]
-            if slot not in seen:
-                seen.add(slot)
-                deduped.append(f)
-        if len(deduped) < len(valid_forecasts):
-            logger.warning(
-                "get_d1_price_forecast_fallback dropped %d duplicate slot_start entries",
-                len(valid_forecasts) - len(deduped),
-            )
-        valid_forecasts = deduped
-
-        # Filter out stale slots (date <= today)
-        today_local = datetime.now(pytz.timezone(config.get("timezone", "Europe/Stockholm"))).date()
+        # Keep only tomorrow's slots (defence-in-depth against stale rows)
         future_forecasts: list[dict[str, Any]] = []
         for f in valid_forecasts:
             slot_dt = f["slot_start"]
             if isinstance(slot_dt, str):
                 slot_dt = datetime.fromisoformat(slot_dt)
-            slot_date = slot_dt.date() if hasattr(slot_dt, "date") else None
-            if slot_date and slot_date > today_local:
+            if slot_dt.date() == tomorrow_local:
+                f["forecast_days_ahead"] = f.get("days_ahead")
                 future_forecasts.append(f)
 
         stale_count = len(valid_forecasts) - len(future_forecasts)
         if stale_count > 0:
             logger.info(
-                "get_d1_price_forecast_fallback discarded %d stale slots (date <= today)",
+                "get_d1_price_forecast_fallback discarded %d slots not on tomorrow's date",
                 stale_count,
             )
-        valid_forecasts = future_forecasts
+        valid_forecasts = sorted(future_forecasts, key=lambda f: f["slot_start"])
 
         if not valid_forecasts:
             return None

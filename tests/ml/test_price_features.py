@@ -296,3 +296,37 @@ def test_observation_wins_over_published_price(db_session):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize(
+    ("day", "expected_slots"),
+    [
+        (datetime(2026, 4, 10), 96),
+        (datetime(2026, 3, 29), 92),
+        (datetime(2026, 10, 25), 100),
+    ],
+)
+@patch("ml.price_features._get_price_lags")
+def test_batch_day_is_half_open(mock_get_lags, day, expected_slots):
+    """A forecast day holds exactly the slots starting on that local date."""
+    mock_get_lags.return_value = {
+        "price_lag_1d": float("nan"),
+        "price_lag_7d": float("nan"),
+        "price_lag_24h_avg": float("nan"),
+    }
+    tz = pytz.timezone("Europe/Stockholm")
+    start = tz.localize(day)
+    end = tz.localize(day + timedelta(days=1))
+
+    df = build_price_features_batch(
+        start_time=start,
+        end_time=end,
+        days_ahead=1,
+        weather_df=None,
+        db_session=MagicMock(),
+    )
+
+    assert len(df) == expected_slots
+    last = datetime.fromisoformat(df.index[-1]).astimezone(tz)
+    assert (last.hour, last.minute) == (23, 45)
+    assert last.date() == start.date()

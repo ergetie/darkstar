@@ -105,7 +105,16 @@ const BENCHMARK_REASONS: Record<string, string> = {
     capacity_mismatch: 'battery capacity does not match recorded flows',
     stock_out_of_range: 'stored energy outside battery capacity',
     solver_not_optimal: 'hindsight solve did not finish',
+    infeasible_with_recorded_limits: 'hindsight plan not possible even with recorded limits',
+    solver_time_limit: 'hindsight solve ran out of time',
     error: 'benchmark error',
+}
+
+const BENCHMARK_RELAXED_LIMITS: Record<string, string> = {
+    grid_import: 'grid import',
+    grid_export: 'grid export',
+    inverter_ac: 'inverter AC',
+    export_floor: 'export floor',
 }
 
 function benchmarkWarningText(day: BatteryBenchmarkDay, warning: string): string {
@@ -118,6 +127,12 @@ function benchmarkWarningText(day: BatteryBenchmarkDay, warning: string): string
             return `${day.partial_slots} of ${day.day_slots} slots with a device not measured`
         case 'stock_clamped':
             return 'stored energy outside battery capacity, clamped'
+        case 'limits_relaxed': {
+            const limits = (day.relaxed_limits ?? []).map((limit) => BENCHMARK_RELAXED_LIMITS[limit] ?? limit)
+            return limits.length > 0
+                ? `hindsight limits raised to recorded ${limits.join(', ')}`
+                : 'hindsight limits raised to recorded values'
+        }
         default:
             return warning
     }

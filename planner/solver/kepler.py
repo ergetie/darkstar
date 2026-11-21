@@ -246,6 +246,7 @@ class KeplerSolver:
         slots = input_data.slots
         T = len(slots)
         benchmark = input_data.benchmark
+        relaxation = benchmark.relaxation if benchmark is not None else None
         if benchmark is not None:
             # Battery only, priced on recorded flows: no devices, no policy terms.
             config = replace(
@@ -791,10 +792,16 @@ class KeplerSolver:
             prob += discharge[t] <= max_dis_kwh
 
             if config.max_export_power_kw is not None:
-                prob += grid_export[t] <= config.max_export_power_kw * h
+                prob += grid_export[t] <= max(
+                    config.max_export_power_kw * h,
+                    relaxation.export_kwh[t] if relaxation is not None else 0.0,
+                )
 
             if config.max_import_power_kw is not None:
-                prob += grid_import[t] <= config.max_import_power_kw * h
+                prob += grid_import[t] <= max(
+                    config.max_import_power_kw * h,
+                    relaxation.import_kwh[t] if relaxation is not None else 0.0,
+                )
 
             # Per-phase fuse limit on phase-limited EV charger and water heater lines.
             # Base load is spread evenly over 3 phases (net import / 3 already holds
@@ -854,6 +861,8 @@ class KeplerSolver:
             # Inverter AC output limit with PV routing (dc_coupled / ac_coupled)
             if pv_routing_active:
                 inverter_ac_kwh: float = cast("float", config.max_inverter_ac_kw) * h
+                if relaxation is not None:
+                    inverter_ac_kwh = max(inverter_ac_kwh, relaxation.inverter_ac_kwh[t])
                 # PV balance: all forecast PV routes to battery (DC), AC, or curtailment
                 prob += pv_to_battery[t] + pv_to_ac[t] + curtailment[t] == s.pv_kwh
                 # pv_to_battery is a sub-flow of total charge (can't exceed what the battery accepts)
@@ -877,7 +886,8 @@ class KeplerSolver:
                 prob += grid_import[t] <= limit_kwh + import_breach[t]
 
             # Rev E4: Strict Export Toggle
-            if not config.enable_export:
+            export_limits_off: bool = relaxation is not None and relaxation.export_limits_off[t]
+            if not config.enable_export and not export_limits_off:
                 prob += grid_export[t] == 0
 
             # Export floor SoC constraint (big-M formulation)
@@ -887,12 +897,15 @@ class KeplerSolver:
                     if config.max_export_power_kw is not None
                     else config.max_discharge_power_kw
                 ) * h
+                if relaxation is not None:
+                    M_export = max(M_export, relaxation.export_kwh[t])
                 prob += grid_export[t] <= M_export * is_exporting[t]
-                prob += soc[t + 1] >= (
-                    export_floor_kwh * is_exporting[t]
-                    + floor_kwh[t + 1] * (1 - is_exporting[t])
-                    - export_floor_violation[t]
-                )
+                if not export_limits_off:
+                    prob += soc[t + 1] >= (
+                        export_floor_kwh * is_exporting[t]
+                        + floor_kwh[t + 1] * (1 - is_exporting[t])
+                        - export_floor_violation[t]
+                    )
 
             # Ramping Constraints
             if t > 0:

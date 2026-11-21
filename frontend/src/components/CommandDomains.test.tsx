@@ -710,11 +710,13 @@ describe('GridDomain hindsight row', () => {
         missed: number | null,
         reason: string | null = null,
         warnings: string[] = [],
+        relaxedLimits: string[] = [],
     ) => ({
         date,
         status,
         reason,
         warnings,
+        relaxed_limits: relaxedLimits,
         missed_sek: missed,
         capacity_kwh: 34.2,
         implied_capacity_kwh: reason === 'capacity_mismatch' || warnings.length > 0 ? 19 : 31,
@@ -781,6 +783,30 @@ describe('GridDomain hindsight row', () => {
             '2026-10-06 battery capacity may not match recorded flows (recorded 19.0 kWh, configured 34.2 kWh)',
         )
         expect(panel).not.toHaveTextContent('Days not scored')
+    })
+
+    it('lists the relaxed limits for a scored day and a specific failure reason', async () => {
+        vi.mocked(Api.batteryBenchmark).mockResolvedValue(
+            benchmark(
+                [
+                    benchDay('2026-10-05', 'scored', 2, null, ['limits_relaxed'], ['grid_import', 'inverter_ac']),
+                    benchDay('2026-10-06', 'failed', null, 'infeasible_with_recorded_limits'),
+                ],
+                {
+                    missed_sek: 2,
+                    score: 0.8,
+                    days_scored: 1,
+                    days_total: 2,
+                    by_warning: { limits_relaxed: 1 },
+                },
+            ),
+        )
+        await show30d()
+        expect(await screen.findByText('· 1/2 days')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Hindsight benchmark details' }))
+        const panel = screen.getByRole('dialog', { name: 'DS versus hindsight details' })
+        expect(panel).toHaveTextContent('2026-10-05 hindsight limits raised to recorded grid import, inverter AC')
+        expect(panel).toHaveTextContent('2026-10-06 hindsight plan not possible even with recorded limits')
     })
 
     it('lists unverified-slot and clamped-stock warnings for scored days', async () => {

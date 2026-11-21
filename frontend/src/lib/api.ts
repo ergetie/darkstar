@@ -748,6 +748,8 @@ export type BatteryBenchmarkDay = {
     implied_capacity_kwh: number | null
     /** Non-blocking warnings on the day (e.g. 'capacity_mismatch'); [] on legacy records. */
     warnings: string[]
+    /** Limits raised to recorded values when 'limits_relaxed' is set; absent on records before version 3. */
+    relaxed_limits?: string[]
     snapshot_slots: number
     /** Slots with an unmeasured device inside a derived load; 0 on legacy records. */
     partial_slots: number

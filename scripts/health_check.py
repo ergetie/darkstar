@@ -334,11 +334,6 @@ class HealthChecker:
             "pv_model_p90.lgb",
         ]
 
-        optional_models = [
-            "pv_error.lgb",
-            "load_error.lgb",
-        ]
-
         results: list[list[str]] = []
         found_models = 0
 
@@ -355,17 +350,6 @@ class HealthChecker:
                 found_models += 1
             else:
                 results.append([Symbols.CROSS, model, "MISSING", "N/A"])
-
-        # Check optional models
-        for model in optional_models:
-            model_path = models_dir / model
-            if model_path.exists():
-                age = datetime.now() - datetime.fromtimestamp(model_path.stat().st_mtime)
-                age_str = f"{age.days}d ago" if age.days > 0 else f"{age.seconds // 3600}h ago"
-                size_mb = model_path.stat().st_size / (1024 * 1024)
-                results.append([Symbols.CHECK, f"{model} (optional)", f"{size_mb:.1f}MB", age_str])
-            else:
-                results.append([Symbols.WARNING, f"{model} (optional)", "MISSING", "N/A"])
 
         self.print_table(["Status", "Model", "Size", "Last Modified"], results)
 

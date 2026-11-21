@@ -280,8 +280,10 @@ def build_price_features_batch(
     # Convert timezone to string for dst_safe_date_range
     tz_str = str(tz) if tz else "UTC"
 
-    # Generate slot timestamps
-    slots = dst_safe_date_range(start=start_time, end=end_time, freq="15min", tz=tz_str)
+    # Generate slot timestamps, half-open so the next day's 00:00 is not included
+    slots = dst_safe_date_range(
+        start=start_time, end=end_time, freq="15min", tz=tz_str, inclusive="left"
+    )
 
     records: list[dict[str, Any]] = []
     for slot in slots:

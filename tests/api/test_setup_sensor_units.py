@@ -18,16 +18,35 @@ STATES = {
 
 
 class FakeHA:
-    """Mocked httpx client recording every request, with a fixed per-request delay."""
+    """Mocked httpx client recording every request.
 
-    def __init__(self, delay=0.0):
+    With ``rendezvous`` set, each request waits (bounded) until that many requests are in
+    flight at once, so overlap is observed structurally instead of through elapsed time.
+    """
+
+    def __init__(self):
         self.urls: list[str] = []
-        self.delay = delay
+        self.rendezvous = 0
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self._gate: asyncio.Event | None = None
 
     async def get(self, url, **_kwargs):
         self.urls.append(url)
-        if self.delay:
-            await asyncio.sleep(self.delay)
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            if self.rendezvous:
+                if self._gate is None:
+                    self._gate = asyncio.Event()
+                if self.in_flight >= self.rendezvous:
+                    self._gate.set()
+                try:
+                    await asyncio.wait_for(self._gate.wait(), timeout=2.0)
+                except TimeoutError:
+                    pass  # sequential reads never meet; max_in_flight stays below target
+        finally:
+            self.in_flight -= 1
         entity_id = url.rsplit("/", 1)[-1]
         response = MagicMock()
         if entity_id not in STATES:
@@ -122,17 +141,14 @@ def test_cost_is_one_state_read_per_referenced_entity_and_no_planner(client, ha,
 
 
 def test_reads_run_concurrently(client, ha):
-    ha.delay = 0.05
+    ha.rendezvous = 4
     body = draft("sensor.pv_a")
     body["config"]["input_sensors"].update(battery_power="sensor.pv_b", grid_power="sensor.dead")
     body["config"]["system"]["has_battery"] = True
-    import time
-
-    started = time.perf_counter()
     client.post("/api/setup/sensor-units", json=body)
-    elapsed = time.perf_counter() - started
     assert len(ha.urls) == 4
-    assert elapsed < 0.15  # four sequential reads would take at least 0.2 s
+    # All four reads were in flight together; sequential reads would peak at 1.
+    assert ha.max_in_flight == 4
 
 
 def test_nothing_is_saved(client, ha, tmp_path, monkeypatch):

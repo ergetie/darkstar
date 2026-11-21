@@ -368,6 +368,7 @@ async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, 
                                 "end": end_time,
                                 "value": fc.get("spot_p50", 0) * 1000,  # Convert SEK/kWh to SEK/MWh
                                 "price_source": "forecast",
+                                "forecast_days_ahead": fc.get("forecast_days_ahead"),
                             }
                         )
                     logger.info(
@@ -539,15 +540,17 @@ def _process_nordpool_data(
             entry["value"], config, slot_start=start_time
         )
 
-        result.append(
-            {
-                "start_time": start_time,
-                "end_time": end_time,
-                "import_price_sek_kwh": import_price,
-                "export_price_sek_kwh": export_price,
-                "price_source": entry.get("price_source", "nordpool"),
-            }
-        )
+        processed_entry: dict[str, Any] = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "import_price_sek_kwh": import_price,
+            "export_price_sek_kwh": export_price,
+            "price_source": entry.get("price_source", "nordpool"),
+        }
+        # Forecast fallback slots carry the horizon of the issue they came from.
+        if entry.get("forecast_days_ahead") is not None:
+            processed_entry["forecast_days_ahead"] = entry["forecast_days_ahead"]
+        result.append(processed_entry)
 
     # Sort by start time to ensure chronological order
     result.sort(key=lambda x: x["start_time"])

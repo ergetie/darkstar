@@ -43,24 +43,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🐛 Fixes
 
-#### [Planner] Price Reserve Flaps On Biased D+1 Price Forecast
-
-**Goal:** Stop the price reserve from raising the SoC target on a D+1 price gap that is smaller than the forecast's own error.
-
-**Notes:** Status Reported, not verified. Reporter's D+1 forecast bias is +0.38 SEK/kWh (`d1_mae` 0.52, 10 days). On 2026-11-18 03:18 the reserve raised the SoC target by 7.7 kWh on a 0.24 SEK/kWh gap (3.60 vs 3.36) and flipped on/off at 03:18, 05:19, 05:49, 06:05 and 06:20. Suggested: subtract the rolling bias, or require the gap to exceed recent |bias|/MAE before activating. Source: GitHub #8 (Cm0n89), "Other findings".
-
-#### [Planner] Missing Slot At Nordpool To Forecast Boundary
-
-**Goal:** Make the schedule continuous where real Nordpool prices end and forecast prices begin.
-
-**Notes:** Status Reported, not verified. `/api/schedule` jumped from 2026-11-19 23:45 to 2026-11-20 00:15. Reporter suspects how `days_ahead` is assigned to the 00:00 slot in `price_forecasts`. Source: GitHub #8 (Cm0n89), "Other findings".
-
-#### [Benchmark] Battery Benchmark Infeasible On Full-Capacity Days
-
-**Goal:** Find out why the battery benchmark is infeasible on days that use nearly the whole battery, and fix it.
-
-**Notes:** Status Reported, not verified. Infeasible on 7 of 30 days for the reporter (incl. 2026-11-15 to 11-18), mostly days with `implied_capacity_kwh` ≥ 10.1 (capacity 10.24 kWh, min SoC 5 %). Reporter's 2026-11-09 and 11-10 `not_clean_recording` days may come from the missing backfill fixed in the #8 change. Source: GitHub #8 (Cm0n89), "Other findings".
-
 #### [Executor] Detect Inverter Mode Reverts And Power Mismatch
 
 **Goal:** Warn when the inverter does not follow the commanded mode or power.
@@ -86,12 +68,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 - Lesson from #8: a learned value must expire and say so when stale (the old `learning_daily_metrics` row overrode `base_factor` with 1.4066 from 2026-03-15 to 2026-11-19).
 - Related: memory note on treating `pv_confidence` as a safety margin only (PV forecast fix list, 2026-11-04).
 Source: GitHub #8 review and Reflex backtest.
-
-#### [Learning] Remove Dead Error-Correction Config And Models
-
-**Goal:** Remove the leftovers of the removed error-correction feature so the UI and API stop showing a broken feature.
-
-**Notes:** Status Confirmed 2026-11-19 (code read). `learning.error_correction_enabled` and `automation.ml_training.error_correction_enabled` are read nowhere in code (only docs and archived specs; the archived proposal kept them for backward compatibility). `/api/learning/training-status` still lists `pv_error.lgb` and `load_error.lgb` from 2026-03-13 (reported, not verified). Needs a config migration that drops the keys. Source: GitHub #8 (Cm0n89), "Other findings".
 
 #### [Settings] Warn About Out-Of-Range And Learning-Contradicted Settings
 

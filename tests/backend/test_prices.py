@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytz
@@ -86,3 +87,73 @@ async def test_known_spot_empty_data_warns(monkeypatch, caplog):
 
     assert known == {}
     assert "using forecasts only" in caplog.text
+
+
+def test_process_carries_forecast_days_ahead_only_when_present():
+    forecast = {**_make_entry(11, 300.0), "price_source": "forecast", "forecast_days_ahead": 2}
+    result = _process_nordpool_data([_make_entry(10, 500.0), forecast], {"timezone": "Europe/Stockholm"})
+    by_hour = {s["start_time"].hour: s for s in result}
+    assert "forecast_days_ahead" not in by_hour[10]
+    assert by_hour[11]["forecast_days_ahead"] == 2
+    assert by_hour[11]["price_source"] == "forecast"
+
+
+@pytest.mark.asyncio
+async def test_nordpool_data_with_forecast_fallback_is_continuous_across_midnight(
+    monkeypatch, tmp_path
+):
+    """Published today + D+1 forecast fallback: no gap at midnight, horizon carried."""
+    day = datetime(2026, 4, 28)
+    today_start = local_tz.localize(day)
+    tomorrow_start = today_start + timedelta(days=1)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return local_tz.localize(datetime(2026, 4, 28, 5, 0)).astimezone(tz)
+
+    async def fake_fetch_day(client, d, area, resolution, tz):
+        return [
+            {
+                "start": today_start + timedelta(minutes=15 * i),
+                "end": today_start + timedelta(minutes=15 * (i + 1)),
+                "value": 500.0,
+            }
+            for i in range(96)
+        ]
+
+    fallback = [
+        {
+            "slot_start": (tomorrow_start + timedelta(minutes=15 * i)).isoformat(),
+            "spot_p50": 0.4,
+            "forecast_days_ahead": 2,
+        }
+        for i in range(96)
+    ]
+    cache = MagicMock()
+    cache.get.return_value = None
+    monkeypatch.setattr(prices_mod, "datetime", FrozenDateTime)
+    monkeypatch.setattr(prices_mod, "cache_sync", cache)
+    monkeypatch.setattr(prices_mod, "_fetch_day", fake_fetch_day)
+    monkeypatch.setattr(prices_mod, "_save_last_good", AsyncMock())
+    monkeypatch.setattr(prices_mod, "Prices", MagicMock())
+    monkeypatch.setattr(
+        "ml.price_forecast.get_d1_price_forecast_fallback", AsyncMock(return_value=fallback)
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "timezone: Europe/Stockholm\nnordpool:\n  price_area: SE3\n  resolution_minutes: 15\n"
+    )
+
+    result = await prices_mod.get_nordpool_data(str(config_path))
+
+    assert len(result) == 192
+    starts = [r["start_time"] for r in result]
+    assert all(b - a == timedelta(minutes=15) for a, b in zip(starts, starts[1:], strict=False))
+    published = [r for r in result if r["start_time"] < tomorrow_start]
+    forecast_slots = [r for r in result if r["start_time"] >= tomorrow_start]
+    assert all(r["price_source"] == "nordpool" for r in published)
+    assert all("forecast_days_ahead" not in r for r in published)
+    assert all(
+        r["price_source"] == "forecast" and r["forecast_days_ahead"] == 2 for r in forecast_slots
+    )

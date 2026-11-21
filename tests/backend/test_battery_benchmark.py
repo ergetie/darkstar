@@ -12,13 +12,21 @@ from backend.battery_benchmark import (
     CAPACITY_TOLERANCE,
     _ev_charging,
     benchmark_day,
+    recorded_limit_relaxation,
     rows_by_local_day,
     schedule_cost,
     summarize,
 )
 from backend.measurement_provenance import ENERGY_SEMANTICS, PROVENANCE_SCHEMA_VERSION
 from planner.solver.kepler import KeplerSolver
-from planner.solver.types import KeplerBenchmark, KeplerConfig, KeplerInput, KeplerInputSlot
+from planner.errors import PlannerError
+from planner.solver.types import (
+    KeplerBenchmark,
+    KeplerBenchmarkRelaxation,
+    KeplerConfig,
+    KeplerInput,
+    KeplerInputSlot,
+)
 
 TZ = pytz.timezone("Europe/Stockholm")
 DAY = date(2026, 10, 8)
@@ -161,6 +169,45 @@ def test_no_discharge_during_recorded_ev_charging():
     assert record["missed_sek"] == pytest.approx(0.0, abs=1e-6)
 
 
+def _ev_day_rows() -> list[dict]:
+    """EV charging through the second half of the day at 2 kWh import per 15 minutes."""
+    return _day_rows(
+        DAY, row=lambda i, n: {"ev_charging_kwh": 1.0, "import_kwh": 2.0} if i >= n // 2 else {}
+    )
+
+
+def test_relaxation_makes_an_over_limit_recorded_slot_feasible():
+    slots = [
+        KeplerInputSlot(
+            start_time=TZ.localize(datetime(2026, 10, 8, h)),
+            end_time=TZ.localize(datetime(2026, 10, 8, h + 1)),
+            load_kwh=2.0,
+            pv_kwh=0.0,
+            import_price_sek_kwh=1.0,
+            export_price_sek_kwh=0.0,
+        )
+        for h in range(4)
+    ]
+    config = _config(max_import_power_kw=1.0)
+    strict = KeplerBenchmark(terminal_soc_kwh=5.0, no_discharge_slots=[True] * 4)
+    with pytest.raises(PlannerError):
+        KeplerSolver().solve(KeplerInput(slots, 5.0, benchmark=strict), config)
+
+    relaxed = KeplerBenchmark(
+        terminal_soc_kwh=5.0,
+        no_discharge_slots=[True] * 4,
+        relaxation=KeplerBenchmarkRelaxation(
+            import_kwh=[2.0] * 4,
+            export_kwh=[0.0] * 4,
+            inverter_ac_kwh=[0.0] * 4,
+            export_limits_off=[False] * 4,
+        ),
+    )
+    result = KeplerSolver().solve(KeplerInput(slots, 5.0, benchmark=relaxed), config)
+    assert result.is_optimal
+    assert all(s.grid_import_kwh == pytest.approx(2.0) for s in result.slots)
+
+
 def test_live_kepler_does_not_use_benchmark_mode():
     assert KeplerInput([], 0.0).benchmark is None
 
@@ -230,7 +277,7 @@ def test_solver_failure_on_clamped_day_is_stored_as_failed(monkeypatch):
     not_optimal = SimpleNamespace(time_limit_hit=False, status_msg="Infeasible", is_optimal=False)
     monkeypatch.setattr(KeplerSolver, "solve", lambda self, *_: not_optimal)
     record = benchmark_day(DAY, _full_battery_still_charging(), _config(), NOW)
-    assert (record["status"], record["reason"]) == ("failed", "solver_not_optimal")
+    assert (record["status"], record["reason"]) == ("failed", "infeasible_with_recorded_limits")
     assert record["solver_status"] == "Infeasible"
     assert "stock_clamped" in record["warnings"]
 
@@ -487,7 +534,7 @@ def test_summary_totals_cover_scored_days_only():
             "value_ideal_sek": 5.0,
         },
         {"status": "excluded", "reason": "not_clean_recording", "missed_sek": None},
-        {"status": "failed", "reason": "solver_not_optimal", "missed_sek": None},
+        {"status": "failed", "reason": "infeasible_with_recorded_limits", "missed_sek": None},
     ]
     records[0]["stored_change_kwh"] = 1.5
     records[1]["stored_change_kwh"] = -0.5
@@ -497,7 +544,7 @@ def test_summary_totals_cover_scored_days_only():
     assert totals["missed_sek"] == pytest.approx(3.0)
     assert totals["score"] == pytest.approx(12.0 / 15.0)
     assert (totals["days_scored"], totals["days_total"]) == (2, 4)
-    assert totals["by_reason"] == {"not_clean_recording": 1, "solver_not_optimal": 1}
+    assert totals["by_reason"] == {"not_clean_recording": 1, "infeasible_with_recorded_limits": 1}
     assert totals["by_warning"] == {"capacity_mismatch": 1}
     assert summarize([records[2]])["score"] is None
 
@@ -564,3 +611,146 @@ def test_unknown_load_or_grid_component_stays_unusable_even_with_partial_slots(c
 
     record = _run(_day_rows(DAY, row=flags))
     assert (record["status"], record["reason"]) == ("excluded", "not_clean_recording")
+
+
+def test_normal_day_has_no_relaxation_and_empty_relaxed_limits():
+    record = _run(_day_rows(DAY), config=_config(max_import_power_kw=10.0))
+    assert record["status"] == "scored"
+    assert "limits_relaxed" not in record["warnings"]
+    assert record["relaxed_limits"] == []
+    assert record["version"] == 3
+
+
+def test_full_swing_day_within_limits_is_scored_without_warning():
+    # Near empty to full in the first hour, within the 10 kW charge limit.
+    rows = _day_rows(
+        DAY,
+        row=lambda i, n: {"import_kwh": 3.5} if i < 4 else {},
+        soc=lambda i: min(100.0, (i + 1) * 25.0),
+    )
+    by_day = rows_by_local_day(_day_rows(DAY - timedelta(days=1), soc=lambda i: 0.0) + rows, TZ)
+    record = benchmark_day(DAY, by_day, _config(max_import_power_kw=14.0), NOW)
+    assert record["status"] == "scored"
+    assert "limits_relaxed" not in record["warnings"]
+    assert record["relaxed_limits"] == []
+
+
+def test_ev_import_above_limit_is_scored_with_limits_relaxed():
+    # 2 kWh per slot is 8 kW; the configured 4 kW cap makes the strict solve infeasible.
+    record = _run(_ev_day_rows(), config=_config(max_import_power_kw=4.0))
+    assert record["status"] == "scored"
+    assert record["reason"] is None
+    assert "limits_relaxed" in record["warnings"]
+    assert record["relaxed_limits"] == ["grid_import"]
+
+
+def test_pv_surplus_above_export_limit_is_scored_with_limits_relaxed():
+    rows = _day_rows(DAY, row=lambda i, n: {"pv_kwh": 3.0, "import_kwh": 0.0, "export_kwh": 2.0})
+    record = _run(rows, config=_config(max_export_power_kw=4.0))
+    assert record["status"] == "scored"
+    assert "limits_relaxed" in record["warnings"]
+    assert record["relaxed_limits"] == ["grid_export"]
+
+
+def test_export_while_export_is_disabled_lifts_the_export_toggle():
+    rows = _day_rows(DAY, row=lambda i, n: {"pv_kwh": 3.0, "import_kwh": 0.0, "export_kwh": 2.0})
+    record = _run(rows, config=_config(enable_export=False))
+    assert record["status"] == "scored"
+    assert record["relaxed_limits"] == ["grid_export"]
+
+
+def test_inverter_ac_limit_above_recorded_flow_is_relaxed():
+    # Recorded PV 3 kWh and load 1 kWh with 2 kWh export: AC flow 3 kWh > 2 kW * 0.25 h.
+    rows = _day_rows(DAY, row=lambda i, n: {"pv_kwh": 3.0, "import_kwh": 0.0, "export_kwh": 2.0})
+    record = _run(rows, config=_config(max_inverter_ac_kw=2.0))
+    assert record["status"] == "scored"
+    assert record["relaxed_limits"] == ["inverter_ac"]
+
+
+def test_day_stays_failed_with_specific_reason_when_relaxation_does_not_help(monkeypatch):
+    calls = []
+
+    def infeasible(self, input_data, _config):
+        calls.append(input_data.benchmark.relaxation)
+        return SimpleNamespace(time_limit_hit=False, status_msg="Infeasible", is_optimal=False)
+
+    monkeypatch.setattr(KeplerSolver, "solve", infeasible)
+    record = _run(_ev_day_rows(), config=_config(max_import_power_kw=4.0))
+    assert (record["status"], record["reason"]) == ("failed", "infeasible_with_recorded_limits")
+    assert "limits_relaxed" not in record["warnings"]
+    # Strict solve first, then exactly one relaxed solve.
+    assert [c is None for c in calls] == [True, False]
+
+
+def test_time_limit_after_relaxation_is_reported_as_time_limit(monkeypatch):
+    def slow(self, input_data, _config):
+        return SimpleNamespace(time_limit_hit=True, status_msg="Optimal", is_optimal=True)
+
+    monkeypatch.setattr(KeplerSolver, "solve", slow)
+    record = _run(_ev_day_rows(), config=_config(max_import_power_kw=4.0))
+    assert (record["status"], record["reason"]) == ("failed", "solver_time_limit")
+    assert record["solver_status"] == "time_limit"
+
+
+def _relaxation_rows(count=2, **fields):
+    row = {
+        "slot_start": "2026-10-08T00:00:00+02:00",
+        "slot_end": "2026-10-08T00:15:00+02:00",
+        "pv_kwh": 0.0,
+        "import_kwh": 0.0,
+        "export_kwh": 0.0,
+    }
+    return [row | fields for _ in range(count)]
+
+
+def test_export_floor_is_lifted_only_in_slots_that_exported_below_the_floor():
+    config = _config(enable_export=True, export_floor_soc_percent=50.0)
+    # Stock stays at 2 kWh (20 %), below the 5 kWh floor: only the exporting slot is lifted.
+    rows = _relaxation_rows(2)
+    rows[1]["export_kwh"] = 0.5
+    relaxation, relaxed = recorded_limit_relaxation(rows, [(0.0, 0.0), (0.0, 0.0)], 2.0, config)
+    assert relaxation.export_limits_off == [False, True]
+    assert relaxed == ["export_floor"]
+
+
+def test_export_above_the_floor_keeps_the_floor_constraint():
+    config = _config(enable_export=True, export_floor_soc_percent=50.0)
+    rows = _relaxation_rows(1, export_kwh=0.5)
+    relaxation, relaxed = recorded_limit_relaxation(rows, [(0.0, 0.0)], 8.0, config)
+    assert relaxation.export_limits_off == [False]
+    assert relaxed == []
+
+
+def test_export_disabled_is_lifted_only_in_slots_that_exported():
+    config = _config(enable_export=False)
+    rows = _relaxation_rows(2)
+    rows[0]["export_kwh"] = 0.5
+    relaxation, relaxed = recorded_limit_relaxation(rows, [(0.0, 0.0), (0.0, 0.0)], 5.0, config)
+    assert relaxation.export_limits_off == [True, False]
+    assert relaxed == ["grid_export"]
+
+
+@pytest.mark.parametrize(
+    ("topology", "expected"),
+    # PV 1.0 charges first (0.75), leaving pv_to_ac 0.25; discharge 0.5.
+    [("dc_coupled", 0.25 + 0.5), ("ac_coupled", 0.25 + 0.75 + 0.5)],
+)
+def test_inverter_cap_uses_modelled_flow_not_the_meter_balance(topology, expected):
+    config = _config(inverter_topology=topology, max_inverter_ac_kw=100.0)
+    rows = _relaxation_rows(1, pv_kwh=1.0)
+    relaxation, _ = recorded_limit_relaxation(rows, [(0.75, 0.5)], 5.0, config)
+    assert relaxation.inverter_ac_kwh[0] == pytest.approx(expected, abs=1e-5)
+
+
+def test_infeasible_day_with_no_exceeded_limit_is_not_retried(monkeypatch):
+    calls = []
+
+    def infeasible(self, input_data, _config):
+        calls.append(input_data.benchmark.relaxation)
+        return SimpleNamespace(time_limit_hit=False, status_msg="Infeasible", is_optimal=False)
+
+    monkeypatch.setattr(KeplerSolver, "solve", infeasible)
+    record = _run(_day_rows(DAY), config=_config(max_import_power_kw=100.0))
+    assert (record["status"], record["reason"]) == ("failed", "infeasible_with_recorded_limits")
+    assert record["relaxed_limits"] == []
+    assert calls == [None]

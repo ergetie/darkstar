@@ -728,3 +728,207 @@ async def test_post_publication_run_replaces_only_requested_horizons(tmp_db, pri
     by_horizon = {r.days_ahead: r.issue_timestamp for r in rows}
     assert by_horizon[1] == morning[0]["issue_timestamp"]
     assert {by_horizon[d] for d in range(2, 8)} == {later[0]["issue_timestamp"]}
+
+
+@pytest.mark.asyncio
+async def test_generate_persists_no_duplicate_slot_across_horizons(tmp_db, price_config):
+    """Each local day is half-open, so no slot_start is stored under two horizons."""
+    db_path, engine = tmp_db
+    p1, p2, p3, _p4 = _stub_generation_inputs()
+    lags = {
+        "price_lag_1d": float("nan"),
+        "price_lag_7d": float("nan"),
+        "price_lag_24h_avg": float("nan"),
+    }
+    with p1, p2, p3, patch("ml.price_features._get_price_lags", return_value=lags):
+        await generate_price_forecasts(price_config, db_path=db_path)
+
+    rows = _fetch_persisted_forecasts(engine)
+    starts = [r.slot_start for r in rows]
+    assert len(starts) == len(set(starts))
+    assert len(rows) >= 7 * 92
+
+
+def _rows(day: date, issue: str, days_ahead: int, p50: float | None = 0.5, slots: int = 96):
+    """Forecast rows for every 15-minute slot of ``day`` (UTC+02:00 offsets for brevity)."""
+    return [
+        {
+            "slot_start": f"{day.isoformat()}T{i // 4:02d}:{(i % 4) * 15:02d}:00+02:00",
+            "issue_timestamp": issue,
+            "days_ahead": days_ahead,
+            "spot_p10": None if p50 is None else p50 - 0.1,
+            "spot_p50": p50,
+            "spot_p90": None if p50 is None else p50 + 0.1,
+        }
+        for i in range(slots)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_forecasts_from_db_date_bounds(tmp_db):
+    """The date bounds return only slots whose local start date is in range."""
+    db_path, engine = tmp_db
+    base = date(2026, 4, 10)
+    rows = []
+    for offset in range(3):
+        rows += _rows(base + timedelta(days=offset), "2026-04-09T06:00:00+02:00", 1, slots=4)
+    _insert_forecasts(engine, rows)
+
+    one_day = await get_price_forecasts_from_db(
+        db_path=db_path, start_date=base + timedelta(days=1), end_date=base + timedelta(days=1)
+    )
+    assert len(one_day) == 4
+    assert all(r["slot_start"].startswith("2026-04-11") for r in one_day)
+
+    from_second = await get_price_forecasts_from_db(
+        db_path=db_path, start_date=base + timedelta(days=1)
+    )
+    assert len(from_second) == 8
+
+
+class _FrozenNow:
+    """Pin ml.price_forecast.datetime.now to a fixed local instant."""
+
+    @staticmethod
+    def patch(monkeypatch, fixed_now):
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+
+        monkeypatch.setattr("ml.price_forecast.datetime", FrozenDateTime)
+
+
+@pytest.mark.asyncio
+async def test_d1_fallback_before_daily_issue_uses_yesterdays_issue(
+    tmp_db, price_config, monkeypatch
+):
+    """Between 00:00 and the daily issue tomorrow only exists as days_ahead=2 rows."""
+    import pytz
+
+    db_path, engine = tmp_db
+    _FrozenNow.patch(monkeypatch, datetime(2026, 4, 10, 3, tzinfo=pytz.UTC))  # 05:00 local
+    _insert_forecasts(
+        engine,
+        _rows(date(2026, 4, 10), "2026-04-09T06:00:00+02:00", 1)
+        + _rows(date(2026, 4, 11), "2026-04-09T06:00:00+02:00", 2),
+    )
+
+    result = await get_d1_price_forecast_fallback(config=price_config, db_path=db_path)
+
+    assert result is not None
+    assert len(result) == 96
+    assert result[0]["slot_start"].startswith("2026-04-11T00:00")
+    assert {r["forecast_days_ahead"] for r in result} == {2}
+
+
+@pytest.mark.asyncio
+async def test_d1_fallback_after_daily_issue_uses_new_issue(tmp_db, price_config, monkeypatch):
+    import pytz
+
+    db_path, engine = tmp_db
+    _FrozenNow.patch(monkeypatch, datetime(2026, 4, 10, 9, tzinfo=pytz.UTC))
+    _insert_forecasts(
+        engine,
+        _rows(date(2026, 4, 11), "2026-04-09T06:00:00+02:00", 2, p50=0.5)
+        + _rows(date(2026, 4, 11), "2026-04-10T06:00:00+02:00", 1, p50=0.7),
+    )
+
+    result = await get_d1_price_forecast_fallback(config=price_config, db_path=db_path)
+
+    assert result is not None
+    assert len(result) == 96
+    assert {r["forecast_days_ahead"] for r in result} == {1}
+    assert {r["spot_p50"] for r in result} == {0.7}
+
+
+@pytest.mark.asyncio
+async def test_d1_fallback_mixed_issues_take_latest_per_slot(tmp_db, price_config, monkeypatch):
+    import pytz
+
+    db_path, engine = tmp_db
+    _FrozenNow.patch(monkeypatch, datetime(2026, 4, 10, 9, tzinfo=pytz.UTC))
+    old = _rows(date(2026, 4, 11), "2026-04-09T06:00:00+02:00", 2, p50=0.5)
+    new = _rows(date(2026, 4, 11), "2026-04-10T06:00:00+02:00", 1, p50=0.7, slots=48)
+    _insert_forecasts(engine, old + new)
+
+    result = await get_d1_price_forecast_fallback(config=price_config, db_path=db_path)
+
+    assert result is not None
+    assert len(result) == 96
+    by_horizon = {h: [r for r in result if r["forecast_days_ahead"] == h] for h in (1, 2)}
+    assert len(by_horizon[1]) == 48
+    assert len(by_horizon[2]) == 48
+    assert {r["spot_p50"] for r in by_horizon[1]} == {0.7}
+
+
+@pytest.mark.asyncio
+async def test_d1_fallback_ignores_newer_weather_only_rows(tmp_db, price_config, monkeypatch):
+    """A newer weather-only issue must not shadow an older real prediction."""
+    import pytz
+
+    db_path, engine = tmp_db
+    _FrozenNow.patch(monkeypatch, datetime(2026, 4, 10, 9, tzinfo=pytz.UTC))
+    _insert_forecasts(
+        engine,
+        _rows(date(2026, 4, 11), "2026-04-09T06:00:00+02:00", 2, p50=0.5)
+        + _rows(date(2026, 4, 11), "2026-04-10T06:00:00+02:00", 1, p50=None),
+    )
+
+    result = await get_d1_price_forecast_fallback(config=price_config, db_path=db_path)
+
+    assert result is not None
+    assert len(result) == 96
+    assert {r["forecast_days_ahead"] for r in result} == {2}
+
+
+@pytest.mark.asyncio
+async def test_d1_fallback_old_overlapping_rows_keep_midnight_once(
+    tmp_db, price_config, monkeypatch
+):
+    """Rows from the old 97-slot generation store tomorrow's 00:00 under two horizons."""
+    import pytz
+
+    db_path, engine = tmp_db
+    _FrozenNow.patch(monkeypatch, datetime(2026, 4, 10, 9, tzinfo=pytz.UTC))
+    tomorrow = date(2026, 4, 11)
+    day_after = date(2026, 4, 12)
+    _insert_forecasts(
+        engine,
+        _rows(tomorrow, "2026-04-10T06:00:00+02:00", 1)
+        + _rows(day_after, "2026-04-10T06:00:00+02:00", 2, slots=1)
+        + _rows(tomorrow, "2026-04-09T06:00:00+02:00", 2, slots=1),
+    )
+
+    result = await get_d1_price_forecast_fallback(config=price_config, db_path=db_path)
+
+    assert result is not None
+    starts = [r["slot_start"] for r in result]
+    assert len(starts) == len(set(starts)) == 96
+    assert starts.count("2026-04-11T00:00:00+02:00") == 1
+    assert all(s.startswith("2026-04-11") for s in starts)
+
+
+@pytest.mark.asyncio
+async def test_d1_fallback_returns_all_slots_on_fall_back_day(tmp_db, price_config, monkeypatch):
+    import pytz
+
+    db_path, engine = tmp_db
+    _FrozenNow.patch(monkeypatch, datetime(2026, 10, 24, 9, tzinfo=pytz.UTC))
+    tomorrow = date(2026, 10, 25)
+    rows = _rows(tomorrow, "2026-10-24T06:00:00+02:00", 1, slots=100)
+    # 100 distinct slot strings: the repeated 02:xx hour is distinguished by offset
+    for i, row in enumerate(rows):
+        if 8 <= i < 12:
+            row["slot_start"] = f"{tomorrow.isoformat()}T02:{(i % 4) * 15:02d}:00+02:00"
+        elif 12 <= i < 16:
+            row["slot_start"] = f"{tomorrow.isoformat()}T02:{(i % 4) * 15:02d}:00+01:00"
+        elif i >= 16:
+            j = i - 4
+            row["slot_start"] = f"{tomorrow.isoformat()}T{j // 4:02d}:{(j % 4) * 15:02d}:00+01:00"
+    _insert_forecasts(engine, rows)
+
+    result = await get_d1_price_forecast_fallback(config=price_config, db_path=db_path)
+
+    assert result is not None
+    assert len(result) == 100

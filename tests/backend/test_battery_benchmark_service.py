@@ -91,8 +91,38 @@ async def test_v1_capacity_mismatch_record_is_recomputed(store):
     await store.set_system_state("battery_benchmark:2026-10-10", json.dumps(legacy))
     assert await _service().run_once(store) == [YESTERDAY]
     record = (await _stored(store))["battery_benchmark:2026-10-10"]
-    assert (record["version"], record["status"], record["reason"]) == (2, "scored", None)
+    assert (record["version"], record["status"], record["reason"]) == (
+        service_module.BENCHMARK_VERSION,
+        "scored",
+        None,
+    )
     assert record["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_v2_scored_day_is_recomputed_under_the_current_version(store):
+    await _service().run_once(store)
+    key = "battery_benchmark:2026-10-10"
+    legacy = (await _stored(store))[key] | {"version": 2}
+    legacy.pop("relaxed_limits")
+    await store.set_system_state(key, json.dumps(legacy))
+    assert await _service().run_once(store) == [YESTERDAY]
+    record = (await _stored(store))[key]
+    assert (record["version"], record["relaxed_limits"]) == (3, [])
+
+
+@pytest.mark.asyncio
+async def test_legacy_solver_not_optimal_day_is_retried(store):
+    await _service().run_once(store)
+    key = "battery_benchmark:2026-10-10"
+    failed = (await _stored(store))[key] | {
+        "version": 2,
+        "status": "failed",
+        "reason": "solver_not_optimal",
+    }
+    await store.set_system_state(key, json.dumps(failed))
+    assert await _service().run_once(store) == [YESTERDAY]
+    assert (await _stored(store))[key]["status"] == "scored"
 
 
 @pytest.mark.asyncio

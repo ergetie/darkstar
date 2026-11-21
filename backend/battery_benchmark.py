@@ -24,12 +24,19 @@ from backend.measurement_provenance import (
 )
 from planner.errors import PlannerError
 from planner.solver.kepler import KeplerSolver
-from planner.solver.types import KeplerBenchmark, KeplerConfig, KeplerInput, KeplerInputSlot
+from planner.solver.types import (
+    KeplerBenchmark,
+    KeplerBenchmarkRelaxation,
+    KeplerConfig,
+    KeplerInput,
+    KeplerInputSlot,
+    KeplerResult,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-BENCHMARK_VERSION = 2
+BENCHMARK_VERSION = 3
 SLOT_MINUTES = 15
 CLEAN_METHODS = frozenset({"power_history", "derived_history", "disabled_zero"})
 MAX_UNVERIFIED_SLOTS = 4
@@ -47,6 +54,10 @@ ENERGY_FIELDS = (
     "ev_charging_kwh",
 )
 PRICE_FIELDS = ("import_price_sek_kwh", "export_price_sek_kwh")
+# Tolerance (kWh) when deciding that a recorded flow exceeded a configured limit.
+LIMIT_TOLERANCE_KWH = 1e-9
+# Margin (kWh) added to relaxed caps so solver tolerances cannot cut off the recorded point.
+RELAXED_CAP_MARGIN_KWH = 1e-6
 
 
 def state_key(day: date) -> str:
@@ -255,6 +266,7 @@ def base_record(day: date, config: KeplerConfig) -> dict[str, Any]:
         "capacity_kwh": config.capacity_kwh,
         "implied_capacity_kwh": None,
         "warnings": [],
+        "relaxed_limits": [],
         "snapshot_slots": 0,
         "partial_slots": 0,
         "unverified_slots": 0,
@@ -270,6 +282,99 @@ def base_record(day: date, config: KeplerConfig) -> dict[str, Any]:
         "solver_status": None,
         "solve_seconds": None,
     }
+
+
+def _slot_hours(row: Mapping[str, Any]) -> float:
+    return (
+        datetime.fromisoformat(row["slot_end"]) - datetime.fromisoformat(row["slot_start"])
+    ).total_seconds() / 3600
+
+
+def recorded_limit_relaxation(
+    rows: Sequence[Mapping[str, Any]],
+    flows: Sequence[tuple[float, float]],
+    initial: float,
+    config: KeplerConfig,
+) -> tuple[KeplerBenchmarkRelaxation, list[str]]:
+    """Per-slot grid-side limits implied by what was recorded, and the limits that were
+    actually exceeded in at least one slot (sorted names).
+
+    The recorded schedule is a feasible point of the relaxed model: grid caps use the
+    recorded meter flows, the inverter cap uses the inverter flow the recorded battery
+    flows imply (PV is routed to the battery first, as cheaply as the model allows), and
+    the export-disabled and export-floor constraints are lifted in slots that exported
+    while they were violated (export disabled, or modelled stock below the floor).
+    """
+    floor_kwh: float | None = None
+    if config.enable_export and config.export_floor_soc_percent is not None:
+        floor_kwh = config.capacity_kwh * config.export_floor_soc_percent / 100.0
+    relaxed: set[str] = set()
+    import_kwh: list[float] = []
+    export_kwh: list[float] = []
+    inverter_ac_kwh: list[float] = []
+    export_limits_off: list[bool] = []
+    stock = initial
+    for row, (charge, discharge) in zip(rows, flows, strict=True):
+        hours = _slot_hours(row)
+        stock += charge * config.charge_efficiency - discharge / config.discharge_efficiency
+        grid_import, grid_export = row["import_kwh"], row["export_kwh"]
+        import_kwh.append(grid_import + RELAXED_CAP_MARGIN_KWH)
+        export_kwh.append(grid_export + RELAXED_CAP_MARGIN_KWH)
+        if (
+            config.max_import_power_kw is not None
+            and grid_import > config.max_import_power_kw * hours + LIMIT_TOLERANCE_KWH
+        ):
+            relaxed.add("grid_import")
+        if (
+            config.max_export_power_kw is not None
+            and grid_export > config.max_export_power_kw * hours + LIMIT_TOLERANCE_KWH
+        ):
+            relaxed.add("grid_export")
+
+        pv_to_battery = min(charge, row["pv_kwh"])
+        pv_to_ac = row["pv_kwh"] - pv_to_battery
+        if config.inverter_topology == "ac_coupled":
+            ac_flow = pv_to_ac + charge + discharge
+        else:
+            ac_flow = pv_to_ac + discharge + (charge - pv_to_battery)
+        inverter_ac_kwh.append(ac_flow + RELAXED_CAP_MARGIN_KWH)
+        if (
+            config.max_inverter_ac_kw is not None
+            and ac_flow > config.max_inverter_ac_kw * hours + LIMIT_TOLERANCE_KWH
+        ):
+            relaxed.add("inverter_ac")
+
+        lift = False
+        if grid_export > LIMIT_TOLERANCE_KWH:
+            if not config.enable_export:
+                lift = True
+                relaxed.add("grid_export")
+            elif floor_kwh is not None and stock < floor_kwh - LIMIT_TOLERANCE_KWH:
+                lift = True
+                relaxed.add("export_floor")
+        export_limits_off.append(lift)
+    relaxation = KeplerBenchmarkRelaxation(
+        import_kwh=import_kwh,
+        export_kwh=export_kwh,
+        inverter_ac_kwh=inverter_ac_kwh,
+        export_limits_off=export_limits_off,
+    )
+    return relaxation, sorted(relaxed)
+
+
+def _solve_benchmark(
+    slots: list[KeplerInputSlot],
+    initial: float,
+    bench: KeplerBenchmark,
+    config: KeplerConfig,
+) -> tuple[KeplerResult | None, str, bool, bool]:
+    """One hindsight solve: (result, solver status, optimal, time limit hit)."""
+    try:
+        result = KeplerSolver().solve(KeplerInput(slots, initial, benchmark=bench), config)
+    except PlannerError as exc:
+        return None, str(exc.details.get("solver_status") or exc.code.value), False, False
+    status = "time_limit" if result.time_limit_hit else result.status_msg
+    return result, status, result.is_optimal and not result.time_limit_hit, result.time_limit_hit
 
 
 def benchmark_day(
@@ -352,21 +457,27 @@ def benchmark_day(
         no_discharge_slots=[_ev_charging(r) for r in rows],
     )
     started = time.monotonic()
-    try:
-        result = KeplerSolver().solve(KeplerInput(slots, initial, benchmark=bench), config)
-        status = "time_limit" if result.time_limit_hit else result.status_msg
-        optimal = result.is_optimal and not result.time_limit_hit
-    except PlannerError as exc:
-        status, optimal, result = (
-            str(exc.details.get("solver_status") or exc.code.value),
-            False,
-            None,
-        )
+    result, status, optimal, time_limit_hit = _solve_benchmark(slots, initial, bench, config)
+    if not optimal:
+        # Reality may have exceeded limits the strict solve enforces (EV charging above the
+        # import limit, PV surplus above the export limit): retry once with them lifted to
+        # what was recorded, but only when that actually changes the model.
+        relaxation, relaxed_limits = recorded_limit_relaxation(rows, flows, initial, config)
+        if relaxed_limits:
+            bench.relaxation = relaxation
+            result, status, optimal, time_limit_hit = _solve_benchmark(
+                slots, initial, bench, config
+            )
+            if optimal:
+                record["warnings"].append("limits_relaxed")
+                record["relaxed_limits"] = relaxed_limits
     record["solve_seconds"] = round(time.monotonic() - started, 3)
     record["solver_status"] = status
     if not optimal or result is None:
         record["status"] = "failed"
-        record["reason"] = "solver_not_optimal"
+        record["reason"] = (
+            "solver_time_limit" if time_limit_hit else "infeasible_with_recorded_limits"
+        )
         return record
 
     wear = config.wear_cost_sek_per_kwh

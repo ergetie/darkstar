@@ -191,12 +191,29 @@ class KeplerInputSlot:
 
 
 @dataclass
+class KeplerBenchmarkRelaxation:
+    """Per-slot grid-side limits lifted to what was recorded (benchmark retry only).
+
+    Each cap is a floor in kWh: the solver uses ``max(configured * hours, cap)`` for
+    the grid import, grid export and inverter AC limits. ``export_limits_off`` lifts
+    the export-disabled and export-floor constraints in that slot.
+    """
+
+    import_kwh: list[float]
+    export_kwh: list[float]
+    inverter_ac_kwh: list[float]
+    export_limits_off: list[bool]
+
+
+@dataclass
 class KeplerBenchmark:
     """Hindsight benchmark mode: battery-only, no policy terms, fixed end stock."""
 
     terminal_soc_kwh: float
     # Per-slot True where the battery must not discharge (recorded EV charging).
     no_discharge_slots: list[bool]
+    # Set only for the retry after an infeasible strict solve.
+    relaxation: KeplerBenchmarkRelaxation | None = None
 
 
 @dataclass
