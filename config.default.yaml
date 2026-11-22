@@ -226,6 +226,8 @@ manual_planning:
 debug:
   enable_planner_debug: false          # Enable verbose planner logging
   sample_size: 30                      # Sample size for debug output charts
+  plan_archive_enabled: true           # Keep a compressed record of every planner run (Debug page > Plan archive)
+  plan_archive_retention_days: 60      # Days to keep plan archive records (at least 7)
 
 # Automation (Background Scheduler)
 automation:

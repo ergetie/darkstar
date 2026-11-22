@@ -11,6 +11,7 @@ sys.path.append(str(Path(__file__).parent.parent.resolve()))
 import yaml
 
 from backend.core.forecasts import get_all_input_data
+from backend.services import plan_archive
 from planner.pipeline import generate_schedule
 
 
@@ -52,6 +53,7 @@ async def main(
         "config.yaml",
         ev_plug_overrides=ev_plug_overrides,
     )
+    plan_archive.capture("inputs", input_data)
 
     # Phase: Applying learning
     if progress_callback:

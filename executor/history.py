@@ -209,6 +209,46 @@ class ExecutionHistory:
                 for r in results
             ]
 
+    def get_failures_since(
+        self, since_iso: str, limit: int = 50
+    ) -> tuple[list[dict[str, Any]], int]:
+        """
+        Failed executions (``success = 0``) logged after ``since_iso``.
+
+        Returns the newest ``limit`` rows, oldest first, with ``executed_at``,
+        ``slot_start`` and ``error_message``, plus the total number of matching rows.
+        ``since_iso`` is converted to the history's timezone (``executed_at`` is stored as
+        local ISO text); a value without an offset is read as UTC. Read-only.
+        """
+        since = datetime.fromisoformat(since_iso)
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=pytz.UTC)
+        cutoff = since.astimezone(self.timezone).isoformat()
+        condition = (ExecutionLog.success == 0, ExecutionLog.executed_at > cutoff)
+
+        with self.Session() as session:
+            total = session.execute(select(func.count(ExecutionLog.id)).where(*condition)).scalar()
+            rows = session.execute(
+                select(
+                    ExecutionLog.executed_at,
+                    ExecutionLog.slot_start,
+                    ExecutionLog.error_message,
+                )
+                .where(*condition)
+                .order_by(desc(ExecutionLog.executed_at), desc(ExecutionLog.id))
+                .limit(limit)
+            ).all()
+
+        failures = [
+            {
+                "executed_at": r.executed_at,
+                "slot_start": r.slot_start,
+                "error_message": r.error_message,
+            }
+            for r in reversed(rows)
+        ]
+        return failures, int(total or 0)
+
     def get_latest(self) -> dict[str, Any] | None:
         """Get the most recent execution record."""
         records = self.get_history(limit=1)

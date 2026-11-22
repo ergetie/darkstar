@@ -40,6 +40,8 @@
     "manual_planning.export_target_percent": "Floor target when manually scheduling export",
     "debug.enable_planner_debug": "Enable verbose planner logging",
     "debug.sample_size": "Sample size for debug output charts",
+    "debug.plan_archive_enabled": "Keep a compressed record of every planner run (Debug page > Plan archive)",
+    "debug.plan_archive_retention_days": "Days to keep plan archive records (at least 7)",
     "automation.enable_scheduler": "Enable automatic schedule regeneration",
     "price_forecast.enabled": "Toggle ML-based spot price forecasts (D+1 to D+7). Training runs regardless.",
     "automation.schedule.every_minutes": "How often to regenerate schedule",

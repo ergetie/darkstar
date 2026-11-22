@@ -1358,6 +1358,15 @@ export type DashboardBundleResponse = {
     } | null
 }
 export type AuroraBriefingResponse = { briefing: string }
+export type PlanArchiveSummary = {
+    enabled: boolean
+    retention_days: number
+    count: number
+    total_bytes: number
+    oldest: string | null
+    newest: string | null
+}
+
 export type LogInfoResponse = {
     filename: string
     size_bytes: number
@@ -1818,6 +1827,9 @@ export const Api = {
     systemHealth: () => getJSON<SystemHealthResponse>('/api/system/health'),
     monitors: () => getJSON<MonitorStatus>('/api/system/monitors'),
     clearLogs: () => getJSON<{ status: string }>('/api/system/logs', 'DELETE'),
+    // Plan archive (per-run planner records)
+    planArchiveSummary: () => getJSON<PlanArchiveSummary>('/api/debug/plan-archive'),
+    clearPlanArchive: () => getJSON<{ deleted: number }>('/api/debug/plan-archive', 'DELETE'),
     // Load Disaggregation Debug (Rev ARC12)
     loadsDebug: () => getJSON<LoadsDebugResponse>('/api/loads/debug'),
     // Profile Management (Rev IP4)

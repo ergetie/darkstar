@@ -64,7 +64,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 - `pv_confidence` tuning cannot converge: Reflex measures the stored forecast, but the factor is applied later in the planner (`planner/inputs/data_prep.py:206`), so its own changes never reach what it measures.
 - `pv_confidence` cuts an already ML-corrected forecast: Aurora's `pv_forecast_kwh` = Open-Meteo baseline + bounded, weighted ML residual (`ml/forward.py:176`, `:739`); prod runs hybrid mode at 100 % weight (91/14 paired days). Prod 2026-11-01 to 11-19 (1824 slots, latest stored forecast per slot, not day-ahead): Open-Meteo 169.7 kWh, Aurora 104.2 kWh, planner after 83 % = 86.5 kWh, actual 117.0 kWh.
 - `base_factor` is only the fallback when the default `probabilistic` S-index (`config.default.yaml:204`) fails; the margin already adapts from forecast p10/p90.
-- Capacity estimator (`store.py` `get_capacity_estimate`) is not usable: 1 % SoC steps per 15-min slot, rejects estimates ≤ 10 kWh, and prod has `soc_start_percent` in only 11 rows. The existing hindsight capacity warning covers degradation.
+- Capacity estimator (`store.py:1031` `get_capacity_estimate`) is broken, not the data: it requires `soc_start_percent`, which the recorder never writes (`backend/recorder.py:611` writes only `soc_end_percent`; prod 2026-11-21: start filled in 11 of 36,846 `slot_observations` rows, end filled in 36,692). The previous slot's `soc_end_percent` works as the start, which is how `backend/battery_benchmark.py:238-243` fits capacity. 1 % SoC steps make single-slot estimates noisy, so estimate over multi-slot segments. The existing hindsight capacity warning covers degradation.
 - Lesson from #8: a learned value must expire and say so when stale (the old `learning_daily_metrics` row overrode `base_factor` with 1.4066 from 2026-03-15 to 2026-11-19).
 - Related: memory note on treating `pv_confidence` as a safety margin only (PV forecast fix list, 2026-11-04).
 Source: GitHub #8 review and Reflex backtest.
@@ -78,12 +78,6 @@ Source: GitHub #8 review and Reflex backtest.
 ---
 
 ## ✨ New Features
-
-#### [Debug] Planner Run Archive With UI Download
-
-**Goal:** Keep every planning run's full inputs and plan (and planner/executor errors) for a set period, so past decisions can be replayed and shared for support; the user can download it from the Debug page and clear it.
-
-**Notes:** Found 2026-10-06 (cmon89 investigation): past decisions could not be reconstructed. `schedule.json` already holds each run's full per-slot inputs (adjusted PV/load, prices) and plan, but is overwritten every run; `slot_plans`/`slot_forecasts` keep only the last value per slot; `debug.enable_planner_debug` stores only a 30-slot sample (`planner/output/debug.py`); the log rotates and is wiped on add-on restart. Verified that re-solving an archived `schedule.json` with the offline Kepler reproduces the real plan exactly (0/122 slots differ). Retention 60–90 days, gzip (~10 kB/run, ~0.5 MB/day). Include initial SoC, safety floor, config version, solver status. Storage location (DB vs files) to decide. Enables the automatic daily replay item. Temporary stand-in on the maintainer's prod since 2026-10-06: a root cron (every minute) gzips each new `schedule.json` into `/opt/darkstar/data/plan_archive/`, and `debug.enable_planner_debug: true` is set. Remove both when this item ships or the investigation (`ops/investigations/cmon-underperformance-2026-10-06.md`) no longer needs them.
 
 #### [Planner] Planned 1-Phase Mode For Phase-Switching Chargers
 
@@ -118,9 +112,3 @@ Source: GitHub #8 review and Reflex backtest.
 ---
 
 ## 💡 Future Ideas / Deferred
-
-#### [Planner] Nordic Support (NO/FI/DK)
-
-**Goal:** Support Norwegian, Finnish and Danish price areas properly.
-
-**Notes:** Deferred 2026-11-19 (Sweden-only for beta exit). Traced 2026-11-18: nordpool lib fetches these areas, but currency is hard-labelled SEK (`KPIStrip.tsx:33`, `:50`, `:97`; `_sek` names in `prices.py`), tax defaults are Swedish (`config.default.yaml:274-276`), weather/ML regions are SE only (`ml/regions.json`, `ml/weather.py:856-873`), frontend timezone hardcoded `Europe/Stockholm` (`ChartCard.logic.ts:43`, `lib/time.ts:10`), no price_area/currency validation. Revisit when a non-Swedish user asks.

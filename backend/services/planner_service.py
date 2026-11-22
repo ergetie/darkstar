@@ -14,7 +14,9 @@ from typing import Any
 
 from backend.core.cache import cache
 from backend.core.exception_text import describe_exception
+from backend.core.secrets import load_yaml
 from backend.core.websockets import ws_manager
+from backend.services import plan_archive
 from planner.errors import (
     PlannerError,
     PlannerErrorCode,
@@ -279,6 +281,7 @@ class PlannerService:
         planned_at = datetime.now(UTC)
         self._planner_start_time = start
 
+        run_capture = plan_archive.start_capture()
         try:
             await self._emit_progress("fetching_inputs")
 
@@ -307,6 +310,15 @@ class PlannerService:
             result.duration_ms = (datetime.now() - start).total_seconds() * 1000
 
             if result.success:
+                await self._archive_run(run_capture, "ok", None)
+            else:
+                await self._archive_run(
+                    run_capture,
+                    "error",
+                    {"code": None, "message": result.error, "details": None},
+                )
+
+            if result.success:
                 await self._emit_progress("complete")
                 self._on_success()
                 await self._notify_success(result)
@@ -326,6 +338,11 @@ class PlannerService:
             self._last_error_at = datetime.now(UTC)
             self._last_error_details = e.details or {}
             self._apply_retry_policy(e.code)
+            await self._archive_run(
+                run_capture,
+                "error",
+                {"code": e.code.value, "message": e.message, "details": e.details},
+            )
 
             # naive by design: elapsed-duration only, never crosses a module boundary
             duration_ms = (datetime.now() - start).total_seconds() * 1000
@@ -353,6 +370,15 @@ class PlannerService:
             self._last_error_at = datetime.now(UTC)
             self._last_error_details = {"exception": str(e)}
             self._apply_retry_policy(PlannerErrorCode.UNKNOWN)
+            await self._archive_run(
+                run_capture,
+                "error",
+                {
+                    "code": PlannerErrorCode.UNKNOWN.value,
+                    "message": f"{type(e).__name__}: {e!s}",
+                    "details": {"exception": str(e)},
+                },
+            )
 
             # naive by design: elapsed-duration only, never crosses a module boundary
             duration_ms = (datetime.now() - start).total_seconds() * 1000
@@ -371,6 +397,25 @@ class PlannerService:
             self._planner_start_time = None
 
             return result
+
+        finally:
+            plan_archive.end_capture()
+
+    async def _archive_run(
+        self,
+        run_capture: plan_archive.RunCapture,
+        outcome: str,
+        error: dict[str, Any] | None,
+    ) -> None:
+        """Write the run's archive record; never raises into the planner run."""
+        try:
+            if outcome == "ok" and not run_capture.data:
+                # run_planner returned 0 without planning (scheduler disabled): not a run.
+                return
+            config = load_yaml("config.yaml") or {}
+            await plan_archive.write_record(run_capture, outcome, error, config)
+        except Exception as exc:
+            logger.warning("Plan archive failed: %s", describe_exception(exc))
 
     def _on_success(self) -> None:
         self._consecutive_failures = 0

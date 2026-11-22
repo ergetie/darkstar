@@ -48,7 +48,7 @@ async def save_schedule_to_json(
     planner_state: dict[str, Any],
     output_path: str | Path = DEFAULT_SCHEDULE_PATH,
     extra_meta: dict[str, Any] | None = None,
-) -> None:
+) -> dict[str, Any]:
     """
     Save the final schedule to schedule.json in the required format.
     Only current and future slots are written; past slots are dropped on each replan.
@@ -119,3 +119,4 @@ async def save_schedule_to_json(
             return super().default(o)
 
     write_json_atomic(output_path, output, encoder=DateTimeEncoder)
+    return output

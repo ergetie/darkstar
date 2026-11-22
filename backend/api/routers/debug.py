@@ -4,6 +4,8 @@ Debug API Router - Rev ARC1
 Provides debug endpoints for logs, history, and diagnostics.
 """
 
+import asyncio
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -12,11 +14,16 @@ from typing import Any, cast
 
 import pytz
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from backend.core.ha_client import get_dummy_load_profile, get_load_profile_from_ha
 from backend.core.logging import get_ring_buffer
 from backend.core.secrets import load_yaml
+from backend.core.version import get_version as _get_git_version
 from backend.learning import get_learning_engine
+from backend.services import plan_archive
 
 logger = logging.getLogger("darkstar.api.debug")
 
@@ -426,3 +433,90 @@ def _get_executor_diagnostic_message(
     if executor.status.last_run_at is None:
         return "🔄 Executor is enabled but hasn't run yet"
     return "✅ Executor is running normally"
+
+
+# ---------------------------------------------------------------------------
+# Plan archive (per-run planner records, see backend/services/plan_archive.py)
+# ---------------------------------------------------------------------------
+
+# One download at a time: the zip is built in a temporary file next to the records.
+_plan_archive_download_lock = asyncio.Lock()
+
+
+class PlanArchiveSummary(BaseModel):
+    """State and size of the plan archive."""
+
+    enabled: bool
+    retention_days: int
+    count: int
+    total_bytes: int
+    oldest: str | None
+    newest: str | None
+
+
+class PlanArchiveClearResponse(BaseModel):
+    """Result of clearing the plan archive."""
+
+    deleted: int
+
+
+def _remove_temp_file(path: Path) -> None:
+    with contextlib.suppress(OSError):
+        path.unlink(missing_ok=True)
+
+
+@router.get(
+    "/api/debug/plan-archive",
+    summary="Plan Archive Summary",
+    description="Enabled state, retention, record count, total size and date range of the plan archive.",
+    response_model=PlanArchiveSummary,
+)
+async def plan_archive_summary() -> dict[str, Any]:
+    """Summarise the plan archive without reading any record."""
+    config = load_yaml("config.yaml") or {}
+    return await asyncio.to_thread(plan_archive.summary, config)
+
+
+@router.get(
+    "/api/debug/plan-archive/download",
+    summary="Download Plan Archive",
+    description=(
+        "Zip of the archived planner runs (optionally only the last N days) plus a manifest.json. "
+        "Records are already redacted when written."
+    ),
+)
+async def plan_archive_download(
+    days: int | None = Query(None, ge=1, le=365),
+) -> FileResponse:
+    """Build and return a zip of the archive records."""
+    if _plan_archive_download_lock.locked():
+        raise HTTPException(409, "Another plan archive download is already in progress")
+    async with _plan_archive_download_lock:
+        try:
+            zip_path = await asyncio.to_thread(plan_archive.build_download_zip, days)
+        except FileNotFoundError as e:
+            raise HTTPException(404, "The plan archive holds no records") from e
+        except Exception as e:
+            logger.exception("Plan archive download failed")
+            raise HTTPException(500, f"Plan archive download failed: {e}") from e
+
+    safe_version = "".join(c if c.isalnum() or c in ".-_" else "_" for c in _get_git_version())
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    return FileResponse(
+        path=zip_path,
+        filename=f"darkstar-plan-archive-{safe_version}-{stamp}.zip",
+        media_type="application/zip",
+        background=BackgroundTask(_remove_temp_file, zip_path),
+    )
+
+
+@router.delete(
+    "/api/debug/plan-archive",
+    summary="Clear Plan Archive",
+    description="Delete all archived planner run records. Other files in data/ are untouched.",
+    response_model=PlanArchiveClearResponse,
+)
+async def plan_archive_clear() -> dict[str, int]:
+    """Delete every archive record."""
+    deleted = await asyncio.to_thread(plan_archive.clear)
+    return {"deleted": deleted}

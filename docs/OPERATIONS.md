@@ -120,6 +120,7 @@ A background task prunes old rows once a day (first check about 10 minutes after
 | `learning.learning_runs_retention_days` | 0 (forever) | 365 | Learning run history |
 | `learning.s_index_history_retention_days` | 365 | 90 | S-Index calibration history |
 | `learning.planner_debug_retention_days` | 14 | 1 | Planner debug payloads |
+| `debug.plan_archive_retention_days` | 60 | 7 | Plan archive files (`data/plan_archive/`, not in the database) |
 
 `0` means keep forever and is only accepted by the keys whose default is 0. The learning data grows by roughly 80 MB per year.
 

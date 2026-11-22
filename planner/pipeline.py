@@ -37,6 +37,7 @@ from backend.core.ev_power import (
 from backend.core.version import get_version
 from backend.core.water_heating import active_water_heaters, validate_water_heating_config
 from backend.learning.store import LearningStore
+from backend.services import plan_archive
 from ml.price_accuracy import load_forecast_accuracy
 from planner.battery_limits import resolve_battery_power_limits
 from planner.errors import PlannerError, PlannerErrorCode
@@ -2177,8 +2178,25 @@ class PlannerPipeline:
 
         run_preflight(input_data, active_config, now=real_now.to_pydatetime())
 
+        capacity_kwh = float(kepler_config.capacity_kwh)
+        plan_archive.capture("initial_soc_kwh", initial_soc_kwh)
+        plan_archive.capture(
+            "initial_soc_percent",
+            initial_soc_kwh / capacity_kwh * 100.0 if capacity_kwh > 0 else None,
+        )
+        plan_archive.capture(
+            "safety_floor",
+            {
+                **(s_index_debug.get("safety_floor") or {}),
+                "target_soc_kwh": target_soc_kwh,
+                "target_soc_pct": target_soc_pct,
+            },
+        )
+
         solver = KeplerSolver()
         result = await asyncio.to_thread(solver.solve, kepler_input, kepler_config)
+        plan_archive.capture("solver_status", result.status_msg if result else "unknown")
+        plan_archive.capture("time_limit_hit", result.time_limit_hit if result else None)
 
         ev_goal_diagnostics: dict[str, dict[str, Any]] = {}
         if has_ev_charger and result.slots:
@@ -2336,7 +2354,7 @@ class PlannerPipeline:
                 s_index_debug["soc_target_kwh"] = target_soc_kwh
                 s_index_debug["soc_target_percent"] = target_soc_pct
 
-            await save_schedule_to_json(
+            saved_schedule = await save_schedule_to_json(
                 final_df,
                 active_config,
                 now_slot,
@@ -2356,6 +2374,7 @@ class PlannerPipeline:
                     "time_limit_hit": result.time_limit_hit,
                 },
             )
+            plan_archive.capture("schedule", saved_schedule)
 
             # Rev UI5: Always store plan to slot_plans for performance tracking
             await _store_plan_history(final_df, active_config, timezone_name)

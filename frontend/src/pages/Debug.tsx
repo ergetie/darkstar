@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal, Activity, Download, Loader2, Trash2, RefreshCw, ShieldCheck } from 'lucide-react'
 import Card from '../components/Card'
 import MonitorStatusCard from '../components/MonitorStatusCard'
+import PlanArchiveCard from '../components/PlanArchiveCard'
 import { downloadFile } from '../lib/download'
 import { useToast } from '../lib/useToast'
 import { Api, type DebugLogsResponse, type LogInfoResponse, type LoadsDebugResponse } from '../lib/api'
@@ -243,45 +244,48 @@ function LogsView({
                 )}
             </Card>
 
-            <Card className="p-5 lg:col-span-1">
-                <div className="text-sm text-muted mb-3">Recent events</div>
-                <div className="text-[13px] text-muted/80 mb-2">
-                    Quick view of recent errors and warnings from the log stream.
-                </div>
-                <div className="space-y-2 text-[12px] text-muted/90">
-                    <div className="flex items-center justify-between">
-                        <span>Total log entries</span>
-                        <span className="tabular-nums">{logs.length}</span>
+            <div className="space-y-6 lg:col-span-1">
+                <Card className="p-5">
+                    <div className="text-sm text-muted mb-3">Recent events</div>
+                    <div className="text-[13px] text-muted/80 mb-2">
+                        Quick view of recent errors and warnings from the log stream.
                     </div>
-                    <div className="flex items-center justify-between">
-                        <span>Error/critical entries</span>
-                        <span className="tabular-nums">{errorLogs.length}</span>
-                    </div>
-                    <div className="mt-3 text-[11px] text-muted/70 uppercase tracking-wide">Last errors</div>
-                    <div className="space-y-1.5 max-h-40 overflow-auto">
-                        {errorLogs.slice(-5).map((entry, idx) => (
-                            <div
-                                key={`${entry.timestamp}-err-${idx}`}
-                                className="rounded-md bg-rose-500/5 border border-rose-500/40 px-2 py-1.5"
-                            >
-                                <div className="text-[10px] text-rose-200/80 mb-0.5">
-                                    {new Date(entry.timestamp).toLocaleTimeString(undefined, {
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        second: '2-digit',
-                                        hour12: false,
-                                    })}{' '}
-                                    · {entry.logger}
+                    <div className="space-y-2 text-[12px] text-muted/90">
+                        <div className="flex items-center justify-between">
+                            <span>Total log entries</span>
+                            <span className="tabular-nums">{logs.length}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Error/critical entries</span>
+                            <span className="tabular-nums">{errorLogs.length}</span>
+                        </div>
+                        <div className="mt-3 text-[11px] text-muted/70 uppercase tracking-wide">Last errors</div>
+                        <div className="space-y-1.5 max-h-40 overflow-auto">
+                            {errorLogs.slice(-5).map((entry, idx) => (
+                                <div
+                                    key={`${entry.timestamp}-err-${idx}`}
+                                    className="rounded-md bg-rose-500/5 border border-rose-500/40 px-2 py-1.5"
+                                >
+                                    <div className="text-[10px] text-rose-200/80 mb-0.5">
+                                        {new Date(entry.timestamp).toLocaleTimeString(undefined, {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                            second: '2-digit',
+                                            hour12: false,
+                                        })}{' '}
+                                        · {entry.logger}
+                                    </div>
+                                    <div className="text-[11px] text-rose-50/90 line-clamp-2">{entry.message}</div>
                                 </div>
-                                <div className="text-[11px] text-rose-50/90 line-clamp-2">{entry.message}</div>
-                            </div>
-                        ))}
-                        {errorLogs.length === 0 && (
-                            <div className="text-[11px] text-muted/70">No error-level entries yet.</div>
-                        )}
+                            ))}
+                            {errorLogs.length === 0 && (
+                                <div className="text-[11px] text-muted/70">No error-level entries yet.</div>
+                            )}
+                        </div>
                     </div>
-                </div>
-            </Card>
+                </Card>
+                <PlanArchiveCard />
+            </div>
         </div>
     )
 }
