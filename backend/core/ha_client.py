@@ -356,7 +356,7 @@ def normalize_power_for_entity(
     overrides: Mapping[str, str] | None = None,
     *,
     path_key: str | None = None,
-    idle_power_threshold_kw: object = DEFAULT_IDLE_POWER_THRESHOLD_KW,
+    idle_power_threshold_kw: object = None,
 ) -> float | None:
     """Convert a power reading of ``entity_id`` to kW using ``resolve_power_unit``."""
     resolved = resolve_power_unit(entity_id, reported_unit, overrides, path_key=path_key)

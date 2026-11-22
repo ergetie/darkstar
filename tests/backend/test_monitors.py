@@ -227,6 +227,30 @@ class TestViolations:
         assert r.status == "pass"
 
     @pytest.mark.asyncio
+    async def test_energy_balance_skips_slots_flagged_unreliable_base_load(self, mon_db, monitors):
+        import sqlite3
+
+        seed_healthy(mon_db)
+        flags = json.dumps(
+            {"base_load": {"reliable": False, "reasons": ["legacy_counter_clamp"]}}
+        )
+        con = sqlite3.connect(mon_db)
+        now = datetime.now(TZ).replace(minute=0, second=0, microsecond=0)
+        for i in range(ENERGY_VIOLATION_COUNT):
+            t = now - timedelta(hours=2, minutes=15 * i)
+            con.execute(
+                "UPDATE slot_observations SET import_kwh = 10.0, quality_flags = ? "
+                "WHERE slot_start = ?",
+                (flags, t.isoformat()),
+            )
+        con.commit()
+        con.close()
+
+        results = await monitors.evaluate_all()
+        r = next(x for x in results if x.name == "energy_balance")
+        assert r.status == "pass"
+
+    @pytest.mark.asyncio
     async def test_soc_out_of_bounds(self, mon_db, monitors):
         import sqlite3
 

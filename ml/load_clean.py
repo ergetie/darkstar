@@ -7,7 +7,8 @@ Rules (universal, no per-site values):
 
 * Legacy ``source: backfill`` rows without modern ``recording`` provenance are dropped.
 * Rows whose recorded provenance has an unmeasured device (``unknown``, ``snapshot`` or
-  ``mixed``; derived load still contains its energy) or an unknown load are dropped.
+  ``mixed``; derived load still contains its energy), an unknown load, or a
+  ``quality_flags.base_load.reliable == false`` flag are dropped.
   A device with ``unconfigured_zero`` does not drop a row.
 * Whole legacy local days with a clamp signature are dropped. The pre-recorder pipeline
   subtracted EV load and clamped at 0, leaving days with near-zero load while import, PV
@@ -25,6 +26,7 @@ import pandas as pd
 from backend.measurement_provenance import (
     SUPPORTED_METHODS,
     UNMEASURED_DEVICE_METHODS,
+    base_load_unreliable,
     device_component_methods,
     parse_quality_flags,
     parse_recording,
@@ -67,10 +69,15 @@ def has_unmeasured_device(raw: object) -> bool:
     """Whether recorded provenance shows a device or load whose energy was not measured.
 
     True for any device component (``ev``, ``water``, any other) with method ``unknown``,
-    ``snapshot`` or ``mixed``, or ``load`` with method ``unknown``. ``unconfigured_zero``
-    devices are fine, and rows without provenance are untouched (False).
+    ``snapshot`` or ``mixed``, or ``load`` with method ``unknown``, and for any row whose
+    ``base_load`` flag says the base load is unreliable (also without provenance).
+    ``unconfigured_zero`` devices are fine, and unflagged rows without provenance are
+    untouched (False).
     """
-    recording = parse_recording(parse_quality_flags(raw), SUPPORTED_METHODS)
+    flags = parse_quality_flags(raw)
+    if base_load_unreliable(flags):
+        return True
+    recording = parse_recording(flags, SUPPORTED_METHODS)
     if recording is None:
         return False
     components = cast("dict[str, Any]", recording["components"])
@@ -139,7 +146,8 @@ def clean_load_observations(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, i
     for col in _FLOW_COLUMNS:
         if col in df.columns:
             flow_active |= pd.to_numeric(df[col], errors="coerce") > CLAMP_FLOW_KWH
-    clamp_slot = (load <= CLAMP_LOAD_KWH) & flow_active
+    # A slot already flagged as an unreliable base load is no real zero for the statistic.
+    clamp_slot = (load <= CLAMP_LOAD_KWH) & flow_active & ~unmeasured_device_mask(df)
 
     # Backfill rows never count towards the day statistics (they are dropped anyway).
     considered = ~drop_backfill

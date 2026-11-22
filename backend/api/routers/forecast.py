@@ -20,6 +20,7 @@ from backend.learning.models import (
     SlotObservation,
     unmeasured_device_clause,
 )
+from backend.measurement_provenance import base_load_unreliable, parse_quality_flags
 from backend.strategy.history import get_strategy_history
 from ml.api import get_forecast_slots
 
@@ -198,6 +199,7 @@ async def _get_history_with_actuals(
                     SlotObservation.slot_start,
                     SlotObservation.pv_kwh,
                     SlotObservation.load_kwh,
+                    SlotObservation.quality_flags,
                 )
                 .where(
                     SlotObservation.slot_start >= start_iso,
@@ -230,7 +232,11 @@ async def _get_history_with_actuals(
         for row in obs_results:
             obs_map[row[0]] = {
                 "pv_actual": float(row[1]) if row[1] is not None else None,
-                "load_actual": float(row[2]) if row[2] is not None else None,
+                "load_actual": (
+                    None
+                    if row[2] is None or base_load_unreliable(parse_quality_flags(row[3]))
+                    else float(row[2])
+                ),
             }
 
         fcst_map: dict[str, dict[str, float | None]] = {}
@@ -494,7 +500,12 @@ async def forecast_day(date: str | None = None) -> dict[str, Any]:
         async with engine.store.AsyncSession() as session:
             # Observations
             obs_stmt = (
-                select(SlotObservation.slot_start, SlotObservation.pv_kwh, SlotObservation.load_kwh)
+                select(
+                    SlotObservation.slot_start,
+                    SlotObservation.pv_kwh,
+                    SlotObservation.load_kwh,
+                    SlotObservation.quality_flags,
+                )
                 .where(
                     SlotObservation.slot_start >= start_iso,
                     SlotObservation.slot_start < end_iso,
@@ -520,7 +531,14 @@ async def forecast_day(date: str | None = None) -> dict[str, Any]:
         slots: dict[str, dict[str, Any]] = {}
         for row in obs_results:
             slot_s = row[0]
-            slots[slot_s] = {"slot_start": slot_s, "actual_pv": row[1], "actual_load": row[2]}
+            slots[slot_s] = {
+                "slot_start": slot_s,
+                "actual_pv": row[1],
+                # A flagged base load is a placeholder, not an actual to display.
+                "actual_load": None
+                if base_load_unreliable(parse_quality_flags(row[3]))
+                else row[2],
+            }
 
         for row in f_results:
             slot_s = row[0]

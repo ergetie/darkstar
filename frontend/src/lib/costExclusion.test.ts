@@ -22,7 +22,7 @@ describe('exclusionPhrase', () => {
         ['battery_disabled_zero', 'battery_charge', 'battery flow not recorded'],
         ['missing_price', null, 'price missing'],
         ['missing_energy_value', 'load', 'household load reading missing'],
-        ['clamp_hidden_demand', null, 'demand may be hidden by EV or water'],
+        ['clamp_hidden_demand', null, 'demand may be understated'],
         ['disabled_nonzero', 'water', 'water heater reported energy while disabled'],
     ])('%s (%s) reads "%s"', (reason, component, expected) => {
         expect(exclusionPhrase(reason, component)).toBe(expected)

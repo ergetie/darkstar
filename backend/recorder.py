@@ -30,7 +30,12 @@ from backend.core.ha_client import (
     parse_power_states,
 )
 from backend.core.prices import get_current_slot_prices
-from backend.core.slot_energy import build_slot_sources, compute_slot_energy, isolate_base_load
+from backend.core.slot_energy import (
+    build_slot_sources,
+    compute_slot_energy,
+    isolate_base_load,
+    slot_base_load_flag,
+)
 from backend.core.water_heating import (
     DEFAULT_IDLE_POWER_THRESHOLD_KW,
     WATER_HEATER_ENERGY_SCHEMA_VERSION,
@@ -467,8 +472,10 @@ async def record_observation_from_current_state(
     # Isolate base load: subtract known deferrable loads from total load.
     # Applies when load is the integrated total, or a power snapshot without disaggregator.
     # Skipped when the disaggregator already provided a base-load-only snapshot.
+    clamped = False
     if energy.load is not None:
-        load_kwh = isolate_base_load(energy.load, ev_charging_kwh, water_kwh)
+        isolation = isolate_base_load(energy.load, ev_charging_kwh, water_kwh)
+        load_kwh, clamped = isolation.kwh, isolation.clamped
         load_method = (
             "unconfigured_zero"
             if not sources.load
@@ -483,7 +490,8 @@ async def record_observation_from_current_state(
         load_kwh = max(0.0, load_kw) * 0.25
         load_method = method_for(None, bool(sources.load))
     else:
-        load_kwh = isolate_base_load(max(0.0, load_kw) * 0.25, ev_charging_kwh, water_kwh)
+        isolation = isolate_base_load(max(0.0, load_kw) * 0.25, ev_charging_kwh, water_kwh)
+        load_kwh, clamped = isolation.kwh, isolation.clamped
         load_method = (
             "mixed"
             if any(
@@ -492,6 +500,14 @@ async def record_observation_from_current_state(
             )
             else method_for(None, bool(sources.load))
         )
+
+    # A flagged slot never feeds base-load learning; a clamped or partly covered total
+    # load also makes load + water + EV an untrusted demand, so `load` becomes unknown.
+    base_load_flag = slot_base_load_flag(sources, energy, clamped)
+    if base_load_flag is not None and (
+        clamped or "load_partial_coverage" in base_load_flag["reasons"]
+    ):
+        load_method = "unknown"
 
     # Battery
     soc_entity = input_sensors.get("battery_soc")
@@ -621,6 +637,7 @@ async def record_observation_from_current_state(
                 "devices": water_heater_devices,
             },
             "ev_charger_devices": ev_charger_devices,
+            **({"base_load": base_load_flag} if base_load_flag is not None else {}),
         },
     }
 

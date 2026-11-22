@@ -198,7 +198,7 @@ class TestIntegratedSlotEnergy:
             ],
         )
         history = {
-            "sensor.load": constant("sensor.load", 0.5),
+            "sensor.load": constant("sensor.load", 2.0),
             "sensor.ev1": constant("sensor.ev1", 1.0),
         }
         record_, _ = await record(config, history, snapshots={"sensor.ev2": 0.0})
@@ -363,14 +363,18 @@ class TestDisabledSubsystems:
         assert "sensor.pv" not in history_mock.await_args.args[0]
 
     @pytest.mark.asyncio
-    async def test_disabled_water_heater_system_is_not_fetched(self):
+    async def test_disabled_water_heater_system_is_only_watched_not_recorded(self):
         config = base_config(
             system={"has_water_heater": False},
             water_heaters=[{"id": "wh1", "enabled": True, "sensor": "sensor.wh"}],
         )
         record_, history_mock = await record(config, {"sensor.wh": constant("sensor.wh", 3.0)})
-        assert "sensor.wh" not in history_mock.await_args.args[0]
+        # Read with the one batched slot request to notice a live sensor, never recorded.
+        assert history_mock.await_count == 1
+        assert "sensor.wh" in history_mock.await_args.args[0]
         assert record_["water_kwh"] == 0.0
+        components = record_["quality_flags"]["recording"]["components"]
+        assert components["water"]["method"] == "disabled_zero"
 
     @pytest.mark.asyncio
     async def test_disabled_ev_charger_and_heater_entries_are_skipped(self):
@@ -380,8 +384,7 @@ class TestDisabledSubsystems:
             water_heaters=[{"id": "wh1", "enabled": False, "sensor": "sensor.wh"}],
         )
         row, history_mock = await record(config, {"sensor.load": constant("sensor.load", 1.0)})
-        requested = set(history_mock.await_args.args[0])
-        assert not requested & {"sensor.ev", "sensor.wh"}
+        assert history_mock.await_count == 1
         components = row["quality_flags"]["recording"]["components"]
         assert components["ev"]["method"] == components["water"]["method"] == "disabled_zero"
         assert components["load"]["method"] == "derived_history"

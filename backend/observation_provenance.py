@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from backend.measurement_provenance import (
     ENERGY_SEMANTICS,
     MEASUREMENT_METHODS,
+    base_load_demand_affected,
     is_sha256,
     measurement_value_digest,
     metadata_object,
@@ -72,6 +73,9 @@ def calibration_eligible(row: RecordedObservation) -> bool:
     if flags.get("exclude") is True or flags.get("source") == "backfill":
         return False
     if trusted_row_provenance(row) is None:
+        return False
+    # A clamped or understated load makes load + water + EV an untrusted demand.
+    if base_load_demand_affected(flags):
         return False
     energies = (
         row.import_kwh,

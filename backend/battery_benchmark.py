@@ -17,6 +17,7 @@ import pytz
 
 from backend.measurement_provenance import (
     SUPPORTED_METHODS,
+    base_load_demand_affected,
     device_component_methods,
     parse_quality_flags,
     parse_recording,
@@ -87,9 +88,13 @@ def slot_recording(row: Mapping[str, Any]) -> str | None:
 
     'partial': a device component is unknown but the load was derived from history, so it
     still contains that device's energy and the recorded demand (load + water + ev) is
-    exact. Unknown load, grid, pv or battery methods are not usable.
+    exact. Unknown load, grid, pv or battery methods are not usable, nor is a slot whose
+    base-load flag says the demand itself is untrusted (clamp, understated load).
     """
-    recording = parse_recording(parse_quality_flags(row.get("quality_flags")), SUPPORTED_METHODS)
+    flags = parse_quality_flags(row.get("quality_flags"))
+    if base_load_demand_affected(flags):
+        return None
+    recording = parse_recording(flags, SUPPORTED_METHODS)
     if recording is None or not recording["components"]:
         return None
     if soc_metadata(recording, "end").get("source") != "live":

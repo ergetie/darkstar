@@ -15,6 +15,7 @@ from backend.core.slot_energy import (
     build_slot_sources,
     compute_slot_energy,
     isolate_base_load,
+    slot_base_load_flag,
 )
 from backend.core.water_heating import (
     DEFAULT_IDLE_POWER_THRESHOLD_KW,
@@ -104,8 +105,12 @@ class BackfillEngine:
         # EV / water without history for this slot count as 0 for load isolation.
         ev_kwh = sum(value or 0.0 for value in energy.ev.values())
         water_kwh = sum(value or 0.0 for value in energy.water.values())
-        load_kwh = (
+        isolation = (
             None if energy.load is None else isolate_base_load(energy.load, ev_kwh, water_kwh)
+        )
+        load_kwh = None if isolation is None else isolation.kwh
+        base_load_flag = slot_base_load_flag(
+            sources, energy, clamped=isolation is not None and isolation.clamped
         )
 
         system = metadata_object(self.config.get("system"))
@@ -161,6 +166,11 @@ class BackfillEngine:
                 not item.get("sensor") for item in enabled_devices
             ):
                 components[name]["method"] = "unknown" if name == "water" else "mixed"
+        if base_load_flag is not None and (
+            (isolation is not None and isolation.clamped)
+            or "load_partial_coverage" in base_load_flag["reasons"]
+        ):
+            components["load"]["method"] = "unknown"
         if components["load"]["method"] == "power_history":
             components["load"]["method"] = (
                 "mixed"
@@ -221,6 +231,7 @@ class BackfillEngine:
                     "semantics": WATER_HEATER_ENERGY_SEMANTICS,
                     "devices": water_heater_devices,
                 },
+                **({"base_load": base_load_flag} if base_load_flag is not None else {}),
             },
         }
 

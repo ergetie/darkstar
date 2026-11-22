@@ -54,6 +54,12 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🔧 Improvements
 
+#### [Planner] Source-Dependent Max Battery Charge Power
+
+**Goal:** Model that grid charging is capped by the inverter's AC limit while DC-coupled PV can charge faster.
+
+**Notes:** Found 2026-11-22 (prod data). Grid-only charge peaks at 7.4–7.8 kW (8 kW AC limit minus ~7.5 % conversion loss); slots with PV reach 8.4 kW. The planner uses one battery charge limit (185 A ≈ 8.9 kW), so grid-charge plans overestimate by ~1 kW. Applies to DC-coupled hybrids (`system.inverter.topology: dc_coupled`, `max_ac_power_kw`).
+
 #### [Learning] Replace Reflex With Measured, Stored Learned Parameters
 
 **Goal:** Make Darkstar self-adapt where it actually helps: measure each home's physical facts (battery round-trip losses, real usable capacity, EV charging losses, real max charge/discharge power) from data, store them outside `config.yaml` with evidence, confidence and history, and use them unless the user locks their own value. Notify on every change; never auto-tune user preferences (risk, min SoC). Prove benefit with the hindsight benchmark.
@@ -67,6 +73,8 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 - Capacity estimator (`store.py:1031` `get_capacity_estimate`) is broken, not the data: it requires `soc_start_percent`, which the recorder never writes (`backend/recorder.py:611` writes only `soc_end_percent`; prod 2026-11-21: start filled in 11 of 36,846 `slot_observations` rows, end filled in 36,692). The previous slot's `soc_end_percent` works as the start, which is how `backend/battery_benchmark.py:238-243` fits capacity. 1 % SoC steps make single-slot estimates noisy, so estimate over multi-slot segments. The existing hindsight capacity warning covers degradation.
 - Lesson from #8: a learned value must expire and say so when stale (the old `learning_daily_metrics` row overrode `base_factor` with 1.4066 from 2026-03-15 to 2026-11-19).
 - Related: memory note on treating `pv_confidence` as a safety margin only (PV forecast fix list, 2026-11-04).
+- Backtests 2026-11-22 (prod, read-only; scripts in `~/.cache/darkstar-*-backtest/`): battery DC counters (`sensor.inverter_battery_power`) are battery-side, so measured round-trip ~0.96 excludes inverter loss. Inverter loss fits as ~60 W standby + ~7.5 % of charge energy (beats a fixed % by ~2x in walk-forward); discharge/PV conversion loss can't be separated with current sensors. `sensor.inverter_power_losses` equals the balance residual (usable target, not independent). Kepler (`planner/solver/kepler.py:783`) has no separate inverter loss. Capacity: only as a change warning (one module offline 2026-08-24..09-18 read 18–20 kWh; winter reads +20 %). Max power: warn only (grid ~7.4–7.8 kW is the AC limit, normal). EV loss from car meter 5–6.5 % matches config. 85 % of discharge shortfall is house using less than planned.
+- Proposed shape: learn battery RTE, inverter standby and charge loss (add an inverter-loss term to the planner); warn on capacity/max-power changes; learn EV loss from the car meter after ~10 sessions. Depends on the water-clamp fix; car meter (`sensor.tesla_ble_energy_added`) configured on prod 2026-11-22.
 Source: GitHub #8 review and Reflex backtest.
 
 #### [Settings] Warn About Out-Of-Range And Learning-Contradicted Settings

@@ -173,6 +173,15 @@ async def lifespan(app: FastAPI):
         deleted = cleanup_price_forecast_duplicates(db_path)
         if deleted > 0:
             logger.info(f"🧹 Cleaned up {deleted} duplicate price forecast rows")
+
+        # One-time flagging of history with an untrusted base load. Fail-open: a failure
+        # is logged, the state key stays unset and it is retried at the next start.
+        try:
+            from backend.learning.base_load_migration import flag_historical_base_load
+
+            await asyncio.to_thread(flag_historical_base_load, db_path, config)
+        except Exception as e:
+            logger.error(f"Base-load integrity migration failed (retried next start): {e}")
     except Exception as e:
         logger.error(f"Failed to initialize LearningStore: {e}")
         # We can't easily fail here without breaking the app, but partial functionality might work?

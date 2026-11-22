@@ -27,6 +27,77 @@ NON_DEVICE_COMPONENTS = frozenset(
 # contains its energy (unknown), or the value is a live reading or a placeholder.
 UNMEASURED_DEVICE_METHODS = frozenset({"unknown", "snapshot", "mixed"})
 
+# Reasons a stored ``load_kwh`` is not a trustworthy base load
+# (``quality_flags.base_load = {"reliable": false, "reasons": [...]}``).
+BASE_LOAD_NEGATIVE = "negative_after_subtraction"
+BASE_LOAD_DEVICE_PARTIAL = "device_partial_coverage"
+BASE_LOAD_LOAD_PARTIAL = "load_partial_coverage"
+BASE_LOAD_INACTIVE_DEVICE = "inactive_device_drawing_power"
+BASE_LOAD_LEGACY_CLAMP = "legacy_counter_clamp"
+BASE_LOAD_LEGACY_AFTER_CLAMP = "legacy_counter_after_clamp"
+BASE_LOAD_DISABLED_CONFIGURED = "device_disabled_but_configured"
+BASE_LOAD_REASONS = frozenset(
+    {
+        BASE_LOAD_NEGATIVE,
+        BASE_LOAD_DEVICE_PARTIAL,
+        BASE_LOAD_LOAD_PARTIAL,
+        BASE_LOAD_INACTIVE_DEVICE,
+        BASE_LOAD_LEGACY_CLAMP,
+        BASE_LOAD_LEGACY_AFTER_CLAMP,
+        BASE_LOAD_DISABLED_CONFIGURED,
+    }
+)
+# Water plus EV energy exceeded what the house used, or total load is understated:
+# load + water + EV is not the real demand either. The other reasons keep demand exact.
+BASE_LOAD_DEMAND_AFFECTING_REASONS = frozenset(
+    {
+        BASE_LOAD_NEGATIVE,
+        BASE_LOAD_LOAD_PARTIAL,
+        BASE_LOAD_LEGACY_CLAMP,
+        BASE_LOAD_LEGACY_AFTER_CLAMP,
+    }
+)
+
+
+def build_base_load_flag(
+    *,
+    clamped: bool = False,
+    partial_devices: bool = False,
+    partial_load: bool = False,
+    inactive_device_power: bool = False,
+) -> dict[str, Any] | None:
+    """The ``quality_flags.base_load`` object for a slot, or None when the base load is reliable."""
+    reasons = [
+        reason
+        for active, reason in (
+            (clamped, BASE_LOAD_NEGATIVE),
+            (partial_devices, BASE_LOAD_DEVICE_PARTIAL),
+            (partial_load, BASE_LOAD_LOAD_PARTIAL),
+            (inactive_device_power, BASE_LOAD_INACTIVE_DEVICE),
+        )
+        if active
+    ]
+    return {"reliable": False, "reasons": reasons} if reasons else None
+
+
+def base_load_unreliable(flags: dict[str, Any]) -> bool:
+    """Whether decoded quality flags mark the slot's ``load_kwh`` as not a trusted base load."""
+    base_load = flags.get("base_load")
+    return (
+        isinstance(base_load, dict) and cast("dict[str, Any]", base_load).get("reliable") is False
+    )
+
+
+def base_load_demand_affected(flags: dict[str, Any]) -> bool:
+    """Whether the base-load flag also makes load + water + EV an untrusted demand."""
+    base_load = flags.get("base_load")
+    if not base_load_unreliable(flags):
+        return False
+    reasons = cast("dict[str, Any]", base_load).get("reasons")
+    return isinstance(reasons, list) and any(
+        reason in BASE_LOAD_DEMAND_AFFECTING_REASONS for reason in cast("list[Any]", reasons)
+    )
+
 
 def device_component_methods(components: dict[str, Any]) -> dict[str, str]:
     """Method of every device component (not grid, load, pv or battery) in a components map."""

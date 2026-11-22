@@ -43,13 +43,15 @@ _SAFE_FLAGS_SQL = "CASE WHEN json_valid({col}) THEN {col} ELSE '{{}}' END"
 UNMEASURED_COMPONENTS_PATH = "'$.recording.components'"
 
 UNMEASURED_DEVICE_SQL = (
-    "EXISTS ("
+    "(COALESCE(json_extract("
+    + _SAFE_FLAGS_SQL.format(col="slot_observations.quality_flags")
+    + ", '$.base_load.reliable') = 0, 0) OR EXISTS ("
     "SELECT 1 FROM json_each("
     + _SAFE_FLAGS_SQL.format(col="slot_observations.quality_flags")
     + f", {UNMEASURED_COMPONENTS_PATH}) AS je "
     f"WHERE (je.key NOT IN ({_sql_list(NON_DEVICE_COMPONENTS)}) "
     f"AND json_extract(je.value, '$.method') IN ({_sql_list(UNMEASURED_DEVICE_METHODS)})) "
-    "OR (je.key = 'load' AND json_extract(je.value, '$.method') = 'unknown'))"
+    "OR (je.key = 'load' AND json_extract(je.value, '$.method') = 'unknown')))"
 )
 
 # Slots per device component whose recorded method is ``unknown``, in a slot_start range.
@@ -67,8 +69,9 @@ def unmeasured_device_clause() -> ColumnElement[bool]:
     """SQL twin of ``ml.load_clean.has_unmeasured_device`` for ``slot_observations``.
 
     True when ``quality_flags.recording.components`` has a device component (anything but
-    grid, load, pv and battery) with an unmeasured method, or ``load`` itself ``unknown``.
-    False, never NULL, for rows without parseable provenance. Use ``~clause`` to keep
+    grid, load, pv and battery) with an unmeasured method, or ``load`` itself ``unknown``,
+    or ``quality_flags.base_load.reliable`` is false (also without provenance).
+    False, never NULL, for rows without parseable flags. Use ``~clause`` to keep
     slots whose load is a measured base load.
     """
     return sa.literal_column(UNMEASURED_DEVICE_SQL, type_=Boolean)

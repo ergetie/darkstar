@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast
 from backend.measurement_provenance import (
     NON_DEVICE_COMPONENTS,
     UNMEASURED_DEVICE_METHODS,
+    base_load_demand_affected,
     device_component_methods,
 )
 
@@ -120,6 +121,11 @@ def _recording_exclusion(
         history_map = cast("dict[str, Any]", comparison_history)
         if history_map.get("disposition") == "exclude_from_comparison":
             return ("user_excluded", None), ()
+
+    if base_load_demand_affected(flags):
+        # A clamped or understated load hides demand; it cannot be priced (also for
+        # migrated rows without recording provenance).
+        return ("clamp_hidden_demand", None), ()
 
     recording_value: Any = flags.get("recording")
     if recording_value is None:

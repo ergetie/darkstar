@@ -24,6 +24,7 @@ from backend.learning.models import (
 )
 from backend.learning.pv_cleaning import SLOT_MINUTES, clean_pv_slots
 from backend.measurement_provenance import (
+    base_load_unreliable,
     metadata_object,
     parse_quality_flags,
     soc_metadata,
@@ -230,6 +231,7 @@ class LearningStore:
                 changed_measurement = False
                 accepted_measurement = False
                 accepted_water_measurement = False
+                accepted_load_measurement = False
                 recorded_unmeasured_water = False
                 for column, component in field_components.items():
                     incoming_present = has_measurement(column)
@@ -255,6 +257,8 @@ class LearningStore:
                         accepted_measurement = True
                         if component == "water":
                             accepted_water_measurement = True
+                        if component == "load":
+                            accepted_load_measurement = True
                         values[column] = incoming_value
                         if old_value != incoming_value:
                             changed_measurement = True
@@ -367,6 +371,13 @@ class LearningStore:
                     if authoritative or old_flags.get("source") == "recorder"
                     else "backfill"
                 )
+                # The base-load flag belongs to the load value that is stored: a reliable
+                # rewrite clears it, a backfill that kept the recorder's load keeps its flag.
+                owner_flags = new_flags if accepted_load_measurement else old_flags
+                if "base_load" in owner_flags:
+                    merged_flags["base_load"] = owner_flags["base_load"]
+                else:
+                    merged_flags.pop("base_load", None)
                 if recorded_unmeasured_water and incoming_water_energy is not None:
                     # Per-device record stays truthful: no energy, coverage unavailable.
                     merged_flags["water_heater_energy"] = incoming_water_energy
@@ -1378,6 +1389,9 @@ class LearningStore:
                     for key in ("slot_start", "slot_end", "pv_kwh", "load_kwh", "water_kwh")
                 }
                 flags = parse_quality_flags(stored.get("quality_flags"))
+                if base_load_unreliable(flags):
+                    # A flagged base load is a placeholder, not an actual to display.
+                    observation["load_kwh"] = None
                 recording = water_component_recording(flags)
                 water = metadata_object(metadata_object(recording or {}).get("components"))
                 water_component = metadata_object(water.get("water"))

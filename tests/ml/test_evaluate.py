@@ -126,3 +126,34 @@ def test_calculate_mae_ignores_load_of_slots_with_an_unmeasured_device():
         assert mae_pv == pytest.approx(0.5)
         # Only the measured slot: |2.0 - 1.0|; the contaminated slot is no ground truth.
         assert mae_load == pytest.approx(1.0)
+
+
+def test_calculate_mae_ignores_load_of_slots_flagged_unreliable_base_load():
+    """A flagged base load (also without recording provenance) is no ground truth."""
+    import json
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test.db"
+        engine = LearningEngine.__new__(LearningEngine)
+        engine.db_path = str(db_path)
+        engine.config = {"system": {"grid": {"max_power_kw": 10.0}}}
+        engine.timezone = pytz.timezone("Europe/Stockholm")
+        base_time = engine.timezone.localize(datetime(2024, 6, 21, 12, 0))
+        flagged = json.dumps({"base_load": {"reliable": False, "reasons": ["legacy_counter_clamp"]}})
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE slot_observations (slot_start TEXT PRIMARY KEY, load_kwh REAL, "
+                "pv_kwh REAL, quality_flags TEXT)"
+            )
+            conn.execute(
+                "CREATE TABLE slot_forecasts (slot_start TEXT, forecast_version TEXT, "
+                "load_forecast_kwh REAL, pv_forecast_kwh REAL)"
+            )
+            for index, (load, flags) in enumerate([(0.0, flagged), (1.0, None)]):
+                slot = (base_time + timedelta(minutes=15 * index)).isoformat()
+                conn.execute("INSERT INTO slot_observations VALUES (?, ?, 1.0, ?)", (slot, load, flags))
+                conn.execute("INSERT INTO slot_forecasts VALUES (?, 'aurora', 1.5, 1.0)", (slot,))
+        _, mae_load = _calculate_mae(
+            engine, base_time - timedelta(minutes=15), base_time + timedelta(hours=1), "aurora"
+        )
+        assert mae_load == pytest.approx(0.5)

@@ -11,6 +11,9 @@ import pytz
 from backend.measurement_provenance import metadata_object, parse_recording
 
 DEFAULT_IDLE_POWER_THRESHOLD_KW = 0.0
+# Built-in cutoff below which a heater reading is sensor noise, whatever is configured:
+# a configured cutoff of 0 must not turn stray 1-2 W readings into water energy.
+NOISE_FLOOR_KW = 0.010
 WATER_HEATER_ENERGY_SCHEMA_VERSION = 1
 WATER_HEATER_ENERGY_SEMANTICS = "active-water-energy-v1"
 
@@ -40,17 +43,25 @@ def infer_control_type(entity: object) -> str | None:
 def normalize_active_power_kw(
     value: object,
     unit: object = "kW",
-    idle_power_threshold_kw: object = DEFAULT_IDLE_POWER_THRESHOLD_KW,
+    idle_power_threshold_kw: object = None,
 ) -> float | None:
-    """Convert a finite power reading to kW and filter only samples below its cutoff."""
-    if (
+    """Convert a finite power reading to kW and filter only samples below its cutoff.
+
+    A heater passes its configured ``idle_power_threshold_kw``; the effective cutoff is
+    the larger of that value and ``NOISE_FLOOR_KW``. ``None`` (any non-heater sensor)
+    only converts the unit and filters nothing.
+    """
+    if idle_power_threshold_kw is None:
+        cutoff_kw = 0.0
+    elif (
         isinstance(idle_power_threshold_kw, bool)
         or not isinstance(idle_power_threshold_kw, int | float)
         or not math.isfinite(idle_power_threshold_kw)
         or idle_power_threshold_kw < 0
     ):
         raise ValueError("idle_power_threshold_kw must be finite and non-negative")
-    cutoff_kw = float(idle_power_threshold_kw)
+    else:
+        cutoff_kw = max(float(idle_power_threshold_kw), NOISE_FLOOR_KW)
     if isinstance(value, bool):
         return None
     if not isinstance(value, str | int | float):

@@ -49,7 +49,7 @@ export function exclusionPhrase(reason: string, component: string | null = null)
         case 'missing_energy_value':
             return withComponent(component, 'reading missing', 'energy reading missing')
         case 'clamp_hidden_demand':
-            return 'demand may be hidden by EV or water'
+            return 'demand may be understated'
         case 'disabled_nonzero':
             return withComponent(component, 'reported energy while disabled', 'energy reported while disabled')
         default:

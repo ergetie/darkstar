@@ -18,6 +18,7 @@ import pandas as pd
 from backend.exceptions import PVForecastError
 from backend.health import clear_load_forecast_status, set_load_forecast_status
 from backend.learning import LearningEngine, get_learning_engine
+from backend.learning.models import UNMEASURED_DEVICE_SQL
 from backend.learning.pv_cleaning import total_solar_kwp
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
 from ml.load_clean import LOAD_SCHEMA_VERSION, load_level_7d, slot_means_7d
@@ -39,13 +40,16 @@ def determine_graduation_level(engine: LearningEngine) -> tuple[int, str, float]
 
     try:
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
-            query = """
+            # The shared predicate names the table; the query aliases it as ``o``.
+            unmeasured_sql = UNMEASURED_DEVICE_SQL.replace("slot_observations.", "o.")
+            query = f"""
                 SELECT COUNT(DISTINCT DATE(o.slot_start))
                 FROM slot_observations o
                 JOIN slot_forecasts f ON o.slot_start = f.slot_start
                 WHERE DATE(o.slot_start) >= ?
                   AND o.load_kwh IS NOT NULL
                   AND f.load_forecast_kwh IS NOT NULL
+                  AND NOT {unmeasured_sql}
             """
             row = conn.execute(query, (cutoff,)).fetchone()
             days = int(row[0] or 0) if row else 0

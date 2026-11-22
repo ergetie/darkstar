@@ -346,3 +346,39 @@ def test_load_training_uses_historical_weather(training_env, weather_days, expec
 
     assert len(captured["load"]) == 4 * 96
     assert captured["load"]["temp_c"].notna().sum() == expected_weather_rows
+
+
+def test_training_drops_flagged_base_load_rows_and_reports_the_count(training_env):
+    """Flagged rows (migrated without recording, or written by the recorder) never train."""
+    flagged = [
+        json.dumps({"base_load": {"reliable": False, "reasons": ["legacy_counter_clamp"]}}),
+        json.dumps(
+            {
+                "source": "recorder",
+                "base_load": {"reliable": False, "reasons": ["negative_after_subtraction"]},
+            }
+        ),
+    ]
+    with sqlite3.connect(_db_path()) as conn:
+        conn.execute(
+            "CREATE TABLE learning_runs (id INTEGER PRIMARY KEY, started_at TEXT, "
+            "completed_at TEXT, status TEXT, params_json TEXT, result_metrics_json TEXT, "
+            "training_type TEXT, partial_failure INTEGER)"
+        )
+        for i in range(20):
+            start = TZ.localize(datetime(2026, 6, 14, 12 + i // 4, 15 * (i % 4)))
+            conn.execute(
+                "UPDATE slot_observations SET quality_flags = ? WHERE slot_start = ?",
+                (flagged[i % 2], start.isoformat()),
+            )
+
+    with patch("ml.train.get_historical_weather_series", return_value=pd.DataFrame()):
+        train_models(min_samples=20)
+
+    sidecar = json.loads(Path("data/ml/models/load_model_p50.features.json").read_text())
+    assert sidecar["training_stats"]["dropped_unmeasured_device_rows"] == 20
+    with sqlite3.connect(_db_path()) as conn:
+        metrics = json.loads(
+            conn.execute("SELECT result_metrics_json FROM learning_runs").fetchone()[0]
+        )
+    assert metrics["dropped_unmeasured_device_rows"] == 20
