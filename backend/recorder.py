@@ -670,6 +670,11 @@ async def record_observation_from_current_state(
     except ValueError as e:
         logger.warning(f"Could not validate energy values: {e}. Proceeding with raw values.")
 
+    # Optional inverter-loss sensor: a row only when it covered the slot (None deletes a
+    # stale row of an earlier write of this slot; unavailable is never stored as zero).
+    if sources.inverter_loss:
+        record["inverter_loss_kwh"] = energy.inverter_loss
+
     # Store
     df = pd.DataFrame([record])
     await store.store_slot_observations(df)

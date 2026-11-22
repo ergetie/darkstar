@@ -67,4 +67,4 @@ Config migration SHALL remove `learning.error_correction_enabled`, `learning.aut
 
 #### Scenario: Existing config
 - **WHEN** a config holding the three keys is migrated
-- **THEN** the keys are gone and sibling keys such as `learning.reflex_enabled` and `automation.ml_training.enabled` are kept
+- **THEN** the keys are gone and sibling keys such as `learning.enable` and `automation.ml_training.enabled` are kept

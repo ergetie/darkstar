@@ -90,11 +90,15 @@ Located in `backend/strategy/`, this layer injects "common sense" overrides befo
 *   **Weather Variance**: Increases safety margins (S-Index) when 48h weather forecasts are volatile.
 *   **The Analyst**: Scans prices to find optimal windows for heavy appliances.
 
-### 3. Aurora Reflex (The Balancer)
-Located in `backend/learning/reflex.py`, this is the long-term feedback loop.
-*   **Auto-Tuning**: Analyzes historical drift to tune physical constants (e.g., Battery Capacity) and policy weights (e.g., Safety Margins).
-*   **Safe Updates**: Automatically updates `config.yaml` while preserving comments and logging changes.
-*   **Analyzers**: Monitors Safety (S-Index), Confidence (PV Bias), ROI (Virtual Cost), and Capacity.
+### 3. Learned Parameters (Battery and Inverter)
+Located in `backend/learning/`, this measures the user's own hardware from recorded data. It replaces the old auto-tuner of config values, which has been removed.
+*   **Estimators** (`battery_estimators.py`): pure functions over slot rows and an `as_of` time (round-trip efficiency from contiguous recorded runs corrected for net SoC change, inverter charge loss and standby from a robust Huber fit). Constants are named module values pinned by tests.
+*   **Lifecycle and resolution** (`learned_parameters.py`): `apply_estimate` (gate, bounds, step, deadband, once per local day), `resolve_battery_parameters` and `apply_to_config` (the single seam used by `PlannerPipeline`, the benchmark and the plan archive), the user lock, history and notifications.
+*   **Service** (`backend/services/learned_parameters_service.py`): runs 5 minutes after start and daily at 00:40 local; errors are logged and never reach planning. `POST /api/learning/parameters/recompute` runs it once.
+*   **API**: `GET /api/learning/parameters`, `GET /api/learning/parameters/history`, `PUT`/`DELETE /api/learning/parameters/{key}/lock`.
+*   **Warn-only checks** (`battery_warnings.py`): capacity change and low delivered power, shown as health issues.
+*   **Evaluation tool**: `UV_NO_SYNC=1 uv run python scripts/evaluate_learned_parameters.py --archive data/plan_archive --db data/planner_learning.db [--days N] [--replan] [--json]` replays archived runs read-only and exits non-zero when the learned 24 h SoC error is worse than the config one by more than 0.25 pp, or fewer than 10 runs are evaluable. Run it against a copy of the production database and archive.
+*   Learning never writes `config.yaml`; `docs/ARCHITECTURE.md` section 5.3 describes the model and the inverter sides in detail.
 
 ### 3. The Planner (The Optimizer)
 Located in `planner.py`, the system now uses **Kepler**, a Mixed-Integer Linear Programming (MILP) solver, to generate optimal schedules.

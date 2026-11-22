@@ -1,28 +1,29 @@
 import copy
 import json
 import logging
+import math
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast as type_cast
 
 import pandas as pd
-from sqlalchemy import Integer, cast, desc, func, or_, select, text
+from sqlalchemy import desc, func, or_, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.core.water_heating import parse_water_heater_energy_metadata, water_component_recording
 from backend.learning.models import (
     EvChargerObservation,
+    InverterLossObservation,
     LearningRun,
-    ReflexState,
     SlotForecast,
     SlotObservation,
     SlotPlan,
     SystemState,
     unmeasured_device_clause,
 )
-from backend.learning.pv_cleaning import SLOT_MINUTES, clean_pv_slots
+from backend.learning.pv_cleaning import SLOT_MINUTES
 from backend.measurement_provenance import (
     base_load_unreliable,
     metadata_object,
@@ -406,6 +407,11 @@ class LearningStore:
                 stmt = stmt.on_conflict_do_update(index_elements=["slot_start"], set_=update_values)
                 await session.execute(stmt)
 
+                if authoritative and "inverter_loss_kwh" in record:
+                    await self._replace_inverter_loss_observation(
+                        session, slot_start, record.get("inverter_loss_kwh")
+                    )
+
                 if authoritative and "ev_charger_energy" in record:
                     await self._replace_ev_charger_observations(
                         session,
@@ -414,6 +420,23 @@ class LearningStore:
                         record.get("ev_charger_car_energy"),
                     )
             await session.commit()
+
+    @staticmethod
+    async def _replace_inverter_loss_observation(
+        session: Any, slot_start: str, loss_kwh: Any
+    ) -> None:
+        """Replace a slot's inverter loss row (same transaction as the slot upsert).
+
+        A missing or non-finite value leaves no row: an unavailable sensor is unknown, not zero.
+        """
+        from sqlalchemy import delete
+
+        await session.execute(
+            delete(InverterLossObservation).where(InverterLossObservation.slot_start == slot_start)
+        )
+        if loss_kwh is None or pd.isna(loss_kwh) or not math.isfinite(float(loss_kwh)):
+            return
+        session.add(InverterLossObservation(slot_start=slot_start, loss_kwh=float(loss_kwh)))
 
     @staticmethod
     async def _replace_ev_charger_observations(
@@ -660,79 +683,6 @@ class LearningStore:
                 return dt
             return None
 
-    async def get_low_soc_events(
-        self,
-        days_back: int = 30,
-        threshold_percent: float = 5.0,
-        peak_hours: tuple[int, int] = (16, 20),
-    ) -> list[dict[str, Any]]:
-        """
-        Query slot_observations for low-SoC events during peak hours using Async SQLAlchemy.
-        """
-        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
-        start_hour, end_hour = peak_hours
-
-        async with self.AsyncSession() as session:
-            stmt = (
-                select(
-                    func.date(SlotObservation.slot_start),
-                    SlotObservation.slot_start,
-                    SlotObservation.soc_end_percent,
-                )
-                .where(
-                    func.date(SlotObservation.slot_start) >= cutoff_date,
-                    SlotObservation.soc_end_percent.is_not(None),
-                    SlotObservation.soc_end_percent < threshold_percent,
-                    cast(func.substr(SlotObservation.slot_start, 12, 2), Integer) >= start_hour,
-                    cast(func.substr(SlotObservation.slot_start, 12, 2), Integer) < end_hour,
-                )
-                .order_by(SlotObservation.slot_start.desc())
-            )
-
-            result = await session.execute(stmt)
-            return [
-                {
-                    "date": r[0],
-                    "slot_start": r[1],
-                    "soc_end_percent": r[2],
-                }
-                for r in result.all()
-            ]
-
-    async def get_reflex_state(self, param_path: str) -> dict[str, Any] | None:
-        """
-        Get the last update state for a parameter using Async SQLAlchemy.
-        """
-        async with self.AsyncSession() as session:
-            state = await session.get(ReflexState, param_path)
-            if state:
-                return {
-                    "last_value": state.last_value,
-                    "last_updated": state.last_updated,
-                    "change_count": state.change_count,
-                }
-            return None
-
-    async def update_reflex_state(self, param_path: str, new_value: float) -> None:
-        """
-        Update the reflex state for a parameter after a change using Async SQLAlchemy.
-        """
-        now = datetime.now(self.timezone).isoformat()
-        async with self.AsyncSession() as session:
-            stmt = sqlite_insert(ReflexState).values(
-                param_path=param_path, last_value=new_value, last_updated=now, change_count=1
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["param_path"],
-                set_={
-                    "last_value": stmt.excluded.last_value,
-                    "last_updated": stmt.excluded.last_updated,
-                    "change_count": ReflexState.change_count + 1,
-                },
-            )
-            await session.execute(stmt)
-            await session.commit()
-
     async def get_system_state(self, key: str) -> str | None:
         """
         Get the specific system state value by key using Async SQLAlchemy.
@@ -763,6 +713,17 @@ class LearningStore:
                 )
             )
             return [dict(row) for row in result.mappings()]
+
+    async def get_inverter_loss_values(self, start: datetime, end: datetime) -> dict[str, float]:
+        """Recorded per-slot inverter loss energy (kWh) keyed by ``slot_start``."""
+        async with self.AsyncSession() as session:
+            result = await session.execute(
+                select(InverterLossObservation.slot_start, InverterLossObservation.loss_kwh).where(
+                    InverterLossObservation.slot_start >= start.isoformat(),
+                    InverterLossObservation.slot_start < end.isoformat(),
+                )
+            )
+            return {row.slot_start: row.loss_kwh for row in result.all()}
 
     async def count_paired_openmeteo_pv_days(self, days_back: int = 90) -> int:
         """Count days with both actual PV and a stored Open-Meteo baseline."""
@@ -902,108 +863,6 @@ class LearningStore:
             await session.execute(stmt)
             await session.commit()
 
-    async def get_forecast_vs_actual(
-        self,
-        days_back: int = 14,
-        target: str = "pv",
-        max_kwh: float | None = None,
-        total_kwp: float = 0.0,
-        latitude: float | None = None,
-        longitude: float | None = None,
-    ) -> pd.DataFrame:
-        """
-        Compare forecast vs actual values for PV or load using Async SQLAlchemy.
-
-        Args:
-            days_back: Number of days to look back
-            target: "pv" or "load"
-            max_kwh: Maximum energy value threshold. Rows with actual values exceeding
-                    this threshold will be excluded (spike filtering).
-            total_kwp: Total array capacity for the PV spike rule (0 skips it).
-            latitude: Site latitude for the PV night-production rule (None skips it).
-            longitude: Site longitude for the PV night-production rule (None skips it).
-
-        PV rows are cleaned with ``clean_pv_slots``, the same rules as model training.
-        """
-        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
-
-        if target == "pv":
-            forecast_col = SlotForecast.pv_forecast_kwh
-            actual_col = SlotObservation.pv_kwh
-            p10_col = SlotForecast.pv_p10
-            p90_col = SlotForecast.pv_p90
-            extra_cols = [
-                SlotForecast.openmeteo_pv_forecast_kwh.label("baseline"),
-                SlotObservation.soc_end_percent,
-                SlotObservation.export_kwh,
-            ]
-        else:
-            forecast_col = SlotForecast.load_forecast_kwh
-            actual_col = SlotObservation.load_kwh
-            p10_col = SlotForecast.load_p10
-            p90_col = SlotForecast.load_p90
-            extra_cols = []
-
-        async with self.AsyncSession() as session:
-            conditions = [
-                func.date(SlotObservation.slot_start) >= cutoff_date,
-                actual_col.is_not(None),
-                forecast_col.is_not(None),
-            ]
-
-            # Spike filtering: exclude rows where actual exceeds threshold
-            if max_kwh is not None:
-                conditions.append(actual_col <= max_kwh)
-            if target != "pv":
-                # Load is not a base load while a device energy is unmeasured.
-                conditions.append(~unmeasured_device_clause())
-
-            stmt = (
-                select(
-                    SlotObservation.slot_start,
-                    forecast_col.label("forecast"),
-                    actual_col.label("actual"),
-                    (forecast_col - actual_col).label("error"),
-                    p10_col.label("p10"),
-                    p90_col.label("p90"),
-                    *extra_cols,
-                )
-                .join(
-                    SlotForecast,
-                    (SlotObservation.slot_start == SlotForecast.slot_start)
-                    & (SlotForecast.forecast_version == "aurora"),
-                )
-                .where(*conditions)
-                .order_by(SlotObservation.slot_start.asc())
-            )
-
-            result = await session.execute(stmt)
-            rows = result.all()
-            if not rows:
-                return pd.DataFrame()
-
-            df = pd.DataFrame([row._asdict() for row in rows])  # type: ignore
-            if target != "pv":
-                return df
-
-        # Same cleaning as PV training: night, dropouts, spikes and curtailed slots go.
-        cleaned = clean_pv_slots(
-            pd.DataFrame(
-                {
-                    "slot_start": pd.to_datetime(df["slot_start"], utc=True, format="ISO8601"),
-                    "pv_kwh": df["actual"],
-                    "baseline_kwh": df["baseline"],
-                    "soc_end_percent": df["soc_end_percent"],
-                    "export_kwh": df["export_kwh"],
-                }
-            ),
-            total_kwp=total_kwp,
-            latitude=latitude,
-            longitude=longitude,
-        )
-        df = df.loc[cleaned.index].drop(columns=["baseline", "soc_end_percent", "export_kwh"])
-        return df.reset_index(drop=True) if not df.empty else pd.DataFrame()
-
     async def get_pv_actual_vs_baseline(self, days_back: int = 60) -> pd.DataFrame:
         """Recorded PV next to the Open-Meteo baseline, with the inputs PV cleaning needs.
 
@@ -1038,52 +897,6 @@ class LearningStore:
             if not rows:
                 return pd.DataFrame()
             return pd.DataFrame([row._asdict() for row in rows])  # type: ignore
-
-    async def get_capacity_estimate(self, days_back: int = 30) -> float | None:
-        """
-        Estimate effective battery capacity from discharge observations using Async SQLAlchemy.
-        """
-        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
-
-        async with self.AsyncSession() as session:
-            stmt = select(
-                SlotObservation.soc_start_percent,
-                SlotObservation.soc_end_percent,
-                SlotObservation.batt_discharge_kwh,
-            ).where(
-                func.date(SlotObservation.slot_start) >= cutoff_date,
-                SlotObservation.soc_start_percent.is_not(None),
-                SlotObservation.soc_end_percent.is_not(None),
-                SlotObservation.batt_discharge_kwh.is_not(None),
-                SlotObservation.batt_discharge_kwh > 0.1,
-                SlotObservation.soc_start_percent > SlotObservation.soc_end_percent,
-            )
-
-            result = await session.execute(stmt)
-            rows = result.all()
-
-            if len(rows) < 10:
-                return None
-
-            # Calculate effective capacity from each observation
-            estimates: list[float] = []
-            for row in rows:
-                soc_start: float = row[0]
-                soc_end: float = row[1]
-                discharge_kwh: float = row[2]
-                soc_drop: float = soc_start - soc_end
-                if soc_drop > 0.5:  # At least 0.5% drop
-                    estimated_cap: float = discharge_kwh / (soc_drop / 100.0)
-                    if 10 < estimated_cap < 100:  # Sanity check
-                        estimates.append(estimated_cap)
-
-            if len(estimates) < 5:
-                return None
-
-            # Use median to be robust to outliers
-            estimates.sort()
-            median_idx: int = len(estimates) // 2
-            return round(estimates[median_idx], 1)
 
     async def calculate_metrics(
         self, days_back: int = 7, max_kwh: float | None = None

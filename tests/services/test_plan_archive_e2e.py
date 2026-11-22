@@ -32,6 +32,7 @@ FORMAT_KEYS = {
     "safety_floor",
     "solver_status",
     "time_limit_hit",
+    "battery_parameters",
     "error",
     "executor_errors",
     "executor_errors_truncated",
@@ -75,6 +76,7 @@ async def test_run_archive_download_clear(tmp_path, monkeypatch):
     assert record["format_version"] == 1
     assert record["outcome"] == "ok"
     assert record["config_version"] == 2
+    assert record["battery_parameters"]["basis"] == "config"
     assert b"SECRET-TOKEN-XYZ" not in raw
     assert len(record["inputs"]["price_data"]) == len(inputs["price_data"])
     assert record["schedule"] == json.loads((tmp_path / "data" / "schedule.json").read_text())

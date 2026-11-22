@@ -336,6 +336,7 @@ class NotificationConfig:
     on_override_activated: bool = True
     on_error: bool = True
     on_ev_soc_stale: bool = True
+    on_learned_parameter_change: bool = True
     on_ev_plug_in_reminder: bool = False
     ev_plug_in_reminder_minutes: int = 30
 
@@ -1294,6 +1295,11 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         ),
         on_error=bool(notif_data.get("on_error", NotificationConfig.on_error)),
         on_ev_soc_stale=bool(notif_data.get("on_ev_soc_stale", NotificationConfig.on_ev_soc_stale)),
+        on_learned_parameter_change=bool(
+            notif_data.get(
+                "on_learned_parameter_change", NotificationConfig.on_learned_parameter_change
+            )
+        ),
         on_ev_plug_in_reminder=bool(
             notif_data.get("on_ev_plug_in_reminder", NotificationConfig.on_ev_plug_in_reminder)
         ),

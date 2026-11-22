@@ -74,13 +74,11 @@ async def test_flagged_slots_are_too_few_to_report_an_average(store):
 
 
 @pytest.mark.asyncio
-async def test_forecast_vs_actual_and_load_mae_only_use_reliable_slots(store):
+async def test_load_mae_only_uses_reliable_slots(store):
     now = datetime.now(TZ).replace(minute=0, second=0, microsecond=0)
     good, bad = now - timedelta(minutes=30), now - timedelta(minutes=15)
     _insert(store, [good], RELIABLE, load=0.5, fv="aurora")
     _insert(store, [bad], FLAGGED, load=0.0, fv="aurora")
-    frame = await store.get_forecast_vs_actual(days_back=1, target="load")
-    assert list(frame["actual"]) == [0.5]
     metrics = await store.calculate_metrics(days_back=1)
     assert metrics["mae_load"] == pytest.approx(0.5)
 

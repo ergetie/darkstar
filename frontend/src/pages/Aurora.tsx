@@ -59,8 +59,6 @@ export default function Aurora() {
     const [loading, setLoading] = useState(false)
     const [riskAppetite, setRiskAppetite] = useState<number>(3)
     const [chartMode, setChartMode] = useState<'load' | 'pv' | 'price'>('pv')
-    const [reflexEnabled, setReflexEnabled] = useState<boolean>(false)
-    const [togglingReflex, setTogglingReflex] = useState(false)
     const [probabilisticMode, setProbabilisticMode] = useState<boolean>(false)
     const [togglingProbabilistic, setTogglingProbabilistic] = useState(false)
     const [priceForecastEnabled, setPriceForecastEnabled] = useState<boolean>(false)
@@ -84,7 +82,6 @@ export default function Aurora() {
             if (typeof ra === 'number') {
                 setRiskAppetite(ra)
             }
-            setReflexEnabled(!!res.state?.reflex_enabled)
             setProbabilisticMode(res.state?.risk_profile?.mode === 'probabilistic')
         } catch (err) {
             console.error('Failed to load Aurora dashboard:', err)
@@ -173,20 +170,6 @@ export default function Aurora() {
         }
         fetchPerf()
     }, [])
-
-    const handleReflexToggle = async () => {
-        const newValue = !reflexEnabled
-        setReflexEnabled(newValue)
-        setTogglingReflex(true)
-        try {
-            await Api.aurora.toggleReflex(newValue)
-        } catch (err) {
-            console.error('Failed to toggle reflex:', err)
-            setReflexEnabled(!newValue) // Revert on error
-        } finally {
-            setTogglingReflex(false)
-        }
-    }
 
     const handleProbabilisticToggle = async () => {
         const newValue = !probabilisticMode
@@ -344,26 +327,6 @@ export default function Aurora() {
                     </div>
 
                     <div className="flex flex-col gap-2 flex-grow">
-                        <div className="flex items-center justify-between p-2 rounded-lg bg-surface2/50 border border-line/50">
-                            <div className="flex flex-col">
-                                <span className="text-[11px] font-medium text-text">Aurora Reflex</span>
-                                <span className="text-[9px] text-muted">Long-term auto-tuning</span>
-                            </div>
-                            <button
-                                onClick={handleReflexToggle}
-                                disabled={togglingReflex}
-                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${
-                                    reflexEnabled ? 'bg-accent' : 'bg-surface2'
-                                }`}
-                            >
-                                <span
-                                    className={`${
-                                        reflexEnabled ? 'translate-x-5' : 'translate-x-1'
-                                    } inline-block h-3 w-3 transform rounded-full bg-white transition-transform`}
-                                />
-                            </button>
-                        </div>
-
                         <div className="flex items-center justify-between p-2 rounded-lg bg-surface2/50 border border-line/50">
                             <div className="flex flex-col">
                                 <span className="text-[11px] font-medium text-text">Probabilistic</span>

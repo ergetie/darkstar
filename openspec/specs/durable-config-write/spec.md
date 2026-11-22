@@ -7,10 +7,10 @@ Defines durable write behavior for `config.yaml` so startup migration and UI sav
 ## Requirements
 
 ### Requirement: All config writers persist atomically
-Every code path that writes `config.yaml` at runtime SHALL persist the file through the single shared config writer, which writes to a temporary file in the same directory as the resolved target and then atomically replaces the target. No writer SHALL open the live config file in truncating write mode (`"w"`), stream content directly into it, or copy over it outside the shared writer.
+Every code path that writes `config.yaml` at runtime SHALL persist the file through the single shared config writer, which writes to a temporary file in the same directory as the resolved target and then atomically replaces the target. No writer SHALL open the live config file in truncating write mode (`"w"`), stream content directly into it, or copy over it outside the shared writer. Learning components SHALL NOT write `config.yaml`.
 
 #### Scenario: Covered writer paths
-- **WHEN** any of startup migration, the UI/wizard save endpoint, config reset, the Reflex toggle, executor endpoints, theme selection, or the Reflex learning engine writes `config.yaml`
+- **WHEN** any of startup migration, the UI/wizard save endpoint, config reset, executor endpoints or theme selection writes `config.yaml`
 - **THEN** it persists the file through the single shared config writer
 
 #### Scenario: UI save uses the atomic writer
@@ -19,7 +19,7 @@ Every code path that writes `config.yaml` at runtime SHALL persist the file thro
 - **AND** the live `config.yaml` SHALL NOT be opened in `"w"` truncating mode by the save handler
 
 #### Scenario: Secondary writers use the atomic writer
-- **WHEN** the Reflex toggle, an executor settings endpoint, theme selection, the Reflex learning engine, or config reset changes `config.yaml`
+- **WHEN** an executor settings endpoint, theme selection or config reset changes `config.yaml`
 - **THEN** the change SHALL be persisted through the shared atomic writer
 
 #### Scenario: Crash mid-write never truncates the live file
@@ -58,8 +58,8 @@ On filesystems where an atomic replace is not possible (e.g. Docker single-file 
 - **AND** a recoverable backup SHALL already exist
 
 #### Scenario: Reflex toggle works on a standalone Docker bind mount
-- **WHEN** the Reflex toggle is used and `config.yaml` is a single-file bind mount
-- **THEN** the toggle SHALL persist the value and return success
+- **WHEN** a settings write (formerly the Reflex toggle, now any single-key settings write such as a notification toggle) runs and `config.yaml` is a single-file bind mount
+- **THEN** the write SHALL persist the value and return success
 
 ### Requirement: A failed write does not report success
 If a config write is aborted (validation failure, persistence-guard failure or write error), the originating operation SHALL NOT report success.
@@ -88,7 +88,7 @@ The writer SHALL flush and fsync the temporary file before the atomic replace, a
 All runtime config mutations SHALL run their read-modify-write under one process-wide lock, so concurrent writers cannot overwrite each other's changes.
 
 #### Scenario: Concurrent writers do not lose updates
-- **WHEN** two writers change different keys concurrently (e.g. a UI save and the Reflex learning engine)
+- **WHEN** two writers change different keys concurrently (e.g. a UI save and an executor settings update)
 - **THEN** the final `config.yaml` SHALL contain both changes
 
 ### Requirement: Add-on writes must target persistent storage

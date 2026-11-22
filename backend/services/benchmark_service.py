@@ -24,6 +24,7 @@ from backend.battery_benchmark import (
     state_key,
 )
 from backend.core.secrets import load_yaml
+from backend.learning.learned_parameters import resolve_effective_config
 from planner.solver.adapter import config_to_kepler_config
 
 if TYPE_CHECKING:
@@ -80,11 +81,15 @@ class BenchmarkService:
 
     async def run_once(self, store: LearningStore) -> list[date]:
         """Score pending days; returns the days processed."""
-        config = config_to_kepler_config(self._config_loader())
+        raw_config = self._config_loader()
+        config = config_to_kepler_config(raw_config)
         if config.capacity_kwh <= 0:
             return []
         tz = pytz.timezone(config.timezone_name)
         now = self._now().astimezone(tz)
+        # Same effective efficiencies as the planner (learned, locked or configured).
+        effective_config, _ = await resolve_effective_config(raw_config, store.db_path, now)
+        config = config_to_kepler_config(effective_config)
         today = now.date()
         days = [today - timedelta(days=k) for k in range(WINDOW_DAYS, 0, -1)]
         stored = await store.get_system_states([state_key(d) for d in days])

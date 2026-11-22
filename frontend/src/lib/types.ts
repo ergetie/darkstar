@@ -123,7 +123,6 @@ export type AuroraDashboardResponse = {
     state: {
         risk_profile: AuroraRiskProfile
         weather_volatility: AuroraWeatherVolatility
-        reflex_enabled?: boolean
     }
     horizon: AuroraHorizon
     history: {
@@ -147,4 +146,52 @@ export interface Toast {
     message: string
     description?: string
     variant: ToastVariant
+}
+
+// Learned battery and inverter parameters (GET /api/learning/parameters)
+export type LearnedParameterSource = 'locked' | 'learned' | 'default' | 'config' | 'expired'
+
+export type LearnedParameter = {
+    key: string
+    label: string
+    unit: 'fraction' | 'W'
+    learnable: boolean
+    effective_value: number | null
+    source: LearnedParameterSource
+    learned_value: number | null
+    applied_value: number | null
+    confidence: number | null
+    evidence: Record<string, unknown>
+    status_note: string | null
+    estimated_at: string | null
+    expires_at: string | null
+    applied_at: string | null
+    bounds: { min: number; max: number }
+    config_fallback: number | null
+    locked: boolean
+    locked_value: number | null
+}
+
+export type LearnedParametersResponse = {
+    parameters: LearnedParameter[]
+    effective: {
+        charge_efficiency: number
+        discharge_efficiency: number
+        basis: 'learned' | 'config'
+        missing: string[]
+        config_charge_efficiency: number
+        config_discharge_efficiency: number
+    }
+}
+
+export type LearnedParameterHistoryEntry = {
+    id: number
+    key: string
+    at: string
+    event: 'learned' | 'expired' | 'recovered' | 'locked' | 'lock_changed' | 'unlocked'
+    old_value: number | null
+    new_value: number | null
+    confidence: number | null
+    evidence: Record<string, unknown>
+    notify_state: string
 }

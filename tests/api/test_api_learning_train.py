@@ -74,18 +74,13 @@ def test_learning_train_error(client):
 
 def test_learning_run_success(client):
     """Test full learning run success."""
-    with (
-        patch("ml.training_orchestrator.train_all_models", new_callable=AsyncMock) as mock_train,
-        patch("backend.learning.reflex.AuroraReflex.run", new_callable=AsyncMock) as mock_reflex,
-    ):
+    with patch("ml.training_orchestrator.train_all_models", new_callable=AsyncMock) as mock_train:
         mock_train.return_value = {"status": "success"}
-        mock_reflex.return_value = {"updated": True}
 
         response = client.post("/api/learning/run")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "success"
         assert data["training_result"]["status"] == "success"
-        assert data["reflex_report"]["updated"] is True
 
         mock_train.assert_called_once_with(training_type="manual")

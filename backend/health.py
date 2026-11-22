@@ -11,7 +11,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,6 +40,12 @@ PV_SITE_RATIO_CACHE_SECONDS = 6 * 3600.0
 PV_SITE_RATIO_RETRY_SECONDS = 600.0
 # (monotonic time computed, ratio or None when there is not enough evidence)
 _pv_site_ratio_cache: tuple[float, float | None] | None = None
+
+
+# Battery warnings (capacity change, low delivered power) move slowly: computed at most this often.
+BATTERY_WARNING_CACHE_SECONDS = 6 * 3600.0
+BATTERY_WARNING_RETRY_SECONDS = 600.0
+_battery_warning_cache: tuple[float, list[Any]] | None = None
 
 
 def get_cached_pv_site_ratio() -> float | None:
@@ -370,6 +376,9 @@ class HealthChecker:
         # Informational PV site plausibility notice (fail-open)
         issues.extend(await self.check_pv_site_sanity())
 
+        # Warn-only battery checks: capacity change, low delivered power (fail-open)
+        issues.extend(await self.check_battery_warnings())
+
         # Runtime invariant monitors (stabilization-review-2) — fail-open
         issues.extend(self.check_monitors())
 
@@ -476,6 +485,123 @@ class HealthChecker:
         except Exception as e:
             logger.debug("Could not check PV site sanity: %s", e)
             return []
+
+    async def check_battery_warnings(self) -> list[HealthIssue]:
+        """Snoozable warnings when measured battery capacity or power departs from the plan.
+
+        Warn-only: nothing is changed. Cached like the PV site ratio. Never raises.
+        """
+        try:
+            system = self._config.get("system")
+            if isinstance(system, dict) and not cast("dict[str, Any]", system).get(
+                "has_battery", True
+            ):
+                return []
+            return await self._battery_warning_issues()
+        except Exception as e:
+            logger.debug("Could not check battery warnings: %s", e)
+            return []
+
+    async def _battery_warning_issues(self) -> list[HealthIssue]:
+        global _battery_warning_cache
+        cached = _battery_warning_cache
+        if cached is not None and time.monotonic() - cached[0] < BATTERY_WARNING_CACHE_SECONDS:
+            return cast("list[HealthIssue]", cached[1])
+
+        from backend.core.forecasts import get_forecast_db_path
+        from backend.learning.battery_warnings import (
+            CAPACITY_WINDOW_COUNT,
+            CAPACITY_WINDOW_DAYS,
+            POWER_WINDOW_DAYS,
+            capacity_change_warning,
+            power_shortfall_warning,
+        )
+        from backend.learning.learned_parameters import resolve_effective_config
+        from backend.learning.store import LearningStore
+        from planner.solver.adapter import config_to_kepler_config
+
+        db_path = get_forecast_db_path()
+        if not Path(db_path).exists():
+            return []
+        tz = pytz.timezone(str(self._config.get("timezone", "Europe/Stockholm")))
+        now = datetime.now(tz)
+        try:
+            effective, _ = await resolve_effective_config(self._config, db_path, now)
+            kepler = config_to_kepler_config(effective)
+            start = tz.localize(
+                datetime.combine(
+                    now.date() - timedelta(days=CAPACITY_WINDOW_COUNT * CAPACITY_WINDOW_DAYS + 2),
+                    datetime.min.time(),
+                )
+            )
+            store = LearningStore(db_path, tz)
+            try:
+                rows = await store.get_slot_observation_rows(start, now)
+                plans = await store.get_plans_range(now - timedelta(days=POWER_WINDOW_DAYS))
+            finally:
+                await store.close()
+            capacity = await asyncio.to_thread(capacity_change_warning, rows, kepler, now)
+            shortfalls = await asyncio.to_thread(power_shortfall_warning, rows, plans, kepler, now)
+        except Exception:
+            # Back-dated so the failure expires after BATTERY_WARNING_RETRY_SECONDS.
+            stamp = time.monotonic() - (
+                BATTERY_WARNING_CACHE_SECONDS - BATTERY_WARNING_RETRY_SECONDS
+            )
+            _battery_warning_cache = (stamp, [])
+            raise
+
+        issues: list[HealthIssue] = []
+        guidance_unchanged = "Darkstar does not change this setting by itself."
+        if capacity is not None:
+            issues.append(
+                HealthIssue(
+                    category="battery",
+                    severity="warning",
+                    message=(
+                        f"Measured battery capacity changed: about {capacity.latest_kwh[0]:.0f} kWh "
+                        f"over the last two weeks, was about {capacity.baseline_kwh:.0f} kWh before "
+                        f"(configured {capacity.configured_kwh:.0f} kWh)."
+                    ),
+                    guidance=(
+                        "A battery module may be offline, or the capacity setting may be wrong. "
+                        + guidance_unchanged
+                    ),
+                    code="battery_capacity_change",
+                    details={
+                        "baseline_kwh": round(capacity.baseline_kwh, 1),
+                        "latest_kwh": [round(v, 1) for v in capacity.latest_kwh],
+                        "configured_kwh": capacity.configured_kwh,
+                    },
+                )
+            )
+        for shortfall in shortfalls:
+            verb = "charges" if shortfall.direction == "charge" else "discharges"
+            issues.append(
+                HealthIssue(
+                    category="battery",
+                    severity="warning",
+                    message=(
+                        f"The battery {verb} slower than planned: the plan asked for about "
+                        f"{shortfall.planned_kw:.1f} kW, the battery delivered about "
+                        f"{shortfall.delivered_kw:.1f} kW "
+                        f"({shortfall.slots} slots in the last 14 days)."
+                    ),
+                    guidance=(
+                        "Check the battery's power limits and its state (temperature, modules, "
+                        "inverter settings). " + guidance_unchanged
+                    ),
+                    code=f"battery_{shortfall.direction}_power_shortfall",
+                    details={
+                        "direction": shortfall.direction,
+                        "planned_kw": round(shortfall.planned_kw, 2),
+                        "delivered_kw": round(shortfall.delivered_kw, 2),
+                        "limit_kw": shortfall.limit_kw,
+                        "slots": shortfall.slots,
+                    },
+                )
+            )
+        _battery_warning_cache = (time.monotonic(), issues)
+        return issues
 
     def check_monitors(self) -> list[HealthIssue]:
         """Surface active invariant violations from the runtime monitors."""

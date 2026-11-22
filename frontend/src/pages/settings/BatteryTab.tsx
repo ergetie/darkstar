@@ -13,6 +13,7 @@ import { UnsavedChangesBanner } from './components/UnsavedChangesBanner'
 import { NavigationBlockerDialog } from './components/NavigationBlockerDialog'
 import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard'
 import { Api, ConfigResponse } from '../../lib/api'
+import { LearnedParametersSection } from './components/LearnedParametersSection'
 
 export const BatteryTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) => {
     const navigate = useNavigate()
@@ -143,6 +144,8 @@ export const BatteryTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode 
                         </AnimatePresence>
                     )
                 })}
+
+                <LearnedParametersSection />
 
                 <AdditionalAdvancedNotice visible={!advancedMode} />
 

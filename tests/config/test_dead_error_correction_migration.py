@@ -13,8 +13,7 @@ DEFAULT_PATH = str(REPO_ROOT / "config.default.yaml")
 def _config() -> dict:
     return {
         "learning": {
-            "enabled": True,
-            "reflex_enabled": True,
+            "enable": True,
             "error_correction_enabled": True,
             "auto_tune_enabled": True,
         },
@@ -31,7 +30,7 @@ def _config() -> dict:
 def test_three_keys_removed_siblings_kept() -> None:
     cfg, changed = remove_deprecated_keys(_config())
     assert changed is True
-    assert cfg["learning"] == {"enabled": True, "reflex_enabled": True}
+    assert cfg["learning"] == {"enable": True}
     assert cfg["automation"]["ml_training"] == {"enabled": True, "run_days": [1, 4]}
 
 
@@ -66,6 +65,6 @@ def test_full_migration_removes_and_merge_does_not_readd(tmp_path: Path) -> None
     assert "error_correction_enabled" not in migrated["learning"]
     assert "auto_tune_enabled" not in migrated["learning"]
     assert "error_correction_enabled" not in migrated["automation"]["ml_training"]
-    assert migrated["learning"]["reflex_enabled"] is True
+    assert migrated["learning"]["enable"] is True
     assert migrated["automation"]["ml_training"]["enabled"] is True
     assert migrated["automation"]["ml_training"]["run_days"] == [1, 4]

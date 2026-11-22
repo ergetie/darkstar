@@ -92,6 +92,54 @@ class EvChargerObservation(Base):
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
 
 
+class LearnedParameter(Base):
+    """One learned (or lockable) hardware parameter with evidence and lock state."""
+
+    __tablename__ = "learned_parameters"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    # Latest accepted estimate; applied_value is the step-limited value the planner uses.
+    learned_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}", server_default=text("'{}'"))
+    estimated_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    applied_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    applied_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    status_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    locked: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    locked_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class LearnedParameterHistory(Base):
+    """Every applied change, expiry, recovery and lock change of a learned parameter."""
+
+    __tablename__ = "learned_parameter_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String)
+    at: Mapped[str] = mapped_column(String)
+    event: Mapped[str] = mapped_column(String)
+    old_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    new_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notify_state: Mapped[str] = mapped_column(String, default="none", server_default=text("'none'"))
+    notified_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    __table_args__ = (sa.Index("ix_learned_parameter_history_key_at", "key", "at"),)
+
+
+class InverterLossObservation(Base):
+    """Per-slot inverter loss energy from the optional loss sensor (never zero-filled)."""
+
+    __tablename__ = "inverter_loss_observations"
+
+    slot_start: Mapped[str] = mapped_column(String, primary_key=True)
+    loss_kwh: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
+
+
 class SlotForecast(Base):
     __tablename__ = "slot_forecasts"
 
@@ -168,22 +216,6 @@ class LearningRun(Base):
     partial_failure: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
-class LearningDailyMetric(Base):
-    __tablename__ = "learning_daily_metrics"
-
-    date: Mapped[str] = mapped_column(String, primary_key=True)
-    pv_error_by_hour_kwh: Mapped[str | None] = mapped_column(Text)
-    load_error_by_hour_kwh: Mapped[str | None] = mapped_column(Text)
-    pv_adjustment_by_hour_kwh: Mapped[str | None] = mapped_column(Text)
-    load_adjustment_by_hour_kwh: Mapped[str | None] = mapped_column(Text)
-    soc_error_mean_pct: Mapped[float | None] = mapped_column(Float)
-    soc_error_stddev_pct: Mapped[float | None] = mapped_column(Float)
-    pv_error_mean_abs_kwh: Mapped[float | None] = mapped_column(Float)
-    load_error_mean_abs_kwh: Mapped[float | None] = mapped_column(Float)
-    s_index_base_factor: Mapped[float | None] = mapped_column(Float)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
-
-
 class LearningParamHistory(Base):
     __tablename__ = "learning_param_history"
 
@@ -211,15 +243,6 @@ class SIndexHistory(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     created_at: Mapped[str] = mapped_column(String, index=True)
     payload: Mapped[str] = mapped_column(Text)
-
-
-class ReflexState(Base):
-    __tablename__ = "reflex_state"
-
-    param_path: Mapped[str] = mapped_column(String, primary_key=True)
-    last_value: Mapped[float | None] = mapped_column(Float)
-    last_updated: Mapped[str | None] = mapped_column(String)
-    change_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class VacationState(Base):

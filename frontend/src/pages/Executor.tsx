@@ -44,6 +44,7 @@ type NotificationSettings = {
     on_override_activated: boolean
     on_error: boolean
     on_ev_soc_stale?: boolean
+    on_learned_parameter_change?: boolean
     on_ev_plug_in_reminder?: boolean
     ev_plug_in_reminder_minutes?: number
 }
@@ -1605,6 +1606,11 @@ export default function Executor() {
                                         key: 'on_ev_soc_stale',
                                         label: 'EV SoC Unavailable',
                                         desc: 'When goal charging pauses for a stale SoC',
+                                    },
+                                    {
+                                        key: 'on_learned_parameter_change',
+                                        label: 'Learned Parameter Changed',
+                                        desc: 'When a learned battery or inverter value changes',
                                     },
                                     {
                                         key: 'on_ev_plug_in_reminder',

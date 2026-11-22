@@ -1,7 +1,5 @@
-import asyncio
 import logging
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 import pytz
@@ -10,7 +8,6 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import case, func, select
 
 # from ml.weather import get_weather_volatility # Not strictly needed if we mock or reuse logic
-from backend.config_migration import update_config
 from backend.core.prices import get_nordpool_data
 from backend.core.secrets import load_yaml
 from backend.learning import LearningEngine, get_learning_engine
@@ -360,7 +357,6 @@ async def aurora_dashboard() -> dict[str, Any]:
         "history": {"strategy_events": strategy_history},
         "status": "online" if engine else "offline",
         "state": {
-            "reflex_enabled": config.get("learning", {}).get("reflex_enabled", False),
             "risk_profile": {
                 "risk_appetite": config.get("s_index", {}).get("risk_appetite", 3),
                 "mode": config.get("s_index", {}).get("mode", "dynamic"),
@@ -387,32 +383,6 @@ async def aurora_briefing(body: BriefingRequest):
 
     text = get_aurora_briefing_text(dashboard, config, secrets)
     return {"briefing": text}
-
-
-class ToggleReflexRequest(BaseModel):
-    enabled: bool
-
-
-@router.post("/config/toggle_reflex")
-async def toggle_reflex(payload: ToggleReflexRequest):
-    """Enable or disable Aurora Reflex safely."""
-    try:
-
-        def mutate(data: dict[str, Any]) -> None:
-            learning = data.setdefault("learning", {})
-            learning["reflex_enabled"] = payload.enabled
-
-        if not await asyncio.to_thread(update_config, Path("config.yaml"), mutate):
-            raise HTTPException(
-                500, "Config save failed; verify persistent storage and server logs"
-            )
-
-        logger.info("Toggle Reflex: Set to %s", payload.enabled)
-        return {"status": "success", "enabled": payload.enabled}
-
-    except Exception as e:
-        logger.error("Toggle reflex failed: %s", e)
-        raise HTTPException(500, str(e)) from e
 
 
 # --- Secondary router for /api/forecast/* endpoints ---

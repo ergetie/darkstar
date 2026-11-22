@@ -168,6 +168,11 @@ DEPRECATED_NESTED_KEYS = {
         # remove-dead-corrector left these flags behind; no component reads them.
         "error_correction_enabled",
         "auto_tune_enabled",
+        # learned-battery-inverter-parameters: Reflex is gone, nothing reads these.
+        "reflex_enabled",
+        "max_daily_param_change",
+        "min_sample_threshold",
+        "min_improvement_threshold",
     ],
     "automation.ml_training": [
         # remove-dead-corrector: the error-correction model no longer exists.
@@ -711,8 +716,7 @@ def _migrate_energy_tax(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
 def _remove_dead_load_safety_margin(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     """Drop the dead ``load_safety_margin_percent`` keys (nothing reads them).
 
-    Removes ``forecasting.load_safety_margin_percent`` and
-    ``learning.max_daily_param_change.load_safety_margin_percent``; other keys are kept.
+    Removes ``forecasting.load_safety_margin_percent``; other keys are kept.
     Runs before the template merge, which no longer supplies them. Idempotent.
     """
     changed = False
@@ -722,16 +726,8 @@ def _remove_dead_load_safety_margin(config: dict[str, Any]) -> tuple[dict[str, A
         if "load_safety_margin_percent" in forecasting:
             del forecasting["load_safety_margin_percent"]
             changed = True
-    learning_raw: Any = config.get("learning")
-    if isinstance(learning_raw, dict):
-        limits_raw: Any = cast("dict[str, Any]", learning_raw).get("max_daily_param_change")
-        if isinstance(limits_raw, dict):
-            limits = cast("dict[str, Any]", limits_raw)
-            if "load_safety_margin_percent" in limits:
-                del limits["load_safety_margin_percent"]
-                changed = True
     if changed:
-        logger.info("🔄 Removed unused load_safety_margin_percent setting(s)")
+        logger.info("🔄 Removed unused load_safety_margin_percent setting")
     return config, changed
 
 

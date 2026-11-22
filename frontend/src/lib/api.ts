@@ -1730,8 +1730,17 @@ export const Api = {
         dashboard: () => getJSON<AuroraDashboardResponse>('/api/aurora/dashboard'),
         briefing: (payload: AuroraDashboardResponse) =>
             getJSON<AuroraBriefingResponse>('/api/aurora/briefing', 'POST', payload),
-        toggleReflex: (enabled: boolean) =>
-            getJSON<{ status: string; enabled: boolean }>('/api/aurora/config/toggle_reflex', 'POST', { enabled }),
+    },
+    learnedParameters: {
+        list: () => getJSON<import('./types').LearnedParametersResponse>('/api/learning/parameters'),
+        history: (limit = 50) =>
+            getJSON<{ history: import('./types').LearnedParameterHistoryEntry[] }>(
+                `/api/learning/parameters/history?limit=${limit}`,
+            ),
+        lock: (key: string, value: number) =>
+            getJSON<import('./types').LearnedParameter>(`/api/learning/parameters/${key}/lock`, 'PUT', { value }),
+        unlock: (key: string) =>
+            getJSON<import('./types').LearnedParameter>(`/api/learning/parameters/${key}/lock`, 'DELETE'),
     },
     performanceData: (days = 7) => getJSON<AuroraPerformanceData>(`/api/performance/data?days=${days}`),
     // Executor controls

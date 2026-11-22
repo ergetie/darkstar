@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from backend.core.ha_client import PowerPoint, integrate_power_points_covered
+from backend.core.power_sensors import INVERTER_POWER_LOSSES
 from backend.core.water_heating import (
     DEFAULT_IDLE_POWER_THRESHOLD_KW,
     normalize_active_power_kw,
@@ -56,6 +57,8 @@ class SlotEnergySources:
     # (feature flag off or ``enabled`` false). Read only to notice a live sensor.
     inactive_ev_chargers: tuple[tuple[str, str], ...] = ()
     inactive_water_heaters: tuple[tuple[str, str], ...] = ()
+    # Optional inverter power-loss sensor (learned-battery-inverter-parameters D9)
+    inverter_loss: str | None = None
 
     def entity_ids(self) -> list[str]:
         """All entities whose history is needed for a slot, without duplicates."""
@@ -66,6 +69,7 @@ class SlotEnergySources:
             self.grid_import,
             self.grid_export,
             self.battery,
+            self.inverter_loss,
             *(sensor for _, sensor in self.ev_chargers),
             *(sensor for _, sensor in self.water_heaters),
             *(sensor for _, sensor in self.inactive_ev_chargers),
@@ -96,6 +100,8 @@ class SlotEnergy:
     )
     # Active energy of excluded (inactive) chargers / heaters, keyed by sensor entity.
     inactive: dict[str, float | None] = field(default_factory=lambda: dict[str, float | None]())
+    # Integrated inverter loss (kWh) when the sensor covered the slot, else ``None``.
+    inverter_loss: float | None = None
 
 
 def build_slot_sources(config: dict[str, Any]) -> SlotEnergySources:
@@ -156,6 +162,7 @@ def build_slot_sources(config: dict[str, Any]) -> SlotEnergySources:
         water_idle_power_thresholds_kw=water_idle_power_thresholds_kw,
         inactive_ev_chargers=tuple(inactive_ev_chargers),
         inactive_water_heaters=tuple(inactive_water_heaters),
+        inverter_loss=sensor(INVERTER_POWER_LOSSES, system.get("has_battery", True)),
     )
 
 
@@ -228,6 +235,12 @@ def compute_slot_energy(
         discharge, charge = battery[::-1] if sources.battery_inverted else battery
         energy.batt_discharge = discharge
         energy.batt_charge = charge
+
+    if sources.inverter_loss is not None:
+        loss_covered = covered(sources.inverter_loss)
+        # A partly covered slot is not the slot's loss: no value, never zero-filled.
+        if loss_covered is not None and loss_covered[2] >= MIN_COVERAGE_SHARE:
+            energy.inverter_loss = loss_covered[0]
 
     for _, sensor in sources.ev_chargers:
         ev_covered = covered(sensor)

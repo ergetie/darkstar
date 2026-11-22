@@ -190,3 +190,55 @@ async def test_api_validates_range(store):
         body = await get_battery_benchmark(end_date=YESTERDAY, store=store)
     assert body["start_date"] == "2026-09-11"
     assert body["days"] == [] and body["totals"]["score"] is None
+
+
+async def _learn_pair(store: LearningStore, rte: float, loss: float) -> None:
+    from backend.learning import learned_parameters as lp
+    from backend.learning.battery_estimators import KEY_CHARGE_LOSS, KEY_RTE
+
+    parameters = lp.LearnedParameterStore(store)
+    for key, value in ((KEY_RTE, rte), (KEY_CHARGE_LOSS, loss)):
+        await parameters.save_state(
+            lp.ParameterState(
+                key=key,
+                learned_value=value,
+                applied_value=value,
+                estimated_at=NOW - timedelta(days=1),
+                applied_at=NOW - timedelta(days=1),
+            ),
+            NOW,
+        )
+
+
+def _capture_benchmark_configs() -> tuple[list, object]:
+    configs: list = []
+    real = service_module.benchmark_day
+
+    def spy(day, by_day, config, now):
+        configs.append(config)
+        return real(day, by_day, config, now)
+
+    return configs, spy
+
+
+@pytest.mark.asyncio
+async def test_learned_pair_reaches_the_hindsight_config(store):
+    await _learn_pair(store, 0.96, 0.07)
+    configs, spy = _capture_benchmark_configs()
+
+    with patch.object(service_module, "benchmark_day", spy):
+        await _service().run_once(store)
+
+    root = 0.96**0.5
+    assert configs[0].charge_efficiency == pytest.approx((1 - 0.07) * root)
+    assert configs[0].discharge_efficiency == pytest.approx(root * 0.97)
+
+
+@pytest.mark.asyncio
+async def test_without_learned_values_the_config_pair_is_unchanged(store):
+    configs, spy = _capture_benchmark_configs()
+
+    with patch.object(service_module, "benchmark_day", spy):
+        await _service().run_once(store)
+
+    assert (configs[0].charge_efficiency, configs[0].discharge_efficiency) == (1.0, 1.0)

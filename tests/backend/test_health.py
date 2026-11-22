@@ -317,3 +317,95 @@ def test_health_no_energy_sensor_warnings():
 
     energy_sensor_issues = [i for i in issues if "energy sensor" in i.message.lower()]
     assert len(energy_sensor_issues) == 0
+
+
+# --- Warn-only battery checks (learned-battery-inverter-parameters) -------------------------
+
+
+def _battery_checker():
+    from backend.health import HealthChecker
+
+    checker = HealthChecker()
+    checker._config = {"timezone": "Europe/Stockholm", "system": {"has_battery": True}}
+    return checker
+
+
+async def _battery_issues(tmp_path, capacity=None, shortfalls=(), compute_error=None):
+    import backend.health as health_mod
+
+    health_mod._battery_warning_cache = None
+    db = tmp_path / "learning.db"
+    db.touch()
+    store = MagicMock(
+        close=AsyncMock(),
+        get_slot_observation_rows=AsyncMock(return_value=[]),
+        get_plans_range=AsyncMock(return_value=[]),
+    )
+    with (
+        patch("backend.core.forecasts.get_forecast_db_path", return_value=str(db)),
+        patch("backend.learning.store.LearningStore", return_value=store),
+        patch(
+            "backend.learning.learned_parameters.resolve_effective_config",
+            new=AsyncMock(return_value=({}, None)),
+        ),
+        patch("planner.solver.adapter.config_to_kepler_config", return_value=MagicMock()),
+        patch(
+            "backend.learning.battery_warnings.capacity_change_warning",
+            side_effect=compute_error,
+            return_value=capacity,
+        ),
+        patch(
+            "backend.learning.battery_warnings.power_shortfall_warning",
+            return_value=list(shortfalls),
+        ),
+    ):
+        return await _battery_checker().check_battery_warnings()
+
+
+@pytest.mark.asyncio
+async def test_capacity_change_issue_has_category_severity_and_both_values(tmp_path):
+    from backend.learning.battery_warnings import CapacityWarning
+
+    (issue,) = await _battery_issues(tmp_path, capacity=CapacityWarning(34.0, (19.0, 19.5), 34.0))
+
+    assert (issue.category, issue.severity, issue.code) == (
+        "battery",
+        "warning",
+        "battery_capacity_change",
+    )
+    assert "about 19 kWh" in issue.message and "about 34 kWh" in issue.message
+    assert issue.acknowledge_id is None  # snoozed by its stable code, like other warnings
+    assert "does not change this setting" in issue.guidance
+
+
+@pytest.mark.asyncio
+async def test_power_shortfall_issue_names_planned_and_delivered_power(tmp_path):
+    from backend.learning.battery_warnings import PowerShortfall
+
+    (issue,) = await _battery_issues(
+        tmp_path, shortfalls=[PowerShortfall("charge", 30, 5.0, 3.5, 5.0)]
+    )
+
+    assert issue.code == "battery_charge_power_shortfall"
+    assert issue.severity == "warning"
+    assert "5.0 kW" in issue.message and "3.5 kW" in issue.message
+
+
+@pytest.mark.asyncio
+async def test_insufficient_data_gives_no_issue(tmp_path):
+    assert await _battery_issues(tmp_path) == []
+
+
+@pytest.mark.asyncio
+async def test_evaluator_exception_gives_no_issue_and_is_not_retried_every_poll(tmp_path):
+    import backend.health as health_mod
+
+    assert await _battery_issues(tmp_path, compute_error=RuntimeError("boom")) == []
+    assert health_mod._battery_warning_cache is not None  # failure is cached briefly
+
+
+@pytest.mark.asyncio
+async def test_no_battery_means_no_check(tmp_path):
+    checker = _battery_checker()
+    checker._config = {"system": {"has_battery": False}}
+    assert await checker.check_battery_warnings() == []

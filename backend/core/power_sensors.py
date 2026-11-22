@@ -20,6 +20,7 @@ BATTERY_POWER = "battery_power"
 GRID_POWER = "grid_power"
 GRID_IMPORT_POWER = "grid_import_power"
 GRID_EXPORT_POWER = "grid_export_power"
+INVERTER_POWER_LOSSES = "inverter_power_losses"
 EV_POWER = "ev_power"
 EV_PHASE_POWER = "ev_phase_power"
 WATER_POWER = "water_power"
@@ -102,6 +103,12 @@ POWER_SENSOR_PATHS: dict[str, PowerSensorPath] = {
             "grid_export_power",
             ("input_sensors.grid_export_power",),
             _grid_meter(dual=True),
+        ),
+        PowerSensorPath(
+            INVERTER_POWER_LOSSES,
+            "inverter_power_losses",
+            ("input_sensors.inverter_power_losses",),
+            _system_flag("has_battery", True),
         ),
         PowerSensorPath(
             EV_POWER,

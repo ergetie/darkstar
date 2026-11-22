@@ -5,6 +5,7 @@
 Compares each day's actual battery cost with a hindsight-optimal battery schedule, computed from recorded data after the day ends.
 
 ## Requirements
+
 ### Requirement: Only finished, cleanly recorded days are scored
 The benchmark SHALL only score local days whose slots all ended before the run. Each slot, and the preceding start-SoC slot, SHALL carry per-component power-history recording provenance with live SoC; a slot without usable provenance or live SoC, or recorded by snapshot fallback, SHALL count as unverified. Today and future placeholder rows SHALL never be used. Other ineligible days SHALL be stored as excluded with a reason.
 
@@ -270,3 +271,14 @@ The benchmark API SHALL return the `limits_relaxed` warning and the relaxed limi
 #### Scenario: Older version
 - **WHEN** a scored day is stored with version 2
 - **THEN** the next run recomputes it under version 3
+
+### Requirement: Benchmark uses the effective battery efficiencies
+The benchmark's hindsight solve and its capacity fit SHALL use the same effective charge and discharge efficiencies as the planner (learned, locked or config fallback).
+
+#### Scenario: Learned efficiencies active
+- **WHEN** learned efficiencies are valid at benchmark time
+- **THEN** the hindsight Kepler configuration and the capacity fit use them
+
+#### Scenario: Fallback
+- **WHEN** no valid learned value exists
+- **THEN** the configured efficiencies are used, as before

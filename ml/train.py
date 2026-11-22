@@ -566,7 +566,7 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
     pv_df = observations.dropna(subset=["pv_kwh"]).copy()
 
     if not pv_df.empty:
-        # Shared cleaning (also feeds the Reflex bias): keeps shaded zero slots, drops night,
+        # Shared cleaning (also used by the site sanity check): keeps shaded zero slots, drops night,
         # dropouts, spikes and curtailed slots (and slots without a baseline).
         latitude, longitude = site_location(engine.config)
         before = len(pv_df)

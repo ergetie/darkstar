@@ -173,14 +173,20 @@ Darkstar's intelligence is powered by the **Aurora Suite**, which consists of th
 *   **Mechanism**: Determines high-level policy parameters (`θ`) for Kepler based on context (Weather, Risk, Prices).
 *   **Outputs**: Target SoC, Export Thresholds, Risk Appetite.
 
-### 5.3 Aurora Reflex (The Inner Ear)
-*   **Role**: Learning & Balance.
-*   **Mechanism**: Long-term feedback loop that auto-tunes physical constants and policy weights based on historical drift.
-*   **Analyzers**:
-    *   **Safety**: Tunes `s_index.base_factor` (Lifestyle Creep).
-    *   **Confidence**: Tunes `forecasting.pv_confidence_percent` (Dirty Panels).
-    *   **ROI**: Tunes `battery_economics.battery_cycle_cost_kwh` (Virtual Cost).
-    *   **Capacity**: Tunes `battery.capacity_kwh` (Capacity Fade).
+### 5.3 Learned Parameters (Measured Battery and Inverter Losses)
+*   **Role**: Measure the user's own hardware instead of trusting hand-set numbers. Replaces the removed auto-tuner of config values; `config.yaml` is never written by learning.
+*   **What is learned** (`backend/learning/battery_estimators.py`, pure functions over recorded slots):
+    *   `battery_round_trip_efficiency` (RTE): battery-terminal (DC) discharge energy over charge energy, pooled over contiguous recorded runs and corrected for the net SoC change (at least 28 days).
+    *   `inverter_charge_loss`: share of AC-side charge energy lost before the battery, from a robust fit of the energy-balance residual (standby power plus a share of DC charge energy), stored as `k / (1 + k)`.
+    *   `inverter_standby_w`: informational only; a constant draw does not change the optimal schedule.
+    *   `inverter_discharge_efficiency`: not measurable; default 0.97, changeable only by lock.
+    *   An optional `input_sensors.inverter_power_losses` sensor replaces the balance residual for the slots it covers.
+*   **Which side of the inverter**: Kepler's charge and discharge are AC-side, recorded battery counters are DC-side. The planner's pair is `charge_efficiency = (1 - inverter_charge_loss) x sqrt(RTE)` and `discharge_efficiency = sqrt(RTE) x inverter_discharge_efficiency`; the DC counters are never combined with it.
+*   **Lifecycle** (`backend/learning/learned_parameters.py`, tables `learned_parameters` and `learned_parameter_history`): an estimate needs its data gate, a confidence of at least 0.5 (split-half consistency) and a value inside the physical bounds (rejected, never clamped). The first value is adopted directly; later values move by at most one step per day and only outside a deadband. A learned value expires 30 days after its last accepted estimate and the configured efficiencies apply again; a later estimate recovers it.
+*   **One resolution seam**: `resolve_battery_parameters` / `apply_to_config` produce the effective efficiencies for the planner (Kepler and the price reserve), the daily benchmark and the plan archive (`battery_parameters`). Unless the complete pair is available (learned, locked or default), both efficiencies come from `battery.charge_efficiency` / `battery.discharge_efficiency`.
+*   **User control**: any parameter can be locked to a value inside its bounds (Settings > Battery > Learned parameters, or the API). A locked value is effective, never expires and is never changed by learning; estimation continues so the learned value stays visible. Every applied change sends one notification (`executor.notifications.on_learned_parameter_change`); lock changes do not.
+*   **Warn-only checks** (`backend/learning/battery_warnings.py`, surfaced as snoozable health issues): a sudden change of the implied battery capacity against its rolling baseline, and battery power well below what the plan asked for. Neither changes any setting.
+*   **Verification**: `scripts/evaluate_learned_parameters.py` replays archived planner runs against recorded data (read-only) and fails when the learned efficiencies predict the SoC worse than the configured ones.
 
 ---
 
@@ -1008,8 +1014,8 @@ The **Learning Database** (`planner_learning.db`) contains multiple critical tab
 - `slot_plans` - Kepler MILP optimization results
 - `execution_log` - Executor action history (commands vs. planned)
 - `learning_runs` - Training execution metadata
-- `reflex_state` - Aurora auto-tuning state
-- `learning_daily_metrics` - Daily performance metrics
+- `learned_parameters` / `learned_parameter_history` - Learned battery and inverter values, evidence, lock state and change history
+- `inverter_loss_observations` - Optional per-slot inverter loss from a configured loss sensor
 
 **Migration Process:**
 1. Container starts

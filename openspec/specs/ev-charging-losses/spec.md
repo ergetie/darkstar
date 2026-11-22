@@ -5,6 +5,7 @@
 Models EV charging losses (efficiency, overhead, start loss) in planning, records car-side energy, and learns the parameters.
 
 ## Requirements
+
 ### Requirement: Per-charger EV loss settings
 Each EV charger entry SHALL have the settings `charge_overhead_kw`, `start_loss_kwh`, `charge_efficiency` and an optional `energy_added_sensor`. Existing configs SHALL receive the defaults through the config defaults merge, and the config API SHALL reject values outside the allowed ranges.
 
@@ -106,32 +107,6 @@ For every recorded slot with EV charger energy, the recorder SHALL also store ca
 #### Scenario: Stale SoC
 - **WHEN** no sensor is configured and SoC is stale at either slot end
 - **THEN** the slot's car energy SHALL be NULL
-
-### Requirement: EV loss parameters are learned automatically
-When `learning.reflex_enabled` is true, a daily job SHALL fit each charger's `charge_efficiency`, `charge_overhead_kw` and `start_loss_kwh` from the last 30 days of slots with both wallbox and car energy, aggregated per charging day.
-
-#### Scenario: Data selection
-- **WHEN** the daily job fits parameters
-- **THEN** days with car/wall above 1.02 or below 0.3 are discarded
-- **AND** sensor-sourced data is preferred, with SoC-sourced data used only when no sensor data exists
-
-#### Scenario: Update thresholds and limits
-- **WHEN** the fit completes
-- **THEN** parameters are updated only with at least 8 clean charging days and 20 starts
-- **AND** results are clamped to overhead 0–1.0 kW, start loss 0–0.5 kWh and efficiency 0.80–1.00
-- **AND** writes follow the existing Reflex daily max-change limits and are written into the charger's config entry
-
-#### Scenario: Not enough data
-- **WHEN** a charger has 5 clean charging days in the last 30 days
-- **THEN** its loss parameters SHALL NOT change
-
-#### Scenario: Learned values appear in settings
-- **WHEN** the job fits overhead 0.31 kW with enough data and the daily max change allows it
-- **THEN** the charger's `charge_overhead_kw` in config SHALL move towards 0.31, and the EV tab SHALL show the new value
-
-#### Scenario: Learning disabled
-- **WHEN** `learning.reflex_enabled` is false
-- **THEN** no EV loss parameter SHALL be changed
 
 ### Requirement: Goal accounting uses car-side energy
 When SoC is unavailable and required energy falls back to delivered energy, delivered energy SHALL be the recorded car energy where present, else wallbox energy × `charge_efficiency`. Goal diagnostics and progress SHALL use the same rule.

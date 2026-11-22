@@ -33,6 +33,7 @@ REQUIRED_KEYS = {
     "safety_floor",
     "solver_status",
     "time_limit_hit",
+    "battery_parameters",
     "error",
     "executor_errors",
     "executor_errors_truncated",
@@ -141,6 +142,26 @@ class TestWriteRecord:
         assert record["executor_errors"] == []
         assert record["error"] is None
         assert [f.name for f in directory.iterdir()] == [path.name]
+
+    async def test_record_carries_battery_parameters_and_old_records_still_list(self, tmp_path):
+        run = _run()
+        parameters = {
+            "charge_efficiency": 0.907,
+            "discharge_efficiency": 0.951,
+            "basis": "learned",
+            "sources": {"battery_round_trip_efficiency": "learned"},
+        }
+        run.data["battery_parameters"] = parameters
+        path = await pa.write_record(run, "ok", None, {}, tmp_path)
+        assert path is not None
+        assert _read(path)["battery_parameters"] == parameters
+
+        # Format version 1 records written before this field existed stay readable.
+        legacy = {k: v for k, v in _read(path).items() if k != "battery_parameters"}
+        old = tmp_path / "20261101T000000Z-ok.json.gz"
+        old.write_bytes(gzip.compress(json.dumps(legacy).encode()))
+        assert [r["name"] for r in pa.list_records(directory=tmp_path)] == [old.name, path.name]
+        assert _read(old).get("battery_parameters") is None
 
     async def test_error_record(self, tmp_path):
         error = {"code": "PRICES_UNAVAILABLE", "message": "no prices", "details": {"a": 1}}

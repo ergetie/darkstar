@@ -137,3 +137,29 @@ describe('UITab EV plug-in reminder (global notification setting)', () => {
         expect(screen.getByRole('spinbutton', { name: 'Plug-in reminder lead time (custom)' })).toHaveValue(45)
     })
 })
+
+describe('UITab learned parameter notification toggle', () => {
+    it('lists the toggle with its saved key and persists a change', () => {
+        const handleChange = vi.fn()
+        mockUseSettingsForm.mockReturnValue({
+            config: {},
+            form: { ...makeFormState(), 'executor.notifications.on_learned_parameter_change': 'true' },
+            fields: uiFieldList,
+            fieldErrors: {},
+            loading: false,
+            saving: false,
+            statusMessage: null,
+            handleChange,
+            save: vi.fn(),
+            isDirty: false,
+        })
+        renderTab()
+
+        const label = screen.getByText('On learned parameter change')
+        const toggle = label.closest('div.pt-2')?.querySelector('.toggle') as HTMLElement
+        expect(toggle).toHaveClass('active')
+        fireEvent.click(toggle)
+        expect(handleChange).toHaveBeenCalledWith('executor.notifications.on_learned_parameter_change', 'false')
+        expect(uiFieldList.map((f) => f.key)).toContain('executor.notifications.on_learned_parameter_change')
+    })
+})

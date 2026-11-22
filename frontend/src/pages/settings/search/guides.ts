@@ -353,12 +353,13 @@ It has two independent halves, each with its own toggle on the Aurora page. Load
 
 The Aurora page also shows when the models were last trained and how accurate they've been recently. Models retrain automatically on fresh data, with recent days weighted more heavily than old ones.
 
-The Reflex loop (on the Advanced tab) is a related learning feature: it makes small automatic adjustments to planner parameters based on how well previous plans actually turned out, within strict daily limits you can see under Learning Parameter Limits.`,
-        aliases: ['machine learning', 'ml', 'training', 'model', 'predictions', 'reflex'],
+Separately, Darkstar measures your battery's round-trip efficiency and your inverter's charging loss from recorded data. Those learned values (Battery tab, Learned parameters) are used by the planner while they are valid and fall back to your configured efficiencies otherwise; you can lock any of them to your own value.`,
+        aliases: ['machine learning', 'ml', 'training', 'model', 'predictions', 'learned parameters'],
         relatedFieldKeys: [
-            'learning.reflex_enabled',
             'forecasting.pv_confidence_percent',
-            'learning.min_sample_threshold',
+            'battery.charge_efficiency',
+            'battery.discharge_efficiency',
+            'executor.notifications.on_learned_parameter_change',
         ],
     },
     {

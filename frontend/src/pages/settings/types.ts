@@ -680,75 +680,6 @@ export const parameterSections: SettingsSection[] = [
         ],
     },
     {
-        title: 'Learning Parameter Limits',
-        description: 'Limits that keep learning adjustments conservative.',
-        fields: [
-            {
-                key: 'learning.min_sample_threshold',
-                label: 'Min sample threshold',
-                path: ['learning', 'min_sample_threshold'],
-                type: 'number',
-                isAdvanced: true,
-            },
-            {
-                key: 'learning.min_improvement_threshold',
-                label: 'Min improvement (%)',
-                path: ['learning', 'min_improvement_threshold'],
-                type: 'number',
-                isAdvanced: true,
-            },
-            {
-                key: 'learning.max_daily_param_change.battery_use_margin_sek',
-                label: 'Battery margin change ({currency})',
-                path: ['learning', 'max_daily_param_change', 'battery_use_margin_sek'],
-                type: 'number',
-                isAdvanced: true,
-            },
-            {
-                key: 'learning.max_daily_param_change.export_profit_margin_sek',
-                label: 'Export margin change ({currency})',
-                path: ['learning', 'max_daily_param_change', 'export_profit_margin_sek'],
-                type: 'number',
-                isAdvanced: true,
-            },
-            {
-                key: 'learning.max_daily_param_change.future_price_guard_buffer_sek',
-                label: 'Future guard buffer change ({currency})',
-                path: ['learning', 'max_daily_param_change', 'future_price_guard_buffer_sek'],
-                type: 'number',
-                isAdvanced: true,
-            },
-            {
-                key: 'learning.max_daily_param_change.pv_confidence_percent',
-                label: 'PV confidence change (%)',
-                path: ['learning', 'max_daily_param_change', 'pv_confidence_percent'],
-                type: 'number',
-                isAdvanced: true,
-            },
-            {
-                key: 'learning.max_daily_param_change.s_index_base_factor',
-                label: 'S-index base change',
-                path: ['learning', 'max_daily_param_change', 's_index_base_factor'],
-                type: 'number',
-                isAdvanced: true,
-            },
-            {
-                key: 'learning.max_daily_param_change.s_index_pv_deficit_weight',
-                label: 'S-index PV weight change',
-                path: ['learning', 'max_daily_param_change', 's_index_pv_deficit_weight'],
-                type: 'number',
-                isAdvanced: true,
-            },
-            {
-                key: 'learning.max_daily_param_change.s_index_temp_weight',
-                label: 'S-index temp weight change',
-                path: ['learning', 'max_daily_param_change', 's_index_temp_weight'],
-                type: 'number',
-                isAdvanced: true,
-            },
-        ],
-    },
-    {
         title: 'S-Index Safety',
         description: 'Seasonal index parameters for reserve calculations.',
         fields: [
@@ -851,6 +782,13 @@ export const uiSections: SettingsSection[] = [
                 label: 'On EV SoC unavailable',
                 helper: 'Once per episode when an EV SoC reading stays unavailable and goal charging is suspended.',
                 path: ['executor', 'notifications', 'on_ev_soc_stale'],
+                type: 'boolean',
+            },
+            {
+                key: 'executor.notifications.on_learned_parameter_change',
+                label: 'On learned parameter change',
+                helper: 'Notify when a learned battery or inverter value changes, expires or recovers. Locked values never notify.',
+                path: ['executor', 'notifications', 'on_learned_parameter_change'],
                 type: 'boolean',
             },
             {
@@ -1092,12 +1030,12 @@ export const batterySections: SettingsSection[] = [
     {
         title: 'Efficiency',
         description:
-            'Manual planner estimates for charging and discharging losses. Darkstar does not auto-tune these values.',
+            'Planner estimates for charging and discharging losses. Darkstar uses the values it has measured from your own battery and inverter when they are valid (see Learned parameters below) and these configured values otherwise.',
         fields: [
             {
                 key: 'battery.charge_efficiency',
                 label: 'Charge efficiency (%)',
-                helper: 'Percentage of charging energy stored in the battery. Default 92%.',
+                helper: 'Percentage of charging energy stored in the battery. Used when no valid learned value exists (see Learned parameters). Default 92%.',
                 path: ['battery', 'charge_efficiency'],
                 type: 'number',
                 displayScale: 100,
@@ -1109,7 +1047,7 @@ export const batterySections: SettingsSection[] = [
             {
                 key: 'battery.discharge_efficiency',
                 label: 'Discharge efficiency (%)',
-                helper: 'Percentage of energy removed from the battery delivered for use. Default 95%.',
+                helper: 'Percentage of energy removed from the battery delivered for use. Used when no valid learned value exists (see Learned parameters). Default 95%.',
                 path: ['battery', 'discharge_efficiency'],
                 type: 'number',
                 displayScale: 100,
@@ -1139,6 +1077,14 @@ export const batterySections: SettingsSection[] = [
                 path: ['input_sensors', 'battery_power'],
                 type: 'entity',
                 companionKey: 'input_sensors.battery_power_inverted',
+            },
+            {
+                key: 'input_sensors.inverter_power_losses',
+                label: 'Inverter Power Losses (W/kW, optional)',
+                helper: 'Optional inverter loss sensor. When set, the learned inverter charge loss uses it instead of the estimate from your energy balance.',
+                path: ['input_sensors', 'inverter_power_losses'],
+                type: 'entity',
+                isAdvanced: true,
             },
         ],
     },
@@ -1607,13 +1553,6 @@ export const advancedSections: SettingsSection[] = [
                 type: 'boolean',
             },
 
-            {
-                key: 'learning.reflex_enabled',
-                label: 'Enable Reflex Loop',
-                helper: 'Real-time parameter adjustment loop.',
-                path: ['learning', 'reflex_enabled'],
-                type: 'boolean',
-            },
             {
                 key: 's_index.mode',
                 label: 'S-Index Mode',

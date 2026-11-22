@@ -76,13 +76,3 @@ def test_full_migration_missing_key_gets_template_default(tmp_path: Path) -> Non
     path = _write(tmp_path, {"pv_confidence_percent": 90})
     _migrate_config(str(path), DEFAULT_PATH, False)
     assert yaml.safe_load(path.read_text())["forecasting"]["pv_residual_bound_fraction"] == 1.0
-
-
-def test_reflex_does_not_tune_pv_residual_bound() -> None:
-    from backend.learning import reflex
-
-    key = "forecasting.pv_residual_bound_fraction"
-    assert key not in reflex.BOUNDS
-    assert key not in reflex.MAX_DAILY_CHANGE
-    source = Path(reflex.__file__).read_text(encoding="utf-8")
-    assert "pv_residual_bound_fraction" not in source

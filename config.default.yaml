@@ -159,7 +159,7 @@ ev_chargers:
     phase_switch_hysteresis_kw: 0.5  # Deadband around the 3-phase minimum before switching
     phase_switch_min_dwell_s: 600    # Minimum time between phase switches (contactor protection)
     phase_1_line: 1                  # Grid phase (1-3) the charger uses in 1-phase mode; must be one of phases. The load balancer switches to 1-phase to relieve an overload on another phase
-    # Charging losses (learned automatically when learning.reflex_enabled is true)
+    # Charging losses (per-charger manual settings)
     charge_overhead_kw: 0.25         # Fixed car-side power lost while charging (kW), 0-2
     start_loss_kwh: 0.15             # Energy lost on every charging start (kWh), 0-1
     charge_efficiency: 0.95          # Fraction of wallbox energy that reaches the battery, 0.5-1.0
@@ -240,18 +240,13 @@ automation:
     run_days: [1, 4]                   # Days of week to train (0=Mon, 6=Sun)
     run_time: "03:00"                  # Time of day to run training (HH:MM)
 
-# Learning Engine (Aurora Reflex)
 # Learning Engine Configuration
-# The learning system has two main components:
-# 1. Telemetry: Records planner decisions, forecasts, and actual outcomes to SQLite
-# 2. Reflex: Tunes physical/policy parameters (S-Index, PV confidence, capacity) based on safety/confidence/capacity analysis
+# Telemetry records planner decisions, forecasts and actual outcomes to SQLite. Learned battery
+# and inverter efficiencies live in the database, never in this file (see Settings > Battery).
 learning:
   enable: true                         # Master switch: enables telemetry storage and learning features
   sqlite_path: "data/planner_learning.db"  # Database path for storing planner telemetry (observations, forecasts, plans, metrics)
   horizon_days: 3                      # Number of days of Aurora ML forecasts to generate (2-7 days, affects CPU usage)
-  min_improvement_threshold: 0.015     # Minimum improvement (0-1 scale) required before applying learned adjustments (prevents noise)
-  reflex_enabled: true                 # Enable Reflex: tunes physical/policy parameters (S-Index, PV confidence, capacity) based on safety/confidence/capacity analysis
-  min_sample_threshold: 2              # Minimum data points required before applying learned adjustments (prevents premature tuning with insufficient data)
 
   # Database retention (cleanup runs daily in the background; 0 = keep forever)
   retention_days: 0                    # Keep slot observations, plans and forecasts for N days (0 = forever; otherwise at least 400)
@@ -259,18 +254,6 @@ learning:
   learning_runs_retention_days: 0      # Keep learning run history for N days (0 = forever; otherwise at least 365)
   s_index_history_retention_days: 365  # Keep S-Index calibration history for N days (at least 90)
   planner_debug_retention_days: 14     # Keep planner debug payloads for N days (at least 1)
-
-  # Rate Limits for Aurora Reflex Parameter Tuning
-  # These limits prevent instability by capping how much each parameter can change per day
-  # Reflex analyzes historical data and gradually adjusts parameters within these bounds
-  max_daily_param_change:
-    pv_confidence_percent: 1.0         # Max daily change to PV forecast confidence (percentage points per day)
-    battery_use_margin_sek: 0.02       # Max daily change to battery use margin (SEK per day)
-    export_profit_margin_sek: 0.02     # Max daily change to export profit margin (SEK per day)
-    s_index_base_factor: 0.05          # Max daily change to S-Index base factor (absolute value per day, prevents aggressive reserve changes)
-    s_index_pv_deficit_weight: 0.1     # Max daily change to S-Index PV deficit weight (absolute value per day)
-    s_index_temp_weight: 0.1           # Max daily change to S-Index temperature weight (absolute value per day)
-    future_price_guard_buffer_sek: 0.05  # Max daily change to future price guard buffer (SEK per day)
 
 # Nordpool API Configuration (electricity prices)
 nordpool:
@@ -412,6 +395,7 @@ input_sensors:
   pv_power: ""             # Current PV production (W or kW)
   load_power: ""         # Current load consumption (W or kW)
   battery_power: ""   # Current battery power (+ discharge, - charge)
+  inverter_power_losses: ""  # Optional: inverter power loss sensor (W or kW). When set, learned inverter losses use it instead of the energy-balance estimate
   grid_power: ""         # Current grid power (+ import, - export) (Used if meter_type=net)
   grid_import_power: ""    # Current grid import power (W/kW) (Used if meter_type=dual)
   grid_export_power: ""    # Current grid export power (W/kW) (Used if meter_type=dual)
@@ -500,6 +484,7 @@ executor:
     on_override_activated: true        # Notify when manual override triggers
     on_error: true                     # Notify on executor errors
     on_ev_soc_stale: true              # Notify once when an EV's SoC reading stays unavailable (goal charging suspended)
+    on_learned_parameter_change: true  # Notify when a learned battery/inverter value changes, expires or recovers
     on_ev_plug_in_reminder: false      # Remind before planned EV charging when the car isn't plugged in
     ev_plug_in_reminder_minutes: 30    # Lead time for the plug-in reminder (minutes before the planned start)
 

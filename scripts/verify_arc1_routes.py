@@ -95,7 +95,6 @@ OLD_ROUTES = [
     # Aurora
     ("GET", "/api/aurora/dashboard"),
     ("POST", "/api/aurora/briefing"),
-    ("POST", "/api/aurora/config/toggle_reflex"),
 ]
 
 BASE_URL = "http://localhost:5000"

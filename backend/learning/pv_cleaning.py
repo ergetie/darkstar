@@ -1,4 +1,4 @@
-"""Shared PV slot cleaning for model training, the Reflex bias input and the site sanity check.
+"""Shared PV slot cleaning for model training and the site sanity check.
 
 A slot is a credible PV measurement unless it is night, a sensor dropout, a spike above what
 the array can produce, or curtailed by a full battery. Shaded slots (zero PV while the

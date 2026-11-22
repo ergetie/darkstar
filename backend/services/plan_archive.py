@@ -251,6 +251,7 @@ def _build_record(
         "safety_floor": data.get("safety_floor"),
         "solver_status": data.get("solver_status"),
         "time_limit_hit": data.get("time_limit_hit"),
+        "battery_parameters": data.get("battery_parameters"),
         "error": error,
         "executor_errors": executor_errors,
         "executor_errors_truncated": max(0, executor_errors_total - len(executor_errors)),

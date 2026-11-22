@@ -24,7 +24,11 @@ async def _create_db_with_stale_metrics(path: Path) -> None:
     async with store.async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await store.close()
+    # The table no longer exists in the schema (dropped by migration); recreate it by hand.
     with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE TABLE learning_daily_metrics (date TEXT PRIMARY KEY, s_index_base_factor REAL)"
+        )
         conn.execute(
             "INSERT INTO learning_daily_metrics (date, s_index_base_factor) VALUES (?, ?)",
             ("2026-03-15", STALE_FACTOR),

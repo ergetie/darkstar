@@ -97,17 +97,17 @@ def test_bind_mount_fallback_single_replace_and_backup_first(linked_config, monk
 
     monkeypatch.setattr(Path, "replace", replace)
     monkeypatch.setattr(shutil, "copyfile", copy)
-    assert cm.update_config(link, lambda data: data["learning"].update(reflex_enabled=True))
+    assert cm.update_config(link, lambda data: data["learning"].update(enable=False))
     assert len(calls) == 1
     assert link.is_symlink()
-    assert YAML().load(target.read_text())["learning"]["reflex_enabled"] is True
+    assert YAML().load(target.read_text())["learning"]["enable"] is False
 
 
 def test_addon_guard_refuses_ephemeral_target(linked_config, monkeypatch):
     link, target = linked_config
     before = target.read_bytes()
     monkeypatch.setenv("SUPERVISOR_TOKEN", "test-token")
-    assert not cm.update_config(link, lambda data: data["learning"].update(reflex_enabled=True))
+    assert not cm.update_config(link, lambda data: data["learning"].update(enable=False))
     assert target.read_bytes() == before
     assert link.is_symlink()
     assert not target.with_suffix(".yaml.bak").exists()
@@ -148,7 +148,7 @@ def test_temp_fsync_precedes_replace_and_directory_fsync_follows(linked_config, 
 
     monkeypatch.setattr(os, "fsync", spy_fsync)
     monkeypatch.setattr(Path, "replace", spy_replace)
-    assert cm.update_config(link, lambda data: data["learning"].update(reflex_enabled=True))
+    assert cm.update_config(link, lambda data: data["learning"].update(enable=False))
     assert operations == ["fsync", "replace", "fsync"]
 
 
@@ -175,17 +175,14 @@ async def test_save_guard_returns_clear_error(linked_config, monkeypatch):
         "save",
         "empty_selection",
         "reset",
-        "reflex",
         "executor",
         "entities",
         "notifications",
         "theme",
-        "learning",
     ],
 )
 async def test_every_runtime_writer_preserves_symlink(linked_config, monkeypatch, writer):
-    from backend.api.routers import config, executor, forecast, theme
-    from backend.learning.reflex import AuroraReflex
+    from backend.api.routers import config, executor, theme
 
     link, target = linked_config
     monkeypatch.chdir(link.parent)
@@ -210,9 +207,6 @@ async def test_every_runtime_writer_preserves_symlink(linked_config, monkeypatch
         assert YAML().load(target.read_text()) == YAML().load(
             (link.parent / "config.default.yaml").read_text()
         )
-    elif writer == "reflex":
-        await forecast.toggle_reflex(forecast.ToggleReflexRequest(enabled=True))
-        expected_path, expected = ("learning", "reflex_enabled"), True
     elif writer == "executor":
         await executor.toggle_executor(executor.ToggleRequest(enabled=False))
         expected_path, expected = ("executor", "enabled"), False
@@ -231,15 +225,6 @@ async def test_every_runtime_writer_preserves_symlink(linked_config, monkeypatch
         name = next(iter(theme.load_themes()))
         await theme.select_theme(theme.ThemeSelectRequest(theme=name, accent_index=4))
         expected_path, expected = ("ui", "theme_accent_index"), 4
-    elif writer == "learning":
-        reflex = AuroraReflex.__new__(AuroraReflex)
-        reflex.config_path = link
-        reflex.yaml = YAML()
-        reflex.store = MagicMock()
-        reflex.store.update_reflex_state = AsyncMock()
-        monkeypatch.setattr("backend.learning.reflex.append_strategy_event", MagicMock())
-        await reflex.update_config({"battery.min_soc_percent": 24}, dry_run=False)
-        expected_path, expected = ("battery", "min_soc_percent"), 24
     assert link.is_symlink()
     assert target.with_suffix(".yaml.bak").exists()
     assert list((target.parent / "backups").glob("*.bak"))

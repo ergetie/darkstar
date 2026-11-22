@@ -68,7 +68,6 @@ OLD_ROUTES = [
     ("POST", "/api/simulate"),
     ("GET", "/api/aurora/dashboard"),
     ("POST", "/api/aurora/briefing"),
-    ("POST", "/api/aurora/config/toggle_reflex"),
 ]
 
 BASE_URL = "http://localhost:5000"

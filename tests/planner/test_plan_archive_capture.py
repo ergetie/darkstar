@@ -21,6 +21,7 @@ CAPTURE_KEYS = {
     "solver_status",
     "time_limit_hit",
     "schedule",
+    "battery_parameters",
 }
 
 
@@ -45,6 +46,7 @@ async def test_active_capture_receives_all_keys(tmp_path, monkeypatch):
         plan_archive.end_capture()
 
     assert set(run.data) >= CAPTURE_KEYS
+    assert run.data["battery_parameters"]["basis"] == "config"
     # Battery capacity 27 kWh, initial state 20 %.
     assert run.data["initial_soc_kwh"] == pytest.approx(run.data["initial_soc_percent"] * 0.27)
     assert run.data["initial_soc_percent"] == pytest.approx(20.0)

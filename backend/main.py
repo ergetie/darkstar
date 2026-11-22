@@ -193,6 +193,15 @@ async def lifespan(app: FastAPI):
     if app.state.learning_store is not None:
         await benchmark_service.start(app.state.learning_store)
 
+    from backend.services.learned_parameters_service import learned_parameters_service
+
+    if app.state.learning_store is not None:
+        try:
+            await learned_parameters_service.start(app.state.learning_store)
+        except Exception as e:
+            # Learned parameters are optional and never block the main app.
+            logger.warning("Learned parameters service failed to start: %s", type(e).__name__)
+
     from backend.services.db_maintenance_service import db_maintenance_service
 
     if app.state.learning_store is not None and learning_db_path is not None:
@@ -242,6 +251,11 @@ async def lifespan(app: FastAPI):
         logger.error("Failed to close HA action clients: %s", describe_exception(e))
 
     await benchmark_service.stop()
+
+    try:
+        await learned_parameters_service.stop()
+    except Exception as e:
+        logger.warning("Learned parameters service shutdown failed: %s", type(e).__name__)
 
     # Close LearningStore
     if hasattr(app.state, "learning_store") and app.state.learning_store:

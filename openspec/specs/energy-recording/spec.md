@@ -331,7 +331,7 @@ All analytical read paths that consume `pv_kwh` or `load_kwh` from `slot_observa
 - **THEN** rows where `load_kwh` or `pv_kwh` exceeds `max_kwh_per_slot` SHALL be excluded
 
 #### Scenario: Reflex accuracy analysis excludes spike rows
-- **WHEN** `LearningStore.get_forecast_vs_actual` returns rows for Reflex
+- **WHEN** any forecast-versus-actual comparison reads actual energy columns (formerly the Reflex reader)
 - **THEN** rows where the actual energy column exceeds `max_kwh_per_slot` SHALL be excluded
 
 #### Scenario: MAE metrics exclude spike rows

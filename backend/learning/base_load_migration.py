@@ -40,6 +40,12 @@ STATE_KEY = "base_load_integrity_v1"
 MIGRATION_SOURCE = "migration"
 SLOT = timedelta(minutes=15)
 BATCH_SIZE = 1000
+UNPARSEABLE_SAMPLE = 5
+
+# The old recorders and the MariaDB sync stored a bare source name instead of a JSON object.
+# Such a row is a legacy row without ``recording``: it is read as ``{"source": <name>}`` (the
+# object form of the same marker) and only rewritten when a rule flags it.
+LEGACY_SOURCE_MARKERS = frozenset({"mariadb_sync", "auto_recorded"})
 
 
 def _instant(raw: object) -> datetime | None:
@@ -123,6 +129,7 @@ def flag_historical_base_load(db_path: str, config: dict[str, Any]) -> dict[str,
             ).fetchall()
 
             flags_by_slot: dict[str, dict[str, Any] | None] = {}
+            unparseable: list[str] = []
             for slot_start, _load, _water, raw in rows:
                 if raw is None or (isinstance(raw, str) and not raw.strip()):
                     flags_by_slot[slot_start] = {}
@@ -133,12 +140,21 @@ def flag_historical_base_load(db_path: str, config: dict[str, Any]) -> dict[str,
                     decoded = None
                 if isinstance(decoded, dict):
                     flags_by_slot[slot_start] = cast("dict[str, Any]", decoded)
+                elif isinstance(raw, str) and raw.strip() in LEGACY_SOURCE_MARKERS:
+                    flags_by_slot[slot_start] = {"source": raw.strip()}
                 else:
                     flags_by_slot[slot_start] = None
                     counts["skipped_unparseable"] += 1
-                    logger.warning(
-                        "Skipping row %s: quality_flags is not a JSON object", slot_start
-                    )
+                    if len(unparseable) < UNPARSEABLE_SAMPLE:
+                        unparseable.append(slot_start)
+
+            if counts["skipped_unparseable"]:
+                logger.warning(
+                    "Base-load integrity migration skipped %d rows whose quality_flags are not "
+                    "a JSON object (first: %s)",
+                    counts["skipped_unparseable"],
+                    ", ".join(unparseable),
+                )
 
             slot_by_instant = {
                 moment: slot_start

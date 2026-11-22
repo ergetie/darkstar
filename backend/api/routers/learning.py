@@ -1,11 +1,16 @@
 import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
+import pytz
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import desc, select
 
+from backend.core.secrets import load_yaml
+from backend.learning import learned_parameters as lp
 from backend.learning.models import ConfigVersion, LearningRun
 
 if TYPE_CHECKING:
@@ -111,24 +116,19 @@ async def learning_train() -> dict[str, Any]:
 @router.post(
     "/api/learning/run",
     summary="Trigger Learning Run (Full)",
-    description="Trigger full learning suite (Reflex + Training).",
+    description="Trigger a full model training run.",
 )
 async def learning_run() -> dict[str, Any]:
-    """Trigger full learning run (Sync Reflex + Async Training)."""
+    """Trigger a full learning run (model training)."""
     try:
-        from backend.learning.reflex import AuroraReflex
         from ml.training_orchestrator import train_all_models
 
         logger.info("Full learning run triggered via API")
 
-        reflex_report: Any = await AuroraReflex().run(dry_run=False)
-
-        # Training is async
         training_result: dict[str, Any] = await train_all_models(training_type="manual")
 
         return {
             "status": "success",
-            "reflex_report": reflex_report,
             "training_result": training_result,
             "message": "Full learning run completed ",
         }
@@ -259,3 +259,189 @@ async def learning_training_history(limit: int = Query(5, ge=1, le=20)) -> dict[
     # Reuse learning_history logic but filter/format specifically for training view if needed
     # For now, it's a wrapper with a smaller default limit
     return await learning_history(limit=limit)
+
+
+# --- Learned battery and inverter parameters ---------------------------------------------
+
+
+class LockBody(BaseModel):
+    value: float
+
+
+def _parameter_store() -> lp.LearnedParameterStore:
+    return lp.LearnedParameterStore(_get_learning_engine().store)
+
+
+def _config() -> dict[str, Any]:
+    try:
+        return load_yaml("config.yaml") or {}
+    except Exception:
+        logger.warning("Could not read config.yaml for learned parameters", exc_info=True)
+        return {}
+
+
+def _now(config: dict[str, Any]) -> datetime:
+    return datetime.now(pytz.timezone(str(config.get("timezone", "Europe/Stockholm"))))
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _require_key(key: str) -> lp.ParameterSpec:
+    spec = lp.PARAMETERS.get(key)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown learned parameter: {key}")
+    return spec
+
+
+def _parameter_json(resolved: lp.ResolvedParameter) -> dict[str, Any]:
+    spec = lp.PARAMETERS[resolved.key]
+    return {
+        "key": resolved.key,
+        "label": spec.label,
+        "unit": spec.unit,
+        "learnable": spec.learnable,
+        "effective_value": resolved.value,
+        "source": resolved.source,
+        "learned_value": resolved.learned_value,
+        "applied_value": resolved.value if resolved.source == lp.SOURCE_LEARNED else None,
+        "confidence": resolved.confidence,
+        "evidence": resolved.evidence,
+        "status_note": resolved.status_note,
+        "estimated_at": _iso(resolved.estimated_at),
+        "expires_at": _iso(resolved.expires_at),
+        "applied_at": _iso(resolved.applied_at),
+        "bounds": {"min": resolved.bounds[0], "max": resolved.bounds[1]},
+        "config_fallback": resolved.config_fallback,
+        "locked": resolved.locked,
+        "locked_value": resolved.locked_value,
+    }
+
+
+async def _parameters_payload(config: dict[str, Any], now: datetime) -> dict[str, Any]:
+    states = await _parameter_store().get_states()
+    resolved = lp.resolve_battery_parameters(config, states, now)
+    return {
+        "parameters": [_parameter_json(resolved.parameters[key]) for key in lp.PARAMETERS],
+        "effective": {
+            "charge_efficiency": resolved.charge_efficiency,
+            "discharge_efficiency": resolved.discharge_efficiency,
+            "basis": "learned" if resolved.learned else "config",
+            "missing": resolved.missing,
+            "config_charge_efficiency": resolved.config_charge_efficiency,
+            "config_discharge_efficiency": resolved.config_discharge_efficiency,
+        },
+    }
+
+
+@router.get(
+    "/api/learning/parameters",
+    summary="Get Learned Parameters",
+    description="Effective value, source, learned value, evidence and lock state of each parameter.",
+)
+async def learning_parameters() -> dict[str, Any]:
+    config = _config()
+    try:
+        return await _parameters_payload(config, _now(config))
+    except Exception as e:
+        logger.exception("Failed to read learned parameters")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get(
+    "/api/learning/parameters/history",
+    summary="Get Learned Parameter History",
+    description="Recent applied changes, expiries, recoveries and lock changes.",
+)
+async def learning_parameter_history(
+    limit: int = Query(50, ge=1, le=200), key: str | None = None
+) -> dict[str, Any]:
+    if key is not None:
+        _require_key(key)
+    try:
+        rows = await _parameter_store().list_history(limit=limit, key=key)
+    except Exception as e:
+        logger.exception("Failed to read learned parameter history")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {
+        "history": [
+            {
+                "id": row.id,
+                "key": row.key,
+                "at": _iso(row.at),
+                "event": row.event,
+                "old_value": row.old_value,
+                "new_value": row.new_value,
+                "confidence": row.confidence,
+                "evidence": row.evidence,
+                "notify_state": row.notify_state,
+            }
+            for row in rows
+        ]
+    }
+
+
+@router.put(
+    "/api/learning/parameters/{key}/lock",
+    summary="Lock Learned Parameter",
+    description="Lock a parameter to a user value inside its physical bounds.",
+)
+async def learning_parameter_lock(key: str, body: LockBody) -> dict[str, Any]:
+    _require_key(key)
+    config = _config()
+    now = _now(config)
+    try:
+        await _parameter_store().set_lock(key, body.value, now)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Failed to lock learned parameter")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    payload = await _parameters_payload(config, now)
+    return next(item for item in payload["parameters"] if item["key"] == key)
+
+
+@router.delete(
+    "/api/learning/parameters/{key}/lock",
+    summary="Unlock Learned Parameter",
+    description="Remove the user lock; the learned value (if valid) or the config applies.",
+)
+async def learning_parameter_unlock(key: str) -> dict[str, Any]:
+    _require_key(key)
+    config = _config()
+    now = _now(config)
+    try:
+        await _parameter_store().clear_lock(key, now)
+    except Exception as e:
+        logger.exception("Failed to unlock learned parameter")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    payload = await _parameters_payload(config, now)
+    return next(item for item in payload["parameters"] if item["key"] == key)
+
+
+@router.post(
+    "/api/learning/parameters/recompute",
+    summary="Recompute Learned Parameters",
+    description="Run the daily estimation once and list the changes it applied.",
+)
+async def learning_parameters_recompute() -> dict[str, Any]:
+    from backend.services.learned_parameters_service import learned_parameters_service
+
+    try:
+        changes = await learned_parameters_service.run_once(_get_learning_engine().store)
+    except Exception as e:
+        logger.exception("Learned parameter recompute failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {
+        "changes": [
+            {
+                "key": c.key,
+                "event": c.event,
+                "old_value": c.old_value,
+                "new_value": c.new_value,
+                "confidence": c.confidence,
+            }
+            for c in changes
+        ]
+    }

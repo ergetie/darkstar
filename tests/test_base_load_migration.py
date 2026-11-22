@@ -160,7 +160,39 @@ def test_null_and_malformed_flags(db, caplog):
         raw = dict(conn.execute("SELECT slot_start, quality_flags FROM slot_observations"))
     assert raw[slot(15)] == "{not json"
     assert raw[slot(30)] == "[1]"
-    assert sum("Skipping row" in r.message for r in caplog.records) == 2
+    summary = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(summary) == 1
+    message = summary[0].getMessage()
+    assert "skipped 2 rows" in message
+    assert slot(15) in message
+    assert slot(30) in message
+
+
+def test_many_unparseable_rows_log_one_summary_with_a_short_sample(db, caplog):
+    for index in range(40):
+        put(db, slot(15 * index), 0.4, 0.0, "{broken")
+    with caplog.at_level(logging.WARNING):
+        counts = flag_historical_base_load(db, {})
+    assert counts is not None
+    assert counts["skipped_unparseable"] == 40
+    summary = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(summary) == 1
+    message = summary[0].getMessage()
+    assert "skipped 40 rows" in message
+    assert slot(60) in message
+    assert slot(75) not in message  # only the first five timestamps are named
+
+
+def test_legacy_source_markers_are_parsed_not_skipped(db, caplog):
+    put(db, slot(0), 0.0, 0.75, "mariadb_sync")  # old recorder: bare marker, load clamped
+    put(db, slot(15), 0.4, 0.0, "auto_recorded")
+    with caplog.at_level(logging.WARNING):
+        counts = flag_historical_base_load(db, {})
+    assert counts == {"a": 1, "after_clamp": 1, "b": 0, "skipped_unparseable": 0}
+    assert flags_of(db, slot(0))["source"] == "mariadb_sync"
+    assert reasons(db, slot(0)) == ["legacy_counter_clamp"]
+    assert reasons(db, slot(15)) == ["legacy_counter_after_clamp"]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 def test_columns_are_never_changed_and_migration_is_idempotent(db):

@@ -36,6 +36,11 @@ from backend.core.ev_power import (
 )
 from backend.core.version import get_version
 from backend.core.water_heating import active_water_heaters, validate_water_heating_config
+from backend.learning.learned_parameters import (
+    ResolvedBattery,
+    apply_to_config,
+    resolve_effective_config,
+)
 from backend.learning.store import LearningStore
 from backend.services import plan_archive
 from ml.price_accuracy import load_forecast_accuracy
@@ -1648,6 +1653,7 @@ class PlannerPipeline:
         now_override: datetime | None = None,
         ev_plug_override_charger_id: str | None = None,
         publish_state: bool = True,
+        battery_parameters: ResolvedBattery | None = None,
     ) -> pd.DataFrame:
         """
         Generate an optimal battery schedule.
@@ -1660,6 +1666,8 @@ class PlannerPipeline:
             publish_state: Whether to publish EV progress and anti-legionella state
             record_training_episode: Whether to log training episode (RL)
             now_override: Override current time for simulation/replay
+            battery_parameters: Effective battery efficiencies to plan with instead of
+                resolving them from the learning database (offline replay and evaluation)
 
         Returns:
             DataFrame with the complete schedule
@@ -1671,6 +1679,26 @@ class PlannerPipeline:
         if overrides:
             active_config = self._apply_overrides(self.config, overrides)
         validate_water_heating_config(active_config)
+
+        # Effective battery efficiencies (learned, locked or configured): one seam shared with
+        # the benchmark; Kepler and the price reserve read them from the config copy.
+        if battery_parameters is None:
+            active_config, battery_parameters = await resolve_effective_config(
+                active_config,
+                str(
+                    active_config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+                ),
+                now_override,
+            )
+        else:
+            active_config = apply_to_config(active_config, battery_parameters)
+        logger.info(
+            "Battery efficiencies: charge=%.4f discharge=%.4f (%s)",
+            battery_parameters.charge_efficiency,
+            battery_parameters.discharge_efficiency,
+            "learned" if battery_parameters.learned else "config",
+        )
+        plan_archive.capture("battery_parameters", battery_parameters.archive_record())
 
         # Empty prices must fail as PRICES_UNAVAILABLE (transient backoff, price hint)
         # before prepare_df, which would otherwise crash with IndexError.

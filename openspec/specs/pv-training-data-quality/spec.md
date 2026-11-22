@@ -41,14 +41,3 @@ PV training SHALL drop slots that are not credible measurements: dropouts (recor
 #### Scenario: Forecast too high or too low
 - **WHEN** a slot is a genuine measurement, whether recorded PV is far below or far above the baseline (and within capacity)
 - **THEN** it SHALL be kept, so the model learns both over- and under-forecasting
-
-### Requirement: The same cleaning applies to the Reflex bias input
-The PV forecast-vs-actual data used by Reflex SHALL use exactly the same inclusion and drop rules as PV training.
-
-#### Scenario: Curtailed day
-- **WHEN** the battery was full and exports were zero for part of a day
-- **THEN** those slots SHALL be excluded from the bias measurement as well as from training
-
-#### Scenario: Load comparison unaffected
-- **WHEN** forecast-vs-actual data is requested for load
-- **THEN** PV cleaning SHALL NOT be applied

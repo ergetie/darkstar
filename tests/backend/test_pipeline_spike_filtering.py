@@ -19,112 +19,6 @@ class TestLearningStoreSpikeFiltering:
     """Test suite for LearningStore spike filtering in read paths."""
 
     @pytest.mark.asyncio
-    async def test_get_forecast_vs_actual_excludes_spikes(self):
-        """Test that get_forecast_vs_actual excludes spike rows."""
-        from backend.learning.store import LearningStore
-
-        tz = pytz.timezone("Europe/Stockholm")
-        store = LearningStore(":memory:", tz)
-        try:
-            await store.ensure_wal_mode()
-            await init_db_schema(store)
-
-            now = datetime.now(tz)
-
-            # Store observations with spike
-            observations = [
-                {
-                    "slot_start": now,
-                    "slot_end": now + timedelta(minutes=15),
-                    "pv_kwh": 2.0,  # Valid
-                    "load_kwh": 1.0,
-                    "import_kwh": 0.5,
-                },
-                {
-                    "slot_start": now + timedelta(minutes=15),
-                    "slot_end": now + timedelta(minutes=30),
-                    "pv_kwh": 50.0,  # Spike
-                    "load_kwh": 10.0,
-                    "import_kwh": 0.5,
-                },
-            ]
-            await store.store_slot_observations(pd.DataFrame(observations))
-
-            # Store forecasts
-            forecasts = [
-                {
-                    "slot_start": now.isoformat(),
-                    "pv_forecast_kwh": 2.0,
-                    "openmeteo_pv_forecast_kwh": 2.0,
-                    "load_forecast_kwh": 1.0,
-                    "forecast_version": "aurora",
-                },
-                {
-                    "slot_start": (now + timedelta(minutes=15)).isoformat(),
-                    "pv_forecast_kwh": 2.0,
-                    "openmeteo_pv_forecast_kwh": 2.0,
-                    "load_forecast_kwh": 1.0,
-                    "forecast_version": "aurora",
-                },
-            ]
-            await store.store_forecasts(forecasts, "aurora")
-
-            # Get forecast vs actual with max_kwh=4.0
-            df = await store.get_forecast_vs_actual(days_back=1, target="pv", max_kwh=4.0)
-
-            # Should only return 1 row (excluding spike)
-            assert len(df) == 1
-            assert df.iloc[0]["actual"] == 2.0
-        finally:
-            await store.close()
-
-    @pytest.mark.asyncio
-    async def test_get_forecast_vs_actual_no_filtering_without_max_kwh(self):
-        """Test that get_forecast_vs_actual includes all rows when max_kwh is None."""
-        from backend.learning.store import LearningStore
-
-        tz = pytz.timezone("Europe/Stockholm")
-        store = LearningStore(":memory:", tz)
-        try:
-            await store.ensure_wal_mode()
-            await init_db_schema(store)
-
-            now = datetime.now(tz)
-
-            # Store observations with spike
-            observations = [
-                {
-                    "slot_start": now,
-                    "slot_end": now + timedelta(minutes=15),
-                    "pv_kwh": 50.0,  # Spike
-                    "load_kwh": 10.0,
-                    "import_kwh": 0.5,
-                },
-            ]
-            await store.store_slot_observations(pd.DataFrame(observations))
-
-            # Store forecast
-            forecasts = [
-                {
-                    "slot_start": now.isoformat(),
-                    "pv_forecast_kwh": 2.0,
-                    "openmeteo_pv_forecast_kwh": 2.0,
-                    "load_forecast_kwh": 1.0,
-                    "forecast_version": "aurora",
-                },
-            ]
-            await store.store_forecasts(forecasts, "aurora")
-
-            # Get forecast vs actual without max_kwh
-            df = await store.get_forecast_vs_actual(days_back=1, target="pv", max_kwh=None)
-
-            # Should return the spike row
-            assert len(df) == 1
-            assert df.iloc[0]["actual"] == 50.0
-        finally:
-            await store.close()
-
-    @pytest.mark.asyncio
     async def test_calculate_metrics_excludes_spikes(self):
         """Test that calculate_metrics excludes spike rows from MAE calculation."""
         from backend.learning.store import LearningStore
@@ -292,8 +186,6 @@ class TestUnmeasuredDeviceMetricsAndHistory:
         # Only the measured slot counts: |1.0 - 0.5|, not the 9.0 kWh contaminated slot.
         metrics = await store.calculate_metrics(days_back=2)
         assert metrics["mae_load"] == pytest.approx(0.5)
-        vs_actual = await store.get_forecast_vs_actual(days_back=2, target="load")
-        assert vs_actual["actual"].tolist() == [1.0]
 
         history = await store.get_history_range(
             recent - timedelta(hours=1), recent + timedelta(hours=1)
