@@ -54,12 +54,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🔧 Improvements
 
-#### [Planner] Source-Dependent Max Battery Charge Power
-
-**Goal:** Model that grid charging is capped by the inverter's AC limit while DC-coupled PV can charge faster.
-
-**Notes:** Found 2026-11-22 (prod data). Grid-only charge peaks at 7.4–7.8 kW (8 kW AC limit minus ~7.5 % conversion loss); slots with PV reach 8.4 kW. The planner uses one battery charge limit (185 A ≈ 8.9 kW), so grid-charge plans overestimate by ~1 kW. Applies to DC-coupled hybrids (`system.inverter.topology: dc_coupled`, `max_ac_power_kw`).
-
 #### [Learning] Replace Reflex With Measured, Stored Learned Parameters
 
 **Goal:** Make Darkstar self-adapt where it actually helps: measure each home's physical facts (battery round-trip losses, real usable capacity, EV charging losses, real max charge/discharge power) from data, store them outside `config.yaml` with evidence, confidence and history, and use them unless the user locks their own value. Notify on every change; never auto-tune user preferences (risk, min SoC). Prove benefit with the hindsight benchmark.

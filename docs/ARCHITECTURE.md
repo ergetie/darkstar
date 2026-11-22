@@ -829,6 +829,8 @@ ev_chargers:
 3.  **Storage** (`backend/recorder.py`):
     - The `Recorder` stores this clean **Base Load** into the `slot_observations` table
     - Controllable loads are tracked separately for analytics
+    - Slots whose base load cannot be measured reliably are flagged in `quality_flags` instead of stored as fake zeros, and are skipped by learning and ML training.
+    - Water heater power readings below an effective cutoff of `max(idle_power_threshold_kw, 0.010 kW)` are treated as idle; the 10 W noise floor is built in and applies even when the threshold is 0.
     - `ev_charging_kwh` and `water_kwh` are computed by querying the HA History API for average power over the slot window, converting to energy via `mean(kW) × 0.25h`. When the History API returns no data, the recorder falls back to the current power snapshot × 0.25h estimation.
 
 4.  **Forecasting** (`ml/forward.py`):
