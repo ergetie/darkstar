@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
@@ -18,6 +19,10 @@ router = APIRouter(tags=["executor"])
 
 # Execution-log sources the history endpoints can filter on
 HistorySource = Literal["native", "ev_charger"]
+
+# A loop whose last tick is older than max(FACTOR x interval, MIN seconds) is stale.
+EXECUTOR_STALE_INTERVAL_FACTOR = 3
+EXECUTOR_STALE_MIN_SECONDS = 600
 
 # --- Executor Singleton ---
 _executor_engine: "ExecutorEngine | None" = None
@@ -45,6 +50,15 @@ def get_executor_instance() -> "ExecutorEngine | None":
                     logger.error("Failed to import executor: %s", e)
                 except Exception as e:
                     logger.error("Failed to initialize executor: %s", e)
+    return _executor_engine
+
+
+def peek_executor_instance() -> "ExecutorEngine | None":
+    """Return the existing ExecutorEngine singleton without creating it.
+
+    Read-only counterpart of get_executor_instance() for callers that must not
+    initialise an engine as a side effect (e.g. the periodic health check).
+    """
     return _executor_engine
 
 
@@ -472,6 +486,7 @@ async def get_notifications() -> dict[str, Any]:
             "on_error": cfg.on_error,
             "on_ev_soc_stale": getattr(cfg, "on_ev_soc_stale", True),
             "on_learned_parameter_change": getattr(cfg, "on_learned_parameter_change", True),
+            "on_inverter_mode_revert": getattr(cfg, "on_inverter_mode_revert", True),
             "on_ev_plug_in_reminder": cfg.on_ev_plug_in_reminder,
             "ev_plug_in_reminder_minutes": cfg.ev_plug_in_reminder_minutes,
         }
@@ -494,6 +509,7 @@ async def get_notifications() -> dict[str, Any]:
             "on_error": notify_cfg.get("on_error", False),
             "on_ev_soc_stale": notify_cfg.get("on_ev_soc_stale", True),
             "on_learned_parameter_change": notify_cfg.get("on_learned_parameter_change", True),
+            "on_inverter_mode_revert": notify_cfg.get("on_inverter_mode_revert", True),
             "on_ev_plug_in_reminder": notify_cfg.get("on_ev_plug_in_reminder", False),
             "ev_plug_in_reminder_minutes": notify_cfg.get("ev_plug_in_reminder_minutes", 30),
         }
@@ -584,22 +600,41 @@ async def get_executor_status_snapshot() -> dict[str, Any]:
     return executor.get_status()
 
 
-@router.get(
-    "/api/executor/health",
-    summary="Get Executor Health",
-    description="Returns detailed health information about the executor.",
-)
-async def get_health(executor: ExecutorDep) -> dict[str, Any]:
+def executor_health_snapshot(executor: "ExecutorEngine") -> dict[str, Any]:
+    """Compute executor health from an existing engine (no side effects).
+
+    Single source of truth for GET /api/executor/health and
+    HealthChecker.check_executor.
     """
-    Get executor health status for dashboard.
-    """
-    is_alive = executor._thread and executor._thread.is_alive()  # type: ignore[attr-defined]
+    thread = executor._thread  # type: ignore[attr-defined]
+    is_alive = bool(thread and thread.is_alive())
     paused = executor.is_paused
-    should_be_running = executor.config.enabled and not paused
+    enabled = executor.config.enabled
+    should_be_running = enabled and not paused
+    last_run_at = executor.status.last_run_at
+    has_error = executor.status.last_run_status == "error"
+
+    # Staleness: a live, active loop that has not started a tick for too long.
+    interval = executor.config.interval_seconds
+    stale_after = max(EXECUTOR_STALE_INTERVAL_FACTOR * interval, EXECUTOR_STALE_MIN_SECONDS)
+    last_run_age: float | None = None
+    if last_run_at is not None:
+        # Count from the later of the last tick and the last idle/start marker, so a
+        # loop resumed after a long pause is not stale before its first tick.
+        reference = last_run_at
+        inactive_at = getattr(executor, "last_inactive_at", None)
+        if isinstance(inactive_at, datetime):
+            if last_run_at.tzinfo is None:
+                inactive_at = inactive_at.astimezone().replace(tzinfo=None)
+            reference = max(last_run_at, inactive_at)
+        last_run_age = (datetime.now(reference.tzinfo) - reference).total_seconds()
+    is_stale = bool(
+        is_alive and should_be_running and last_run_age is not None and last_run_age > stale_after
+    )
 
     # Collect warnings
     warnings: list[str] = []
-    if executor.config.enabled and not is_alive and not paused:
+    if enabled and not is_alive and not paused:
         warnings.append("Executor is enabled but background thread is not running")
 
     # Profile-driven missing entities (REV F56)
@@ -609,22 +644,36 @@ async def get_health(executor: ExecutorDep) -> dict[str, Any]:
         for missing_key in executor.inverter_profile.get_missing_entities(config):
             warnings.append(f"Required entity not configured: {missing_key}")
 
+    # A paused or disabled executor keeps its loop thread alive (sleeping), so
+    # liveness only matters while it should be running.
+    is_healthy = not (should_be_running and not is_alive) and not has_error
     return {
-        "status": "healthy"
-        if is_alive == should_be_running and executor.status.last_run_status != "error"
-        else "error",
+        "status": "healthy" if is_healthy else "error",
         "is_running": is_alive,
-        "is_enabled": executor.config.enabled,
+        "is_enabled": enabled,
         "is_paused": paused,
         "should_be_running": should_be_running,
-        "last_run_at": executor.status.last_run_at,
+        "last_run_at": last_run_at,
         "last_run_status": executor.status.last_run_status,
-        "has_error": executor.status.last_run_status == "error",
-        "error": executor.status.last_error if executor.status.last_run_status == "error" else None,
+        "has_error": has_error,
+        "error": executor.status.last_error if has_error else None,
         "recent_errors": list(executor.recent_errors) if executor.recent_errors else [],  # type: ignore[arg-type]
         "warnings": warnings,
-        "is_healthy": is_alive == should_be_running and executor.status.last_run_status != "error",
+        "is_healthy": is_healthy,
+        "last_run_age_seconds": last_run_age,
+        "stale_after_seconds": stale_after,
+        "is_stale": is_stale,
     }
+
+
+@router.get(
+    "/api/executor/health",
+    summary="Get Executor Health",
+    description="Returns detailed health information about the executor.",
+)
+async def get_health(executor: ExecutorDep) -> dict[str, Any]:
+    """Get executor health status for dashboard."""
+    return executor_health_snapshot(executor)
 
 
 @router.get(

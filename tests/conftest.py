@@ -3,12 +3,15 @@ import logging
 import os
 import shutil
 import sqlite3
+import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from functools import wraps
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlparse
 
 import pytest
 import yaml
@@ -121,37 +124,271 @@ def no_background_replans(monkeypatch):
     monkeypatch.setattr("backend.services.scheduler_service.request_replan", MagicMock())
 
 
-_SEEDED_CONFIG = Path("config.yaml")
-_config_seeded_by_session = False
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# --- Real workspace protection ------------------------------------------------
+#
+# The suite must never read or write the developer's real ``data/`` directory,
+# ``config.yaml`` or ``secrets.yaml``. Three layers enforce that:
+#
+# 1. Sandbox working directory: every test process runs with its cwd set to a throwaway
+#    directory that mirrors the repository (symlinks) but has its own empty ``data/`` and a
+#    ``config.yaml`` seeded from ``config.default.yaml``. Relative paths such as
+#    ``data/schedule.json`` or ``config.yaml`` therefore never reach the workspace, and the
+#    suite behaves the same on a fresh checkout (CI) as on a machine with real state.
+# 2. Write guard: an audit hook refuses (and records) any write, delete or SQLite connect
+#    on the real protected paths made through an absolute path (for example paths computed
+#    from ``__file__``) and fails the offending test.
+# 3. Snapshot backstop: file list, sizes and mtimes of the real ``data/`` are compared at the
+#    start and end of the session; any difference fails the run (catches what hooks cannot
+#    see, such as SQLite's own -wal/-shm files).
+
+_PROTECTED_FILES = ("config.yaml", "secrets.yaml")
+_SANDBOX_SKIP = frozenset(
+    {
+        "data",
+        "config.yaml",
+        "config.yaml.bak",
+        "secrets.yaml",
+        "schedule.json",
+        "darkstar.db",
+        "logs",
+        "backups",
+        "memory",
+    }
+)
+_SNAPSHOT_GUARD_ENV = "DARKSTAR_TEST_DATA_SNAPSHOT_GUARD"
+
+
+def _variants(path: Path) -> set[str]:
+    return {os.path.abspath(path), os.path.realpath(path)}
+
+
+_REAL_DATA_DIRS = _variants(_REPO_ROOT / "data")
+_REAL_PROTECTED_FILES = {v for name in _PROTECTED_FILES for v in _variants(_REPO_ROOT / name)}
+
+
+def _is_protected(path: str) -> bool:
+    if path in _REAL_PROTECTED_FILES:
+        return True
+    return any(path == d or path.startswith(d + os.sep) for d in _REAL_DATA_DIRS)
+
+
+class RealWorkspaceWriteError(PermissionError):
+    """A test tried to modify the real workspace state."""
+
+
+# event -> (indexes of mutated path arguments, indexes of dir_fd arguments)
+_MUTATING_EVENTS: dict[str, tuple[tuple[int, ...], tuple[int, ...]]] = {
+    "os.mkdir": ((0,), (2,)),
+    "os.rmdir": ((0,), (1,)),
+    "os.remove": ((0,), (1,)),
+    "os.rename": ((0, 1), (2, 3)),
+    "os.truncate": ((0,), ()),
+    "os.utime": ((0,), (3,)),
+    "os.chmod": ((0,), (2,)),
+    "os.chown": ((0,), (3,)),
+    "os.symlink": ((1,), (2,)),
+    "os.link": ((0, 1), (2, 3)),
+    "shutil.copyfile": ((1,), ()),
+    "shutil.copymode": ((1,), ()),
+    "shutil.copystat": ((1,), ()),
+    "shutil.copytree": ((1,), ()),
+    "shutil.rmtree": ((0,), (1,)),
+    "shutil.move": ((0, 1), ()),
+}
+_WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
+
+_violations: list[tuple[str, str, str]] = []
+_current_test: list[str] = ["<outside a test>"]
+
+
+def _as_abs(value: object) -> str | None:
+    if isinstance(value, (str, bytes, os.PathLike)):
+        return os.path.abspath(os.fsdecode(value))
+    return None
+
+
+def _sqlite_target(database: object) -> str | None:
+    """Real path an ``sqlite3.connect`` call would write to; None for read-only/in-memory."""
+    if isinstance(database, bytes):
+        database = os.fsdecode(database)
+    if isinstance(database, os.PathLike):
+        database = os.fspath(database)
+    if not isinstance(database, str):
+        return None
+    if database.startswith("file:"):
+        parsed = urlparse(database)
+        if "mode=ro" in parsed.query:
+            return None
+        database = parsed.path
+    if database in ("", ":memory:"):
+        return None
+    return os.path.abspath(database)
+
+
+def _guard_hook(event: str, args: tuple[object, ...]) -> None:
+    targets: list[str | None] = []
+    if event == "open":
+        path, flags = args[0], args[2]
+        if isinstance(flags, int) and flags & _WRITE_FLAGS:
+            targets.append(_as_abs(path))
+    elif event == "sqlite3.connect":
+        targets.append(_sqlite_target(args[0]))
+    elif event in _MUTATING_EVENTS:
+        indexes, fd_indexes = _MUTATING_EVENTS[event]
+        if any(i < len(args) and args[i] not in (None, -1) for i in fd_indexes):
+            return
+        targets.extend(_as_abs(args[i]) for i in indexes if i < len(args))
+    else:
+        return
+    for target in targets:
+        if target is not None and _is_protected(target):
+            _violations.append((event, target, _current_test[0]))
+            raise RealWorkspaceWriteError(
+                f"test attempted {event} on the real workspace path {target}; "
+                "tests must use tmp paths (see tests/conftest.py)"
+            )
+
+
+sys.addaudithook(_guard_hook)
+
+
+def _snapshot_data_dir() -> dict[str, tuple[int, int]]:
+    """Relative path -> (size, mtime_ns) for files, (-1, 0) for directories."""
+    root = _REPO_ROOT / "data"
+    snap: dict[str, tuple[int, int]] = {}
+    if not root.exists():
+        return snap
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in dirnames:
+            snap[os.path.relpath(os.path.join(dirpath, name), root)] = (-1, 0)
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            try:
+                st = os.lstat(full)
+            except OSError:
+                continue
+            snap[os.path.relpath(full, root)] = (st.st_size, st.st_mtime_ns)
+    return snap
+
+
+def _diff_snapshots(
+    before: dict[str, tuple[int, int]], after: dict[str, tuple[int, int]]
+) -> list[str]:
+    lines = [f"added: {name}" for name in sorted(after.keys() - before.keys())]
+    lines += [f"removed: {name}" for name in sorted(before.keys() - after.keys())]
+    lines += [
+        f"modified: {name} (size/mtime_ns {before[name]} -> {after[name]})"
+        for name in sorted(before.keys() & after.keys())
+        if before[name] != after[name]
+    ]
+    return lines
+
+
+_sandbox_dir: Path | None = None
+_original_cwd: str | None = None
+_data_snapshot: dict[str, tuple[int, int]] | None = None
 
 
 def _is_xdist_worker(config) -> bool:
     return hasattr(config, "workerinput")
 
 
-def pytest_sessionstart(session):
-    """Seed a ``config.yaml`` from the shipped default when the machine has none (CI).
+def _is_xdist_controller(config) -> bool:
+    return not _is_xdist_worker(config) and getattr(config.option, "dist", "no") != "no"
 
-    Code paths that read ``config.yaml`` directly (bypassing the ``load_yaml`` mock
-    below) would otherwise raise ``FileNotFoundError``. Done once by the controller
-    process, before any xdist worker starts, so workers never race to create or
-    delete it. Locally (a real ``config.yaml`` exists) the file is left untouched.
-    """
-    global _config_seeded_by_session
-    if _is_xdist_worker(session.config) or _SEEDED_CONFIG.exists():
-        return
-    default_cfg = yaml.safe_load(Path("config.default.yaml").read_text(encoding="utf-8"))
-    _SEEDED_CONFIG.write_text(yaml.safe_dump(default_cfg, sort_keys=False), encoding="utf-8")
-    _config_seeded_by_session = True
+
+def _build_sandbox() -> Path:
+    sandbox = Path(tempfile.mkdtemp(prefix="darkstar-test-cwd-"))
+    for entry in _REPO_ROOT.iterdir():
+        if entry.name not in _SANDBOX_SKIP and not entry.name.endswith(".bak"):
+            (sandbox / entry.name).symlink_to(entry)
+    data = sandbox / "data"
+    data.mkdir()
+    # The app log is not worth keeping in tests: send it to /dev/null (a non-regular file,
+    # which RotatingFileHandler never rolls over) so workers cannot fill the RAM-backed /tmp.
+    (data / "darkstar.log").symlink_to(os.devnull)
+    default_cfg = yaml.safe_load((_REPO_ROOT / "config.default.yaml").read_text(encoding="utf-8"))
+    (sandbox / "config.yaml").write_text(
+        yaml.safe_dump(default_cfg, sort_keys=False), encoding="utf-8"
+    )
+    return sandbox
+
+
+def pytest_sessionstart(session):
+    """Snapshot the real ``data/`` and move this process into the sandbox working dir."""
+    global _sandbox_dir, _original_cwd, _data_snapshot
+    if not _is_xdist_worker(session.config) and os.environ.get(_SNAPSHOT_GUARD_ENV) != "0":
+        _data_snapshot = _snapshot_data_dir()
+    if _is_xdist_controller(session.config):
+        return  # the controller runs no tests; workers each build their own sandbox
+    _original_cwd = os.getcwd()
+    _sandbox_dir = _build_sandbox()
+    os.chdir(_sandbox_dir)
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Remove the seeded ``config.yaml`` (only if this session created it)."""
-    global _config_seeded_by_session
-    if _config_seeded_by_session and not _is_xdist_worker(session.config):
-        with suppress(Exception):
-            _SEEDED_CONFIG.unlink()
-        _config_seeded_by_session = False
+    """Leave the sandbox, remove it and verify the real ``data/`` is untouched."""
+    global _sandbox_dir, _data_snapshot
+    if _sandbox_dir is not None:
+        if _original_cwd is not None:
+            with suppress(OSError):
+                os.chdir(_original_cwd)
+        # Symlinks are unlinked, never followed, so the repository is not touched.
+        shutil.rmtree(_sandbox_dir, ignore_errors=True)
+        _sandbox_dir = None
+    problems: list[str] = [f"{event} {path} (in {where})" for event, path, where in _violations]
+    if _data_snapshot is not None:
+        problems += _diff_snapshots(_data_snapshot, _snapshot_data_dir())
+        _data_snapshot = None
+    if problems:
+        message = (
+            "\nFAILED: the test run touched the real workspace "
+            f"(set {_SNAPSHOT_GUARD_ENV}=0 only if the app is running against data/):\n  "
+            + "\n  ".join(problems)
+        )
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter is not None:
+            reporter.write_line(message, red=True)
+        else:
+            print(message)
+        if session.exitstatus == 0:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+@pytest.fixture(autouse=True)
+def _real_workspace_guard(request):
+    """Fail the test that tried to modify the real workspace, and name the culprit."""
+    _current_test[0] = request.node.nodeid
+    start = len(_violations)
+    yield
+    _current_test[0] = "<outside a test>"
+    new = _violations[start:]
+    if new:
+        del _violations[start:]
+        details = "; ".join(f"{event} {path}" for event, path, _ in new)
+        pytest.fail(f"test modified the real workspace: {details}", pytrace=False)
+
+
+@pytest.fixture(scope="session")
+def real_workspace():
+    """Locations and helpers of the real-workspace protection (for its own tests)."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        repo_root=_REPO_ROOT,
+        data_dir=_REPO_ROOT / "data",
+        diff_snapshots=_diff_snapshots,
+    )
+
+
+@pytest.fixture
+def expect_real_workspace_violation(_real_workspace_guard):
+    """Let a test deliberately trigger the guard (used only by the guard's own tests)."""
+    start = len(_violations)
+    yield
+    del _violations[start:]
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -169,8 +406,6 @@ def setup_test_env(tmp_path_factory):
       honours this env var).
     * Mocks ``secrets.load_yaml`` for ``config.yaml`` with a minimal test config.
     """
-    Path("data").mkdir(exist_ok=True)
-
     db_path = tmp_path_factory.mktemp("planner_db") / "test_planner.db"
 
     original_db_path = os.environ.get("DB_PATH")
@@ -257,6 +492,109 @@ def isolated_nordpool_last_good(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolated_plan_archive(monkeypatch, tmp_path):
+    """Per-test plan archive directory.
+
+    Planner service runs archive a record (also on failure), so tests must never write
+    into the real ``data/plan_archive``.
+    """
+    from backend.services import plan_archive
+
+    monkeypatch.setattr(plan_archive, "ARCHIVE_DIR", tmp_path / "plan_archive")
+
+
+@pytest.fixture(autouse=True)
+def isolated_strategy_history(monkeypatch, tmp_path):
+    """Per-test strategy history file.
+
+    Strategy runs append events to ``HISTORY_FILE``; tests must never write the real
+    ``data/strategy_history.json`` or inherit events from it. Tests read the patched
+    ``backend.strategy.history.HISTORY_FILE`` rather than a literal path.
+    """
+    from backend.strategy import history
+
+    monkeypatch.setattr(history, "HISTORY_FILE", tmp_path / "strategy_history.json")
+
+
+@pytest.fixture(autouse=True)
+def isolated_kepler_debug_lp(monkeypatch, tmp_path):
+    """Per-test Kepler debug LP dump (written when the solver is not optimal)."""
+    from planner.solver import kepler
+
+    monkeypatch.setattr(kepler, "DEBUG_LP_PATH", tmp_path / "kepler_debug.lp")
+
+
+@pytest.fixture(autouse=True)
+def isolated_ml_bootstrap(monkeypatch, tmp_path_factory):
+    """Run model bootstrap against a throwaway project root, never the real ``data/ml``.
+
+    ``ensure_active_models`` (called by the app lifespan) anchors its paths to
+    ``ml/bootstrap.py``: it purges stale files in, seeds and rewrites
+    ``data/ml/models/defaults``. The fake root exposes the shipped defaults read-only
+    through a symlink so seeding behaves as in production. Tests that set
+    ``bootstrap.__file__`` themselves still override this.
+    """
+    import ml.bootstrap as bootstrap
+
+    root = tmp_path_factory.mktemp("bootstrap_root")
+    (root / "ml" / "models").mkdir(parents=True)
+    (root / "ml" / "models" / "defaults").symlink_to(_REPO_ROOT / "ml" / "models" / "defaults")
+    monkeypatch.setattr(bootstrap, "__file__", str(root / "ml" / "bootstrap.py"))
+
+
+@pytest.fixture(autouse=True)
+def isolated_default_learning_db(monkeypatch, tmp_path):
+    """Point the hard-coded default learning database at a per-test (absent) file.
+
+    ``get_forecast_db_path`` always returned ``data/planner_learning.db`` relative to the
+    working directory, so health checks, price outlook, analyst and forecast code opened
+    whatever database the workspace happened to have. Tests that need a database patch
+    the function (or pass explicit paths) as before.
+    """
+    from backend.core import forecasts, price_outlook
+
+    path = str(tmp_path / "default_planner_learning.db")
+    monkeypatch.setattr(forecasts, "get_forecast_db_path", lambda: path)
+    monkeypatch.setattr(price_outlook, "get_forecast_db_path", lambda: path)
+
+
+@pytest.fixture(autouse=True)
+def isolated_recorder_obsolete_state(monkeypatch, tmp_path):
+    """Per-test location of the obsolete recorder state file the service deletes on start."""
+    from backend.services import recorder_service
+
+    monkeypatch.setattr(recorder_service, "OBSOLETE_STATE_FILE", tmp_path / "recorder_state.json")
+
+
+@pytest.fixture(autouse=True)
+def isolated_price_forecast_db(monkeypatch, tmp_path):
+    """Keep the D+1 price-forecast fallback off the real ``data/planner_learning.db``.
+
+    ``get_nordpool_data`` falls back to ``ml.price_forecast.get_d1_price_forecast_fallback``
+    before 13:00 local when no tomorrow prices are known. That reads the default database
+    path, so a workspace with a real database leaks forecast slots into price tests.
+    Calls that use the default path are redirected to an empty per-test database; calls
+    with an explicit ``db_path`` are untouched.
+    """
+    import ml.price_forecast as price_forecast
+
+    real = price_forecast.get_price_forecasts_from_db
+    default_path = "data/planner_learning.db"
+    isolated_path = str(tmp_path / "isolated_planner_learning.db")
+
+    @wraps(real)
+    async def redirected(*args, **kwargs):
+        if args:
+            if args[0] == default_path:
+                args = (isolated_path, *args[1:])
+        elif kwargs.get("db_path", default_path) == default_path:
+            kwargs["db_path"] = isolated_path
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(price_forecast, "get_price_forecasts_from_db", redirected)
+
+
+@pytest.fixture(autouse=True)
 def isolated_ml_state(monkeypatch, tmp_path_factory):
     """Keep ML global state and model files from leaking between tests.
 
@@ -282,9 +620,6 @@ def single_threaded_lightgbm(monkeypatch):
 
 
 # --- Alembic migration tests ------------------------------------------------
-
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-
 
 @contextmanager
 def _fast_sqlite() -> Iterator[None]:

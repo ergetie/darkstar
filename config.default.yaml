@@ -485,6 +485,7 @@ executor:
     on_error: true                     # Notify on executor errors
     on_ev_soc_stale: true              # Notify once when an EV's SoC reading stays unavailable (goal charging suspended)
     on_learned_parameter_change: true  # Notify when a learned battery/inverter value changes, expires or recovers
+    on_inverter_mode_revert: true      # Notify once when the inverter keeps changing a setting Darkstar wrote (mode, switch)
     on_ev_plug_in_reminder: false      # Remind before planned EV charging when the car isn't plugged in
     ev_plug_in_reminder_minutes: 30    # Lead time for the plug-in reminder (minutes before the planned start)
 

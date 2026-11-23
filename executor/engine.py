@@ -114,6 +114,13 @@ ACTION_FAILURE_NOTIFY_STREAK = 3
 TICK_STATS_FLUSH_INTERVAL_S = 30.0
 # system_state key of the EV zero-power charge-failure notice (read by the monitors).
 EV_CHARGE_NOTICE_KEY = "executor_ev_charge_notice"
+# system_state key of the inverter mode-revert notice (read by the monitors).
+REVERT_NOTICE_KEY = "executor_mode_revert_notice"
+# A revert warning needs this many events on the same entity inside the window
+# max(REVERT_WINDOW_MIN_S, REVERT_WINDOW_INTERVAL_FACTOR x interval_seconds).
+REVERT_EVENT_THRESHOLD = 3
+REVERT_WINDOW_MIN_S = 3600.0
+REVERT_WINDOW_INTERVAL_FACTOR = 4
 
 
 # Minimum gap between EV charge failure/recovery replans (ev-charge-failure-detection).
@@ -475,6 +482,18 @@ class ExecutorEngine:
         # Whether the persisted EV charge-failure notice is active (avoids a DB
         # write on every tick); seeded from system_state to survive a restart.
         self._ev_notice_active: bool = self._persisted_ev_notice_active()
+        # Inverter mode-revert detection (per-entity rolling windows of monotonic
+        # event times). A persisted active notice survives a restart: it is kept
+        # for one window and counts as already notified, events restart from zero.
+        self.last_inactive_at: datetime | None = None
+        self._revert_events: dict[str, collections.deque[float]] = {}
+        self._revert_last: dict[str, tuple[str, str]] = {}
+        self._revert_notice_active: bool = self._persisted_notice_active(REVERT_NOTICE_KEY)
+        self._revert_notified: bool = self._revert_notice_active
+        self._revert_since: str | None = self._persisted_notice_since(REVERT_NOTICE_KEY)
+        self._revert_hold_until: float = (
+            time.monotonic() + self._revert_window_s() if self._revert_notice_active else 0.0
+        )
         # A failure fired this commanded period; the first >0.1kW afterwards
         # requests a recovery replan (ev-charge-failure-detection).
         self._ev_failure_recovery_pending: bool = False
@@ -1426,6 +1445,7 @@ class ExecutorEngine:
             return
 
         self._stop_event.clear()
+        self._mark_inactive()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         logger.info("Executor started (interval: %ds)", self.config.interval_seconds)
@@ -1475,6 +1495,8 @@ class ExecutorEngine:
                 if not self.config.enabled:
                     logger.debug("Executor disabled in config, sleeping")
                     self.status.last_skip_reason = "disabled_in_config"
+                    self._mark_inactive()
+                    self._reset_revert_baselines()
                     await asyncio.sleep(10)  # Check every 10s
                     continue
 
@@ -1482,6 +1504,8 @@ class ExecutorEngine:
                 if self.is_paused:
                     logger.debug("Executor paused, sleeping")
                     self.status.last_skip_reason = "paused_by_user"
+                    self._mark_inactive()
+                    self._reset_revert_baselines()
                     await asyncio.sleep(10)
                     continue
 
@@ -1656,6 +1680,7 @@ class ExecutorEngine:
                 # Only apply it once when pause() is called.
                 # This allows the user to manually control devices while paused.
                 logger.debug("Executor is PAUSED - skipping tick")
+                self._reset_revert_baselines()
                 await self._check_pause_reminder()
 
                 self.status.last_run_status = "skipped"
@@ -1675,6 +1700,7 @@ class ExecutorEngine:
                     )
                     self.status.last_run_status = "skipped"
                     self.status.last_skip_reason = f"automation_toggle_off ({toggle_state})"
+                    self._reset_revert_baselines()
                     return {
                         "success": True,
                         "executed_at": now_iso,
@@ -1720,6 +1746,10 @@ class ExecutorEngine:
 
             # D1: Honor manual override — skip all writes but keep telemetry
             skip_writes = state.manual_override_active
+            if skip_writes or config.shadow_mode:
+                # No writes this tick: a manual change is not a revert, and the
+                # first tick after resuming starts with fresh baselines.
+                self._reset_revert_baselines()
             # Idle fallback without a valid schedule is not a counted tick.
             tick_uncounted = (
                 tick_uncounted
@@ -2220,6 +2250,7 @@ class ExecutorEngine:
                     # Fix Issue 0: Await expected coroutine properly
                     profile_results = await self.dispatcher.execute(decision)
                     action_results.extend(profile_results)
+                    await self._process_reverts(now)
                     if (
                         balancer_status.battery_output is not None
                         and profile_results
@@ -2477,7 +2508,132 @@ class ExecutorEngine:
 
     def _persisted_ev_notice_active(self) -> bool:
         """Whether system_state still holds an active EV charge-failure notice."""
-        raw = self._read_system_state(EV_CHARGE_NOTICE_KEY)
+        return self._persisted_notice_active(EV_CHARGE_NOTICE_KEY)
+
+    def _revert_window_s(self) -> float:
+        return max(
+            REVERT_WINDOW_MIN_S, REVERT_WINDOW_INTERVAL_FACTOR * self.config.interval_seconds
+        )
+
+    def _reset_revert_baselines(self) -> None:
+        """Drop the dispatcher's revert baselines (any tick that does not write)."""
+        if self.dispatcher:
+            self.dispatcher.clear_baselines()
+
+    async def _process_reverts(self, now: datetime) -> None:
+        """Feed dispatcher revert events into per-entity windows and manage the notice.
+
+        Never raises: revert detection must not break a tick.
+        """
+        try:
+            await self._process_reverts_unsafe(now)
+        except Exception as e:
+            logger.warning("Revert detection failed: %s", describe_exception(e))
+
+    async def _process_reverts_unsafe(self, now: datetime) -> None:
+        if not self.dispatcher:
+            return
+        mono = time.monotonic()
+        window = self._revert_window_s()
+        for event in self.dispatcher.drain_revert_events():
+            self._revert_events.setdefault(event.entity_id, collections.deque()).append(mono)
+            self._revert_last[event.entity_id] = (event.commanded, event.observed)
+            self._revert_hold_until = 0.0
+        for entity_id in list(self._revert_events):
+            events = self._revert_events[entity_id]
+            while events and mono - events[0] > window:
+                events.popleft()
+            if not events:
+                del self._revert_events[entity_id]
+                self._revert_last.pop(entity_id, None)
+
+        flagged = [
+            {
+                "entity": entity_id,
+                "count": len(events),
+                "commanded": self._revert_last[entity_id][0],
+                "observed": self._revert_last[entity_id][1],
+            }
+            for entity_id, events in sorted(self._revert_events.items())
+            if len(events) >= REVERT_EVENT_THRESHOLD
+        ]
+        if flagged:
+            self._write_system_state(
+                REVERT_NOTICE_KEY,
+                json.dumps(
+                    {
+                        "active": True,
+                        "since": self._revert_since or now.isoformat(),
+                        "updated_at": now.isoformat(),
+                        "window_minutes": int(window // 60),
+                        "entities": flagged,
+                    }
+                ),
+            )
+            self._revert_since = self._revert_since or now.isoformat()
+            self._revert_notice_active = True
+            if not self._revert_notified:
+                self._revert_notified = True
+                await self._notify_mode_revert(flagged, int(window // 60))
+        elif (
+            self._revert_notice_active
+            and not self._revert_events
+            and mono >= self._revert_hold_until
+        ):
+            # Episode ends only once no entity has any event left in the window
+            # (no hysteresis flapping between 2 and 3 events).
+            self._write_system_state(REVERT_NOTICE_KEY, json.dumps({"active": False}))
+            self._revert_notice_active = False
+            self._revert_notified = False
+            self._revert_since = None
+
+    async def _notify_mode_revert(self, flagged: list[dict[str, Any]], window_minutes: int) -> None:
+        """One notification per revert episode, gated by on_inverter_mode_revert."""
+        if not self.config.notifications.on_inverter_mode_revert or not self.dispatcher:
+            return
+        parts = [
+            f"{item['entity']} (set to {item['commanded']}, found {item['observed']}, "
+            f"{item['count']} times)"
+            for item in flagged
+        ]
+        message = (
+            f"The inverter keeps changing {', '.join(parts)} within {window_minutes} min after "
+            "Darkstar set it. Check the inverter's own schedule or app, the integration and "
+            "firmware. Use manual override or pause when changing the inverter yourself."
+        )
+        logger.warning("Inverter mode revert notification: %s", message)
+        try:
+            await self.dispatcher.notify_inverter_mode_revert(message)
+        except Exception as e:
+            logger.warning("Failed to send mode-revert notification: %s", describe_exception(e))
+
+    def _persisted_notice_since(self, key: str) -> str | None:
+        """The `since` of an active persisted notice under `key`, else None."""
+        raw = self._read_system_state(key)
+        if not raw:
+            return None
+        try:
+            notice: Any = json.loads(raw)
+        except ValueError:
+            return None
+        if not isinstance(notice, dict):
+            return None
+        data = cast("dict[str, Any]", notice)
+        since = data.get("since")
+        return str(since) if data.get("active") and since else None
+
+    def _mark_inactive(self) -> None:
+        """Record that the loop is idle (disabled/paused) or just (re)started.
+
+        The health check measures staleness from the later of this and
+        `status.last_run_at`, so a loop that was idle for hours is not reported
+        stale before its first tick after resuming.
+        """
+        self.last_inactive_at = datetime.now(pytz.UTC)
+
+    def _persisted_notice_active(self, key: str) -> bool:
+        """Whether system_state holds an active notice under `key`."""
+        raw = self._read_system_state(key)
         if not raw:
             return False
         try:

@@ -35,6 +35,7 @@ function mockFetch(posts: { url: string; body: unknown }[]) {
                         on_override_activated: true,
                         on_error: true,
                         on_learned_parameter_change: true,
+                        on_inverter_mode_revert: true,
                     }
                 }
             } else if (url.includes('api/executor/status')) {
@@ -72,6 +73,28 @@ describe('Executor notification toggles', () => {
         await waitFor(() => expect(posts).toHaveLength(1))
         expect(posts[0].url).toContain('api/executor/notifications')
         expect(posts[0].body).toEqual({ on_learned_parameter_change: false })
+        await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'false'))
+    })
+
+    it('lists the inverter mode revert toggle and saves its key', async () => {
+        const posts: { url: string; body: unknown }[] = []
+        mockFetch(posts)
+        render(
+            <MemoryRouter>
+                <ExecutorPage />
+            </MemoryRouter>,
+        )
+
+        fireEvent.click(await screen.findByRole('button', { name: /Notifications/ }))
+        const label = await screen.findByText('Inverter Mode Reverted')
+        const row = label.closest('div.flex.items-center') as HTMLElement
+        const toggle = within(row).getByRole('switch')
+        expect(toggle).toHaveAttribute('aria-checked', 'true')
+
+        fireEvent.click(toggle)
+
+        await waitFor(() => expect(posts).toHaveLength(1))
+        expect(posts[0].body).toEqual({ on_inverter_mode_revert: false })
         await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'false'))
     })
 })

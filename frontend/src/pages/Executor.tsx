@@ -45,6 +45,7 @@ type NotificationSettings = {
     on_error: boolean
     on_ev_soc_stale?: boolean
     on_learned_parameter_change?: boolean
+    on_inverter_mode_revert?: boolean
     on_ev_plug_in_reminder?: boolean
     ev_plug_in_reminder_minutes?: number
 }
@@ -1611,6 +1612,11 @@ export default function Executor() {
                                         key: 'on_learned_parameter_change',
                                         label: 'Learned Parameter Changed',
                                         desc: 'When a learned battery or inverter value changes',
+                                    },
+                                    {
+                                        key: 'on_inverter_mode_revert',
+                                        label: 'Inverter Mode Reverted',
+                                        desc: 'When the inverter keeps changing a setting Darkstar wrote',
                                     },
                                     {
                                         key: 'on_ev_plug_in_reminder',

@@ -43,22 +43,9 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🐛 Fixes
 
-#### [Executor] Detect Inverter Mode Reverts And Power Mismatch
-
-**Goal:** Warn when the inverter does not follow the commanded mode or power.
-
-**Notes:** Status Reported, not verified; probably integration-side. Fronius GEN24: during grid charging `storage_control_mode` reverted from "Charge from Grid" to "Discharge Limit" 20 s to 17 min after each write, with no HA context; 3.3 kW commanded, ~0.4–0.6 kW delivered (01:00–02:00). The executor could detect commanded vs actual mismatch and warn. Source: GitHub #8 (Cm0n89), "Other findings".
-
-
 ---
 
 ## 🔧 Improvements
-
-#### [Settings] Warn About Out-Of-Range And Learning-Contradicted Settings
-
-**Goal:** Tell the user when a setting is outside the range Darkstar's own learning would ever choose, or contradicts what the recorded data shows, and what it is likely costing them.
-
-**Notes:** Found 2026-10-06 (cmon89): `forecasting.pv_confidence_percent` was 60 while Reflex only moves it within 70–120 (`backend/learning/reflex.py:22`) and his forecasts were 96 % accurate over 30 days (PV 938 actual vs 905 forecast). Nothing warned him. A replay estimated 60 % vs 83 % at ~53 kr over 25 days. His `learning.max_daily_param_change.pv_confidence_percent` was also 60 (default 1.0). Must cover every Reflex-tuned parameter (bounds table in `reflex.py`) and similar settings, e.g. max-daily-change values far from defaults. Harmless leftovers (e.g. an enabled `water_heaters` entry with `has_water_heater: false`, which the planner ignores) get at most a one-time info note, not a warning.
 
 ---
 

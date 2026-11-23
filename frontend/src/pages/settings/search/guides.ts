@@ -296,6 +296,8 @@ Vacation state also feeds the load forecasting, so the system learns that away-d
 
 Two EV notifications live in the same list: a warning when an EV's SoC reading stays unavailable, and an optional plug-in reminder that is sent a set time (15 or 30 minutes, or your own value) before planned charging if the car isn't plugged in.
 
+If the inverter keeps changing a mode or switch that Darkstar just set (three times on the same setting within an hour), Darkstar shows a warning on the dashboard and, if enabled, sends one notification naming the setting. This usually points to another automation, the inverter's own schedule or the integration; use manual override or pause when you change the inverter yourself.
+
 Load balancer interventions have their own separate toggle, since fuse-protection events are the kind of thing you may want to know about even if you've muted the routine ones.
 
 If you're looking for "price alerts" — a heads-up about unusually cheap or expensive hours coming up — those aren't sent as notifications. They appear in the Advisor card on the dashboard, based on the price forecast (see the AI Advisor guide).`,
@@ -306,6 +308,7 @@ If you're looking for "price alerts" — a heads-up about unusually cheap or exp
             'executor.notifications.on_export_start',
             'executor.notifications.on_water_heat_start',
             'executor.notifications.on_error',
+            'executor.notifications.on_inverter_mode_revert',
             'executor.notifications.on_ev_plug_in_reminder',
             'load_balancing.notify_interventions',
         ],

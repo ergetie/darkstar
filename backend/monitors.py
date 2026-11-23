@@ -43,6 +43,13 @@ evidence phase (openspec/changes/stabilization-review-2/findings.md):
   (system_state key executor_ev_charge_notice) is active; a notice older than
   EV_NOTICE_MAX_AGE_HOURS = 6 is ignored as stale. The notice no longer fails
   the tick, so it does not affect command_success.
+- inverter_mode_revert: violation while the executor's mode-revert notice
+  (system_state key executor_mode_revert_notice, written while at least one
+  discrete inverter entity left Darkstar's last verified value 3 times inside
+  the executor's window) is active; a notice not refreshed for
+  REVERT_NOTICE_MAX_AGE_HOURS = 6 is ignored as stale. The executor rewrites
+  the notice every writing tick while the condition holds, so a live episode
+  never ages out; an executor that stopped ticking does.
 - Forecast sanity ceiling: computed at evaluation time as
   ``sum(system.solar_arrays[].kwp) * 0.25`` kWh per 15-min slot, from the
   configured system rather than a hardcoded constant — the previous
@@ -85,6 +92,7 @@ COMMAND_SUCCESS_MIN = 0.95
 COMMAND_SUCCESS_MIN_TICKS = 12
 COMMAND_SUCCESS_TOP_ACTIONS = 2
 EV_NOTICE_MAX_AGE_HOURS = 6.0
+REVERT_NOTICE_MAX_AGE_HOURS = 6.0
 DATA_QUALITY_MAX_BAD_FRACTION = 0.05
 PV_FORECAST_CEILING_KWH_PER_KWP = 0.25  # kWh per 15-min slot per kWp configured
 
@@ -99,6 +107,7 @@ INVARIANT_NAMES = [
     "forecast_sanity",
     "data_quality",
     "ev_charge_delivery",
+    "inverter_mode_revert",
 ]
 
 
@@ -108,6 +117,8 @@ class InvariantResult:
     status: str  # "pass" | "violation" | "skipped"
     detail: str
     evaluated_at: str = ""
+    # Structured payload for the health banner (not part of the API result).
+    data: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.evaluated_at:
@@ -129,6 +140,7 @@ class ViolationEpisode:
     invariant: str
     first_detected_at: str
     detail: str
+    data: dict[str, Any] | None = None
 
 
 @dataclass
@@ -352,6 +364,45 @@ class InvariantMonitors:
             str(notice.get("message") or "EV commanded to charge but draws no power"),
         )
 
+    def _eval_inverter_mode_revert(self, con: sqlite3.Connection, now: datetime) -> InvariantResult:
+        name = "inverter_mode_revert"
+        notice = self._read_system_state(con, "executor_mode_revert_notice")
+        if notice is None:
+            return InvariantResult(name, "skipped", "no mode-revert notice recorded")
+        if not notice.get("active"):
+            return InvariantResult(name, "pass", "inverter keeps the values Darkstar sets")
+        try:
+            updated = datetime.fromisoformat(str(notice.get("updated_at") or notice["since"]))
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=UTC)
+        except (KeyError, ValueError):
+            return InvariantResult(name, "skipped", "mode-revert notice unreadable")
+        age_h = (now.astimezone(UTC) - updated.astimezone(UTC)).total_seconds() / 3600.0
+        if age_h > REVERT_NOTICE_MAX_AGE_HOURS:
+            return InvariantResult(name, "pass", f"mode-revert notice is stale ({age_h:.1f} h old)")
+        raw_entities: Any = notice.get("entities")
+        entities: list[dict[str, Any]] = []
+        if isinstance(raw_entities, list):
+            for item in cast("list[Any]", raw_entities):
+                if isinstance(item, dict):
+                    entities.append(cast("dict[str, Any]", item))
+        window = notice.get("window_minutes")
+        parts = [
+            f"{e.get('entity')} (set to {e.get('commanded')}, found {e.get('observed')}, "
+            f"{e.get('count')} times)"
+            for e in entities
+        ]
+        detail = (
+            "inverter changed "
+            + (", ".join(parts) or "a setting")
+            + (
+                f" within {window} min after Darkstar set it"
+                if window
+                else " after Darkstar set it"
+            )
+        )
+        return InvariantResult(name, "violation", detail, data={"entities": entities})
+
     def _eval_forecast_sanity(self, con: sqlite3.Connection, now: datetime) -> InvariantResult:
         system_cfg: dict[str, Any] = self._config.get("system", {}) or {}
         solar_arrays: list[dict[str, Any]] = system_cfg.get("solar_arrays", []) or []
@@ -426,6 +477,7 @@ class InvariantMonitors:
                 "forecast_sanity": self._eval_forecast_sanity,
                 "data_quality": self._eval_data_quality,
                 "ev_charge_delivery": self._eval_ev_charge_delivery,
+                "inverter_mode_revert": self._eval_inverter_mode_revert,
             }
             healthy = True
             for name, fn in evaluators.items():
@@ -459,11 +511,13 @@ class InvariantMonitors:
                         invariant=r.name,
                         first_detected_at=r.evaluated_at,
                         detail=r.detail,
+                        data=r.data,
                     )
                     logger.warning("invariant violation (new episode): %s — %s", r.name, r.detail)
                 else:
                     # still violated: update detail, keep first_detected_at (dedup)
                     self.state.episodes[r.name].detail = r.detail
+                    self.state.episodes[r.name].data = r.data
             elif r.status == "pass" and r.name in self.state.episodes:
                 logger.info("invariant recovered: %s", r.name)
                 del self.state.episodes[r.name]
@@ -500,6 +554,26 @@ class InvariantMonitors:
                     "Check that electricity prices and forecasts are arriving, "
                     "and look in the backend logs for planner errors."
                 )
+            elif ep.invariant == "inverter_mode_revert":
+                issues.append(
+                    {
+                        "category": "executor",
+                        "severity": "warning",
+                        "message": f"The inverter keeps changing a setting Darkstar wrote: {ep.detail}",
+                        "guidance": (
+                            "Check the inverter's own schedule or app, the integration and the "
+                            "firmware for something that changes this setting. Darkstar rewrites "
+                            "it every tick. Use manual override or pause the executor when you "
+                            "change the inverter yourself."
+                        ),
+                        "code": "INVERTER_MODE_REVERT",
+                        "details": {
+                            "first_detected_at": ep.first_detected_at,
+                            "entities": (ep.data or {}).get("entities", []),
+                        },
+                    }
+                )
+                continue
             else:
                 message = f"Invariant violated: {ep.invariant} — {ep.detail}"
                 guidance = "See /api/system/monitors for details, or check the backend logs."

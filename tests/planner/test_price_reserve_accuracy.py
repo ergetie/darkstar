@@ -12,6 +12,7 @@ import pytz
 from fastapi.testclient import TestClient
 
 import planner.pipeline as pipeline_module
+from backend.strategy import history
 from backend.main import app
 from ml.price_accuracy import load_forecast_accuracy
 from planner.pipeline import PlannerPipeline, build_price_reserve_inputs, forecast_slot_horizons
@@ -277,7 +278,6 @@ def reserve_debug(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_full_run_bias_only_gap_gives_no_reserve(tmp_path, monkeypatch, reserve_debug):
-    monkeypatch.chdir(tmp_path)
     start, db, config = setup(tmp_path)
     # Published prices equal the true level of the unseen cheap hours (forecast 0.9 is 0.38 high).
     true_import = spot_to_import_price(FORECAST_SPOT - 0.38, config)
@@ -317,7 +317,6 @@ async def test_full_run_bias_only_gap_gives_no_reserve(tmp_path, monkeypatch, re
 async def test_full_run_accurate_forecast_reserves_as_before(
     tmp_path, monkeypatch, captured_solves, reserve_debug
 ):
-    monkeypatch.chdir(tmp_path)
     start, db, config = setup(tmp_path)
     seed_accuracy(db, 2, [0.01, -0.01])
 
@@ -335,7 +334,6 @@ async def test_full_run_accurate_forecast_reserves_as_before(
 async def test_full_run_without_accuracy_data_reports_fallback(
     tmp_path, monkeypatch, reserve_debug
 ):
-    monkeypatch.chdir(tmp_path)
     start, _, config = setup(tmp_path)
 
     await run_full(config, start)
@@ -355,7 +353,6 @@ async def test_full_run_without_accuracy_data_reports_fallback(
 async def test_full_run_forecast_known_slots_are_corrected_not_the_solver_prices(
     tmp_path, monkeypatch, reserve_debug
 ):
-    monkeypatch.chdir(tmp_path)
     start, db, config = setup(tmp_path)
     seed_accuracy(db, 1, [0.20, 0.20])
     seed_accuracy(db, 2, [0.38, 0.38])
@@ -376,7 +373,6 @@ async def test_full_run_forecast_known_slots_are_corrected_not_the_solver_prices
 
 
 def test_strategy_event_carries_accuracy_details(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
     accuracy = {2: {"bias": 0.38, "debiased_mae": 0.1, "sample_days": 3, "used_fallback": False}}
     pipeline_module._log_price_reserve_event(
         {
@@ -395,7 +391,7 @@ def test_strategy_event_carries_accuracy_details(tmp_path, monkeypatch):
         }
     )
 
-    (event,) = json.loads(Path("data/strategy_history.json").read_text())
+    (event,) = json.loads(history.HISTORY_FILE.read_text())
     assert "+0.38" in event["message"]
     assert "0.12" in event["message"]
     details = event["details"]

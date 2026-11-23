@@ -41,6 +41,12 @@ CLAMP_WARN_INTERVAL_S = 3600.0
 
 NUMBER_DOMAINS = ("number", "input_number")
 
+# Revert detection (inverter-revert-warning-and-executor-health D2): a state change
+# is only attributed to the inverter when the last verified write is at least this old.
+REVERT_MIN_AGE_S = 30.0
+_NO_STATE_VALUES = frozenset({"", "unavailable", "unknown", "none"})
+_UNCONFIGURED_VALUE = "CONFIGURE_ME"
+
 # Runs of anything that is not a letter or digit, collapsed to "_" by option_key().
 _OPTION_KEY_SEPARATORS = re.compile(r"[\W_]+")
 
@@ -313,6 +319,15 @@ _STANDARD_INVERTER_KEYS: frozenset[str] = frozenset(
         "max_discharge_power",
     ]
 )
+
+
+@dataclass(frozen=True)
+class RevertEvent:
+    """A discrete inverter entity left the value Darkstar last wrote and verified."""
+
+    entity_id: str
+    commanded: str
+    observed: str
 
 
 @dataclass
@@ -657,6 +672,44 @@ class ActionDispatcher:
         self._last_write_at: dict[str, float] = {}
         # Entity-range clamp warnings, rate limited per entity (monotonic seconds).
         self._clamp_log_at: dict[str, float] = {}
+        # Revert detection: last value written and read-back verified per discrete
+        # entity (entity_id -> (value, monotonic time)), and undrained revert events.
+        self._verified_command: dict[str, tuple[Any, float]] = {}
+        self._revert_events: list[RevertEvent] = []
+
+    def drain_revert_events(self) -> list[RevertEvent]:
+        """Return and clear the revert events recorded since the last drain."""
+        events, self._revert_events = self._revert_events, []
+        return events
+
+    def clear_baselines(self) -> None:
+        """Forget every revert baseline (ticks that do not write, config swaps)."""
+        self._verified_command.clear()
+
+    def _entity_map(self) -> dict[str, str | None]:
+        if not self.profile:
+            return {}
+        return {key: self._resolve_entity_id(key) for key in self.profile.entities}
+
+    def _track_revert(self, entity_id: str, previous_value: Any) -> None:
+        """Record a revert event when `entity_id` left its last verified command."""
+        baseline = self._verified_command.get(entity_id)
+        if baseline is None:
+            return
+        if previous_value is None or str(previous_value).strip().lower() in _NO_STATE_VALUES:
+            return
+        commanded, written_at = baseline
+        if time.monotonic() - written_at < REVERT_MIN_AGE_S:
+            return
+        if self._values_match(previous_value, commanded):
+            return
+        logger.info(
+            "Inverter entity %s left the value Darkstar set (commanded %r, observed %r)",
+            entity_id,
+            commanded,
+            previous_value,
+        )
+        self._revert_events.append(RevertEvent(entity_id, str(commanded), str(previous_value)))
 
     def last_write_at(self, entity_id: str) -> float | None:
         """Monotonic time of the last successful write to `entity_id`."""
@@ -710,10 +763,13 @@ class ActionDispatcher:
         Must only be called at a tick boundary so a running tick never sees a
         mid-tick config swap. ``shadow_mode`` follows the new config.
         """
+        before = self._entity_map()
         self.config = config
         self.shadow_mode = config.shadow_mode
         if profile is not None:
             self.profile = profile
+        if self._entity_map() != before:
+            self.clear_baselines()
 
     def _resolve_entity_id(self, key: str) -> str | None:
         """
@@ -919,6 +975,8 @@ class ActionDispatcher:
             ]
 
         mode_intent = decision.mode_intent
+        if self.shadow_mode:
+            self.clear_baselines()
 
         try:
             mode_def = self.profile.get_mode(mode_intent)
@@ -952,6 +1010,13 @@ class ActionDispatcher:
             if action.settle_ms and action.settle_ms > 0:
                 logger.debug("Settle delay: %dms after %s", action.settle_ms, action.entity)
                 await asyncio.sleep(action.settle_ms / 1000.0)
+
+        # An entity only written in some modes is compared across consecutive
+        # ticks that both write it; otherwise its baseline ages while it changes
+        # legitimately.
+        in_mode = {self._resolve_entity_id(a.entity) for a in mode_def.actions}
+        for stale_id in [e for e in self._verified_command if e not in in_mode]:
+            del self._verified_command[stale_id]
 
         if results:
             successful = sum(1 for r in results if r.success)
@@ -1011,6 +1076,16 @@ class ActionDispatcher:
         entity_state = await self.ha.get_state(entity_id)
         previous_value = entity_state.get("state") if entity_state else None
 
+        # Revert detection covers discrete entities only (inverters round or clamp
+        # numbers) and never while shadow mode or an unconfigured value is in play.
+        track_revert = (
+            entity_def.domain not in NUMBER_DOMAINS
+            and not self.shadow_mode
+            and str(resolved_value) != _UNCONFIGURED_VALUE
+        )
+        if track_revert:
+            self._track_revert(entity_id, previous_value)
+
         # Clamp before the skip checks so an entity already at its limit is not
         # rewritten every tick.
         clamp_suffix = ""
@@ -1023,6 +1098,16 @@ class ActionDispatcher:
                 clamp_suffix = f" (requested {requested_value}, clamped: {clamp_note})"
 
         if self._values_match(previous_value, resolved_value):
+            if track_revert:
+                # Observed equal to the command: refresh the baseline without counting.
+                # An unchanged command keeps its write time so the REVERT_MIN_AGE_S
+                # guard measures time since the write, not since the last tick.
+                kept = self._verified_command.get(entity_id)
+                if kept is not None and self._values_match(kept[0], resolved_value):
+                    written_at = kept[1]
+                else:
+                    written_at = time.monotonic()
+                self._verified_command[entity_id] = (resolved_value, written_at)
             return ActionResult(
                 action_type=action.entity,
                 success=True,
@@ -1101,6 +1186,12 @@ class ActionDispatcher:
             verified_value, verification_success = await self._verify_action(
                 entity_id, resolved_value, action.settle_ms
             )
+
+        if track_revert:
+            if verification_success is True:
+                self._verified_command[entity_id] = (resolved_value, time.monotonic())
+            else:
+                self._verified_command.pop(entity_id, None)
 
         duration_ms = int((time.time() - start_time) * 1000)
 
@@ -1950,6 +2041,14 @@ class ActionDispatcher:
         engine's job.
         """
         await self._send_notification(message, title="Darkstar EV")
+
+    async def notify_inverter_mode_revert(self, message: str) -> None:
+        """Inverter keeps reverting a discrete setting (inverter-revert-warning).
+
+        Toggle (``on_inverter_mode_revert``) and once-per-episode dedupe are the
+        engine's job.
+        """
+        await self._send_notification(message)
 
     async def notify_override(self, override_type: str, reason: str) -> None:
         """Send notification about an override activation."""

@@ -277,7 +277,7 @@ class TestExportFloorAdapterMapping:
 
         # Same payload shape the Settings form builds from the field path.
         payload = {"export": {"export_floor_soc_percent": 30}}
-        with patch("backend.api.routers.config.get_executor_instance", return_value=None):
+        with patch("backend.api.routers.config.peek_executor_instance", return_value=None):
             result = asyncio.run(save_config(payload))
         assert result["status"] == "success"
 

@@ -603,6 +603,9 @@ export type ExecutorHealthResponse = {
     }[]
     warnings: string[]
     is_healthy: boolean
+    last_run_age_seconds: number | null
+    stale_after_seconds: number
+    is_stale: boolean
 }
 
 export type EnergyTodayResponse = {

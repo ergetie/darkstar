@@ -669,9 +669,70 @@ class TestSurfaces:
             "forecast_sanity",
             "data_quality",
             "ev_charge_delivery",
+            "inverter_mode_revert",
         }
 
     def test_result_serialization(self):
         r = InvariantResult("x", "pass", "ok")
         d = r.to_dict()
         assert d["name"] == "x" and d["status"] == "pass" and d["evaluated_at"]
+
+
+class TestInverterModeRevert:
+    def _notice(self, updated: datetime, active: bool = True) -> dict:
+        return {
+            "active": active,
+            "since": (updated - timedelta(hours=1)).isoformat(),
+            "updated_at": updated.isoformat(),
+            "window_minutes": 60,
+            "entities": [
+                {
+                    "entity": "select.inverter_work_mode",
+                    "count": 4,
+                    "commanded": "Charge from Grid",
+                    "observed": "Discharge Limit",
+                }
+            ],
+        }
+
+    def test_violation_names_entity_and_values(self, mon_db):
+        seed_system_state(
+            mon_db, "executor_mode_revert_notice", self._notice(PINNED_NOW - timedelta(minutes=5))
+        )
+        r = _evaluate(mon_db, "inverter_mode_revert")
+        assert r.status == "violation"
+        assert "select.inverter_work_mode" in r.detail
+        assert "Charge from Grid" in r.detail and "Discharge Limit" in r.detail
+        assert r.data["entities"][0]["count"] == 4
+
+    def test_pass_when_inactive(self, mon_db):
+        seed_system_state(
+            mon_db, "executor_mode_revert_notice", self._notice(PINNED_NOW, active=False)
+        )
+        assert _evaluate(mon_db, "inverter_mode_revert").status == "pass"
+
+    def test_skipped_when_absent(self, mon_db):
+        assert _evaluate(mon_db, "inverter_mode_revert").status == "skipped"
+
+    def test_stale_notice_dropped_even_for_old_episode(self, mon_db):
+        seed_system_state(
+            mon_db, "executor_mode_revert_notice", self._notice(PINNED_NOW - timedelta(hours=7))
+        )
+        assert _evaluate(mon_db, "inverter_mode_revert").status == "pass"
+
+    def test_health_issue_has_code_and_entities(self, mon_db):
+        seed_system_state(
+            mon_db, "executor_mode_revert_notice", self._notice(PINNED_NOW - timedelta(minutes=5))
+        )
+        monitors = InvariantMonitors(config_path="config.yaml")
+        monitors._apply_results([_evaluate(mon_db, "inverter_mode_revert")])
+        (issue,) = monitors.health_issues()
+        assert issue["code"] == "INVERTER_MODE_REVERT"
+        assert issue["category"] == "executor"
+        assert issue["severity"] == "warning"
+        assert issue["details"]["entities"][0]["entity"] == "select.inverter_work_mode"
+
+        monitors._apply_results(
+            [InvariantResult("inverter_mode_revert", "pass", "recovered")]
+        )
+        assert monitors.health_issues() == []

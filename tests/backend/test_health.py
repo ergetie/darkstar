@@ -409,3 +409,184 @@ async def test_no_battery_means_no_check(tmp_path):
     checker = _battery_checker()
     checker._config = {"system": {"has_battery": False}}
     assert await checker.check_battery_warnings() == []
+
+
+# --- Executor health check (inverter-revert-warning-and-executor-health) -------------------
+
+
+def _executor_stub(
+    *,
+    alive=True,
+    enabled=True,
+    paused=False,
+    last_run_status="success",
+    last_error=None,
+    last_run_age_s=None,
+    interval=300,
+    inactive_age_s=None,
+):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    last_run_at = (
+        None if last_run_age_s is None else datetime.now(timezone.utc) - timedelta(seconds=last_run_age_s)
+    )
+    return SimpleNamespace(
+        _thread=SimpleNamespace(is_alive=lambda: alive),
+        is_paused=paused,
+        config=SimpleNamespace(enabled=enabled, interval_seconds=interval),
+        status=SimpleNamespace(
+            last_run_at=last_run_at, last_run_status=last_run_status, last_error=last_error
+        ),
+        recent_errors=[],
+        inverter_profile=None,
+        last_inactive_at=(
+            None
+            if inactive_age_s is None
+            else datetime.now(timezone.utc) - timedelta(seconds=inactive_age_s)
+        ),
+    )
+
+
+def _executor_issues(executor, config=None):
+    from backend.health import HealthChecker
+
+    checker = HealthChecker()
+    checker._config = {"executor": {"enabled": True}} if config is None else config
+    with patch("backend.api.routers.executor.peek_executor_instance", return_value=executor):
+        return checker.check_executor()
+
+
+def test_check_executor_dead_thread_is_critical():
+    issues = _executor_issues(_executor_stub(alive=False))
+    assert [(i.code, i.severity) for i in issues] == [("EXECUTOR_NOT_RUNNING", "critical")]
+
+
+def test_check_executor_paused_alive_is_healthy():
+    assert _executor_issues(_executor_stub(paused=True, last_run_age_s=99999)) == []
+
+
+def test_check_executor_paused_dead_thread_not_reported():
+    assert _executor_issues(_executor_stub(alive=False, paused=True)) == []
+
+
+def test_check_executor_disabled_alive_is_healthy():
+    assert _executor_issues(_executor_stub(enabled=False, last_run_age_s=99999)) == []
+
+
+def test_check_executor_last_run_failed_is_warning_with_message():
+    issues = _executor_issues(
+        _executor_stub(last_run_status="error", last_error="boom", last_run_age_s=10)
+    )
+    assert [(i.code, i.severity) for i in issues] == [("EXECUTOR_LAST_RUN_FAILED", "warning")]
+    assert "boom" in issues[0].message
+
+
+def test_check_executor_healthy_returns_nothing():
+    assert _executor_issues(_executor_stub(last_run_age_s=60)) == []
+
+
+def test_check_executor_no_instance_enabled_is_critical_and_creates_nothing():
+    from backend.health import HealthChecker
+
+    checker = HealthChecker()
+    checker._config = {"executor": {"enabled": True}}
+    with (
+        patch("backend.api.routers.executor.peek_executor_instance", return_value=None),
+        patch("backend.api.routers.executor.get_executor_instance") as create,
+    ):
+        issues = checker.check_executor()
+    assert [(i.code, i.severity) for i in issues] == [("EXECUTOR_NOT_INITIALIZED", "critical")]
+    create.assert_not_called()
+
+
+def test_check_executor_no_instance_disabled_is_silent():
+    assert _executor_issues(None, config={"executor": {"enabled": False}}) == []
+    assert _executor_issues(None, config={}) == []
+
+
+def test_check_executor_stale_loop_warns():
+    # default interval 300 -> threshold max(900, 600) = 900 s
+    issues = _executor_issues(_executor_stub(last_run_age_s=1000))
+    assert [(i.code, i.severity) for i in issues] == [("EXECUTOR_STALE", "warning")]
+
+
+def test_check_executor_recent_tick_not_stale():
+    assert _executor_issues(_executor_stub(last_run_age_s=800)) == []
+
+
+def test_check_executor_stale_threshold_has_ten_minute_floor():
+    # interval 60 -> 3 x 60 = 180 s, floor 600 s applies
+    assert _executor_issues(_executor_stub(interval=60, last_run_age_s=500)) == []
+    issues = _executor_issues(_executor_stub(interval=60, last_run_age_s=700))
+    assert [i.code for i in issues] == ["EXECUTOR_STALE"]
+
+
+def test_check_executor_not_stale_right_after_resume():
+    # Last tick was hours ago but the loop only resumed 20 s ago.
+    stub = _executor_stub(last_run_age_s=7200, inactive_age_s=20)
+    assert _executor_issues(stub) == []
+
+
+def test_check_executor_stale_when_no_tick_long_after_resume():
+    stub = _executor_stub(last_run_age_s=7200, inactive_age_s=1000)
+    assert [i.code for i in _executor_issues(stub)] == ["EXECUTOR_STALE"]
+
+
+def test_check_executor_no_tick_yet_not_stale():
+    assert _executor_issues(_executor_stub(last_run_age_s=None)) == []
+
+
+def test_check_executor_internal_failure_logs_warning_and_returns_nothing(caplog):
+    import logging
+
+    from backend.health import HealthChecker
+
+    checker = HealthChecker()
+    checker._config = {"executor": {"enabled": True}}
+    with (
+        caplog.at_level(logging.WARNING),
+        patch("backend.api.routers.executor.peek_executor_instance", side_effect=RuntimeError("x")),
+    ):
+        assert checker.check_executor() == []
+    assert any(r.levelno == logging.WARNING and "executor health" in r.message for r in caplog.records)
+
+
+def test_executor_health_snapshot_real_engine_shape_and_route():
+    import asyncio
+
+    from backend.api.routers.executor import executor_health_snapshot, get_health
+
+    stub = _executor_stub(paused=True, last_run_age_s=10)
+    snap = executor_health_snapshot(stub)
+    assert snap["is_healthy"] is True and snap["should_be_running"] is False
+    assert asyncio.run(get_health(stub))["status"] == "healthy"
+
+    dead = executor_health_snapshot(_executor_stub(alive=False))
+    assert dead["is_healthy"] is False and dead["status"] == "error"
+
+    disabled = executor_health_snapshot(_executor_stub(enabled=False, alive=False))
+    assert disabled["is_healthy"] is True
+
+    err = executor_health_snapshot(_executor_stub(last_run_status="error", last_error="e"))
+    assert err["has_error"] and err["error"] == "e" and err["is_healthy"] is False
+
+
+def test_check_monitors_surfaces_inverter_mode_revert_with_entities():
+    from backend.health import HealthChecker
+    from backend.monitors import InvariantMonitors, InvariantResult
+
+    monitors = InvariantMonitors(config_path="config.yaml")
+    entities = [
+        {"entity": "select.inverter_work_mode", "count": 3, "commanded": "A", "observed": "B"}
+    ]
+    monitors._apply_results(
+        [InvariantResult("inverter_mode_revert", "violation", "x", data={"entities": entities})]
+    )
+    with patch("backend.monitors.invariant_monitors", monitors):
+        issues = HealthChecker().check_monitors()
+    assert [i.code for i in issues] == ["INVERTER_MODE_REVERT"]
+    assert issues[0].details == {
+        "first_detected_at": monitors.state.episodes["inverter_mode_revert"].first_detected_at,
+        "entities": entities,
+    }

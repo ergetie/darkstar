@@ -3,13 +3,13 @@ import logging
 import math
 import re
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import FileResponse
 from ruamel.yaml import YAML
 
-from backend.api.routers.executor import get_executor_instance
+from backend.api.routers.executor import peek_executor_instance
 from backend.config_migration import (
     remove_deprecated_keys,
     template_aware_merge,
@@ -392,14 +392,31 @@ async def save_config(
             logger.info("Nordpool price cache invalidated after pricing change")
 
         # REV F53: Notify executor to reload config after successful save
+        # Never creates an executor here: no instance is reported by the
+        # EXECUTOR_NOT_INITIALIZED health issue instead.
         try:
-            executor = get_executor_instance()
+            executor = peek_executor_instance()
             if executor is not None:
                 executor.reload_config()
                 logger.info("Executor configuration reloaded after config save")
         except Exception as e:
             # Log but don't fail the save if executor reload fails
             logger.warning("Failed to reload executor config after save: %s", e)
+        else:
+            # reload_config() does not start the loop thread. Start it when the
+            # save enabled the executor. Disabling needs no stop: the loop
+            # re-reads the config every iteration and idles (no ticks, no writes).
+            try:
+                thread = getattr(executor, "_thread", None) if executor is not None else None
+                if (
+                    executor is not None
+                    and executor.config.enabled
+                    and not (thread and thread.is_alive())
+                ):
+                    executor.start()
+                    logger.info("Executor started after config save (enabled in config)")
+            except Exception as e:
+                logger.warning("Failed to start executor after config save: %s", e)
 
         # Re-arm the HA websocket listener against the saved entity IDs.
         # This call lived in the Flask config-save endpoint and was lost with
@@ -935,6 +952,43 @@ def _prune_sensor_unit_overrides(config: dict[str, Any]) -> list[str]:
     return stale
 
 
+def _s_index_base_factor_issues(s_index_cfg: Any) -> list[dict[str, str]]:
+    """Warn about an out-of-range s_index.base_factor (never blocks the save)."""
+
+    def _number(value: Any) -> TypeGuard[int | float]:
+        return isinstance(value, int | float) and not isinstance(value, bool)
+
+    if not isinstance(s_index_cfg, dict):
+        return []
+    s_index = cast("dict[str, Any]", s_index_cfg)
+    base_factor = s_index.get("base_factor")
+    if not _number(base_factor):
+        return []
+    max_factor = s_index.get("max_factor", 1.5)
+    if base_factor < 1.0:
+        return [
+            {
+                "severity": "warning",
+                "field": "s_index.base_factor",
+                "message": f"s_index.base_factor is below 1.0 (got {base_factor})",
+                "guidance": "A base factor below 1.0 shrinks the load margin used for "
+                "battery planning. Use 1.0 or higher (default 1.1).",
+            }
+        ]
+    if _number(max_factor) and base_factor > max_factor:
+        return [
+            {
+                "severity": "warning",
+                "field": "s_index.base_factor",
+                "message": f"s_index.base_factor ({base_factor}) is above "
+                f"s_index.max_factor ({max_factor})",
+                "guidance": "Lower the base factor or raise the maximum factor so the "
+                "base factor does not exceed it.",
+            }
+        ]
+    return []
+
+
 def _validate_config_for_save(
     config: dict[str, Any],
     phase_sensor_units: dict[str, dict[str, str]] | None = None,
@@ -1025,6 +1079,9 @@ def _validate_config_for_save(
                     "or set system.has_battery to false.",
                 }
             )
+
+    # S-Index base factor: WARNING below 1.0 (shrinks the load margin) or above max_factor
+    issues.extend(_s_index_base_factor_issues(config.get("s_index")))
 
     # Kepler solver time limit: ERROR outside 10-600 s
     kepler_cfg: dict[str, Any] = config.get("kepler") or {}

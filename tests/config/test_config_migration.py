@@ -211,7 +211,7 @@ class TestBackendSave:
             "Path",
             lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else Path(p),
         )
-        monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
+        monkeypatch.setattr(config_router, "peek_executor_instance", lambda: None)
         monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x, *_: [])
 
         await save_config({"timezone": "Europe/Stockholm"})
@@ -985,7 +985,7 @@ class TestUISaveRoutesAtomicWriter:
             lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
         )
         monkeypatch.setattr(config_router, "update_config", mock_write_config)
-        monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
+        monkeypatch.setattr(config_router, "peek_executor_instance", lambda: None)
         monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x, *_: [])
 
         await config_router.save_config({"timezone": "Europe/Stockholm"})
@@ -1049,7 +1049,7 @@ class TestUISaveCreatesBackup:
             "Path",
             lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
         )
-        monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
+        monkeypatch.setattr(config_router, "peek_executor_instance", lambda: None)
         monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x, *_: [])
 
         await config_router.save_config({"timezone": "Europe/Stockholm"})
@@ -1111,7 +1111,7 @@ class TestUISaveAbortedReturns500:
             lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
         )
         monkeypatch.setattr(config_router, "update_config", aborted_write_config)
-        monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
+        monkeypatch.setattr(config_router, "peek_executor_instance", lambda: None)
         monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x, *_: [])
 
         with pytest.raises(HTTPException) as exc_info:
@@ -1399,7 +1399,7 @@ class TestPostWriteVerificationFailureReturns500:
             "Path",
             lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
         )
-        monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
+        monkeypatch.setattr(config_router, "peek_executor_instance", lambda: None)
         monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x, *_: [])
 
         with pytest.raises(HTTPException) as exc_info:

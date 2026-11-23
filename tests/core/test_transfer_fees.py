@@ -171,7 +171,7 @@ def test_config_save_invalidates_price_cache_on_pricing_change(
 
     cache_sync.set(NORDPOOL_CACHE_KEY, [{"stale": True}], ttl_seconds=3600.0)
     try:
-        with patch("backend.api.routers.config.get_executor_instance", return_value=None):
+        with patch("backend.api.routers.config.peek_executor_instance", return_value=None):
             result = asyncio.run(save_config(payload))
         assert result["status"] == "success"
         assert (cache_sync.get(NORDPOOL_CACHE_KEY) is None) is invalidated

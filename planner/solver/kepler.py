@@ -29,6 +29,10 @@ from .types import (
 
 logger = logging.getLogger("darkstar.kepler")
 
+# LP dump written when the solver does not reach an optimal solution. Anchored to the
+# project's data dir, never the working directory. A module constant so tests can redirect it.
+DEBUG_LP_PATH = Path(__file__).resolve().parents[2] / "data" / "kepler_debug.lp"
+
 # A solve that ends within this margin of the time limit is treated as limit-hit.
 TIME_LIMIT_HIT_MARGIN_S = 0.5
 
@@ -1240,8 +1244,7 @@ class KeplerSolver:
             )
 
         if not is_optimal:
-            # Write under the data dir, never the working directory (repo root in tests)
-            debug_lp = Path(__file__).resolve().parents[2] / "data" / "kepler_debug.lp"
+            debug_lp = DEBUG_LP_PATH
             try:
                 prob.writeLP(str(debug_lp))  # type: ignore[reportUnknownMemberType]
                 logger.warning("Solver failed: %s. LP written to %s", status, debug_lp)

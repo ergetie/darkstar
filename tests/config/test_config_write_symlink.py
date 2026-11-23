@@ -187,7 +187,7 @@ async def test_every_runtime_writer_preserves_symlink(linked_config, monkeypatch
     link, target = linked_config
     monkeypatch.chdir(link.parent)
     monkeypatch.setattr(executor, "get_executor_instance", lambda: None)
-    monkeypatch.setattr(config, "get_executor_instance", lambda: None)
+    monkeypatch.setattr(config, "peek_executor_instance", lambda: None)
     monkeypatch.setattr(config, "_validate_config_for_save", lambda *_: [])
     monkeypatch.setattr(
         "backend.ha_socket.reload_ha_socket_client_async", AsyncMock(return_value=0)

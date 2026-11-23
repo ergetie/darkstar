@@ -337,6 +337,7 @@ class NotificationConfig:
     on_error: bool = True
     on_ev_soc_stale: bool = True
     on_learned_parameter_change: bool = True
+    on_inverter_mode_revert: bool = True
     on_ev_plug_in_reminder: bool = False
     ev_plug_in_reminder_minutes: int = 30
 
@@ -1295,6 +1296,9 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         ),
         on_error=bool(notif_data.get("on_error", NotificationConfig.on_error)),
         on_ev_soc_stale=bool(notif_data.get("on_ev_soc_stale", NotificationConfig.on_ev_soc_stale)),
+        on_inverter_mode_revert=bool(
+            notif_data.get("on_inverter_mode_revert", NotificationConfig.on_inverter_mode_revert)
+        ),
         on_learned_parameter_change=bool(
             notif_data.get(
                 "on_learned_parameter_change", NotificationConfig.on_learned_parameter_change

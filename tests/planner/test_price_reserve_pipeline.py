@@ -10,6 +10,7 @@ import pytest
 import pytz
 
 import planner.pipeline as pipeline_module
+from backend.strategy import history
 from planner.pipeline import PlannerPipeline, build_price_reserve_inputs
 from planner.solver.kepler import KeplerSolver
 from tests.fault_injection.test_dst_transitions import planner_config
@@ -137,7 +138,6 @@ async def run_full(config: dict, start_utc: datetime):
 
 @pytest.mark.asyncio
 async def test_reserve_reaches_solver_target(tmp_path, monkeypatch, captured_solves):
-    monkeypatch.chdir(tmp_path)
     start = future_base()
     db = tmp_path / "learning.db"
     make_forecast_db(db, start)
@@ -150,7 +150,7 @@ async def test_reserve_reaches_solver_target(tmp_path, monkeypatch, captured_sol
     # 6 kWh evening net load / 0.95 discharge efficiency above min SoC
     assert target == pytest.approx(min_soc + 6.0 / 0.95, abs=0.05)
 
-    events = json.loads(Path("data/strategy_history.json").read_text())
+    events = json.loads(history.HISTORY_FILE.read_text())
     reserve_events = [e for e in events if e["details"].get("kind") == "price_reserve"]
     assert len(reserve_events) == 1
     assert reserve_events[0]["details"]["active"] is True
@@ -158,7 +158,6 @@ async def test_reserve_reaches_solver_target(tmp_path, monkeypatch, captured_sol
 
 @pytest.mark.asyncio
 async def test_disabled_forecasting_makes_no_store_query(tmp_path, monkeypatch, captured_solves):
-    monkeypatch.chdir(tmp_path)
     start = future_base()
 
     def forbidden(*args, **kwargs):
@@ -170,12 +169,11 @@ async def test_disabled_forecasting_makes_no_store_query(tmp_path, monkeypatch, 
 
     target = captured_solves[0].target_soc_kwh
     assert target < 0.15 * 27.0 + 6.0  # deficit floor only (small buffer)
-    assert not Path("data/strategy_history.json").exists()
+    assert not history.HISTORY_FILE.exists()
 
 
 @pytest.mark.asyncio
 async def test_forecast_read_error_keeps_run_alive(tmp_path, monkeypatch, captured_solves):
-    monkeypatch.chdir(tmp_path)
     start = future_base()
     # No price_forecasts table in the DB: reading fails
     sqlite3.connect(tmp_path / "learning.db").close()
@@ -190,7 +188,6 @@ async def test_forecast_read_error_keeps_run_alive(tmp_path, monkeypatch, captur
 
 @pytest.mark.asyncio
 async def test_baseline_mode_computes_no_reserve(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
     start = future_base()
 
     async def forbidden(*args, **kwargs):
@@ -275,11 +272,10 @@ class TestReserveEventDedup:
 
     @staticmethod
     def events() -> list[dict]:
-        path = Path("data/strategy_history.json")
+        path = history.HISTORY_FILE
         return json.loads(path.read_text()) if path.exists() else []
 
     def test_unchanged_reserve_logs_once(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
         pipeline_module._log_price_reserve_event(self.debug(6.0))
         pipeline_module._log_price_reserve_event(self.debug(6.4))
         pipeline_module._log_price_reserve_event(self.debug(5.5))
@@ -287,7 +283,6 @@ class TestReserveEventDedup:
         assert len(self.events()) == 1
 
     def test_material_change_and_flips_log(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
         pipeline_module._log_price_reserve_event(self.debug(6.0))
         pipeline_module._log_price_reserve_event(self.debug(7.5))  # +1.5 kWh
         pipeline_module._log_price_reserve_event(self.debug(0.0))  # active -> inactive
@@ -296,13 +291,11 @@ class TestReserveEventDedup:
         assert len(self.events()) == 3
 
     def test_inactive_without_prior_event_logs_nothing(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
         pipeline_module._log_price_reserve_event(self.debug(0.0))
 
         assert self.events() == []
 
     def test_logging_failure_is_swallowed(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
 
         def boom(**kwargs):
             raise OSError("disk full")

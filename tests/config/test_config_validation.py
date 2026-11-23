@@ -1446,3 +1446,39 @@ def test_default_config_pricing_keys():
     assert pricing["subscription_fee_sek_per_month"] == 0
     assert pricing["supplier_fee_sek_per_year"] == 0
     assert pricing["supplier_markup_sek_kwh"] == 0
+
+
+def _s_index_issues(config):
+    return [i for i in _validate_config_for_save(config) if i.get("field") == "s_index.base_factor"]
+
+
+@pytest.mark.parametrize(
+    ("s_index", "expected"),
+    [
+        ({"base_factor": 0.9}, True),
+        ({"base_factor": 1.6, "max_factor": 1.5}, True),
+        ({"base_factor": 1.6}, True),  # max_factor defaults to 1.5
+        ({"base_factor": 1.1, "max_factor": 1.5}, False),
+        ({"base_factor": 1.0}, False),
+        ({"base_factor": 1.5, "max_factor": 1.5}, False),
+        ({"base_factor": 1.6, "max_factor": "abc"}, False),  # non-number max skips upper bound
+        ({"base_factor": "abc"}, False),
+        ({"base_factor": True}, False),
+        ({"max_factor": 1.5}, False),
+    ],
+)
+def test_s_index_base_factor_warning(s_index, expected):
+    issues = _s_index_issues({"s_index": s_index})
+    assert bool(issues) is expected
+    assert all(i["severity"] == "warning" for i in issues)
+
+
+def test_s_index_base_factor_absent_section_no_issue():
+    assert _s_index_issues({}) == []
+    assert _s_index_issues({"s_index": None}) == []
+
+
+def test_s_index_base_factor_warning_does_not_block_save():
+    issues = _validate_config_for_save({"s_index": {"base_factor": 0.5}})
+    s_index_issues = [i for i in issues if i.get("field") == "s_index.base_factor"]
+    assert [i["severity"] for i in s_index_issues] == ["warning"]

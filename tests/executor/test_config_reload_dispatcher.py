@@ -16,7 +16,6 @@ from executor.profiles import ModeAction, load_profile
 
 HELPER = "input_number.master_soc_target"
 PROGRAM_6 = "number.inverter_program_6_soc"
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _write_config(path: Path, soc_target: str, mtime: int) -> None:
@@ -54,7 +53,6 @@ def _ha_client() -> MagicMock:
 
 @pytest.fixture
 def engine(tmp_path, monkeypatch):
-    monkeypatch.chdir(REPO_ROOT)  # profiles/ is resolved relative to cwd
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, HELPER, 1000)
@@ -154,7 +152,6 @@ async def test_reload_mid_tick_does_not_leak_into_running_tick(engine, tmp_path)
 
 @pytest.mark.asyncio
 async def test_deye_config_with_soc_helper_still_writes_helper(tmp_path, monkeypatch):
-    monkeypatch.chdir(REPO_ROOT)
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, HELPER, 1000)
     config = load_executor_config(str(config_path))

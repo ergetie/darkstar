@@ -792,6 +792,13 @@ export const uiSections: SettingsSection[] = [
                 type: 'boolean',
             },
             {
+                key: 'executor.notifications.on_inverter_mode_revert',
+                label: 'On inverter mode revert',
+                helper: 'Once per episode when the inverter keeps changing a mode or switch that Darkstar set (3 times on the same entity within an hour). Use manual override or pause when you change the inverter yourself.',
+                path: ['executor', 'notifications', 'on_inverter_mode_revert'],
+                type: 'boolean',
+            },
+            {
                 key: 'executor.notifications.on_ev_plug_in_reminder',
                 label: 'On EV plug-in reminder',
                 helper: 'Remind you before planned EV charging when the car is not plugged in. Sent once per charging window, for every charger.',

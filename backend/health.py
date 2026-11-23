@@ -1174,46 +1174,85 @@ class HealthChecker:
         ]
 
     def check_executor(self) -> list[HealthIssue]:
-        """Check executor health status."""
+        """Check executor health status.
+
+        Reads the status of the existing executor instance; never creates one.
+        Fails open (no issue) on internal errors, logged at warning level.
+        """
         issues: list[HealthIssue] = []
 
         try:
-            from backend.api.routers.executor import get_executor_health  # type: ignore[import]
+            from backend.api.routers.executor import (
+                executor_health_snapshot,
+                peek_executor_instance,
+            )
 
-            # type: ignore
-            executor_health: dict[str, Any] = get_executor_health()  # type: ignore[call]
-
-            if not executor_health.get("is_healthy"):  # type: ignore
-                if executor_health.get("should_be_running") and not executor_health.get(  # type: ignore
-                    "is_running"
-                ):
+            executor = peek_executor_instance()
+            if executor is None:
+                executor_cfg = cast("dict[str, Any]", self._config.get("executor") or {})
+                if executor_cfg.get("enabled"):
                     issues.append(
                         HealthIssue(
                             category="executor",
                             severity="critical",
-                            message="Executor should be running but is not active",
+                            message="Executor is enabled but was not initialised",
                             guidance=(
-                                "The executor is enabled in config but not running. "
-                                "Check executor logs or restart the service."
+                                "The executor failed to initialise at startup or never "
+                                "started. Check the startup logs and the Home Assistant "
+                                "connection, then restart the service."
                             ),
+                            code="EXECUTOR_NOT_INITIALIZED",
                         )
                     )
-                elif executor_health.get("has_error"):  # type: ignore
-                    error_msg: str = str(executor_health.get("error", "Unknown error"))  # type: ignore
-                    issues.append(
-                        HealthIssue(
-                            category="executor",
-                            severity="warning",
-                            message=f"Executor last run failed: {error_msg}",
-                            guidance=(
-                                "Check executor logs for details. "
-                                "The error may be transient or indicate a configuration issue."
-                            ),
-                        )
+                return issues
+
+            snapshot = executor_health_snapshot(executor)
+
+            if snapshot["should_be_running"] and not snapshot["is_running"]:
+                issues.append(
+                    HealthIssue(
+                        category="executor",
+                        severity="critical",
+                        message="Executor should be running but is not active",
+                        guidance=(
+                            "The executor is enabled in config but not running. "
+                            "Check executor logs or restart the service."
+                        ),
+                        code="EXECUTOR_NOT_RUNNING",
                     )
+                )
+            elif snapshot["is_stale"]:
+                age_min = int((snapshot["last_run_age_seconds"] or 0) // 60)
+                issues.append(
+                    HealthIssue(
+                        category="executor",
+                        severity="warning",
+                        message=f"Executor has not run a tick for {age_min} minutes",
+                        guidance=(
+                            "The executor loop is alive but not ticking. "
+                            "Check executor logs; restart the service if it stays stuck."
+                        ),
+                        code="EXECUTOR_STALE",
+                    )
+                )
+            if snapshot["has_error"]:
+                error_msg = str(snapshot.get("error") or "Unknown error")
+                issues.append(
+                    HealthIssue(
+                        category="executor",
+                        severity="warning",
+                        message=f"Executor last run failed: {error_msg}",
+                        guidance=(
+                            "Check executor logs for details. "
+                            "The error may be transient or indicate a configuration issue."
+                        ),
+                        code="EXECUTOR_LAST_RUN_FAILED",
+                    )
+                )
         except Exception as e:
-            logger.debug("Could not check executor health: %s", e)
-            # Don't add an issue - executor health check is optional
+            logger.warning("Could not check executor health: %s", e, exc_info=True)
+            # Fail open: a broken executor check must not break the health response
+            return []
 
         return issues
 
