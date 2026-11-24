@@ -31,6 +31,7 @@ async def test_record_with_retry_succeeds_on_second_attempt():
     service._disaggregator = MagicMock()
 
     with (
+        patch.object(service, "_load_config", return_value={"ok": True}),
         patch("backend.services.recorder_service.asyncio.sleep", new_callable=AsyncMock) as sleep,
         patch(
             "backend.services.recorder_service.record_observation_from_current_state",
@@ -119,3 +120,85 @@ async def test_start_without_state_file_is_silent(tmp_path, caplog):
 
     assert not any("obsolete" in r.getMessage().lower() for r in caplog.records)
     assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+
+
+# --- Config reload: settings saved after startup apply to the next slot -------------
+
+
+def _service_with(config: dict) -> tuple[RecorderService, MagicMock]:
+    service = RecorderService()
+    service._config = config
+    original = MagicMock(name="startup_disaggregator")
+    service._disaggregator = original
+    return service, original
+
+
+def test_refresh_config_applies_changed_settings_and_rebuilds_disaggregator():
+    old = {"input_sensors": {"load_power": "sensor.a"}, "ev_chargers": []}
+    new = {
+        "input_sensors": {"load_power": "sensor.b"},
+        "ev_chargers": [{"id": "ev1", "enabled": True, "sensor": "sensor.ev"}],
+    }
+    service, original = _service_with(old)
+
+    with (
+        patch.object(service, "_load_config", return_value=new),
+        patch("backend.services.recorder_service.LoadDisaggregator") as disaggregator_cls,
+    ):
+        service._refresh_config()
+
+    assert service._config == new
+    disaggregator_cls.assert_called_once_with(new)
+    assert service._disaggregator is disaggregator_cls.return_value
+    assert service._disaggregator is not original
+
+
+def test_refresh_config_unchanged_keeps_disaggregator():
+    config = {"input_sensors": {"load_power": "sensor.a"}}
+    service, original = _service_with(config)
+
+    with (
+        patch.object(service, "_load_config", return_value=dict(config)),
+        patch("backend.services.recorder_service.LoadDisaggregator") as disaggregator_cls,
+    ):
+        service._refresh_config()
+
+    disaggregator_cls.assert_not_called()
+    assert service._disaggregator is original
+
+
+def test_refresh_config_unreadable_keeps_last_good_config(caplog):
+    config = {"input_sensors": {"load_power": "sensor.a"}}
+    service, original = _service_with(config)
+
+    with (
+        patch.object(service, "_load_config", return_value={}),
+        patch("backend.services.recorder_service.LoadDisaggregator") as disaggregator_cls,
+        caplog.at_level(logging.WARNING, logger="darkstar.services.recorder"),
+    ):
+        service._refresh_config()
+
+    assert service._config == config
+    assert service._disaggregator is original
+    disaggregator_cls.assert_not_called()
+    assert "keeps its previous configuration" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_record_with_retry_records_with_config_saved_after_startup():
+    startup = {"input_sensors": {"load_power": "sensor.total_without_ev"}}
+    saved = {"input_sensors": {"load_power": "sensor.total"}}
+    service, _original = _service_with(startup)
+
+    with (
+        patch.object(service, "_load_config", return_value=saved),
+        patch("backend.services.recorder_service.LoadDisaggregator") as disaggregator_cls,
+        patch("backend.services.recorder_service.asyncio.sleep", new_callable=AsyncMock),
+        patch(
+            "backend.services.recorder_service.record_observation_from_current_state",
+            new_callable=AsyncMock,
+        ) as record,
+    ):
+        assert await service._record_with_retry() is True
+
+    record.assert_awaited_once_with(saved, disaggregator_cls.return_value)
