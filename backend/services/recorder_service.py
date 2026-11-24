@@ -105,6 +105,28 @@ class RecorderService:
             logger.error(f"Failed to load config: {e}")
             return {}
 
+    def _refresh_config(self) -> None:
+        """Re-read config.yaml so settings saved since startup apply to the next slot.
+
+        The other services follow saved settings (the executor and HA websocket are
+        reloaded by the save endpoint, the scheduler re-reads every cycle); without this
+        the recorder kept its startup config, e.g. a changed ``load_power`` sensor or an
+        enabled EV charger was ignored until the next restart. The disaggregator is
+        rebuilt only when the config changed. A failed read keeps the last good config.
+        """
+        config = self._load_config()
+        if not config:
+            if self._config:
+                logger.warning("Recorder keeps its previous configuration (config.yaml unreadable)")
+            return
+        if config == self._config:
+            return
+        had_config = bool(self._config)
+        self._config = config
+        self._disaggregator = LoadDisaggregator(config)
+        if had_config:
+            logger.info("Recorder configuration reloaded from config.yaml")
+
     async def _record_with_retry(self) -> bool:
         """
         Record observation with retry logic.
@@ -122,6 +144,9 @@ class RecorderService:
         """
         # Wait 5 seconds to allow pending DB writes/ML processes to complete
         await asyncio.sleep(5)
+
+        # Pick up settings saved since the previous slot (sensors, EV chargers, heaters).
+        self._refresh_config()
 
         max_retries = 2
         for attempt in range(1, max_retries + 1):
